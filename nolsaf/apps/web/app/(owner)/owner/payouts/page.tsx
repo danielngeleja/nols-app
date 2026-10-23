@@ -29,7 +29,7 @@ function destinationLabel(account: PayoutAccount | undefined): string | null {
 }
 
 export default function PayoutsOverviewPage() {
-  const { payouts, enabled, recoveryDue, loading, error, reload } = useOwnerPayouts();
+  const { payouts, enabled, recoveryDue, dailyLimit, dailyRemaining, dailyResetAt, loading, error, reload } = useOwnerPayouts();
   const now = useNow();
   const [account, setAccount] = useState<PayoutAccount | undefined>();
 
@@ -50,7 +50,7 @@ export default function PayoutsOverviewPage() {
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    const paidThisMonth = payouts.filter((p) => p.stage === "PAID" && p.paidAt && new Date(p.paidAt) >= monthStart);
+    const paidThisMonth = payouts.filter((p) => Number(p.paidAmount ?? 0) > 0 && p.paidAt && new Date(p.paidAt) >= monthStart);
     return {
       ready,
       readyTotal: sum(payouts, ["READY"]),
@@ -59,9 +59,9 @@ export default function PayoutsOverviewPage() {
       nextUnlock,
       heldTotal: sum(payouts, ["ON_HOLD"]),
       heldCount: payouts.filter((p) => p.stage === "ON_HOLD").length,
-      onTheWayTotal: sum(payouts, ["PROCESSING", "SENDING", "UNDER_REVIEW"]),
-      onTheWayCount: payouts.filter((p) => ["PROCESSING", "SENDING", "UNDER_REVIEW"].includes(p.stage)).length,
-      paidMonthTotal: paidThisMonth.reduce((t, p) => t + (Number(p.amount) || 0), 0),
+      onTheWayTotal: payouts.reduce((t, p) => t + (Number(p.inProgressAmount) || (["PROCESSING", "SENDING", "UNDER_REVIEW"].includes(p.stage) ? Number(p.amount) || 0 : 0)), 0),
+      onTheWayCount: payouts.filter((p) => Number(p.inProgressAmount) > 0 || ["PROCESSING", "SENDING", "UNDER_REVIEW"].includes(p.stage)).length,
+      paidMonthTotal: paidThisMonth.reduce((t, p) => t + Number(p.paidAmount ?? 0), 0),
       paidMonthCount: paidThisMonth.length,
     };
   }, [payouts]);
@@ -122,7 +122,7 @@ export default function PayoutsOverviewPage() {
           </div>
           <div className="min-w-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50/40 p-4 lg:w-[21rem]">
             <h2 className="m-0 mb-3 text-sm font-bold text-slate-900">Withdraw earnings</h2>
-            <WithdrawPanel readyTotal={figures.readyTotal} readyCount={figures.ready.length} recoveryDue={recoveryDue} onDone={() => void reload()} />
+            <WithdrawPanel readyTotal={figures.readyTotal} readyCount={figures.ready.length} recoveryDue={recoveryDue} dailyLimit={dailyLimit} dailyRemaining={dailyRemaining} dailyResetAt={dailyResetAt} onDone={() => void reload()} />
           </div>
         </div>
 

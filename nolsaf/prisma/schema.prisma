@@ -2305,6 +2305,11 @@ model SystemSetting {
   /// Null means the AUTO lane cannot authorize anything.
   autoPayoutDailyCapTzs Int?
 
+  /// Hard ceiling on OTP-confirmed owner withdrawals per EAT calendar day.
+  /// Separate from the rolling risk-review threshold and global AUTO lane cap.
+  /// Mandatory: withdrawal requests fail closed if this setting is unavailable.
+  ownerWithdrawalDailyLimitTzs Int @default(10000000)
+
   /// Days an AVAILABLE payout may wait for the owner before it is sent to the
   /// verified, unchanged account without an OTP (owner policy section 5.2.2).
   /// Null means never.
@@ -9121,6 +9126,17 @@ model PayoutWithdrawalChallenge {
   currency    String  @default("TZS") @db.VarChar(3)
   fingerprint String  @db.VarChar(64)
 
+  /// Version 2 binds an exact cash amount and booking allocation plan. Version
+  /// 1 rows are kept for in-flight codes created before partial withdrawals.
+  planVersion Int @default(1)
+  allocationPlan Json?
+  payoutAccountId Int?
+  accountFingerprint String? @db.VarChar(64)
+  handoffStatus String? @db.VarChar(20)
+  handoffAttempts Int @default(0)
+  handoffLeaseUntil DateTime?
+  handoffNextAttemptAt DateTime?
+
   codeHash          String @db.VarChar(128)
   channel           String @db.VarChar(10)
   destinationMasked String @db.VarChar(40)
@@ -9131,9 +9147,37 @@ model PayoutWithdrawalChallenge {
 
   createdAt DateTime @default(now())
 
+  allocations PayoutWithdrawalAllocation[]
+
   @@index([userId, createdAt])
+  @@index([planVersion, handoffStatus, handoffNextAttemptAt], map: "payout_wd_challenge_handoff_due_idx")
   @@index([expiresAt])
   @@map("payout_withdrawal_challenge")
+}
+
+/// Immutable reservation of part of one booking claim against one confirmed
+/// withdrawal. The sum of all reservations for an invoice may never exceed
+/// its original netPayable; the confirmation transaction holds the owner row
+/// lock while checking and creating these rows.
+model PayoutWithdrawalAllocation {
+  id Int @id @default(autoincrement())
+  challengeId Int
+  releaseId Int
+  invoiceId Int
+  grossAmount Decimal @db.Decimal(14, 2)
+  recoveryDeduction Decimal @db.Decimal(14, 2)
+  /// Cumulative recovery amount that must be applied to this invoice before
+  /// the related disbursement becomes eligible.
+  recoveryTarget Decimal @db.Decimal(14, 2)
+  cancelledAt DateTime?
+  createdAt DateTime @default(now())
+
+  challenge PayoutWithdrawalChallenge @relation(fields: [challengeId], references: [id], onDelete: Restrict)
+
+  @@unique([challengeId, releaseId])
+  @@index([releaseId])
+  @@index([invoiceId])
+  @@map("payout_withdrawal_allocation")
 }
 
 /// Durable handoff created when an OTP is consumed (or an unclaimed payout is

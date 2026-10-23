@@ -15,9 +15,12 @@ const m = vi.hoisted(() => ({
   openDebt: vi.fn(),
   startAuto: vi.fn(),
   autoSettings: vi.fn(),
+  allowance: vi.fn(),
+  lockOwnerDay: vi.fn(),
   prisma: {
     $transaction: vi.fn(),
     payoutRelease: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
+    payoutWithdrawalAllocation: { findFirst: vi.fn(), findMany: vi.fn() },
     payoutWithdrawalJob: { create: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
     disbursement: { findFirst: vi.fn() },
     ownerPayoutRecoveryApplication: { findFirst: vi.fn() },
@@ -57,6 +60,13 @@ vi.mock("./autoLane.js", () => ({
   decideOwnerPayoutLane: m.decideLane,
   startAutoPayout: m.startAuto,
   loadAutoLaneSettings: m.autoSettings,
+}));
+vi.mock("./ownerWithdrawalLimit.js", () => ({
+  ownerWithdrawalAllowance: m.allowance,
+  lockOwnerWithdrawalDay: m.lockOwnerDay,
+  assertOwnerWithdrawalAmount: (amount: number, allowance: { remaining: number }) => {
+    if (amount > allowance.remaining) throw Object.assign(new Error("Daily owner withdrawal limit reached"), { code: "DAILY_LIMIT" });
+  },
 }));
 
 import {
@@ -121,6 +131,8 @@ beforeEach(() => {
   m.notifyOwner.mockResolvedValue(undefined);
   m.prisma.user.findUnique.mockResolvedValue(OWNER);
   m.prisma.payoutRelease.findMany.mockResolvedValue([RELEASE]);
+  m.prisma.payoutWithdrawalAllocation.findFirst.mockResolvedValue(null);
+  m.prisma.payoutWithdrawalAllocation.findMany.mockResolvedValue([]);
   m.prisma.payoutRelease.updateMany.mockResolvedValue({ count: 1 });
   m.prisma.payoutRelease.findUnique.mockResolvedValue(RELEASE);
   m.prisma.invoice.findUnique.mockResolvedValue({ netPayable: 180000, status: "DRAFT", invoiceNumber: "OINV-1", booking: { property: { id: 1, title: "NoLSAF Hotel" } } });
@@ -159,6 +171,8 @@ beforeEach(() => {
   m.openDebt.mockResolvedValue(0);
   m.startAuto.mockResolvedValue({ ok: true, disbursementId: 77 });
   m.autoSettings.mockResolvedValue({ enabled: false, dailyCapTzs: null, unclaimedAutoDays: null });
+  m.allowance.mockResolvedValue({ limit: 10_000_000, used: 0, remaining: 10_000_000 });
+  m.lockOwnerDay.mockResolvedValue(undefined);
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -175,6 +189,11 @@ describe("helpers", () => {
 });
 
 describe("startWithdrawal", () => {
+  it("does not issue a code for an amount above the remaining owner limit", async () => {
+    m.allowance.mockResolvedValue({ limit: 10_000_000, used: 9_900_000, remaining: 100_000 });
+    await expect(startWithdrawal(3, NOW)).rejects.toMatchObject({ code: "DAILY_LIMIT" });
+    expect(m.prisma.payoutWithdrawalChallenge.create).not.toHaveBeenCalled();
+  });
   it("does not issue an OTP while disbursement sending is paused", async () => {
     vi.stubEnv("DISBURSEMENTS_ENABLED", "false");
     await expect(startWithdrawal(3, NOW)).rejects.toMatchObject({ code: "SENDING_PAUSED", httpStatus: 503 });
@@ -251,6 +270,14 @@ describe("startWithdrawal", () => {
 });
 
 describe("confirmWithdrawal", () => {
+  it("checks the owner limit again inside the same transaction that consumes the code", async () => {
+    m.prisma.payoutWithdrawalChallenge.findUnique.mockResolvedValue(challenge());
+    m.allowance.mockResolvedValue({ limit: 10_000_000, used: 9_900_000, remaining: 100_000 });
+    await expect(confirmWithdrawal(3, "wd_x", "123456", NOW)).rejects.toMatchObject({ code: "DAILY_LIMIT" });
+    expect(m.lockOwnerDay).toHaveBeenCalled();
+    expect(m.prisma.payoutWithdrawalChallenge.updateMany).not.toHaveBeenCalled();
+    expect(m.prisma.payoutWithdrawalJob.create).not.toHaveBeenCalled();
+  });
   it("does not consume an OTP or queue payouts while sending is paused", async () => {
     vi.stubEnv("DISBURSEMENTS_ENABLED", "false");
     await expect(confirmWithdrawal(3, "wd_abcdefghijklmnop", "123456", NOW)).rejects.toMatchObject({ code: "SENDING_PAUSED", httpStatus: 503 });
@@ -673,6 +700,17 @@ describe("unclaimed payouts (policy 5.2.2)", () => {
     expect(await withdrawUnclaimed(NOW)).toBe(1);
     expect(m.prisma.payoutWithdrawalJob.create).toHaveBeenCalledWith({ data: expect.objectContaining({ releaseId: 11, challengeId: null, status: "PENDING" }) });
     expect(m.decideLane).not.toHaveBeenCalled();
+  });
+
+  it("does not claim a whole invoice if a partial withdrawal reserves it before the transaction", async () => {
+    m.prisma.payoutRelease.findMany.mockImplementation(async (args: any) =>
+      args?.distinct ? [{ ownerId: 3 }] : args?.where?.availableAt ? [{ id: 11 }] : [RELEASE]
+    );
+    m.prisma.auditLog.findMany.mockImplementation(async (args: any) => args.where?.action === "OWNER_PAYOUT_UNCLAIMED_REMINDER"
+      ? [{ entityId: 11, createdAt: new Date(NOW.getTime() - 3 * DAY) }] : []);
+    m.prisma.payoutWithdrawalAllocation.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 9 });
+    expect(await withdrawUnclaimed(NOW)).toBe(0);
+    expect(m.prisma.payoutWithdrawalJob.create).not.toHaveBeenCalled();
   });
 
   it("ignores an old automatic reminder after finance resets the withdrawal", async () => {

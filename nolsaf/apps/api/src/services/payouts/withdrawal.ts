@@ -34,6 +34,7 @@ import { decideOwnerPayoutLane, loadAutoLaneSettings, startAutoPayout, type Payo
 import { ensureRecoveryDeduction, openRecoveryTotal } from "./recovery.js";
 import { approveDisbursementAutomatically } from "./ledger.js";
 import { disbursementSendingEnabled } from "./senderSwitch.js";
+import { assertOwnerWithdrawalAmount, lockOwnerWithdrawalDay, ownerWithdrawalAllowance } from "./ownerWithdrawalLimit.js";
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
@@ -70,7 +71,7 @@ export class WithdrawalError extends Error {
 
 const OTP_LOCK_MESSAGE = "Withdrawal verification is locked after three wrong codes. Contact NoLSAF support to verify your identity and restore withdrawals.";
 
-async function assertWithdrawalOtpUnlocked(ownerId: number) {
+export async function assertWithdrawalOtpUnlocked(ownerId: number) {
   const guard = await prisma.payoutWithdrawalOtpGuard.upsert({
     where: { ownerId }, create: { ownerId }, update: {},
   });
@@ -82,7 +83,7 @@ async function assertWithdrawalOtpUnlocked(ownerId: number) {
 
 /** Count a wrong code across every challenge for this owner. Database updates
  * serialize concurrent attempts and make the third failure a support lock. */
-async function recordWrongWithdrawalCode(ownerId: number, challengeId: number, now: Date): Promise<number> {
+export async function recordWrongWithdrawalCode(ownerId: number, challengeId: number, now: Date): Promise<number> {
   const failures = await prisma.$transaction(async (tx) => {
     const guard = await tx.payoutWithdrawalOtpGuard.updateMany({
       where: { ownerId, lockedAt: null, failedAttempts: { lt: MAX_ATTEMPTS } },
@@ -177,6 +178,9 @@ async function withdrawableReleases(ownerId: number, now: Date) {
   });
   const ready: Array<{ id: number; sourceId: number; bookingId: number; amount: number }> = [];
   for (const row of rows) {
+    // Amount-based withdrawals reserve slices of this invoice. The legacy
+    // whole-invoice handoff must never claim it again, even if a slice remains.
+    if (await prisma.payoutWithdrawalAllocation.findFirst({ where: { releaseId: row.id, cancelledAt: null }, select: { id: true } })) continue;
     const decision = decideRelease(await loadReleaseContext(row, now));
     if (decision.next !== "AVAILABLE") {
       await applyReleaseDecision(row, decision, now);
@@ -189,7 +193,7 @@ async function withdrawableReleases(ownerId: number, now: Date) {
   return ready;
 }
 
-async function loadOwnerContact(ownerId: number) {
+export async function loadOwnerContact(ownerId: number) {
   return prisma.user.findUnique({
     where: { id: ownerId },
     select: {
@@ -224,7 +228,7 @@ function buildEmail(code: string, total: number, destination: string, count: num
 }
 
 /** Sends the code by SMS to the verified phone, falling back to verified email (decision D4). */
-async function deliverCode(
+export async function deliverCode(
   owner: NonNullable<Awaited<ReturnType<typeof loadOwnerContact>>>,
   code: string,
   total: number,
@@ -303,6 +307,8 @@ export async function startWithdrawal(ownerId: number, now = new Date()) {
   const openDebt = await openRecoveryTotal(ownerId);
   const recoveryDeduction = Math.min(openDebt, total);
   const sendTotal = Math.round((total - recoveryDeduction) * 100) / 100;
+  const allowance = await ownerWithdrawalAllowance(ownerId, now);
+  if (sendTotal > 0) assertOwnerWithdrawalAmount(sendTotal, allowance);
   const currency = "TZS";
   const destination = maskDestination(account.provider, account.accountNumber);
   const code = generate6();
@@ -343,6 +349,8 @@ export async function startWithdrawal(ownerId: number, now = new Date()) {
       currency,
       destination,
       count: releases.length,
+      dailyLimit: allowance.limit,
+      dailyRemaining: allowance.remaining,
     };
   } catch (err) {
     // An undeliverable code must not stay spendable.
@@ -351,7 +359,7 @@ export async function startWithdrawal(ownerId: number, now = new Date()) {
   }
 }
 
-function codeMatches(code: string, codeHash: string): boolean {
+export function codeMatches(code: string, codeHash: string): boolean {
   const a = Buffer.from(hashCode(String(code).trim()), "hex");
   const b = Buffer.from(codeHash, "hex");
   return a.length === b.length && timingSafeEqual(a, b);
@@ -408,6 +416,9 @@ export async function confirmWithdrawal(ownerId: number, challengeRef: string, c
   // Spend the code, claim the releases and persist every handoff in one
   // transaction. The worker resumes these jobs after a crash or timeout.
   await prisma.$transaction(async (tx) => {
+    await lockOwnerWithdrawalDay(tx, ownerId);
+    const allowance = await ownerWithdrawalAllowance(ownerId, now, tx);
+    if (expectedSend > 0) assertOwnerWithdrawalAmount(expectedSend, allowance);
     const stillUnlocked = await tx.payoutWithdrawalOtpGuard.updateMany({
       where: { ownerId, lockedAt: null, failedAttempts: { lt: MAX_ATTEMPTS } },
       data: { failedAttempts: 0 },
@@ -892,9 +903,13 @@ export async function remindUnclaimed(now = new Date(), limit = 50): Promise<num
     take: 500,
   });
   const already = await remindedReleaseIds(due.map((r) => r.id));
+  const partiallyWithdrawn = await prisma.payoutWithdrawalAllocation.findMany({
+    where: { releaseId: { in: due.map((r) => r.id) }, cancelledAt: null }, select: { releaseId: true },
+  });
+  const partiallyWithdrawnIds = new Set(partiallyWithdrawn.map((row) => row.releaseId));
   const byOwner = new Map<number, typeof due>();
   for (const r of due) {
-    if (already.has(r.id)) continue;
+    if (already.has(r.id) || partiallyWithdrawnIds.has(r.id)) continue;
     byOwner.set(r.ownerId, [...(byOwner.get(r.ownerId) ?? []), r]);
   }
 
@@ -980,6 +995,14 @@ export async function withdrawUnclaimed(now = new Date(), limit = 50): Promise<n
     for (const release of ready.filter((r) => staleIds.has(r.id))) {
       const plannedDeduction = Math.round(Math.min(debtRemaining, release.amount) * 100) / 100;
       const claimed = await prisma.$transaction(async (tx) => {
+        await lockOwnerWithdrawalDay(tx, ownerId);
+        const portion = await tx.payoutWithdrawalAllocation.findFirst({
+          where: { releaseId: release.id, cancelledAt: null }, select: { id: true },
+        });
+        if (portion) return false;
+        const sendAmount = Math.round((release.amount - plannedDeduction) * 100) / 100;
+        const allowance = await ownerWithdrawalAllowance(ownerId, now, tx);
+        if (sendAmount > allowance.remaining) return false;
         const moved = await tx.payoutRelease.updateMany({
           where: { id: release.id, ownerId, status: "AVAILABLE" },
           data: { status: "WITHDRAWING" },

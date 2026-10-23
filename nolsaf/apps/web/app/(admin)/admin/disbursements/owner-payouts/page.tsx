@@ -35,6 +35,8 @@ type OwnerPayout = {
   bookingReference: string;
   claimNumber: string | null;
   amount: string | number | null;
+  partialPaidAmount: number;
+  partialInProgressAmount: number;
   recoveryDeducted: number;
   rule: string;
   releaseAt: string;
@@ -44,6 +46,13 @@ type OwnerPayout = {
   releasedAt: string | null;
   paidAt: string | null;
   updatedAt: string;
+};
+type AmountReview = {
+  id: number; userId: number; ownerName: string | null; totalAmount: number | string;
+  destinationMasked: string; handoffAttempts: number; createdAt: string;
+  allocations: Array<{ releaseId: number; invoiceId: number; bookingId: number | null; invoiceNumber: string | null;
+    grossAmount: string | number; recoveryDeduction: string | number; recoveredOnInvoice: number }>;
+  transfers: Array<{ id: number; status: string; amount: string | number; externalReferenceId: string; pgReferenceId: string | null }>;
 };
 
 const STAGES: Record<Stage, { label: string; chip: string }> = {
@@ -139,17 +148,23 @@ export default function AdminOwnerPayoutsPage() {
   const [reviewNote, setReviewNote] = useState("");
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewMessage, setReviewMessage] = useState("");
+  const [amountReviews, setAmountReviews] = useState<AmountReview[]>([]);
+  const [amountReview, setAmountReview] = useState<AmountReview | null>(null);
+  const [amountReviewNote, setAmountReviewNote] = useState("");
+  const [amountReviewBusy, setAmountReviewBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await apiClient.get<{ enabled: boolean; payouts: OwnerPayout[]; counts: Record<string, number> }>(
-        "/api/admin/disbursements/owner-payouts"
-      );
+      const [res, amountRes] = await Promise.all([
+        apiClient.get<{ enabled: boolean; payouts: OwnerPayout[]; counts: Record<string, number> }>("/api/admin/disbursements/owner-payouts"),
+        apiClient.get<{ reviews: AmountReview[] }>("/api/admin/disbursements/owner-payouts/amount-withdrawals/review"),
+      ]);
       setEnabled(Boolean(res.data?.enabled));
       setPayouts(res.data?.payouts ?? []);
       setCounts(res.data?.counts ?? {});
+      setAmountReviews(amountRes.data?.reviews ?? []);
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Could not load owner payouts.");
     } finally {
@@ -201,6 +216,27 @@ export default function AdminOwnerPayoutsPage() {
         : cause?.response?.data?.error || "Could not resolve the withdrawal handoff.");
     } finally {
       setReviewBusy(false);
+    }
+  };
+
+  const resolveAmountHandoff = async (action: "RETRY" | "RESET") => {
+    if (!amountReview || amountReviewNote.trim().length < 20) return;
+    setAmountReviewBusy(true);
+    setError("");
+    try {
+      await apiClient.post(`/api/admin/disbursements/owner-payouts/amount-withdrawals/${amountReview.id}/handoff/resolve`, {
+        action, note: amountReviewNote.trim(),
+      });
+      setReviewMessage(action === "RETRY" ? "Amount withdrawal returned to the handoff queue." : "Booking balances returned to the owner for a new code.");
+      setAmountReview(null);
+      setAmountReviewNote("");
+      await load();
+    } catch (cause: any) {
+      setError(cause?.response?.data?.require2fa
+        ? "Finance verification is required. Complete it in the verification panel, then try again."
+        : cause?.response?.data?.error || "Could not resolve the amount withdrawal.");
+    } finally {
+      setAmountReviewBusy(false);
     }
   };
 
@@ -265,6 +301,53 @@ export default function AdminOwnerPayoutsPage() {
       {error && <p className="m-0 rounded-xl border border-solid border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800" role="alert">{error}</p>}
       {unlockMessage && <p className="m-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800" role="status">{unlockMessage}</p>}
       {reviewMessage && <p className="m-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800" role="status">{reviewMessage}</p>}
+      {amountReviews.length > 0 && (
+        <section className="rounded-2xl border border-solid border-amber-300 bg-amber-50 p-4" aria-label="Amount withdrawals needing review">
+          <h2 className="m-0 text-base font-bold text-amber-950">Amount withdrawals needing finance review</h2>
+          <p className="m-0 mt-1 text-xs text-amber-900">These booking portions stay reserved until finance retries or safely returns them.</p>
+          <div className="mt-3 space-y-2">
+            {amountReviews.map((row) => (
+              <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-solid border-amber-200 bg-white px-3 py-2 text-sm">
+                <span className="font-semibold text-amber-950">#{row.id} · {row.ownerName ?? `Owner ${row.userId}`} · {tzs(row.totalAmount)}</span>
+                <span className="text-xs text-amber-900">{row.destinationMasked} · {row.handoffAttempts} attempts</span>
+                <button type="button" onClick={() => { setAmountReview(row); setAmountReviewNote(""); }} className="rounded-lg border border-solid border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950">Review</button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {amountReview && (
+        <section className="rounded-2xl border border-solid border-amber-300 bg-white p-4" aria-label="Resolve amount withdrawal">
+          <h2 className="m-0 text-base font-bold text-slate-900">Withdrawal #{amountReview.id} · {tzs(amountReview.totalAmount)}</h2>
+          <p className="m-0 mt-1 text-xs text-slate-600">{amountReview.ownerName ?? `Owner ${amountReview.userId}`} · {amountReview.destinationMasked} · {eat(amountReview.createdAt)}</p>
+          <div className="mt-3 overflow-x-auto rounded-lg border border-solid border-slate-200">
+            <table className="w-full min-w-[580px] text-left text-xs">
+              <thead className="bg-slate-50 text-slate-600"><tr><th className="p-2">Booking / claim</th><th className="p-2 text-right">Reserved</th><th className="p-2 text-right">Recovery in plan</th><th className="p-2 text-right">Applied on claim</th></tr></thead>
+              <tbody>{amountReview.allocations.map((part) => <tr key={part.releaseId} className="border-0 border-t border-solid border-slate-100">
+                <td className="p-2 font-medium text-slate-900">Booking #{part.bookingId ?? "?"} · {part.invoiceNumber ?? `Claim #${part.invoiceId}`}</td>
+                <td className="p-2 text-right tabular-nums">{tzs(part.grossAmount)}</td>
+                <td className="p-2 text-right tabular-nums">{tzs(part.recoveryDeduction)}</td>
+                <td className="p-2 text-right tabular-nums">{tzs(part.recoveredOnInvoice)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-700">
+            <p className="m-0 font-semibold">Transfer ledger</p>
+            {amountReview.transfers.length ? amountReview.transfers.map((transfer) => (
+              <p key={transfer.id} className="m-0 mt-1 break-all">#{transfer.id} · {transfer.status} · {tzs(transfer.amount)} · {transfer.externalReferenceId}{transfer.pgReferenceId ? ` · Provider ${transfer.pgReferenceId}` : ""}</p>
+            )) : <p className="m-0 mt-1">No transfer record.</p>}
+          </div>
+          <p className="m-0 mt-2 text-xs text-slate-600">Returning balances is refused if any transfer or recovery step exists.</p>
+          <label className="mt-3 block text-sm font-semibold text-slate-800">Finance review note
+            <textarea value={amountReviewNote} onChange={(event) => setAmountReviewNote(event.target.value)} minLength={20} maxLength={1000} rows={3} className="mt-1 block w-full rounded-lg border border-solid border-slate-300 bg-white p-2" placeholder="Record what you checked and why this action is safe." />
+          </label>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => void resolveAmountHandoff("RETRY")} disabled={amountReviewBusy || amountReviewNote.trim().length < 20} className="rounded-lg border-0 bg-[#02665e] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Retry handoff</button>
+            <button type="button" onClick={() => void resolveAmountHandoff("RESET")} disabled={amountReviewBusy || amountReviewNote.trim().length < 20} className="rounded-lg border border-solid border-amber-400 bg-white px-4 py-2 text-sm font-semibold text-amber-950 disabled:opacity-50">Return balance</button>
+            <button type="button" onClick={() => setAmountReview(null)} disabled={amountReviewBusy} className="rounded-lg border border-solid border-slate-300 bg-white px-4 py-2 text-sm">Cancel</button>
+          </div>
+        </section>
+      )}
       {reviewPayout && (
         <section className="rounded-2xl border border-solid border-amber-300 bg-amber-50 p-4" aria-label="Resolve withdrawal handoff">
           <h2 className="m-0 text-base font-bold text-amber-950">Review withdrawal for {reviewPayout.ownerName ?? `owner #${reviewPayout.ownerId}`}</h2>
@@ -387,6 +470,8 @@ export default function AdminOwnerPayoutsPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <p className="m-0 whitespace-nowrap font-bold tabular-nums text-neutral-900">{tzs(p.amount)}</p>
+                        {p.partialPaidAmount > 0 && <p className="m-0 mt-0.5 text-[11px] text-emerald-700">{tzs(p.partialPaidAmount)} already paid</p>}
+                        {p.partialInProgressAmount > 0 && <p className="m-0 mt-0.5 text-[11px] text-sky-700">{tzs(p.partialInProgressAmount)} reserved</p>}
                         {p.recoveryDeducted > 0 && <p className="m-0 mt-0.5 text-[11px] text-neutral-500">less {tzs(p.recoveryDeducted)} recovery</p>}
                       </td>
                       <td className="px-4 py-3">

@@ -25,6 +25,7 @@ import { guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
 import { customerBookingReference } from "../../lib/customerBookingReference.js";
 import { payoutReleaseEnabled } from "./release.js";
 import { disbursementSendingEnabled } from "./senderSwitch.js";
+import { lockOwnerWithdrawalDay, ownerWithdrawalDay, ownerWithdrawalLimit } from "./ownerWithdrawalLimit.js";
 import { azamPayDisburse } from "../azampay/disbursement/client.js";
 import { loadAzamPayDisbursementRequestConfig } from "../azampay/disbursement/config.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
@@ -70,6 +71,7 @@ function assertWithinAmountCeiling(amount: Prisma.Decimal): void {
 
 const SOURCE_REF_CODE: Record<PayoutSourceType, string> = {
   OWNER_INVOICE: "O",
+  OWNER_WITHDRAWAL: "W",
   TOUR_BOOKING: "T",
   TOUR_ADVANCE: "A",
   DRIVER_TRIP: "D",
@@ -340,6 +342,13 @@ export async function requestDisbursement(params: {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
+        if (params.sourceType === "OWNER_INVOICE") {
+          await lockOwnerWithdrawalDay(tx, source.payeeUserId);
+          const reserved = await tx.payoutWithdrawalAllocation.findFirst({
+            where: { invoiceId: params.sourceId, cancelledAt: null }, select: { id: true },
+          });
+          if (reserved) throw new PayoutStateError("This owner invoice has an amount-based withdrawal and cannot also be paid in full.");
+        }
         const created = await tx.disbursement.create({
           data: {
             externalReferenceId: generateExternalReferenceId(params.sourceType),
@@ -504,6 +513,29 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
   // A dispute can arrive after the owner confirms the withdrawal or after a
   // batch is authorized. Recheck the booking at the final provider boundary.
   // Older claims have no release, but still stop on an open cancellation.
+  if (disbursement.sourceType === "OWNER_WITHDRAWAL") {
+    const challenge = await prisma.payoutWithdrawalChallenge.findUnique({
+      where: { id: disbursement.sourceId }, select: { accountFingerprint: true, payoutAccountId: true },
+    });
+    const accountFingerprint = createHash("sha256").update([
+      disbursement.payoutAccount.id, disbursement.payoutAccount.provider,
+      disbursement.payoutAccount.accountNumber,
+      disbursement.payoutAccount.destinationChangedAt?.toISOString() ?? "-",
+    ].join("|")).digest("hex");
+    if (!challenge || challenge.payoutAccountId !== disbursement.payoutAccountId ||
+      challenge.accountFingerprint !== accountFingerprint) {
+      await divertToSecurityReview(disbursementId, "Confirmed owner withdrawal destination changed before provider submission");
+      throw new PayoutStateError(`Disbursement ${disbursementId} was diverted to SECURITY_REVIEW before provider submission`);
+    }
+    try {
+      const eligible = await loadEligiblePayoutSource("OWNER_WITHDRAWAL", disbursement.sourceId);
+      if (eligible.payeeUserId !== disbursement.payoutAccount.userId ||
+        Math.abs(Number(eligible.amount) - Number(disbursement.amount)) > 0.01) throw new Error("amount or owner changed");
+    } catch (error) {
+      await divertToSecurityReview(disbursementId, `Owner withdrawal eligibility changed before provider submission: ${String(error)}`);
+      throw new PayoutStateError(`Disbursement ${disbursementId} was diverted to SECURITY_REVIEW before provider submission`);
+    }
+  }
   if (disbursement.sourceType === "OWNER_INVOICE") {
     const invoice = await prisma.invoice.findUnique({
       where: { id: disbursement.sourceId }, select: { bookingId: true },
@@ -573,10 +605,34 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
   // Cross-process submission claim. Without this, two workers (or a worker
   // racing the admin retry route) can both read AUTHORIZED and both call the
   // money-out API before either stores the provider response.
-  const submissionClaim = await prisma.disbursement.updateMany({
-    where: { id: disbursementId, status: "AUTHORIZED", pgReferenceId: null },
-    data: { status: "SUBMITTED", submittedAt: new Date(), securityReviewReason: null },
-  });
+  const submissionClaim = ["OWNER_INVOICE", "OWNER_WITHDRAWAL"].includes(disbursement.sourceType)
+    ? await prisma.$transaction(async (tx) => {
+        // A request may have been queued on a previous day. The hard limit
+        // also applies at the actual money-out boundary, across workers.
+        const ownerId = disbursement.payoutAccount.userId;
+        await lockOwnerWithdrawalDay(tx, ownerId);
+        const limit = await ownerWithdrawalLimit(tx);
+        const { start, end } = ownerWithdrawalDay(new Date());
+        const earlier = await tx.disbursement.aggregate({
+          where: {
+            sourceType: { in: ["OWNER_INVOICE", "OWNER_WITHDRAWAL"] },
+            payoutAccount: { userId: ownerId },
+            submittedAt: { gte: start, lt: end },
+          },
+          _sum: { amount: true },
+        });
+        if (Number(earlier._sum.amount ?? 0) + amount > limit + 0.005) {
+          throw new PayoutStateError(`Owner's TZS ${limit.toLocaleString("en-US")} daily sending limit is reached. This payout remains queued for the next Tanzania day.`);
+        }
+        return tx.disbursement.updateMany({
+          where: { id: disbursementId, status: "AUTHORIZED", pgReferenceId: null },
+          data: { status: "SUBMITTED", submittedAt: new Date(), securityReviewReason: null },
+        });
+      })
+    : await prisma.disbursement.updateMany({
+        where: { id: disbursementId, status: "AUTHORIZED", pgReferenceId: null },
+        data: { status: "SUBMITTED", submittedAt: new Date(), securityReviewReason: null },
+      });
   if (submissionClaim.count !== 1) {
     throw new PayoutStateError(
       `Disbursement ${disbursementId} changed state before submission; provider call was not made`
@@ -669,7 +725,6 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
       data: {
         status: "PROCESSING",
         pgReferenceId: response.pgReferenceId,
-        submittedAt: new Date(),
         providerMessage: response.message,
         rawResponse: response as unknown as Prisma.InputJsonValue,
       },
@@ -838,6 +893,37 @@ async function writeBackSourcePaid(
           receiptQrPayload: verificationUrl,
         },
       });
+      return;
+    }
+
+    if (sourceType === "OWNER_WITHDRAWAL") {
+      const allocations = await tx.payoutWithdrawalAllocation.findMany({
+        where: { challengeId: sourceId, cancelledAt: null }, select: { invoiceId: true, releaseId: true },
+      });
+      for (const invoiceId of [...new Set(allocations.map((row) => row.invoiceId))]) {
+        const invoice = await tx.invoice.findUnique({ where: { id: invoiceId }, select: { netPayable: true, status: true } });
+        if (!invoice?.netPayable) throw new PayoutStateError(`Owner invoice ${invoiceId} is missing during amount settlement`);
+        const pieces = await tx.payoutWithdrawalAllocation.findMany({
+          where: { invoiceId, cancelledAt: null }, select: { challengeId: true, grossAmount: true },
+        });
+        const paid = await tx.disbursement.findMany({
+          where: { sourceType: "OWNER_WITHDRAWAL", sourceId: { in: [...new Set(pieces.map((row) => row.challengeId))] }, status: "PAID" },
+          select: { sourceId: true },
+        });
+        const paidIds = new Set(paid.map((row) => row.sourceId));
+        const settledGross = pieces.reduce((sum, row) => sum + (paidIds.has(row.challengeId) ? Number(row.grossAmount) : 0), 0);
+        if (settledGross + 0.005 >= Number(invoice.netPayable)) {
+          await tx.invoice.updateMany({
+            where: { id: invoiceId, status: { not: "PAID" } },
+            data: { status: "PAID", paidAt: now, notes: "Settled through verified amount withdrawals. See the related disbursement records for each transfer." },
+          });
+          const releaseId = allocations.find((row) => row.invoiceId === invoiceId)?.releaseId;
+          if (releaseId) await tx.payoutRelease.updateMany({
+            where: { id: releaseId, status: "AVAILABLE" },
+            data: { status: "RELEASED", releasedAt: now, lane: "MANUAL" },
+          });
+        }
+      }
       return;
     }
 

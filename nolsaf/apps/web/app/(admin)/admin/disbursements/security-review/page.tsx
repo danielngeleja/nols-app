@@ -49,6 +49,7 @@ const FLAG_LABELS: Record<string, string> = {
 
 const SOURCE_LABELS: Record<string, string> = {
   OWNER_INVOICE: "Owner invoice",
+  OWNER_WITHDRAWAL: "Owner amount withdrawal",
   TOUR_BOOKING: "Tour booking",
   DRIVER_TRIP: "Driver trip",
   SALES_PAYOUT: "Sales payout",

@@ -77,7 +77,17 @@ async function paidOwnerClaim(bookingId: number) {
     where: { sourceType: "OWNER_INVOICE", sourceId: claim.id, status: "PAID" },
     _sum: { amount: true },
   });
-  const ownerPaid = Number(paid._sum.amount ?? 0);
+  const allocations = await prisma.payoutWithdrawalAllocation.findMany({
+    where: { invoiceId: claim.id, cancelledAt: null }, select: { challengeId: true, grossAmount: true, recoveryDeduction: true },
+  });
+  const paidWithdrawals = allocations.length ? await prisma.disbursement.findMany({
+    where: { sourceType: "OWNER_WITHDRAWAL", sourceId: { in: [...new Set(allocations.map((row) => row.challengeId))] }, status: "PAID" },
+    select: { sourceId: true },
+  }) : [];
+  const paidIds = new Set(paidWithdrawals.map((row) => row.sourceId));
+  const partialPaid = allocations.reduce((sum, row) => sum + (paidIds.has(row.challengeId)
+    ? Math.max(0, Number(row.grossAmount) - Number(row.recoveryDeduction)) : 0), 0);
+  const ownerPaid = round2(Number(paid._sum.amount ?? 0) + partialPaid);
   if (!(ownerPaid > 0)) return null;
   return { invoiceId: claim.id, ownerId: claim.ownerId, ownerNet: Number(claim.netPayable ?? 0), ownerPaid };
 }

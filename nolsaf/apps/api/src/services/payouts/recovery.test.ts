@@ -7,7 +7,8 @@ const m = vi.hoisted(() => ({
     ownerPayoutRecovery: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
     ownerPayoutRecoveryApplication: { create: vi.fn(), aggregate: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
     invoice: { findFirst: vi.fn() },
-    disbursement: { aggregate: vi.fn() },
+    disbursement: { aggregate: vi.fn(), findMany: vi.fn() },
+    payoutWithdrawalAllocation: { findMany: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   collected: vi.fn(),
@@ -31,6 +32,8 @@ beforeEach(() => {
   m.prisma.ownerPayoutRecovery.findUnique.mockResolvedValue(null);
   m.prisma.invoice.findFirst.mockResolvedValue({ id: 101, ownerId: 3, netPayable: new Prisma.Decimal(180000) });
   m.prisma.disbursement.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal(180000) } });
+  m.prisma.payoutWithdrawalAllocation.findMany.mockResolvedValue([]);
+  m.prisma.disbursement.findMany.mockResolvedValue([]);
   m.collected.mockResolvedValue(new Prisma.Decimal(200000));
   m.prisma.ownerPayoutRecovery.create.mockImplementation(async ({ data }: any) => ({ id: 1, ...data }));
   m.prisma.ownerPayoutRecoveryApplication.aggregate.mockResolvedValue({ _sum: { amount: null } });

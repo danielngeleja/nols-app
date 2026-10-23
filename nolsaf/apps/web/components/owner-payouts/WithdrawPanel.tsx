@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { formatEat, formatTzs } from "./shared";
@@ -31,7 +31,7 @@ type ConfirmResult = {
 };
 
 const RESEND_AFTER_MS = 60_000;
-const ENDS_REQUEST = ["CHANGED", "EXPIRED", "ALREADY_USED", "TOO_MANY_ATTEMPTS", "OTP_LOCKED", "NOT_FOUND", "SENDING_PAUSED"];
+const ENDS_REQUEST = ["CHANGED", "EXPIRED", "ALREADY_USED", "TOO_MANY_ATTEMPTS", "OTP_LOCKED", "NOT_FOUND", "SENDING_PAUSED", "DAILY_LIMIT", "LIMIT_UNAVAILABLE"];
 
 function apiError(err: any, fallback: string): string {
   return err?.response?.data?.error || fallback;
@@ -48,11 +48,17 @@ export default function WithdrawPanel({
   readyTotal,
   readyCount,
   recoveryDue,
+  dailyLimit,
+  dailyRemaining,
+  dailyResetAt,
   onDone,
 }: {
   readyTotal: number;
   readyCount: number;
   recoveryDue: number;
+  dailyLimit: number;
+  dailyRemaining: number;
+  dailyResetAt: string | null;
   onDone: () => void;
 }) {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
@@ -64,16 +70,27 @@ export default function WithdrawPanel({
   const [supportLocked, setSupportLocked] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [, setTick] = useState(0);
+  const [amount, setAmount] = useState("");
 
-  const sendable = Math.max(0, readyTotal - Math.min(recoveryDue, readyTotal));
+  const maxToday = Math.max(0, Math.floor(Math.min(dailyRemaining, readyTotal - recoveryDue)));
+  useEffect(() => {
+    setAmount((previous) => previous === "" ? (maxToday > 0 ? String(maxToday) : "") :
+      Number(previous) > maxToday ? (maxToday > 0 ? String(maxToday) : "") : previous);
+  }, [maxToday]);
+  const chosenAmount = Number(amount);
+  const validAmount = Number.isSafeInteger(chosenAmount) && chosenAmount > 0 && chosenAmount <= maxToday;
 
   const requestCode = async () => {
+    if (!validAmount) {
+      setError(`Enter a whole TZS amount from 1 to ${formatTzs(maxToday)}.`);
+      return;
+    }
     setBusy(true);
     setError(null);
     setSupportLocked(false);
     setDone(null);
     try {
-      const res = await apiClient.post<Challenge>("/api/owner/payouts/withdraw/challenge", {});
+      const res = await apiClient.post<Challenge>("/api/owner/payouts/withdraw/challenge", { amount: chosenAmount });
       setChallenge(res.data);
       setSentAt(Date.now());
       setCode("");
@@ -124,16 +141,37 @@ export default function WithdrawPanel({
     <div className="space-y-3">
       {!challenge && (
         <div className="flex flex-col gap-2">
+          <div className="rounded-lg border border-solid border-emerald-200 bg-white px-3 py-2.5 text-xs text-slate-600">
+            <div className="flex justify-between gap-3"><span>Ready balance</span><strong className="tabular-nums text-slate-900">{formatTzs(readyTotal)}</strong></div>
+            <div className="mt-1 flex justify-between gap-3"><span>Remaining today</span><strong className="tabular-nums text-slate-900">{formatTzs(dailyRemaining)}</strong></div>
+            <p className="m-0 mt-1 text-[11px] text-slate-500">Daily limit {formatTzs(dailyLimit)}{dailyResetAt ? ` · resets ${formatEat(dailyResetAt)}` : ""}</p>
+          </div>
+          <label htmlFor="withdrawal-amount" className="text-xs font-semibold text-slate-700">Amount to withdraw (TZS)</label>
+          <div className="flex gap-2">
+            <input
+              id="withdrawal-amount" type="number" min={1} max={maxToday} step={1} inputMode="numeric"
+              value={amount} onChange={(event) => setAmount(event.target.value)}
+              disabled={busy || maxToday <= 0}
+              aria-describedby="withdrawal-amount-hint"
+              className="h-11 min-w-0 flex-1 rounded-xl border border-solid border-slate-300 bg-white px-3 text-sm font-semibold tabular-nums text-slate-900 outline-none focus:border-[#02665e] disabled:bg-slate-100"
+            />
+            <button type="button" onClick={() => setAmount(String(maxToday))} disabled={busy || maxToday <= 0}
+              className="h-11 rounded-xl border border-solid border-emerald-300 bg-white px-3 text-xs font-semibold text-[#02665e] disabled:opacity-50">Max today</button>
+          </div>
+          <p id="withdrawal-amount-hint" className="m-0 text-xs text-slate-500">
+            {maxToday > 0 ? "Any amount up to today's limit. The rest stays in your ready balance." :
+              recoveryDue >= readyTotal && readyTotal > 0 ? "Your ready balance is being held against an earlier refund." : "Your daily withdrawal limit is used. The balance stays ready."}
+          </p>
           <button
             type="button"
             onClick={requestCode}
-            disabled={busy || readyCount === 0}
+            disabled={busy || readyCount === 0 || !validAmount}
             className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <LockKeyhole className="h-4 w-4" aria-hidden />}
-            {busy ? "Sending code..." : `Withdraw ${formatTzs(sendable)}`}
+            {busy ? "Sending code..." : `Withdraw ${formatTzs(validAmount ? chosenAmount : 0)}`}
           </button>
-          {readyCount > 0 && <span className="text-center text-xs text-slate-500">Includes all {readyCount} ready {readyCount === 1 ? "stay" : "stays"} · one confirmation code</span>}
+          {readyCount > 0 && <span className="text-center text-xs text-slate-500">The amount is taken from ready stays in order · one confirmation code</span>}
         </div>
       )}
 

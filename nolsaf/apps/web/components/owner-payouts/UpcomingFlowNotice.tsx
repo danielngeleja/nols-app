@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { ArrowRight, CalendarClock, Wallet } from "lucide-react";
-import WithdrawPanel from "./WithdrawPanel";
 import { formatTzs, useNow } from "./shared";
 
 /** Shows the payout balance and disabled withdrawal action before launch. */
@@ -35,7 +34,9 @@ export default function UpcomingFlowNotice() {
 
         <div className="min-w-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50/40 p-4 lg:w-[21rem]">
           <h2 className="m-0 mb-3 text-sm font-bold text-slate-900">Withdraw earnings</h2>
-          <WithdrawPanel readyTotal={0} readyCount={0} recoveryDue={0} onDone={() => undefined} />
+          <button type="button" disabled className="h-11 w-full cursor-not-allowed rounded-xl border-0 bg-slate-200 px-5 text-sm font-semibold text-slate-500">
+            Withdraw {formatTzs(0)}
+          </button>
           <p className="m-0 mt-2 text-center text-xs text-slate-500">Available when payouts begin.</p>
         </div>
       </div>

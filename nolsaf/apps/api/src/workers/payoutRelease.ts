@@ -24,6 +24,7 @@ import {
   payoutReleaseEnabled,
 } from "../services/payouts/release.js";
 import { processWithdrawalJobs, remindUnclaimed, withdrawUnclaimed } from "../services/payouts/withdrawal.js";
+import { processAmountWithdrawalHandoffs } from "../services/payouts/partialWithdrawal.js";
 import { loadAutoLaneSettings } from "../services/payouts/autoLane.js";
 import { requestOverdueRepayments } from "../services/payouts/recovery.js";
 import { authorizeAutoBatch, autoLaneAuthorizedToday, formAutoBatch } from "../services/payouts/batching.js";
@@ -183,6 +184,10 @@ export function startPayoutReleaseWorker({ intervalMs = DEFAULT_INTERVAL_MS }: {
       const handoff = await processWithdrawalJobs();
       if (handoff.done || handoff.retried || handoff.review) {
         console.log(`[payout-release] withdrawal handoff: done ${handoff.done}, retrying ${handoff.retried}, review ${handoff.review}`);
+      }
+      const amounts = await processAmountWithdrawalHandoffs();
+      if (amounts.done || amounts.retried || amounts.review) {
+        console.log(`[payout-release] amount withdrawal handoff: done ${amounts.done}, retrying ${amounts.retried}, review ${amounts.review}`);
       }
       const auto = await runAutoLanePass();
       if (auto.reminded || auto.unclaimed || auto.authorized || auto.skipped.length) {

@@ -287,7 +287,7 @@ Behaviour in shadow mode:
 | UI: Withdraw button, code entry, resend after 60s, cancel | `OwnerPayoutReleasesCard.tsx` on `/owner/revenue` |
 | Tests | `services/payouts/withdrawal.test.ts` (16 tests); full API suite green (1957 passed) |
 
-How it behaves:
+Historical version 1 behavior (existing codes remain confirmable; new requests use the amount flow below):
 
 - **Withdraw covers everything ready.** One code covers every AVAILABLE payout; each one is re-checked at that moment.
 - **The code is bound to the withdrawal.** It is tied to the release ids, total and live destination (fingerprint), lasts 5 minutes, allows 5 attempts and is single use (spent in the same transaction that claims the releases).
@@ -363,3 +363,13 @@ Scope note: a recovery is only created when the owner was **PAID** for the stay.
 - The lock does not affect account sign-in or access to support.
 - While locked, unclaimed automatic payout submission is paused as well; no new disbursement is initiated from this withdrawal path until support unlocks it.
 - Support verifies the owner using account and payout details through a trusted contact path, never by asking for the OTP. The admin records the verification method and case note, unlocks with a fresh finance grant, and tells the owner to request a new code. A lock does not authorize a manual payout workaround.
+
+## Amount withdrawals and owner daily limit (local implementation, 2026-10-23)
+
+- `SystemSetting.ownerWithdrawalDailyLimitTzs` is the **hard per-owner limit**, initially TZS 10,000,000. Admins can change it in Management settings; raising it requires a fresh finance grant. It is separate from the AUTO batch cap. A missing/invalid setting blocks owner withdrawals.
+- The owner enters a whole TZS amount, up to the lower of their ready cash balance and their remaining limit for the Tanzania calendar day (00:00–00:00 EAT). A single OTP binds that amount, the exact booking portions, recovery deductions and verified payout account.
+- Each confirmed amount reserves immutable portions of one or more booking claims. A TZS 12,000,000 claim can be paid TZS 10,000,000 on one day and TZS 2,000,000 on another. The owner and admin payout views show the ready remainder and amounts already reserved or paid.
+- OTP confirmation locks the owner row, rechecks the limit and each booking's unreserved balance, then spends the OTP and writes allocations in one transaction. The durable handoff creates **one** `OWNER_WITHDRAWAL` disbursement for the cash amount. Finance approval and the existing provider status reconciliation still control actual payment. The provider submission boundary locks the owner row and checks the cap again against all owner transfers submitted that EAT day.
+- Existing whole-invoice and unclaimed payout paths refuse a booking with an active amount allocation. After a partial withdrawal, the **remaining portion stays available for the owner to withdraw**; it is excluded from the old whole-invoice unclaimed auto sender to avoid sending the full claim twice. Finance reviews failed amount handoffs with the itemized booking plan and transfer ledger. A reset is allowed only when no transfer exists and no recovery was applied.
+- A provider-confirmed `FAILED` amount transfer remains reserved for finance reconciliation. The disbursement queue supports a new request for the same `OWNER_WITHDRAWAL` source after finance confirms the failure; the provider submission guard checks the original account fingerprint and today's limit again. Unknown provider outcomes stay in review and must never be blindly resent.
+- Database migrations: `20261023100000_owner_withdrawal_daily_limit` and `20261023110000_owner_withdrawal_allocation_cancel`. Both were applied to the local database on 2026-10-23. The second migration's first attempt stopped after adding `cancelledAt` because its generated index name exceeded MySQL's limit; the empty column was removed, the failed attempt was marked rolled back, and the corrected short index migration was deployed and verified. Other databases still need both migrations. The payout release feature remains off until local end-to-end verification and finance approval of rollout. Do not enable or deploy from a UI test alone.

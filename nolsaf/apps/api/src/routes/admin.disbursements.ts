@@ -35,6 +35,7 @@ import { checkDisbursementStatus } from "../services/payouts/reconciliation.js";
 import { recordRecovery, RecoveryError, waiveRecovery } from "../services/payouts/recovery.js";
 import { ownerPayoutStage, payoutReleaseEnabled } from "../services/payouts/release.js";
 import { resolveWithdrawalHandoff, WithdrawalError } from "../services/payouts/withdrawal.js";
+import { resolveAmountWithdrawalHandoff } from "../services/payouts/partialWithdrawal.js";
 import { adminBookingReference, resolveAdminBookingReference } from "../lib/adminBookingReference.js";
 import { retentionFields } from "../lib/auditRetention.js";
 import { provisionPayoutAccountFromProfile, NoPayoutProfileError } from "../services/payouts/provisioning.js";
@@ -146,7 +147,7 @@ router.get(
     });
     const claimIds = rows.map((r) => r.sourceId);
     const ownerIds = [...new Set(rows.map((r) => r.ownerId))];
-    const [claims, owners, recovered, otpGuards] = await Promise.all([
+    const [claims, owners, recovered, otpGuards, allocations] = await Promise.all([
       prisma.invoice.findMany({ where: { id: { in: claimIds } }, select: { id: true, netPayable: true, status: true, paidAt: true, invoiceNumber: true } }),
       prisma.user.findMany({
         where: { id: { in: ownerIds } },
@@ -154,15 +155,35 @@ router.get(
       }),
       prisma.ownerPayoutRecoveryApplication.groupBy({ by: ["invoiceId"], where: { invoiceId: { in: claimIds } }, _sum: { amount: true } }),
       prisma.payoutWithdrawalOtpGuard.findMany({ where: { ownerId: { in: ownerIds } }, select: { ownerId: true, lockedAt: true, failedAttempts: true } }),
+      prisma.payoutWithdrawalAllocation.findMany({ where: { releaseId: { in: rows.map((row) => row.id) }, cancelledAt: null },
+        select: { releaseId: true, grossAmount: true, recoveryDeduction: true, challengeId: true } }),
     ]);
     const claimById = new Map<number, (typeof claims)[number]>(claims.map((c) => [c.id, c]));
     const ownerName = new Map(owners.map((o) => [o.id, o.fullName || o.name || o.email || `Owner ${o.id}`]));
     const recoveredById = new Map(recovered.map((r) => [r.invoiceId, Number(r._sum.amount ?? 0)]));
     const otpByOwner = new Map<number, { lockedAt: Date | null }>(otpGuards.map((g) => [g.ownerId, g]));
+    const transfers = await prisma.disbursement.findMany({
+      where: { sourceType: "OWNER_WITHDRAWAL", sourceId: { in: [...new Set(allocations.map((row) => row.challengeId))] } },
+      select: { sourceId: true, status: true },
+    });
+    const transferStatus = new Map(transfers.map((transfer) => [transfer.sourceId, transfer.status]));
+    const allocationsByRelease = new Map<number, typeof allocations>();
+    for (const allocation of allocations) allocationsByRelease.set(allocation.releaseId, [
+      ...(allocationsByRelease.get(allocation.releaseId) ?? []), allocation,
+    ]);
 
     const all = rows.map((r) => {
       const claim = claimById.get(r.sourceId);
-      const stage = ownerPayoutStage({ status: r.status, lane: r.lane, holdReason: r.holdReason, claimStatus: claim?.status ?? null, handoffStatus: r.withdrawalJobs[0]?.status ?? null });
+      const parts = allocationsByRelease.get(r.id) ?? [];
+      const remaining = Math.max(0, Math.round((Number(claim?.netPayable ?? 0) - parts.reduce((sum, part) => sum + Number(part.grossAmount), 0)) * 100) / 100);
+      const inProgressAmount = parts.filter((part) => transferStatus.get(part.challengeId) !== "PAID")
+        .reduce((sum, part) => sum + Number(part.grossAmount) - Number(part.recoveryDeduction), 0);
+      const paidAmount = parts.filter((part) => transferStatus.get(part.challengeId) === "PAID")
+        .reduce((sum, part) => sum + Number(part.grossAmount) - Number(part.recoveryDeduction), 0);
+      const baseStage = ownerPayoutStage({ status: r.status, lane: r.lane, holdReason: r.holdReason, claimStatus: claim?.status ?? null, handoffStatus: r.withdrawalJobs[0]?.status ?? null });
+      const stage = parts.length && r.status === "AVAILABLE"
+        ? remaining > 0 ? "READY" : inProgressAmount > 0 ? "UNDER_REVIEW" : "PAID"
+        : baseStage;
       return {
         id: r.id,
         status: r.status,
@@ -181,7 +202,9 @@ router.get(
         checkOut: r.booking.checkOut,
         bookingReference: adminBookingReference(r.bookingId),
         claimNumber: claim?.invoiceNumber ?? null,
-        amount: claim?.netPayable ?? null,
+        amount: parts.length ? (stage === "READY" ? remaining : stage === "PAID" ? paidAmount : inProgressAmount) : claim?.netPayable ?? null,
+        partialPaidAmount: paidAmount,
+        partialInProgressAmount: inProgressAmount,
         recoveryDeducted: recoveredById.get(r.sourceId) ?? 0,
         rule: r.rule,
         releaseAt: r.releaseAt,
@@ -252,6 +275,67 @@ const resolveWithdrawalHandoffSchema = z.object({
   action: z.enum(["RETRY", "RESET"]),
   note: z.string().trim().min(20).max(1000),
 }).strict();
+
+router.get(
+  "/owner-payouts/amount-withdrawals/review",
+  limitDisbursementAdminRead,
+  asyncHandler(async (_req: AuthedRequest, res: Response) => {
+    const rows = await prisma.payoutWithdrawalChallenge.findMany({
+      where: { planVersion: 2, handoffStatus: "REVIEW_REQUIRED" },
+      orderBy: { createdAt: "desc" }, take: 100,
+      select: {
+        id: true, userId: true, totalAmount: true, destinationMasked: true, handoffAttempts: true, createdAt: true,
+        allocations: { where: { cancelledAt: null }, select: {
+          releaseId: true, invoiceId: true, grossAmount: true, recoveryDeduction: true,
+        } },
+      },
+    });
+    const owners = await prisma.user.findMany({
+      where: { id: { in: rows.map((row) => row.userId) } },
+      select: { id: true, name: true, fullName: true, email: true },
+    });
+    const names = new Map(owners.map((row) => [row.id, row.fullName || row.name || row.email || `Owner ${row.id}`]));
+    const invoiceIds = [...new Set(rows.flatMap((row) => row.allocations.map((part) => part.invoiceId)))];
+    const [invoices, transfers, recovered] = await Promise.all([
+      prisma.invoice.findMany({ where: { id: { in: invoiceIds } }, select: { id: true, invoiceNumber: true, bookingId: true } }),
+      prisma.disbursement.findMany({ where: { sourceType: "OWNER_WITHDRAWAL", sourceId: { in: rows.map((row) => row.id) } },
+        select: { id: true, sourceId: true, status: true, amount: true, externalReferenceId: true, pgReferenceId: true } }),
+      prisma.ownerPayoutRecoveryApplication.groupBy({ by: ["invoiceId"], where: { invoiceId: { in: invoiceIds } }, _sum: { amount: true } }),
+    ]);
+    const invoiceById = new Map<number, (typeof invoices)[number]>(invoices.map((row) => [row.id, row]));
+    const recoveredById = new Map(recovered.map((row) => [row.invoiceId, Number(row._sum.amount ?? 0)]));
+    res.json({ ok: true, reviews: rows.map((row) => ({
+      ...row, ownerName: names.get(row.userId) ?? null,
+      allocations: row.allocations.map((part) => ({
+        ...part, bookingId: invoiceById.get(part.invoiceId)?.bookingId ?? null,
+        invoiceNumber: invoiceById.get(part.invoiceId)?.invoiceNumber ?? null,
+        recoveredOnInvoice: recoveredById.get(part.invoiceId) ?? 0,
+      })),
+      transfers: transfers.filter((transfer) => transfer.sourceId === row.id),
+    })) });
+  })
+);
+
+router.post(
+  "/owner-payouts/amount-withdrawals/:challengeId/handoff/resolve",
+  limitDisbursementAdminWrite,
+  requireAdminFinanceGrant as RequestHandler,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const challengeId = Number(req.params.challengeId);
+    const parsed = resolveWithdrawalHandoffSchema.safeParse(req.body);
+    if (!Number.isSafeInteger(challengeId) || challengeId <= 0 || !parsed.success) {
+      res.status(400).json({ error: "A withdrawal, action and finance note of at least 20 characters are required." });
+      return;
+    }
+    try {
+      const action = await resolveAmountWithdrawalHandoff({ challengeId, adminId: req.user!.id, ...parsed.data });
+      res.json({ ok: true, challengeId, action });
+    } catch (error) {
+      if (!(error instanceof WithdrawalError)) throw error;
+      res.status(error.httpStatus).json({ error: error.message, code: error.code });
+    }
+  })
+);
 
 /** Finance retries a reviewed handoff or returns it for a new OTP only when no money step exists. */
 router.post(
@@ -401,7 +485,7 @@ const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
   status: z.string().trim().max(20).optional(),
-  sourceType: z.enum(["OWNER_INVOICE", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]).optional(),
+  sourceType: z.enum(["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]).optional(),
   q: z.string().trim().max(120).optional(),
   // AUTO: approved by the system under the automatic caps. ADMIN: everything a
   // person approves, including rows created before lanes existed (null).
@@ -428,7 +512,7 @@ const DISBURSEMENT_STATUSES: readonly string[] = [
 
 const createSchema = z
   .object({
-    sourceType: z.enum(["OWNER_INVOICE", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]),
+    sourceType: z.enum(["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]),
     sourceId: z.coerce.number().int().positive(),
     payoutAccountId: z.coerce.number().int().positive(),
     remarks: z.string().trim().max(300).optional(),
@@ -437,7 +521,7 @@ const createSchema = z
 
 const provisionSchema = z
   .object({
-    sourceType: z.enum(["OWNER_INVOICE", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]),
+    sourceType: z.enum(["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]),
     sourceId: z.coerce.number().int().positive(),
   })
   .strict();

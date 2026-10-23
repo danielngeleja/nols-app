@@ -20,6 +20,7 @@ import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
 import { isAdvanceRow, loadAdvanceTotalsFor } from "../../lib/tourPayouts.js";
 import { ADVANCE_MAX_PERCENT, balanceAfterAdvances } from "../../lib/tourPayoutPolicy.js";
+import { guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
 
 /**
  * TOUR_BOOKING pays a tour's balance after the trip; TOUR_ADVANCE pays one
@@ -27,7 +28,7 @@ import { ADVANCE_MAX_PERCENT, balanceAfterAdvances } from "../../lib/tourPayoutP
  * the advance its own source lets a booking carry two disbursements without
  * breaking the "one live payout per source" guarantee (activeSourceKey).
  */
-export type PayoutSourceType = "OWNER_INVOICE" | "TOUR_BOOKING" | "TOUR_ADVANCE" | "DRIVER_TRIP" | "SALES_PAYOUT";
+export type PayoutSourceType = "OWNER_INVOICE" | "OWNER_WITHDRAWAL" | "TOUR_BOOKING" | "TOUR_ADVANCE" | "DRIVER_TRIP" | "SALES_PAYOUT";
 
 export class PayoutIneligibleError extends Error {
   constructor(
@@ -144,6 +145,8 @@ export async function confirmedCustomerPaymentForBooking(
 }
 
 async function loadOwnerInvoice(sourceId: number): Promise<EligiblePayoutSource> {
+  const partial = await prisma.payoutWithdrawalAllocation.findFirst({ where: { invoiceId: sourceId, cancelledAt: null }, select: { id: true } });
+  if (partial) throw new PayoutIneligibleError("OWNER_INVOICE", sourceId, "this invoice already has an amount-based withdrawal; the full invoice cannot also be paid");
   const invoice = await prisma.invoice.findUnique({
     where: { id: sourceId },
     select: { id: true, ownerId: true, bookingId: true, status: true, netPayable: true, total: true },
@@ -211,6 +214,85 @@ async function loadOwnerInvoice(sourceId: number): Promise<EligiblePayoutSource>
     amount: payable,
     currency: OWNER_INVOICE_PAYOUT_CURRENCY,
   };
+}
+
+async function loadOwnerWithdrawal(sourceId: number): Promise<EligiblePayoutSource> {
+  const challenge = await prisma.payoutWithdrawalChallenge.findUnique({
+    where: { id: sourceId }, include: { allocations: { where: { cancelledAt: null } } },
+  });
+  if (!challenge || challenge.planVersion !== 2 || !challenge.usedAt ||
+    !["PROCESSING", "DONE"].includes(challenge.handoffStatus ?? "") || !challenge.allocations.length ||
+    !challenge.payoutAccountId || !challenge.accountFingerprint) {
+    throw new PayoutIneligibleError("OWNER_WITHDRAWAL", sourceId, "confirmed withdrawal is not ready for payment");
+  }
+  const amount = Number(challenge.totalAmount);
+  if (!Number.isFinite(amount) || amount <= 0 || challenge.currency !== "TZS") {
+    throw new PayoutIneligibleError("OWNER_WITHDRAWAL", sourceId, "withdrawal amount or currency is invalid");
+  }
+  let gross = 0;
+  let recovery = 0;
+  for (const allocation of challenge.allocations) {
+    const [release, invoice] = await Promise.all([
+      prisma.payoutRelease.findUnique({ where: { id: allocation.releaseId }, select: {
+        id: true, sourceId: true, ownerId: true, bookingId: true, status: true,
+      } }),
+      prisma.invoice.findUnique({ where: { id: allocation.invoiceId }, select: {
+        ownerId: true, bookingId: true, status: true, netPayable: true,
+      } }),
+    ]);
+    if (!release || !invoice || release.ownerId !== challenge.userId || invoice.ownerId !== challenge.userId ||
+      release.sourceId !== allocation.invoiceId || release.bookingId !== invoice.bookingId ||
+      release.status !== "AVAILABLE" || invoice.netPayable == null ||
+      !["DRAFT", "REQUESTED", "VERIFIED", "APPROVED"].includes(invoice.status)) {
+      throw new PayoutIneligibleError("OWNER_WITHDRAWAL", sourceId, "one booking claim or release changed");
+    }
+    const [booking, cancellation, recovered, allocated, legacy] = await Promise.all([
+      prisma.booking.findUnique({ where: { id: release.bookingId }, select: {
+        status: true, code: { select: { status: true, usedAt: true, usedByOwner: true } },
+      } }),
+      prisma.cancellationRequest.findFirst({ where: { bookingId: release.bookingId, status: {
+        in: ["SUBMITTED", "REVIEWING", "NEED_INFO", "APPROVED", "REFUND_PENDING", "REFUNDED"],
+      } }, select: { id: true } }),
+      prisma.ownerPayoutRecoveryApplication.aggregate({ where: { invoiceId: allocation.invoiceId }, _sum: { amount: true } }),
+      prisma.payoutWithdrawalAllocation.aggregate({ where: { invoiceId: allocation.invoiceId, cancelledAt: null }, _sum: { grossAmount: true } }),
+      prisma.disbursement.findFirst({ where: { sourceType: "OWNER_INVOICE", sourceId: allocation.invoiceId, status: { not: "FAILED" } }, select: { id: true } }),
+    ]);
+    if (!booking || !["CHECKED_IN", "CHECKED_OUT"].includes(String(booking.status).toUpperCase()) ||
+      booking.code?.status !== "USED" || !booking.code.usedAt || booking.code.usedByOwner !== true ||
+      cancellation || legacy || !(await guestCheckInAlertAccepted(release.bookingId))) {
+      throw new PayoutIneligibleError("OWNER_WITHDRAWAL", sourceId, "booking, dispute, check-in or guest alert changed");
+    }
+    if (Number(allocated._sum.grossAmount ?? 0) > Number(invoice.netPayable) + AMOUNT_TOLERANCE ||
+      Number(recovered._sum.amount ?? 0) + AMOUNT_TOLERANCE < Number(allocation.recoveryTarget)) {
+      throw new PayoutIneligibleError("OWNER_WITHDRAWAL", sourceId, "booking allocation or recovery amount does not reconcile");
+    }
+    const collected = await confirmedCustomerPaymentForBooking(release.bookingId, "TZS");
+    if (Number(collected) + AMOUNT_TOLERANCE < Number(invoice.netPayable)) {
+      throw new PayoutIneligibleError("OWNER_WITHDRAWAL", sourceId, "confirmed guest payment does not cover the owner claim");
+    }
+    gross += Number(allocation.grossAmount);
+    recovery += Number(allocation.recoveryDeduction);
+  }
+  // A withdrawal's gross may include recovery deductions from earlier refunds.
+  // The immutable challenge binds both gross allocations and net cash sent.
+  const plan = challenge.allocationPlan;
+  const savedByRelease = new Map<number, any>(Array.isArray(plan)
+    ? plan.map((row: any) => [Number(row?.releaseId), row]) : []);
+  if (!Array.isArray(plan) || plan.length !== challenge.allocations.length ||
+    savedByRelease.size !== challenge.allocations.length ||
+    Math.abs(gross - recovery - amount) > AMOUNT_TOLERANCE ||
+    challenge.allocations.some((allocation) => {
+      const saved = savedByRelease.get(allocation.releaseId);
+      return !saved || Number(saved.releaseId) !== allocation.releaseId ||
+        Number(saved.invoiceId) !== allocation.invoiceId ||
+        Math.abs(Number(saved.grossAmount) - Number(allocation.grossAmount)) > AMOUNT_TOLERANCE ||
+        Math.abs(Number(saved.recoveryDeduction) - Number(allocation.recoveryDeduction)) > AMOUNT_TOLERANCE ||
+        Math.abs(Number(saved.recoveryTarget) - Number(allocation.recoveryTarget)) > AMOUNT_TOLERANCE;
+    })) {
+    throw new PayoutIneligibleError("OWNER_WITHDRAWAL", sourceId, "withdrawal plan does not reconcile");
+  }
+  return { sourceType: "OWNER_WITHDRAWAL", sourceId, payeeUserId: challenge.userId,
+    amount: new Prisma.Decimal(amount), currency: "TZS" };
 }
 
 async function loadTourBooking(sourceId: number): Promise<EligiblePayoutSource> {
@@ -422,6 +504,8 @@ export async function loadEligiblePayoutSource(
   switch (sourceType) {
     case "OWNER_INVOICE":
       return loadOwnerInvoice(sourceId);
+    case "OWNER_WITHDRAWAL":
+      return loadOwnerWithdrawal(sourceId);
     case "TOUR_BOOKING":
       return loadTourBooking(sourceId);
     case "TOUR_ADVANCE":

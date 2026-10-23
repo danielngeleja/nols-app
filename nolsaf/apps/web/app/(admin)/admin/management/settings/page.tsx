@@ -487,6 +487,9 @@ export default function SystemSettingsPage(){
         payoutUnclaimedAutoDays: (s as any).payoutUnclaimedAutoDays ?? null,
       }
     : {}),
+  ...((s as any).ownerWithdrawalLimitAvailable
+    ? { ownerWithdrawalDailyLimitTzs: (s as any).ownerWithdrawalDailyLimitTzs }
+    : {}),
   supportEmail: supportEmail || s.supportEmail,
   supportPhone: supportPhone || s.supportPhone,
   // Only once the column exists (migration 20261015100000); empty clears it back to the head office default.
@@ -1083,6 +1086,34 @@ export default function SystemSettingsPage(){
               </section>
             );
           })()}
+
+          <section id="ownerwithdrawallimit" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+            {sectionHead(
+              <ShieldCheck className="h-4 w-4" />,
+              "Owner withdrawal limit",
+              "Hard limit per owner, per Tanzania calendar day. This limits confirmed withdrawal requests, including automatic unclaimed payouts.",
+              (s as any)?.ownerWithdrawalLimitAvailable ? (
+                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 text-[11px] font-semibold text-neutral-600"><KeyRound className="h-3 w-3" /> Raising asks for your finance code</span>
+              ) : (
+                <span className="inline-flex h-7 items-center rounded-full bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-700">Needs the database update</span>
+              ),
+            )}
+            <div className="max-w-md px-4 py-3.5 sm:px-5">
+              <label htmlFor="ownerWithdrawalDailyLimitTzs" className={sectionLabel}>Maximum each owner can withdraw per day</label>
+              <div className="relative mt-1.5">
+                <input
+                  id="ownerWithdrawalDailyLimitTzs"
+                  type="number" min={1000} max={2000000000} step={1} inputMode="numeric"
+                  disabled={!(s as any)?.ownerWithdrawalLimitAvailable}
+                  value={(s as any)?.ownerWithdrawalDailyLimitTzs ?? ""}
+                  onChange={(e) => setS((prev: any) => ({ ...(prev || {}), ownerWithdrawalDailyLimitTzs: e.target.value === "" ? null : Number(e.target.value) }))}
+                  className={`${fieldClass} pr-14 disabled:cursor-not-allowed disabled:bg-neutral-50 ${validationErrors.ownerWithdrawalDailyLimitTzs ? "border-rose-300" : ""}`}
+                />
+                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-neutral-400">TZS</span>
+              </div>
+              <p className={`m-0 mt-1 text-[11px] ${validationErrors.ownerWithdrawalDailyLimitTzs ? "font-medium text-rose-600" : "text-neutral-400"}`}>{validationErrors.ownerWithdrawalDailyLimitTzs || "Required. Starts at TZS 10,000,000. Cannot be turned off."}</p>
+            </div>
+          </section>
 
           {/* Automatic owner payouts: the AUTO lane after an owner's OTP-confirmed withdrawal */}
           {(() => {

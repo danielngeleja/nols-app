@@ -155,11 +155,29 @@ async function hasAutoPayoutColumns(): Promise<boolean> {
   }
 }
 
+let ownerWithdrawalLimitColumnAvailable: boolean | null = null;
+async function hasOwnerWithdrawalLimitColumn(): Promise<boolean> {
+  if (ownerWithdrawalLimitColumnAvailable === true) return true;
+  try {
+    await prisma.systemSetting.findUnique({
+      where: { id: 1 },
+      select: { ownerWithdrawalDailyLimitTzs: true },
+    });
+    ownerWithdrawalLimitColumnAvailable = true;
+    return true;
+  } catch (err: any) {
+    if (err?.code === "P2022" || String(err?.message || "").includes("ColumnNotFound") ||
+      String(err?.message || "").includes("Unknown field")) return false;
+    throw err;
+  }
+}
+
 const UNCLAIMED_AUTO_DAYS_MIN = 3;
 const UNCLAIMED_AUTO_DAYS_MAX = 90;
 
 const PAYOUT_LIMIT_MIN_TZS = 1_000;
 const PAYOUT_LIMIT_MAX_TZS = 2_000_000_000; // INT column ceiling, with headroom
+const OWNER_WITHDRAWAL_DAILY_LIMIT_DEFAULT_TZS = 10_000_000;
 const PAYOUT_RECENT_CHANGE_DEFAULT_HOURS = 72;
 
 let tierLadderColumnAvailable: boolean | null = null;
@@ -196,6 +214,7 @@ router.get("/", async (_req, res) => {
   const tierCol = await hasTierLadderColumn();
   const payoutCols = await hasPayoutSafeguardColumns();
   const autoCols = await hasAutoPayoutColumns();
+  const ownerWithdrawalLimitCol = await hasOwnerWithdrawalLimitColumn();
   const s =
     (await prisma.systemSetting.findUnique({
       where: { id: 1 },
@@ -238,6 +257,7 @@ router.get("/", async (_req, res) => {
         ...(supportAddrCol ? { supportAddress: true } : {}),
         ...(payoutCols ? { payoutReviewThresholdTzs: true, payoutDailyCapPerPayeeTzs: true, payoutRecentChangeHours: true } : {}),
         ...(autoCols ? { autoPayoutEnabled: true, autoPayoutDailyCapTzs: true, payoutUnclaimedAutoDays: true } : {}),
+        ...(ownerWithdrawalLimitCol ? { ownerWithdrawalDailyLimitTzs: true } : {}),
         ...(roleCols
           ? {
               sessionMaxMinutesAdmin: true,
@@ -279,6 +299,10 @@ router.get("/", async (_req, res) => {
   out.autoPayoutDailyCapTzs = out.autoPayoutDailyCapTzs ?? null;
   out.payoutUnclaimedAutoDays = out.payoutUnclaimedAutoDays ?? null;
   out.autoPayoutAvailable = autoCols;
+  out.ownerWithdrawalDailyLimitTzs = ownerWithdrawalLimitCol
+    ? (out.ownerWithdrawalDailyLimitTzs ?? OWNER_WITHDRAWAL_DAILY_LIMIT_DEFAULT_TZS)
+    : null;
+  out.ownerWithdrawalLimitAvailable = ownerWithdrawalLimitCol;
   // Ensure new commission fields always appear in the response with safe defaults.
   out.driverCommissionPercent = out.driverCommissionPercent ?? 10;
   out.agentCommissionPercent = out.agentCommissionPercent ?? 15;
@@ -336,6 +360,7 @@ router.put("/", async (req, res) => {
   const tierCol = await hasTierLadderColumn();
   const payoutCols = await hasPayoutSafeguardColumns();
   const autoCols = await hasAutoPayoutColumns();
+  const ownerWithdrawalLimitCol = await hasOwnerWithdrawalLimitColumn();
   // Fetch full record so the audit diff covers ALL changed fields, not just session ones.
   const before = await prisma.systemSetting.findUnique({ where: { id: 1 } });
 
@@ -401,6 +426,7 @@ router.put("/", async (req, res) => {
   delete (sanitizedUpdate as any).agentTierLadderDefaults;
   delete (sanitizedUpdate as any).payoutSafeguardsAvailable;
   delete (sanitizedUpdate as any).autoPayoutAvailable;
+  delete (sanitizedUpdate as any).ownerWithdrawalLimitAvailable;
 
   // Payout safeguards. Validated explicitly because the body is otherwise
   // copied into the update as-is. Tightening needs nothing extra; loosening
@@ -448,6 +474,21 @@ router.put("/", async (req, res) => {
       sanitizedUpdate.autoPayoutDailyCapTzs = parsed;
       const previous = (before as any)?.autoPayoutDailyCapTzs ?? null;
       if (parsed !== null && (previous === null || parsed > previous)) loosensPayoutSafeguards = true;
+    }
+  }
+  if (body.ownerWithdrawalDailyLimitTzs !== undefined) {
+    if (!ownerWithdrawalLimitCol) {
+      errors.push({ field: "ownerWithdrawalDailyLimitTzs", message: "Apply the owner withdrawal limit database update before changing this limit." });
+    } else {
+      const raw = body.ownerWithdrawalDailyLimitTzs;
+      const parsed = typeof raw === "number" || (typeof raw === "string" && raw.trim() !== "") ? Number(raw) : NaN;
+      if (!Number.isSafeInteger(parsed) || parsed < PAYOUT_LIMIT_MIN_TZS || parsed > PAYOUT_LIMIT_MAX_TZS) {
+        errors.push({ field: "ownerWithdrawalDailyLimitTzs", message: `Must be a whole TZS amount from ${PAYOUT_LIMIT_MIN_TZS.toLocaleString("en-US")} to ${PAYOUT_LIMIT_MAX_TZS.toLocaleString("en-US")}. This hard limit cannot be blank.` });
+      } else {
+        sanitizedUpdate.ownerWithdrawalDailyLimitTzs = parsed;
+        const previous = Number((before as any)?.ownerWithdrawalDailyLimitTzs ?? OWNER_WITHDRAWAL_DAILY_LIMIT_DEFAULT_TZS);
+        if (parsed > previous) loosensPayoutSafeguards = true;
+      }
     }
   }
   if (body.payoutUnclaimedAutoDays !== undefined) {

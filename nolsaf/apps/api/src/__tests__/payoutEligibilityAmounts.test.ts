@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   findSalesPayout: vi.fn(),
   groupPaymentEvents: vi.fn(),
   recoveredSum: vi.fn(),
+  partialFindFirst: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
@@ -28,10 +29,13 @@ vi.mock("@nolsaf/prisma", () => ({
     salesPayoutRequest: { findUnique: mocks.findSalesPayout },
     paymentEvent: { groupBy: mocks.groupPaymentEvents },
     ownerPayoutRecoveryApplication: { aggregate: mocks.recoveredSum },
+    payoutWithdrawalAllocation: { findFirst: mocks.partialFindFirst },
   },
 }));
 
 import { loadEligiblePayoutSource } from "../services/payouts/eligibility";
+
+beforeEach(() => mocks.partialFindFirst.mockResolvedValue(null));
 
 const dec = (value: string | number) => new Prisma.Decimal(value);
 

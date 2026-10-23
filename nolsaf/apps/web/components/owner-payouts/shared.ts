@@ -30,6 +30,10 @@ export type OwnerPayout = {
   checkIn: string;
   checkOut: string;
   amount: number | string | null;
+  originalAmount?: number | string | null;
+  readyAmount?: number;
+  inProgressAmount?: number;
+  paidAmount?: number;
   recoveryDeducted: number;
   currency: string;
   stage: PayoutStage;
@@ -105,15 +109,21 @@ export function useOwnerPayouts() {
   const [payouts, setPayouts] = useState<OwnerPayout[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [recoveryDue, setRecoveryDue] = useState(0);
+  const [dailyLimit, setDailyLimit] = useState(0);
+  const [dailyRemaining, setDailyRemaining] = useState(0);
+  const [dailyResetAt, setDailyResetAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const res = await apiClient.get<{ enabled: boolean; releases: OwnerPayout[]; recoveryDue?: number }>("/api/owner/payouts/releases");
+      const res = await apiClient.get<{ enabled: boolean; releases: OwnerPayout[]; recoveryDue?: number; dailyLimit?: number; dailyRemaining?: number; dailyResetAt?: string }>("/api/owner/payouts/releases");
       setEnabled(Boolean(res.data?.enabled));
       setPayouts(res.data?.enabled ? res.data.releases ?? [] : []);
       setRecoveryDue(res.data?.enabled ? Number(res.data.recoveryDue ?? 0) : 0);
+      setDailyLimit(res.data?.enabled ? Number(res.data.dailyLimit ?? 0) : 0);
+      setDailyRemaining(res.data?.enabled ? Number(res.data.dailyRemaining ?? 0) : 0);
+      setDailyResetAt(res.data?.enabled ? res.data.dailyResetAt ?? null : null);
       setError(null);
     } catch {
       setError("Your payouts could not be loaded. Refresh to try again.");
@@ -126,7 +136,7 @@ export function useOwnerPayouts() {
     void reload();
   }, [reload]);
 
-  return { payouts, enabled, recoveryDue, loading, error, reload };
+  return { payouts, enabled, recoveryDue, dailyLimit, dailyRemaining, dailyResetAt, loading, error, reload };
 }
 
 /** Re-renders every minute so countdowns stay current. */

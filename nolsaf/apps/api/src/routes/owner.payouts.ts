@@ -21,7 +21,9 @@ import { limitOwnerPayoutRead } from "../middleware/rateLimit.js";
 import { requestDisbursement, PayoutStateError } from "../services/payouts/ledger.js";
 import { PayoutIneligibleError } from "../services/payouts/eligibility.js";
 import { ownerPayoutStage, payoutReleaseEnabled } from "../services/payouts/release.js";
-import { confirmWithdrawal, startWithdrawal, WithdrawalError } from "../services/payouts/withdrawal.js";
+import { confirmWithdrawal, WithdrawalError } from "../services/payouts/withdrawal.js";
+import { confirmAmountWithdrawal, startAmountWithdrawal } from "../services/payouts/partialWithdrawal.js";
+import { OwnerWithdrawalLimitError, ownerWithdrawalAllowance } from "../services/payouts/ownerWithdrawalLimit.js";
 import { openRecoveryTotal } from "../services/payouts/recovery.js";
 import { loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
 import { customerBookingReference, ownerInvoiceReference } from "../lib/customerBookingReference.js";
@@ -85,8 +87,13 @@ const confirmWithdrawalSchema = z
     code: z.string().trim().regex(/^\d{6}$/),
   })
   .strict();
+const startWithdrawalSchema = z.object({ amount: z.number().int().positive() }).strict();
 
 function sendWithdrawalError(res: Response, err: unknown): boolean {
+  if (err instanceof OwnerWithdrawalLimitError) {
+    res.status(err.code === "LIMIT_UNAVAILABLE" ? 503 : 409).json({ ok: false, code: err.code, error: err.message, remainingToday: err.remaining });
+    return true;
+  }
   if (!(err instanceof WithdrawalError)) return false;
   res.status(err.httpStatus).json({ ok: false, code: err.code, error: err.message, ...err.extra });
   return true;
@@ -94,15 +101,20 @@ function sendWithdrawalError(res: Response, err: unknown): boolean {
 
 /**
  * POST /owner/payouts/withdraw/challenge — the owner tapped Withdraw.
- * Sends a code bound to every payout that is ready now and the live
- * destination. The code itself is never returned.
+ * Sends a code bound to the chosen cash amount, exact booking portions and
+ * live destination. The code itself is never returned.
  */
 router.post(
   "/withdraw/challenge",
   limitOwnerPayoutRead,
   asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const body = startWithdrawalSchema.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ ok: false, code: "INVALID_AMOUNT", error: "Enter a whole TZS withdrawal amount greater than zero." });
+      return;
+    }
     try {
-      res.json({ ok: true, ...(await startWithdrawal(req.user!.id)) });
+      res.json({ ok: true, ...(await startAmountWithdrawal(req.user!.id, body.data.amount)) });
     } catch (err) {
       if (!sendWithdrawalError(res, err)) throw err;
     }
@@ -120,7 +132,13 @@ router.post(
       return;
     }
     try {
-      res.json({ ok: true, ...(await confirmWithdrawal(req.user!.id, body.data.challengeRef, body.data.code)) });
+      const pending = await prisma.payoutWithdrawalChallenge.findUnique({
+        where: { reference: body.data.challengeRef }, select: { planVersion: true },
+      });
+      const confirmed = pending?.planVersion === 1
+        ? await confirmWithdrawal(req.user!.id, body.data.challengeRef, body.data.code)
+        : await confirmAmountWithdrawal(req.user!.id, body.data.challengeRef, body.data.code);
+      res.json({ ok: true, ...confirmed });
     } catch (err) {
       if (!sendWithdrawalError(res, err)) throw err;
     }
@@ -139,6 +157,13 @@ router.get(
   asyncHandler(async (req: AuthedRequest, res: Response) => {
     if (!payoutReleaseEnabled()) {
       res.json({ ok: true, enabled: false, releases: [] });
+      return;
+    }
+    let dailyAllowance;
+    try {
+      dailyAllowance = await ownerWithdrawalAllowance(req.user!.id, new Date());
+    } catch (error) {
+      if (!sendWithdrawalError(res, error)) throw error;
       return;
     }
     const rows = await prisma.payoutRelease.findMany({
@@ -161,14 +186,45 @@ router.get(
       _sum: { amount: true },
     });
     const recoveredByClaim = new Map(recovered.map((r) => [r.invoiceId, Number(r._sum.amount ?? 0)]));
+    const allocations = await prisma.payoutWithdrawalAllocation.findMany({
+      where: { releaseId: { in: rows.map((r) => r.id) }, cancelledAt: null },
+      select: { releaseId: true, grossAmount: true, recoveryDeduction: true, challengeId: true },
+    });
+    const transfers = await prisma.disbursement.findMany({
+      where: { sourceType: "OWNER_WITHDRAWAL", sourceId: { in: [...new Set(allocations.map((a) => a.challengeId))] } },
+      select: { sourceId: true, status: true, paidAt: true },
+    });
+    const transferByChallenge = new Map<number, (typeof transfers)[number]>(transfers.map((row) => [row.sourceId, row]));
+    const allocationsByRelease = new Map<number, typeof allocations>();
+    for (const allocation of allocations) allocationsByRelease.set(allocation.releaseId, [
+      ...(allocationsByRelease.get(allocation.releaseId) ?? []), allocation,
+    ]);
 
     res.json({
       ok: true,
       enabled: true,
       // Still owed from earlier refunds or chargebacks; taken from the next withdrawal.
       recoveryDue: await openRecoveryTotal(req.user!.id),
+      dailyLimit: dailyAllowance.limit,
+      dailyUsed: dailyAllowance.used,
+      dailyRemaining: dailyAllowance.remaining,
+      dailyResetAt: dailyAllowance.end,
       releases: rows.map((r) => {
         const claim = claimById.get(r.sourceId);
+        const portions = allocationsByRelease.get(r.id) ?? [];
+        const claimTotal = Number(claim?.netPayable ?? 0);
+        const reservedGross = portions.reduce((sum, part) => sum + Number(part.grossAmount), 0);
+        const remaining = Math.max(0, Math.round((claimTotal - reservedGross) * 100) / 100);
+        const paidPortions = portions.filter((part) => transferByChallenge.get(part.challengeId)?.status === "PAID");
+        const paidAmount = paidPortions.reduce((sum, part) => sum + Number(part.grossAmount) - Number(part.recoveryDeduction), 0);
+        const inProgressAmount = portions.filter((part) => transferByChallenge.get(part.challengeId)?.status !== "PAID")
+          .reduce((sum, part) => sum + Number(part.grossAmount) - Number(part.recoveryDeduction), 0);
+        const paidAt = paidPortions.map((part) => transferByChallenge.get(part.challengeId)?.paidAt)
+          .filter((date): date is Date => !!date).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+        const baseStage = ownerPayoutStage({ status: r.status, lane: r.lane, holdReason: r.holdReason, claimStatus: claim?.status ?? null, handoffStatus: r.withdrawalJobs[0]?.status ?? null });
+        const stage = portions.length && r.status === "AVAILABLE"
+          ? remaining > 0 ? "READY" : inProgressAmount > 0 ? "UNDER_REVIEW" : "PAID"
+          : baseStage;
         return {
           bookingReference: customerBookingReference(r.bookingId),
           invoiceReference: ownerInvoiceReference(r.sourceId),
@@ -176,18 +232,22 @@ router.get(
           guestName: r.booking.guestName ?? null,
           checkIn: r.booking.checkIn,
           checkOut: r.booking.checkOut,
-          amount: claim?.netPayable ?? null,
+          amount: portions.length ? (stage === "READY" ? remaining : stage === "PAID" ? paidAmount : inProgressAmount) : claim?.netPayable ?? null,
+          originalAmount: claim?.netPayable ?? null,
+          readyAmount: r.status === "AVAILABLE" ? remaining : 0,
+          inProgressAmount,
+          paidAmount: portions.length ? paidAmount : baseStage === "PAID" ? claimTotal : 0,
           recoveryDeducted: recoveredByClaim.get(r.sourceId) ?? 0,
           currency: "TZS",
           status: r.status,
-          stage: ownerPayoutStage({ status: r.status, lane: r.lane, holdReason: r.holdReason, claimStatus: claim?.status ?? null, handoffStatus: r.withdrawalJobs[0]?.status ?? null }),
+          stage,
           rule: r.rule,
           releaseAt: r.releaseAt,
           availableAt: r.availableAt,
           reason: r.status === "WITHDRAWING" && (r.withdrawalJobs[0]?.status === "REVIEW_REQUIRED" || !r.withdrawalJobs[0])
             ? "Our payments team is checking this request" : r.holdReason,
           releasedAt: r.releasedAt,
-          paidAt: claim?.paidAt ?? null,
+          paidAt: paidAt ?? claim?.paidAt ?? null,
         };
       }),
     });
@@ -203,6 +263,9 @@ router.post(
   "/request",
   limitOwnerPayoutRead,
   asyncHandler(async (req: AuthedRequest, res: Response) => {
+    if (payoutReleaseEnabled()) {
+      return res.status(409).json({ error: "Use the verified owner withdrawal flow for ready booking payouts." });
+    }
     const body = requestSchema.parse(req.body);
 
     const invoice = await prisma.invoice.findUnique({ where: { id: body.invoiceId }, select: { ownerId: true } });

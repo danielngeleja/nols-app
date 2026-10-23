@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   createNotification: vi.fn(),
   sendMail: vi.fn(),
   generateOwnerDisbursementPdf: vi.fn(),
+  lockOwnerDay: vi.fn(),
+  ownerLimit: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
@@ -36,6 +38,11 @@ vi.mock("../lib/mailer.js", () => ({ sendMail: mocks.sendMail }));
 vi.mock("../lib/pdfDocuments.js", () => ({ generateOwnerDisbursementPdf: mocks.generateOwnerDisbursementPdf }));
 vi.mock("../lib/bookingEmailTemplates.js", () => ({
   getOwnerDisbursementEmail: vi.fn(() => ({ subject: "Your payout has been sent", html: "<p>Paid</p>" })),
+}));
+vi.mock("../services/payouts/ownerWithdrawalLimit.js", () => ({
+  lockOwnerWithdrawalDay: mocks.lockOwnerDay,
+  ownerWithdrawalLimit: mocks.ownerLimit,
+  ownerWithdrawalDay: () => ({ start: new Date("2026-08-08T21:00:00Z"), end: new Date("2026-08-09T21:00:00Z") }),
 }));
 
 import {
@@ -106,6 +113,8 @@ describe("owner invoice disbursement write-back", () => {
     mocks.findInvoice.mockResolvedValue({ bookingId: 123 });
     mocks.findBooking.mockResolvedValue({ status: "CHECKED_IN", code: { status: "USED", usedAt: new Date(), usedByOwner: true } });
     mocks.findCancellation.mockResolvedValue(null);
+    mocks.lockOwnerDay.mockResolvedValue(undefined);
+    mocks.ownerLimit.mockResolvedValue(10_000_000);
     vi.stubEnv("PAYOUT_RELEASE_ENABLED", "false");
     vi.stubEnv("AZAMPAY_DISBURSE_SOURCE_ACCOUNT", "255700000000");
     vi.stubEnv("AZAMPAY_DISBURSE_TRANSFER_TYPE", "MOBILE_MONEY");
@@ -122,6 +131,7 @@ describe("owner invoice disbursement write-back", () => {
       disbursement: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findUnique: vi.fn().mockResolvedValue(processing),
+        aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 0 } }),
       },
       invoice: { updateMany: invoiceUpdateMany },
     };
@@ -138,10 +148,27 @@ describe("owner invoice disbursement write-back", () => {
     const result = await submitToAzamPay(authorized.id);
 
     expect(result.status).toBe("PROCESSING");
+    expect(mocks.lockOwnerDay).toHaveBeenCalledWith(expect.anything(), 44);
     expect(invoiceUpdateMany).toHaveBeenCalledWith({
       where: { id: authorized.sourceId, status: "APPROVED" },
       data: { status: "PROCESSING" },
     });
+  });
+
+  it("leaves an owner payout queued when earlier sends reach the hard daily cap", async () => {
+    const authorized = ownerDisbursement("AUTHORIZED");
+    mocks.findDisbursement.mockResolvedValue(authorized);
+    const claim = vi.fn().mockResolvedValue({ count: 1 });
+    mocks.transaction.mockImplementation(async (callback: any) => callback({
+      disbursement: {
+        aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 9_900_000 } }),
+        updateMany: claim,
+      },
+    }));
+
+    await expect(submitToAzamPay(authorized.id)).rejects.toThrow(/daily sending limit/);
+    expect(claim).not.toHaveBeenCalled();
+    expect(mocks.azamPayDisburse).not.toHaveBeenCalled();
   });
 
   it("fails before the provider call when required request configuration is missing", async () => {
