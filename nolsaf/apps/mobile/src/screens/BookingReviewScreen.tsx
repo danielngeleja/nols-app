@@ -46,7 +46,9 @@ import { RootStackParamList } from "../navigation/types";
 import {
   fetchAvailabilityRange,
   fetchPropertyDetail,
+  getStayBookingMode,
   normalizeRoom,
+  occupancyPrice,
   resolveBookingAvailability,
   resolveRoomOptionIndex,
   type PublicPropertyDetail
@@ -242,10 +244,12 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     if (!detail) return [];
     return (detail.roomsSpec || []).map((r, i) => normalizeRoom(r, i, detail.currency, detail.basePrice));
   }, [detail]);
+  const entireUnit = detail ? getStayBookingMode(detail) === "ENTIRE_UNIT" : false;
 
   const selectedRoomIndex = useMemo(() => {
-    return resolveRoomOptionIndex(roomOptions, roomCode);
-  }, [roomOptions, roomCode]);
+    const selected = resolveRoomOptionIndex(roomOptions, roomCode);
+    return selected ?? (entireUnit && roomOptions.length === 1 ? 0 : null);
+  }, [roomOptions, roomCode, entireUnit]);
   const selectedRoom = selectedRoomIndex == null ? null : roomOptions[selectedRoomIndex] ?? null;
   // One value for both availability and booking. The room's own code keeps a
   // Single with 1 Queen distinct from a Single with 1 King; the room type is
@@ -257,7 +261,14 @@ export function BookingReviewScreen({ navigation, route }: Props) {
   const netPerNight = selectedRoom?.pricePerNight ?? (roomOptions.length === 0 && detail?.basePrice ? Number(detail.basePrice) : 0);
   const grossPerNight = priceWithCommission(netPerNight, commission);
   const nights = nightsBetween(checkIn, checkOut);
-  const subtotal = grossPerNight * Math.max(1, nights) * rooms;
+  const units = entireUnit ? 1 : rooms;
+  const guestCount = adults + children;
+  const occupancy = occupancyPrice(selectedRoom, guestCount, units, commission);
+  const capacityLimit = occupancy.maximumGuests ?? (entireUnit && detail?.maxGuests ? detail.maxGuests : null);
+  const capacityExceeded = capacityLimit != null && guestCount > capacityLimit;
+  const baseStaySubtotal = grossPerNight * Math.max(1, nights) * units;
+  const extraGuestSubtotal = occupancy.extraGuests * occupancy.grossExtraGuestFee * Math.max(1, nights);
+  const subtotal = Math.round((baseStaySubtotal + extraGuestSubtotal) * 100) / 100;
   const transportFare = transport.include ? transport.fare : 0;
   const total = subtotal + transportFare;
   const isTzsStay = currency.toUpperCase() === "TZS";
@@ -319,7 +330,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     roomSelected: selectedRoomIndex != null,
     loading: availLoading,
     availableRooms: avail,
-    requestedRooms: rooms
+    requestedRooms: units
   });
   const soldOut = availability.status === "sold_out";
   const showTotal = availability.showTotal && priceSelectionReady;
@@ -329,15 +340,15 @@ export function BookingReviewScreen({ navigation, route }: Props) {
       case "dates_required":
         return "Choose check-in and check-out dates before pricing.";
       case "room_required":
-        return "Select an available room before pricing.";
+        return entireUnit ? "Select the place before pricing." : "Select an available room before pricing.";
       case "checking":
-        return "Checking live room availability...";
+        return entireUnit ? "Checking the place for your dates..." : "Checking live room availability...";
       case "unknown":
         return "Availability could not be confirmed. Retry before payment.";
       case "sold_out":
-        return `${selectedRoomLabel} is sold out for your dates. Choose another room.`;
+        return entireUnit ? "The place is unavailable for your dates. Try other dates." : `${selectedRoomLabel} is sold out for your dates. Choose another room.`;
       case "insufficient":
-        return `Only ${avail} ${Number(avail) === 1 ? "room is" : "rooms are"} available. Reduce the number of rooms or choose another option.`;
+        return entireUnit ? "The place is unavailable for your dates. Try other dates." : `Only ${avail} ${Number(avail) === 1 ? "room is" : "rooms are"} available. Reduce the number of rooms or choose another option.`;
       default:
         return `${avail} available for your dates`;
     }
@@ -354,6 +365,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     !!checkOut &&
     nights > 0 &&
     availability.canBook &&
+    !capacityExceeded &&
     roomOk &&
     guestName.trim().length >= 2 &&
     phoneValid &&
@@ -370,6 +382,10 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     }
     if (!availability.canBook) {
       setError(availabilityMessage);
+      return;
+    }
+    if (capacityExceeded) {
+      setError(`This selection sleeps up to ${capacityLimit} guests. Reduce the guest count or choose another room.`);
       return;
     }
     if (guestName.trim().length < 2) {
@@ -411,7 +427,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
         adults,
         children,
         pets,
-        rooms,
+        rooms: units,
         // Never the array index: it is a screen position, not an identity, and
         // the stored roomCode is read back by availability, payment, and NRMS.
         roomCode: selectedRoomCode,
@@ -454,7 +470,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
       case "unknown":
         return "Retry availability";
       case "sold_out":
-        return "Room unavailable";
+        return entireUnit ? "Place unavailable" : "Room unavailable";
       case "insufficient":
         return "Not enough rooms";
       default:
@@ -611,7 +627,18 @@ export function BookingReviewScreen({ navigation, route }: Props) {
         </AppCard>
 
         {/* Room */}
-        {roomOptions.length > 0 ? (
+        {entireUnit && selectedRoom ? <AppCard>
+          <AppStack gap={2}>
+            <AppText variant="label" weight="bold" tone="muted">YOUR STAY</AppText>
+            <AppText variant="body" weight="bold">Entire {labelize(selectedRoom.roomType)}</AppText>
+            <AppText variant="caption" tone="muted">One booking includes every bedroom in this place.</AppText>
+            {selectedRoom.bedrooms.map((bedroom, index) => <View key={`${bedroom.name}-${index}`} style={styles.priceRow}>
+              <AppText variant="bodySmall" weight="semiBold" style={styles.flex}>{bedroom.name}</AppText>
+              <AppText variant="caption" tone="muted">{bedroom.bedsSummary}{bedroom.sleeps ? ` · sleeps ${bedroom.sleeps}` : ""}</AppText>
+            </View>)}
+            {selectedRoom.maxGuestsPerUnit ? <AppText variant="caption" weight="semiBold" tone="primary">Up to {selectedRoom.maxGuestsPerUnit} guests</AppText> : null}
+          </AppStack>
+        </AppCard> : roomOptions.length > 0 ? (
           <AppCard>
             <AppStack gap={3}>
               <AppText variant="label" weight="bold" tone="muted">
@@ -711,14 +738,17 @@ export function BookingReviewScreen({ navigation, route }: Props) {
             <View style={styles.counterRow}>
               <View style={styles.flex}>
                 <AppText variant="bodySmall" weight="semiBold">
-                  Rooms
+                  {entireUnit ? "Entire place" : "Rooms"}
                 </AppText>
                 <AppText variant="caption" tone="soft">
-                  How many of this room
+                  {entireUnit ? "All bedrooms included" : "How many of this room"}
                 </AppText>
               </View>
-              <Stepper value={rooms} onChange={setRooms} min={1} max={20} />
+              {entireUnit ? <AppText variant="bodySmall" weight="bold">1</AppText> : <Stepper value={rooms} onChange={setRooms} min={1} max={20} />}
             </View>
+            {capacityLimit != null ? <AppText variant="caption" weight="semiBold" tone={capacityExceeded ? "danger" : "muted"}>
+              {capacityExceeded ? `Too many guests. Maximum ${capacityLimit}.` : `Sleeps up to ${capacityLimit} guests`}
+            </AppText> : null}
           </AppStack>
         </AppCard>
 
@@ -826,12 +856,18 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                 <View style={styles.priceRow}>
                   <AppText variant="bodySmall" tone="muted" style={styles.flex}>
                     {formatStayAmount(grossPerNight)} × {Math.max(1, nights)} {nights === 1 ? "night" : "nights"}
-                    {rooms > 1 ? ` × ${rooms} rooms` : ""}
+                    {units > 1 ? ` × ${units} rooms` : entireUnit ? " · entire place" : ""}
                   </AppText>
                   <AppText variant="bodySmall" weight="semiBold">
-                    {formatStayAmount(subtotal)}
+                    {formatStayAmount(baseStaySubtotal)}
                   </AppText>
                 </View>
+                {occupancy.extraGuests > 0 ? <View style={styles.priceRow}>
+                  <AppText variant="bodySmall" tone="muted" style={styles.flex}>
+                    {occupancy.extraGuests} additional {occupancy.extraGuests === 1 ? "guest" : "guests"} × {formatStayAmount(occupancy.grossExtraGuestFee)} × {Math.max(1, nights)} {nights === 1 ? "night" : "nights"}
+                  </AppText>
+                  <AppText variant="bodySmall" weight="semiBold">{formatStayAmount(extraGuestSubtotal)}</AppText>
+                </View> : null}
                 {transportFare > 0 ? (
                   <AppStack gap={2}>
                     <View style={styles.priceRow}>
@@ -870,7 +906,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                 </View>
                 <AppText variant="caption" tone="soft">
                   {isTzsStay && displayCurrency !== "TZS"
-                    ? `Display estimate only. Payment remains ${formatCurrency(total, "TZS")}.`
+                    ? `Charged in TZS: ${formatCurrency(total, "TZS")}.`
                     : "You pay this securely on the next step."}
                 </AppText>
               </>

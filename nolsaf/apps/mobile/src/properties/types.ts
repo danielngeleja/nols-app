@@ -26,6 +26,7 @@ export type PublicPropertyCard = {
 };
 
 export type RoomSpec = {
+  bookingMode?: "ROOM" | "ENTIRE_UNIT";
   roomType?: string;
   name?: string;
   code?: string;
@@ -35,6 +36,10 @@ export type RoomSpec = {
   quantity?: number;
   maxGuests?: number;
   capacity?: number;
+  maxGuestsPerUnit?: number;
+  includedGuests?: number;
+  extraGuestFee?: number;
+  bedrooms?: Array<{ name?: string; beds?: Record<string, number | string | null | undefined>; sleeps?: number }>;
   beds?: number | Record<string, number | string | null | undefined>;
   images?: string[];
   roomImages?: string[];

@@ -8,6 +8,7 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { checkPropertyAvailability, checkGuestCapacity } from "../lib/bookingAvailability.js";
+import { guestOccupancyPricing } from "../lib/guestOccupancyPricing.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { maybeAuth } from "../middleware/auth.js";
 import { AUTO_DISPATCH_LOOKAHEAD_MS, MIN_TRANSPORT_LEAD_MS } from "../lib/transportPolicy.js";
@@ -874,6 +875,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
     // Calculate booking amount (server-side only - NEVER trust client)
     // If roomCode is provided, use that room's price from roomsSpec, otherwise use basePrice
     let pricePerNight = property.basePrice ? Number(property.basePrice) : 0;
+    let selectedPricingRoom: any = null;
     
     if (data.roomCode && property.roomsSpec) {
       // Parse roomsSpec to find the selected room's price
@@ -920,7 +922,11 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
           null
         );
       })();
+      if (!selectedRoom && roomTypes.length > 0) {
+        return res.status(400).json({ error: "Selected room category is unavailable", requestId });
+      }
       if (selectedRoom) {
+        selectedPricingRoom = selectedRoom;
         const roomPrice = parseRoomPrice(selectedRoom.pricePerNight ?? selectedRoom.price ?? null);
         if (roomPrice != null) pricePerNight = roomPrice;
       }
@@ -933,7 +939,15 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
     const commissionPercent = await getEffectiveCommissionPercent({ propertyServices: (property as any).services });
     const safeCommission = Number.isFinite(commissionPercent) ? Math.max(0, Math.min(100, commissionPercent)) : 0;
 
-    const accommodationNet = pricePerNight * nights * roomsQty;
+    if (selectedPricingRoom?.bookingMode === "ENTIRE_UNIT" && roomsQty !== 1) {
+      return res.status(400).json({ error: "An entire place must be booked once", requestId });
+    }
+    const guestCount = Number(data.adults || 1) + Number(data.children || 0);
+    const occupancy = guestOccupancyPricing(selectedPricingRoom, guestCount, roomsQty);
+    if (occupancy.maximumGuests !== null && guestCount > occupancy.maximumGuests) {
+      return res.status(400).json({ error: "Guest capacity exceeded", message: `This selection sleeps up to ${occupancy.maximumGuests} guests.`, maxGuests: occupancy.maximumGuests, requestId });
+    }
+    const accommodationNet = (pricePerNight * roomsQty + occupancy.extraGuests * occupancy.extraGuestFee) * nights;
     const commissionAmount = safeCommission > 0 ? (accommodationNet * safeCommission) / 100 : 0;
     const accommodationGross = accommodationNet + commissionAmount;
     

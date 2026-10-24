@@ -48,6 +48,11 @@ export function getBedDimensions(bedsSummary: string): string | null {
 }
 
 export type NormalizedRoom = {
+  bookingMode: "ROOM" | "ENTIRE_UNIT";
+  bedrooms: Array<{ name: string; bedsSummary: string; sleeps: number | null }>;
+  maxGuestsPerUnit: number | null;
+  includedGuests: number | null;
+  extraGuestFee: number | null;
   /** Explicit code from roomsSpec, when the owner supplied one. */
   sourceCode: string | null;
   roomType: string;
@@ -95,6 +100,22 @@ export function normalizeRoom(
 ): NormalizedRoom {
   const raw = r as Record<string, unknown>;
   const sourceCode = String(r.code ?? raw.roomCode ?? "").trim() || null;
+  const bookingMode = r.bookingMode === "ENTIRE_UNIT" ? "ENTIRE_UNIT" : "ROOM";
+  const bedrooms = Array.isArray(r.bedrooms)
+    ? r.bedrooms.map((bedroom, bedroomIndex) => ({
+        name: String(bedroom?.name || `Bedroom ${bedroomIndex + 1}`).trim(),
+        bedsSummary: bedsToSummary(bedroom?.beds),
+        sleeps: Number.isInteger(Number(bedroom?.sleeps)) && Number(bedroom?.sleeps) > 0 ? Number(bedroom?.sleeps) : null
+      }))
+    : [];
+  const positiveInteger = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  };
+  const positiveMoney = (value: unknown): number | null => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
   const roomType = String(r.roomType || r.name || raw.label || `Room ${idx + 1}`).trim() || `Room ${idx + 1}`;
   const roomsCountRaw = raw.roomsCount ?? r.count ?? r.quantity ?? null;
   const roomsCount = roomsCountRaw == null ? null : Number.isFinite(Number(roomsCountRaw)) ? Number(roomsCountRaw) : null;
@@ -139,6 +160,11 @@ export function normalizeRoom(
     : [];
 
   return {
+    bookingMode,
+    bedrooms,
+    maxGuestsPerUnit: positiveInteger(r.maxGuestsPerUnit ?? r.maxGuests ?? r.capacity),
+    includedGuests: positiveInteger(r.includedGuests),
+    extraGuestFee: positiveMoney(r.extraGuestFee),
     sourceCode,
     roomType,
     roomsCount,

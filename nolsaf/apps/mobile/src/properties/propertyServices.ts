@@ -32,8 +32,6 @@ export type ParsedServices = {
   houseRules: HouseRules | null;
 };
 
-const DEFAULT_PAYMENT_METHODS = ["Mobile money", "Cash", "Card", "Bank transfer"];
-
 function normalizeBoolean(value: unknown): boolean {
   if (value === true || value === 1 || value === "1") return true;
   const s = String(value || "").trim().toLowerCase();
@@ -108,7 +106,7 @@ export function parsePropertyServices(servicesRaw: unknown): ParsedServices {
     : [];
   const allServiceLabels = [...servicesArray, ...tags];
 
-  const paymentModes = servicesArray
+  const paymentModes = allServiceLabels
     .filter((s) => /^payment:\s*/i.test(s))
     .map((s) => s.replace(/^payment:\s*/i, "").trim())
     .filter(Boolean);
@@ -153,7 +151,7 @@ export function parsePropertyServices(servicesRaw: unknown): ParsedServices {
     .filter((s) => !/^near\s+/i.test(s))
     .forEach((s) => addAmenity(s, /^(free parking|breakfast included|free wi-?fi|air conditioning)$/i.test(s)));
 
-  const nearby = servicesArray.filter((s) => /^near\s+/i.test(s)).map((s) => s.replace(/^near\s+/i, "").trim());
+  const nearby = allServiceLabels.filter((s) => /^near\s+/i.test(s)).map((s) => s.replace(/^near\s+/i, "").trim());
 
   let nearbyFacilities: NearbyFacility[] = [];
   if (Array.isArray(servicesObj.nearbyFacilities)) {
@@ -178,13 +176,13 @@ export function parsePropertyServices(servicesRaw: unknown): ParsedServices {
   const houseRules = normalizeHouseRules(parseHouseRulesValue(servicesObj.houseRules));
 
   return {
-    paymentModes: paymentModes.length ? paymentModes : DEFAULT_PAYMENT_METHODS,
+    paymentModes,
     amenities,
     included,
-    nearby,
+    nearby: nearby.filter((label) => !nearbyFacilities.some((facility) => facility.name && label.toLowerCase().includes(facility.name.toLowerCase()))),
     nearbyFacilities,
-    freeCancellation: servicesArray.some((s) => s.toLowerCase() === "free cancellation"),
-    groupStay: servicesArray.some((s) => s.toLowerCase() === "group stay"),
+    freeCancellation: allServiceLabels.some((s) => s.toLowerCase() === "free cancellation"),
+    groupStay: allServiceLabels.some((s) => s.toLowerCase() === "group stay"),
     houseRules
   };
 }

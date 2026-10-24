@@ -30,8 +30,8 @@ const useNativeDriver = Platform.OS !== "web";
 
 function availability(rooms: number): { label: string; bg: string; color: string } {
   if (rooms <= 0) return { label: "Sold out", bg: "#f1f5f9", color: colors.mutedText };
-  if (rooms === 1) return { label: "Last room", bg: "#fff8e6", color: colors.warning };
-  return { label: `${rooms} rooms left`, bg: "#dcfce7", color: colors.success };
+  if (rooms === 1) return { label: "1 available", bg: "#fff8e6", color: colors.warning };
+  return { label: `${rooms} available`, bg: "#dcfce7", color: colors.success };
 }
 
 /**

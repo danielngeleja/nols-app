@@ -100,6 +100,7 @@ import {
   fetchAvailabilityRange,
   fetchPropertyDetail,
   fetchPropertyReviews,
+  getStayBookingMode,
   normalizeRoom,
   NormalizedRoom,
   parsePropertyServices,
@@ -602,87 +603,34 @@ function serviceIcon(label: string): { Icon: LucideIcon; color: string } {
   return { Icon: CheckCircle2, color: colors.primary };
 }
 
-function IncludedServicesCard({ items }: { items: string[] }) {
-  if (!items.length) return null;
-  const scrollable = items.length > 2;
-
-  return (
-    <AppCard>
-      <View style={styles.includedHeader}>
-        <View style={styles.includedIcon}>
-          <BadgeCheck color={colors.primary} size={20} />
-        </View>
-        <View style={styles.flex}>
-          <AppText variant="body" weight="bold">
-            What's included
-          </AppText>
-          <AppText variant="caption" tone="muted">
-            {items.length} {items.length === 1 ? "service" : "services"} included in the listed price
-          </AppText>
-        </View>
-        {scrollable ? (
-          <View style={styles.includedHint}>
-            <AppText variant="caption" weight="bold" tone="primary">
-              Swipe
-            </AppText>
-          </View>
-        ) : null}
-      </View>
-      {scrollable ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.includedScrollContent}
-        >
-          {items.map((item) => (
-            <ServiceTile key={item} item={item} scroll />
-          ))}
-        </ScrollView>
-      ) : (
-        <View style={styles.includedGrid}>
-          {items.map((item) => (
-            <ServiceTile key={item} item={item} />
-          ))}
-        </View>
-      )}
-    </AppCard>
-  );
-}
-
-function AvailableServicesCard({ items }: { items: string[] }) {
+function StayOffersCard({ included, available }: { included: string[]; available: string[] }) {
   const [expanded, setExpanded] = useState(false);
-  if (!items.length) return null;
+  const safety = available.filter((item) => /security|guard|first aid|fire|extinguisher|smoke|alarm|cctv|emergency|safe\b/i.test(item));
+  const extras = available.filter((item) => !safety.includes(item));
+  if (!included.length && !available.length) return null;
+  const shownExtras = expanded ? extras : extras.slice(0, 6);
+  const shortIncluded = included.map((item) => item.replace(/\b(free|included|inclusive|complimentary)\b/gi, "").replace(/\s+/g, " ").trim() || item);
 
   return (
     <AppCard>
-      <View style={styles.includedHeader}>
-        <View style={styles.includedIcon}>
-          <BadgeCheck color={colors.primary} size={20} />
-        </View>
-        <View style={styles.flex}>
-          <AppText variant="body" weight="bold">
-            Other services available
-          </AppText>
-          <AppText variant="caption" tone="muted">
-            {items.length} {items.length === 1 ? "service" : "services"} available during your stay
-          </AppText>
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={expanded ? "Hide available services" : "Show available services"}
-          onPress={() => setExpanded((value) => !value)}
-          style={styles.includedChevron}
-        >
-          {expanded ? <ChevronUp color={colors.ink} size={20} /> : <ChevronDown color={colors.ink} size={20} />}
-        </Pressable>
-      </View>
-      {expanded ? (
-        <View style={styles.includedGrid}>
-          {items.map((item) => (
-            <ServiceTile key={item} item={item} />
-          ))}
-        </View>
-      ) : null}
+      <AppStack gap={3}>
+        <AppText variant="body" weight="bold">What this place offers</AppText>
+        {included.length > 0 ? <View style={styles.offerGroup}>
+          <AppText variant="caption" weight="bold" tone="success">In your price</AppText>
+          <View style={styles.includedGrid}>{shortIncluded.map((item, index) => <ServiceTile key={`${item}-${index}`} item={item} />)}</View>
+        </View> : null}
+        {extras.length > 0 ? <View style={styles.offerGroup}>
+          <AppText variant="caption" weight="bold" tone="muted">Also on site · may cost extra</AppText>
+          <View style={styles.includedGrid}>{shownExtras.map((item) => <ServiceTile key={item} item={item} />)}</View>
+          {extras.length > 6 ? <Pressable accessibilityRole="button" onPress={() => setExpanded((value) => !value)}>
+            <AppText variant="caption" weight="bold" tone="primary">{expanded ? "Show less" : `Show ${extras.length - 6} more`}</AppText>
+          </Pressable> : null}
+        </View> : null}
+        {safety.length > 0 ? <View style={styles.offerGroup}>
+          <AppText variant="caption" weight="bold" tone="muted">Safety</AppText>
+          <View style={styles.includedGrid}>{safety.map((item) => <ServiceTile key={item} item={item} />)}</View>
+        </View> : null}
+      </AppStack>
     </AppCard>
   );
 }
@@ -890,6 +838,9 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
   const reviewCount = reviews?.stats.totalReviews ?? 0;
   const catAvgs = reviews?.stats.categoryAverages ?? null;
   const rooms = detail.roomsSpec || [];
+  const entireUnit = getStayBookingMode(detail) === "ENTIRE_UNIT";
+  const normalizedRooms = rooms.map((room, index) => normalizeRoom(room, index, detail.currency, detail.basePrice));
+  const selectedWholeUnit = entireUnit ? normalizedRooms.find((room) => room.bookingMode === "ENTIRE_UNIT") || normalizedRooms[0] : null;
   const grossBasePrice = detail.basePrice != null ? priceWithCommission(Number(detail.basePrice), commission) : null;
 
   return (
@@ -922,6 +873,29 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
               </View>
             </View>
 
+            <AppCard>
+              <AppStack gap={2}>
+                <AppText variant="bodySmall" weight="bold">
+                  {entireUnit ? "The entire place is yours" : "Choose a room for your stay"}
+                </AppText>
+                <AppText variant="caption" tone="muted">
+                  {entireUnit
+                    ? `One booking includes the whole ${labelize(detail.type || "place").toLowerCase()}${selectedWholeUnit?.bedrooms.length ? ` and all ${selectedWholeUnit.bedrooms.length} bedrooms` : ""}.`
+                    : "Each room type has its own capacity, price and availability."}
+                </AppText>
+                <View style={styles.stayFacts}>
+                  {(entireUnit ? [
+                    selectedWholeUnit?.maxGuestsPerUnit || detail.maxGuests ? `Sleeps ${selectedWholeUnit?.maxGuestsPerUnit || detail.maxGuests}` : null,
+                    selectedWholeUnit?.bedrooms.length || detail.totalBedrooms ? `${selectedWholeUnit?.bedrooms.length || detail.totalBedrooms} bedrooms` : null,
+                    detail.totalBathrooms ? `${detail.totalBathrooms} bathrooms` : null
+                  ] : [
+                    detail.totalBedrooms ? `${detail.totalBedrooms} rooms` : null,
+                    rooms.length ? `${rooms.length} room types` : null
+                  ]).filter((fact): fact is string => Boolean(fact)).map((fact) => <View key={fact} style={styles.stayFact}><AppText variant="caption" weight="semiBold" tone="primary">{fact}</AppText></View>)}
+                </View>
+              </AppStack>
+            </AppCard>
+
             {/* About */}
             {detail.description ? (
               <View style={styles.aboutCard}>
@@ -953,6 +927,26 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
               </View>
             ) : null}
 
+            {entireUnit && normalizedRooms.length > 0 ? <Section title="The entire place" icon={<BedDouble color={colors.primary} size={18} />}>
+              {normalizedRooms.map((room, index) => <RoomCard
+                key={room.sourceCode || index}
+                index={index}
+                room={room}
+                wholePlace
+                commission={commission}
+                currency={detail.currency || "TZS"}
+                propertyId={detail.id}
+                checkIn={checkIn}
+                checkOut={checkOut}
+                onPickDates={() => setCalendarVisible(true)}
+                onBook={() => goToBooking(String(index))}
+              />)}
+            </Section> : null}
+            {parsed.freeCancellation && parsed.paymentModes.length === 0 ? <View style={styles.inlineNote}>
+              <CheckCircle2 color={colors.success} size={15} />
+              <AppText variant="caption" weight="semiBold" tone="success">Free cancellation</AppText>
+            </View> : null}
+
             <NrmsMenuCard
               menuToken={menuToken}
               ordering={roomOrdering?.propertyId === id ? roomOrdering : null}
@@ -963,12 +957,10 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
 
             <PhysicalVerificationCard record={verificationRecord} onOpenCertificate={openCertificate} />
 
-            <IncludedServicesCard items={includedServices} />
-
-            <AvailableServicesCard items={otherServices} />
+            <StayOffersCard included={includedServices} available={otherServices} />
 
             {/* Payment methods */}
-            <Section title="Payment methods" icon={<CreditCard color={colors.primary} size={18} />}>
+            {parsed.paymentModes.length > 0 ? <Section title="Payment methods" icon={<CreditCard color={colors.primary} size={18} />}>
               <AppCard>
                 {buildPaymentRows(parsed.paymentModes).map((row, i) => (
                   <View key={i} style={[styles.payRow, i > 0 && styles.payRowBorder]}>
@@ -994,10 +986,10 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
                   </AppText>
                 </View>
               ) : null}
-            </Section>
+            </Section> : null}
 
             {/* Starting from */}
-            <AppCard>
+            {!entireUnit ? <AppCard>
               <AppStack gap={3}>
                 <AppText variant="caption" weight="bold" tone="muted" style={styles.startingLabel}>
                   STARTING FROM
@@ -1012,20 +1004,14 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
                 <AppText variant="caption" tone="soft">
                   per night
                 </AppText>
-                <AppButton title="Request booking" onPress={() => goToBooking(null)} />
-                <View style={styles.startingNote}>
-                  <ShieldCheck color={colors.success} size={15} />
-                  <AppText variant="caption" tone="muted" style={styles.flex}>
-                    Approved listings only. Secure workflows and host verification are in progress.
-                  </AppText>
-                </View>
+                <AppButton title="Choose a room" onPress={() => goToBooking(null)} />
               </AppStack>
-            </AppCard>
+            </AppCard> : null}
 
             {/* Availability live updates */}
             <Section title="Availability live updates" icon={<CalendarDays color={colors.primary} size={18} />}>
               <AppText variant="caption" tone="muted">
-                Choose your dates to see rooms that can be booked now.
+                {entireUnit ? "Choose your dates to check the whole place." : "Choose your dates to see rooms that can be booked now."}
               </AppText>
               <View style={styles.dateFields}>
                 <Pressable accessibilityRole="button" onPress={() => setCalendarVisible(true)} style={styles.dateField}>
@@ -1064,8 +1050,8 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
                   <View style={styles.flex}>
                     <AppText variant="bodySmall" weight="bold">
                       {availRooms && availRooms > 0
-                        ? `${availRooms} ${availRooms === 1 ? "room" : "rooms"} available`
-                        : "No rooms available"}
+                        ? entireUnit ? "Available for your dates" : `${availRooms} ${availRooms === 1 ? "room" : "rooms"} available`
+                        : entireUnit ? "Not available for your dates" : "No rooms available"}
                     </AppText>
                     <AppText variant="caption" tone="muted">
                       {formatPretty(checkIn)} to {formatPretty(checkOut)} · {nightsBetween(checkIn, checkOut)}{" "}
@@ -1076,29 +1062,27 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
               ) : null}
             </Section>
 
-            {/* Property structure */}
-            <BuildingLayout detail={detail} />
-
             {/* Rooms */}
-            {rooms.length > 0 ? (
+            {!entireUnit && rooms.length > 0 ? (
               <Section
-                title="Rooms"
+                title={entireUnit ? "The entire place" : "Rooms"}
                 icon={<Layers color={colors.primary} size={18} />}
                 trailing={
                   <View style={styles.chip}>
                     <AppText variant="caption" weight="bold" tone="muted">
-                      {rooms.length} {rooms.length === 1 ? "type" : "types"}
+                      {entireUnit ? "One booking" : `${rooms.length} ${rooms.length === 1 ? "type" : "types"}`}
                     </AppText>
                   </View>
                 }
               >
                 {rooms.map((room, i) => {
-                  const nr = normalizeRoom(room, i, detail.currency, detail.basePrice);
+                  const nr = normalizedRooms[i];
                   return (
                     <RoomCard
                       key={i}
                       index={i}
                       room={nr}
+                      wholePlace={entireUnit}
                       commission={commission}
                       currency={detail.currency || "TZS"}
                       propertyId={detail.id}
@@ -1114,22 +1098,8 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
               </Section>
             ) : null}
 
-            {/* Amenities */}
-            {amenities.length > 0 ? (
-              <Section
-                title="What this place offers"
-                icon={<Star color={colors.primary} size={18} />}
-                trailing={
-                  <View style={styles.chip}>
-                    <AppText variant="caption" weight="bold" tone="muted">
-                      {amenities.length}
-                    </AppText>
-                  </View>
-                }
-              >
-                <AmenityGrid items={amenities.slice(0, 24).map(labelize)} />
-              </Section>
-            ) : null}
+            {/* Building information follows the bookable room choices. */}
+            {!entireUnit ? <BuildingLayout detail={detail} /> : null}
 
             {/* House rules */}
             {houseRules ? (
@@ -1404,11 +1374,11 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
               </AppText>
             )}
             <AppText variant="caption" tone="soft">
-              per night
+              {entireUnit ? "per night · entire place" : "from / night"}
             </AppText>
           </View>
           <View style={styles.reserveBtn}>
-            <AppButton title="Request booking" onPress={() => goToBooking(null)} />
+            <AppButton title={entireUnit ? "Book place" : "Choose room"} onPress={() => goToBooking(entireUnit && rooms.length === 1 ? "0" : null)} />
           </View>
         </View>
       </BottomActionBar>
@@ -1673,6 +1643,7 @@ function formatFloors(floors: number[]): string | null {
 function RoomCard({
   index,
   room,
+  wholePlace,
   commission,
   currency,
   propertyId,
@@ -1683,6 +1654,7 @@ function RoomCard({
 }: {
   index: number;
   room: NormalizedRoom;
+  wholePlace: boolean;
   commission: number;
   currency: string;
   propertyId: number;
@@ -1726,6 +1698,7 @@ function RoomCard({
   const availabilityUnknown = hasDates && !roomAvailLoading && roomAvail == null;
   const bookingBlocked = hasDates && (roomAvailLoading || availabilityUnknown || soldOut);
   const floorChip = formatFloors(room.floors);
+  const entireUnit = wholePlace;
 
   return (
     <AppCard>
@@ -1738,7 +1711,7 @@ function RoomCard({
             <View style={styles.roomTitleRow}>
               <DoorClosed color={colors.softText} size={16} />
               <AppText variant="titleSm" weight="bold" numberOfLines={2} style={styles.flex}>
-                {labelize(room.roomType)}
+                {entireUnit ? `Entire ${labelize(room.roomType)}` : labelize(room.roomType)}
               </AppText>
             </View>
             {room.floors.length > 0 ? (
@@ -1759,7 +1732,7 @@ function RoomCard({
               </View>
             ) : null}
           </View>
-          {room.roomsCount ? (
+          {!entireUnit && room.roomsCount ? (
             <View style={styles.chip}>
               <AppText variant="caption" weight="bold" tone="muted">
                 {room.roomsCount} {room.roomsCount === 1 ? "room" : "rooms"}
@@ -1768,7 +1741,19 @@ function RoomCard({
           ) : null}
         </View>
 
-        {room.bedsSummary ? (
+        {entireUnit && room.bedrooms.length > 0 ? <View style={styles.offerGroup}>
+          <AppText variant="bodySmall" weight="bold">Sleeping layout</AppText>
+          {room.bedrooms.map((bedroom, bedroomIndex) => <View key={`${bedroom.name}-${bedroomIndex}`} style={styles.bedroomRow}>
+            <BedDouble color={colors.primary} size={17} />
+            <View style={styles.flex}>
+              <AppText variant="bodySmall" weight="semiBold">{bedroom.name}</AppText>
+              <AppText variant="caption" tone="muted">{bedroom.bedsSummary || "Beds not listed"}</AppText>
+            </View>
+            {bedroom.sleeps ? <AppText variant="caption" weight="semiBold" tone="primary">Sleeps {bedroom.sleeps}</AppText> : null}
+          </View>)}
+        </View> : null}
+
+        {(!entireUnit || room.bedrooms.length === 0) && room.bedsSummary ? (
           <View style={styles.roomBeds}>
             <BedDouble color={colors.softText} size={16} />
             <View style={styles.flex}>
@@ -1789,6 +1774,10 @@ function RoomCard({
             </AppText>
           </View>
         ) : null}
+
+        {room.maxGuestsPerUnit ? <AppText variant="caption" weight="semiBold" tone="muted">
+          {entireUnit ? `Sleeps up to ${room.maxGuestsPerUnit} guests` : `Sleeps up to ${room.maxGuestsPerUnit} guests per room`}
+        </AppText> : null}
 
         {room.amenities.length > 0 ? (
           <AmenityGrid items={room.amenities.slice(0, 10).map(labelize)} />
@@ -1878,7 +1867,7 @@ function RoomCard({
               )}
               <View style={styles.roomPriceMeta}>
                 <AppText variant="caption" tone="soft">
-                  per night
+                  {entireUnit ? "per night · entire place" : "per night · per room"}
                 </AppText>
                 {room.discountLabel ? (
                   <View style={styles.discountChip}>
@@ -1892,7 +1881,7 @@ function RoomCard({
             </View>
             <View style={styles.payBtn}>
               <AppButton
-                title={roomAvailLoading ? "Checking" : soldOut ? "Sold out" : availabilityUnknown ? "Unavailable" : "Pay now"}
+                title={roomAvailLoading ? "Checking" : soldOut ? "Sold out" : availabilityUnknown ? "Unavailable" : entireUnit ? "Book place" : "Choose room"}
                 disabled={bookingBlocked}
                 onPress={onBook}
               />
@@ -1905,6 +1894,7 @@ function RoomCard({
 }
 
 function BuildingLayout({ detail }: { detail: PublicPropertyDetail }) {
+  const entireUnit = getStayBookingMode(detail) === "ENTIRE_UNIT";
   const floorCount = useMemo(() => {
     const set = new Set<number>();
     (detail.roomsSpec || []).forEach((r, i) => {
@@ -1923,9 +1913,9 @@ function BuildingLayout({ detail }: { detail: PublicPropertyDetail }) {
     { icon: <Building2 color={colors.primary} size={18} />, label: "Building", value: buildingType },
     { icon: <Layers color={colors.primary} size={18} />, label: "Floors", value: String(detail.totalFloors || floorCount || 1) }
   ];
-  if (detail.totalBedrooms) summary.push({ icon: <BedDouble color={colors.primary} size={18} />, label: "Bedrooms", value: String(detail.totalBedrooms) });
+  if (detail.totalBedrooms) summary.push({ icon: <BedDouble color={colors.primary} size={18} />, label: entireUnit ? "Bedrooms" : "Rooms", value: String(detail.totalBedrooms) });
   if (detail.totalBathrooms) summary.push({ icon: <Bath color={colors.primary} size={18} />, label: "Bathrooms", value: String(detail.totalBathrooms) });
-  if (detail.maxGuests) summary.push({ icon: <Users color={colors.primary} size={18} />, label: "Max guests", value: String(detail.maxGuests) });
+  if (entireUnit && detail.maxGuests) summary.push({ icon: <Users color={colors.primary} size={18} />, label: "Max guests", value: String(detail.maxGuests) });
 
   return (
     <AppCard>
@@ -1967,7 +1957,7 @@ function BuildingLayout({ detail }: { detail: PublicPropertyDetail }) {
         </View>
 
         <AppText variant="caption" tone="muted">
-          Each room below shows the floor it sits on.
+          {entireUnit ? "One booking includes the whole place." : "Each room below shows the floor it sits on."}
         </AppText>
       </AppStack>
     </AppCard>
@@ -2693,6 +2683,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing[2]
+  },
+  offerGroup: {
+    gap: spacing[2]
+  },
+  stayFacts: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing[2]
+  },
+  stayFact: {
+    borderRadius: radius.full,
+    backgroundColor: colors.brand[50],
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1]
+  },
+  bedroomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[2],
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2]
   },
   includedTile: {
     width: "48.5%",
