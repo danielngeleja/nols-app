@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { Activity, AlertTriangle, ArrowRight, Bell, Building2, CalendarDays, CheckCircle2, ChevronRight, Layers, Lock, MapPin, RefreshCw, ShieldAlert, Truck, TrendingUp, UserCog, UserRound, Wallet } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Bell, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Layers, Lock, MapPin, RefreshCw, ShieldAlert, Truck, TrendingUp, UserCog, UserRound, Wallet } from "lucide-react";
 
 import { useAdminHomeKpis, useAdminMonitoring, useAdminPerformanceHighlights, useAdminRecentActivities } from "./adminHomeHooks";
 import TanzaniaMap, { matchRegion, type PendingListing } from "./TanzaniaMap";
@@ -106,6 +106,26 @@ export default function AdminHomePage() {
   const [series, setSeries] = useState<Series | null>(null);
   const [nonce, setNonce] = useState(0);
   const refreshTimer = useRef<number | null>(null);
+  const briefRail = useRef<HTMLDivElement | null>(null);
+  const [briefScroll, setBriefScroll] = useState({ overflow: false, start: true, end: true });
+
+  const updateBriefScroll = useCallback(() => {
+    const rail = briefRail.current;
+    if (!rail) return;
+    const overflow = rail.scrollWidth > rail.clientWidth + 2;
+    const next = {
+      overflow,
+      start: rail.scrollLeft <= 2,
+      end: rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 2,
+    };
+    setBriefScroll((current) => current.overflow === next.overflow && current.start === next.start && current.end === next.end ? current : next);
+  }, []);
+
+  const scrollBrief = (direction: -1 | 1) => {
+    const rail = briefRail.current;
+    if (!rail) return;
+    rail.scrollBy({ left: direction * rail.clientWidth * 0.8, behavior: "smooth" });
+  };
 
   // EAT clock, set after mount so server and client HTML match.
   useEffect(() => {
@@ -260,6 +280,14 @@ export default function AdminHomePage() {
     }
     return cards;
   }, [monitoring, live, highlights]);
+  useEffect(() => {
+    const rail = briefRail.current;
+    if (!rail) return;
+    updateBriefScroll();
+    const observer = new ResizeObserver(updateBriefScroll);
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, [brief?.length, updateBriefScroll]);
   const CARD_TONE = {
     amber: { box: "border-amber-200 bg-amber-50 hover:bg-amber-100/70", icon: "bg-amber-100 text-amber-700", value: "text-amber-950", caption: "text-amber-800/80" },
     green: { box: "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50", icon: "bg-emerald-100 text-emerald-700", value: "text-emerald-950", caption: "text-emerald-800/80" },
@@ -298,6 +326,10 @@ export default function AdminHomePage() {
       href: highlights?.bestDriver?.driverId ? recordHref("driver", highlights.bestDriver.driverId) : "/admin/drivers",
     },
   ];
+  const rankedLeaders = leaders.filter((leader) => Boolean(leader.value));
+  const waitingForBookings = leaders.filter((leader) => !leader.value && (leader.label === "Top property" || leader.label === "Top type"));
+  const waitingForInvoices = leaders.filter((leader) => !leader.value && (leader.label === "Top owner" || leader.label === "Top driver"));
+  const leaderColumns = rankedLeaders.length >= 4 ? "lg:grid-cols-4" : rankedLeaders.length === 3 ? "lg:grid-cols-3" : rankedLeaders.length === 2 ? "lg:grid-cols-2" : "lg:grid-cols-1";
 
   const totalC = series ? series.commission.reduce((s, v) => s + v, 0) : 0;
   const totalS = series ? series.subscription.reduce((s, v) => s + v, 0) : 0;
@@ -346,7 +378,7 @@ export default function AdminHomePage() {
 
   return (
     <div id="admin-home" className="w-full min-w-0 space-y-5 px-3 py-5 sm:px-4">
-      <style>{`#admin-home, #admin-home * { box-sizing: border-box; }`}</style>
+      <style>{`#admin-home, #admin-home * { box-sizing: border-box; } #admin-home .brief-rail { scrollbar-width: none; } #admin-home .brief-rail::-webkit-scrollbar { display: none; }`}</style>
 
       {/* The brief */}
       <header className="px-1">
@@ -358,12 +390,21 @@ export default function AdminHomePage() {
             <RefreshCw className="h-3.5 w-3.5" aria-hidden />
           </button>
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-3 flex min-h-7 items-center justify-between gap-3">
+          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">At a glance</p>
+          {briefScroll.overflow ? (
+            <div className="flex items-center gap-1" aria-label="Overview navigation">
+              <button type="button" onClick={() => scrollBrief(-1)} disabled={briefScroll.start} aria-label="Previous overview cards" className="grid h-7 w-7 cursor-pointer place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 disabled:cursor-default disabled:opacity-40"><ChevronLeft className="h-4 w-4" aria-hidden /></button>
+              <button type="button" onClick={() => scrollBrief(1)} disabled={briefScroll.end} aria-label="Next overview cards" className="grid h-7 w-7 cursor-pointer place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 disabled:cursor-default disabled:opacity-40"><ChevronRight className="h-4 w-4" aria-hidden /></button>
+            </div>
+          ) : null}
+        </div>
+        <div ref={briefRail} onScroll={updateBriefScroll} aria-label="Admin overview" className="brief-rail mt-2 flex snap-x snap-mandatory gap-2.5 overflow-x-auto overscroll-x-contain scroll-smooth pb-0.5">
           {brief
             ? brief.map((c) => {
                 const t = CARD_TONE[c.tone];
                 return (
-                  <Link key={c.key} href={c.href} className={`group flex min-w-0 items-center gap-3 rounded-xl border border-solid px-3 py-2.5 no-underline transition hover:no-underline ${t.box}`}>
+                  <Link key={c.key} href={c.href} className={`group flex min-h-[82px] w-[78%] shrink-0 snap-start items-center gap-3 rounded-xl border border-solid px-3 py-2.5 no-underline transition hover:no-underline sm:w-[46%] lg:w-[31%] xl:w-[calc(25%_-_0.46875rem)] ${t.box}`}>
                     <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${t.icon}`}><c.icon className="h-4 w-4" aria-hidden /></span>
                     <span className="min-w-0 flex-1">
                       <span className={`block break-words text-base font-semibold tabular-nums leading-snug ${t.value}`}>{c.value}</span>
@@ -373,7 +414,7 @@ export default function AdminHomePage() {
                   </Link>
                 );
               })
-            : Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-[58px] animate-pulse rounded-xl bg-neutral-100" />)}
+            : Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-[82px] w-[78%] shrink-0 animate-pulse rounded-xl bg-neutral-100 sm:w-[46%] lg:w-[31%] xl:w-[calc(25%_-_0.46875rem)]" />)}
         </div>
       </header>
 
@@ -525,33 +566,44 @@ export default function AdminHomePage() {
         </div>
       </div>
 
-      {/* Leaders: who carried the month, and how they rank */}
-      <section className={CARD} aria-label="Leaders, last 30 days">
-        <div className="flex items-center justify-between gap-3 px-5 pb-1 pt-4">
-          <p className={LABEL}>Leaders, last {highlights?.windowDays ?? 30} days</p>
-          <Link href="/admin/analytics" className="inline-flex items-center gap-1 text-xs font-semibold text-[#02665e] no-underline hover:underline">Analytics <ChevronRight className="h-3.5 w-3.5" aria-hidden /></Link>
+      {/* Leaders: give real results room; keep unranked categories compact. */}
+      <section className={`${CARD} p-4 sm:p-5`} aria-label={`Leaders, last ${highlights?.windowDays ?? 30} days`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className={LABEL}>Performance · last {highlights?.windowDays ?? 30} days</p>
+            <h2 className="m-0 mt-0.5 text-lg font-semibold leading-tight text-neutral-950">Leaders</h2>
+          </div>
+          <Link href="/admin/analytics" className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-[#02665e] no-underline hover:bg-emerald-50 hover:no-underline">View analytics <ChevronRight className="h-3.5 w-3.5" aria-hidden /></Link>
         </div>
-        <ul className="m-0 grid list-none grid-cols-1 gap-px bg-neutral-100 p-0 sm:grid-cols-2 xl:grid-cols-4">
-          {leaders.map((l) => {
-            const Icon = l.icon;
-            return (
-              <li key={l.label} className="min-w-0 bg-white">
-                <Link href={l.href} className="group flex h-full items-start gap-3 px-4 py-3.5 no-underline hover:bg-emerald-50/40 hover:no-underline">
-                  <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${l.value ? "bg-[#02665e]/10 text-[#02665e]" : "border border-dashed border-neutral-200 bg-white text-neutral-300"}`}>
-                    <Icon className="h-4 w-4" aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[11px] font-semibold text-neutral-500">{l.label}</span>
-                    <span className={`mt-0.5 line-clamp-2 block break-words text-sm leading-snug ${l.value ? "font-semibold text-neutral-950" : "font-medium text-neutral-400"}`} title={l.value || undefined}>{l.value || "Nobody yet"}</span>
-                    <span className="mt-0.5 block text-xs leading-snug text-neutral-500">{l.value ? l.sub : l.rule}</span>
-                    {l.value && l.meta ? <span className="mt-1.5 inline-flex max-w-full rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600">{l.meta}</span> : null}
-                  </span>
-                  <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-neutral-300 opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" aria-hidden />
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        {rankedLeaders.length ? (
+          <ul className={`m-0 mt-4 grid list-none grid-cols-1 gap-2.5 p-0 sm:grid-cols-2 ${leaderColumns}`}>
+            {rankedLeaders.map((leader) => {
+              const Icon = leader.icon;
+              return (
+                <li key={leader.label} className="min-w-0">
+                  <Link href={leader.href} title={leader.rule} className="group flex h-full min-h-[96px] items-start gap-3 rounded-xl border border-solid border-neutral-200 bg-neutral-50/50 p-3.5 no-underline transition hover:border-emerald-200 hover:bg-emerald-50/50 hover:no-underline">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-100 text-[#02665e]"><Icon className="h-4 w-4" aria-hidden /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{leader.label}</span>
+                      <span className="mt-1 line-clamp-2 block break-words text-base font-semibold leading-snug text-neutral-950" title={leader.value || undefined}>{leader.value}</span>
+                      <span className="mt-1 block text-xs leading-snug text-neutral-600">{leader.sub}</span>
+                      {leader.meta ? <span className="mt-1 block text-[11px] text-neutral-500">{leader.meta}</span> : null}
+                    </span>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-neutral-400 transition group-hover:translate-x-0.5 group-hover:text-[#02665e]" aria-hidden />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="mt-4 rounded-xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-5 text-sm text-neutral-600">Rankings will appear as bookings and approved invoices come in.</div>
+        )}
+        {rankedLeaders.length && (waitingForBookings.length || waitingForInvoices.length) ? (
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 border-t border-solid border-neutral-100 pt-3 text-[11px] text-neutral-500">
+            {waitingForBookings.length ? <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5" aria-hidden /> Bookings needed to rank {waitingForBookings.map((leader) => leader.label.replace("Top ", "")).join(" and ")}</span> : null}
+            {waitingForInvoices.length ? <span className="inline-flex items-center gap-1.5"><Wallet className="h-3.5 w-3.5" aria-hidden /> Approved invoices needed to rank {waitingForInvoices.map((leader) => leader.label.replace("Top ", "")).join(" and ")}</span> : null}
+          </div>
+        ) : null}
       </section>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
