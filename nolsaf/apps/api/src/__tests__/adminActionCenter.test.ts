@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deadlineFrom,
+  isActionableOwnerPayout,
   isActionOverdue,
   normalizeSeverity,
   paginateActionItems,
@@ -54,6 +55,41 @@ function workflow(overrides: Partial<NonNullable<ActionCenterItem["workflow"]>> 
 }
 
 describe("admin action center helpers", () => {
+  it("never treats an unpaid guest checkout attempt as an owner payout", () => {
+    expect(isActionableOwnerPayout(
+      { invoiceNumber: "INV-2026-001", status: "PROCESSING", netPayable: 80_000 },
+      undefined,
+    )).toBe(false);
+    expect(isActionableOwnerPayout(
+      { invoiceNumber: "OINV-2026-001", status: "APPROVED", netPayable: 80_000 },
+      undefined,
+    )).toBe(false);
+    expect(isActionableOwnerPayout(
+      { invoiceNumber: "OINV-2026-001", status: "APPROVED", netPayable: 80_000 },
+      { confirmedTzs: 79_999, hasOtherCurrency: false },
+    )).toBe(false);
+  });
+
+  it("shows only funded owner claims awaiting payout", () => {
+    const funded = { confirmedTzs: 100_000, hasOtherCurrency: false };
+    expect(isActionableOwnerPayout(
+      { invoiceNumber: "OINV-2026-001", status: "APPROVED", netPayable: 80_000 }, funded,
+    )).toBe(true);
+    expect(isActionableOwnerPayout(
+      { invoiceNumber: "OINV-2026-001", status: "PROCESSING", netPayable: 80_000 }, funded,
+    )).toBe(true);
+    expect(isActionableOwnerPayout(
+      { invoiceNumber: "OINV-2026-001", status: "PROCESSING", netPayable: null }, funded,
+    )).toBe(false);
+    expect(isActionableOwnerPayout(
+      { invoiceNumber: "OINV-2026-001", status: "PAID", netPayable: 80_000 }, funded,
+    )).toBe(false);
+    expect(isActionableOwnerPayout(
+      { invoiceNumber: "OINV-2026-001", status: "APPROVED", netPayable: 80_000 },
+      { confirmedTzs: 100_000, hasOtherCurrency: true },
+    )).toBe(false);
+  });
+
   it("detects deadlines and overdue work deterministically", () => {
     const dueAt = deadlineFrom(new Date("2026-08-01T08:00:00.000Z"), 2);
     expect(dueAt.toISOString()).toBe("2026-08-01T10:00:00.000Z");
@@ -112,6 +148,14 @@ describe("admin action center helpers", () => {
       acknowledged: 1,
       resolved: 1,
     });
+  });
+
+  it("excludes resolved amounts from active financial exposure", () => {
+    const summary = summarizeActionItems([
+      item({ id: "open", exposure: { amount: 80_000, currency: "TZS" }, workflow: workflow({ responseBreached: false, resolutionBreached: false }) }),
+      item({ id: "resolved", exposure: { amount: 1_400_000, currency: "TZS" }, workflow: workflow({ id: 2, status: "RESOLVED", resolvedAt: now.toISOString() }) }),
+    ], now);
+    expect(summary.exposureByCurrency).toEqual({ TZS: 80_000 });
   });
 
   it("retries Prisma write conflicts and then succeeds", async () => {

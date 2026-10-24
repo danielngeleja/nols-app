@@ -1,5 +1,18 @@
 export type ActionSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 
+/** Guest checkout invoices and owner claims share status names. An owner payout
+ * action is real only for an OINV claim backed by provider-confirmed TZS funds. */
+export function isActionableOwnerPayout(
+  invoice: { invoiceNumber: string | null; status: string; netPayable: unknown },
+  payment: { confirmedTzs: number; hasOtherCurrency: boolean } | undefined,
+): boolean {
+  if (!invoice.invoiceNumber?.startsWith("OINV-")) return false;
+  if (invoice.status !== "APPROVED" && invoice.status !== "PROCESSING") return false;
+  const payable = Number(invoice.netPayable);
+  return Number.isFinite(payable) && payable > 0 && !payment?.hasOtherCurrency &&
+    Number.isFinite(payment?.confirmedTzs) && Number(payment?.confirmedTzs) + 0.01 >= payable;
+}
+
 export type ActionWorkflow = {
   id: number;
   status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
@@ -100,20 +113,21 @@ export function paginateActionItems<T>(items: T[], requestedPage: number, reques
 }
 
 export function summarizeActionItems(items: ActionCenterItem[], now = new Date()) {
-  const exposureByCurrency = items.reduce<Record<string, number>>((totals, item) => {
+  const activeItems = items.filter((item) => item.workflow?.status !== "RESOLVED");
+  const exposureByCurrency = activeItems.reduce<Record<string, number>>((totals, item) => {
     if (!item.exposure || item.exposure.amount <= 0) return totals;
     const currency = item.exposure.currency || "TZS";
     totals[currency] = (totals[currency] || 0) + item.exposure.amount;
     return totals;
   }, {});
 
-  const byCategory = items.reduce<Record<string, number>>((totals, item) => {
+  const byCategory = activeItems.reduce<Record<string, number>>((totals, item) => {
     totals[item.category] = (totals[item.category] || 0) + 1;
     return totals;
   }, {});
 
   return {
-    total: items.filter((item) => item.workflow?.status !== "RESOLVED").length,
+    total: activeItems.length,
     critical: items.filter((item) => item.workflow?.status !== "RESOLVED" && item.severity === "CRITICAL").length,
     high: items.filter((item) => item.workflow?.status !== "RESOLVED" && item.severity === "HIGH").length,
     overdue: items.filter((item) => item.workflow?.status !== "RESOLVED" && (item.workflow?.resolutionBreached ?? isActionOverdue(item, now))).length,

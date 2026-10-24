@@ -44,6 +44,7 @@ type ActionItem = {
   detailHref: string;
   actionLabel: string;
   exposure: { amount: number; currency: string } | null;
+  metadata?: Record<string, unknown>;
   workflow?: {
     id: number;
     status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
@@ -609,7 +610,7 @@ export default function AdminActionCenterPage() {
                         <div className="flex shrink-0 items-center gap-4">
                           {item.exposure ? (
                             <span className="text-right">
-                              <span className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">At stake</span>
+                              <span className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{item.metadata?.payoutVerified === true ? "Owner payout" : "At stake"}</span>
                               <span className="block text-sm font-semibold tabular-nums text-slate-900">{formatMoney(item.exposure.amount, item.exposure.currency)}</span>
                             </span>
                           ) : null}

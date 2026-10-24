@@ -4,6 +4,7 @@ import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import {
   deadlineFrom,
+  isActionableOwnerPayout,
   isActionOverdue,
   normalizeSeverity,
   paginateActionItems,
@@ -54,15 +55,17 @@ router.get("/", async (req, res) => {
       guestCodeRequests,
     ] = await Promise.all([
       prisma.invoice.findMany({
-        where: { status: { in: ["APPROVED", "PROCESSING"] } },
+        // INV-* PROCESSING is a guest checkout attempt, not money owed to an
+        // owner. Only OINV-* rows represent owner payout claims.
+        where: { invoiceNumber: { startsWith: "OINV-" }, status: { in: ["APPROVED", "PROCESSING"] } },
         orderBy: { updatedAt: "asc" },
-        take: 50,
+        take: 150,
         select: {
           id: true,
+          invoiceNumber: true,
           status: true,
-          total: true,
           netPayable: true,
-          issuedAt: true,
+          approvedAt: true,
           updatedAt: true,
           owner: { select: { name: true, fullName: true, email: true } },
           booking: { select: { id: true, property: { select: { title: true } } } },
@@ -186,9 +189,33 @@ router.get("/", async (req, res) => {
 
     const items: ActionCenterItem[] = [];
 
+    // Match the payout eligibility gate: successful provider events on the
+    // customer INV-* invoice are the evidence of collected money. Invoice
+    // status alone is not proof, even for an admin-approved owner claim.
+    const bookingIds = [...new Set(invoices.map((invoice) => invoice.booking.id))];
+    const confirmedCheckoutPayments = bookingIds.length ? await prisma.paymentEvent.findMany({
+      where: {
+        status: "SUCCESS",
+        invoice: { is: { bookingId: { in: bookingIds }, invoiceNumber: { startsWith: "INV-" } } },
+      },
+      select: { amount: true, currency: true, invoice: { select: { bookingId: true } } },
+    }) : [];
+    const confirmedByBooking = new Map<number, { confirmedTzs: number; hasOtherCurrency: boolean }>();
+    for (const payment of confirmedCheckoutPayments) {
+      const bookingId = payment.invoice?.bookingId;
+      if (bookingId == null) continue;
+      const confirmed = confirmedByBooking.get(bookingId) ?? { confirmedTzs: 0, hasOtherCurrency: false };
+      if (payment.currency.trim().toUpperCase() === "TZS") confirmed.confirmedTzs += number(payment.amount);
+      else confirmed.hasOtherCurrency = true;
+      confirmedByBooking.set(bookingId, confirmed);
+    }
+
+    let payoutActionCount = 0;
     for (const invoice of invoices) {
+      if (!isActionableOwnerPayout(invoice, confirmedByBooking.get(invoice.booking.id))) continue;
       const processing = upper(invoice.status) === "PROCESSING";
-      const dueAt = deadlineFrom(invoice.updatedAt, processing ? 6 : 24);
+      const openedAt = invoice.approvedAt ?? invoice.updatedAt;
+      const dueAt = deadlineFrom(processing ? invoice.updatedAt : openedAt, processing ? 6 : 24);
       const owner = invoice.owner.fullName || invoice.owner.name || invoice.owner.email || `Owner #${invoice.id}`;
       items.push({
         id: `PAYOUT-${invoice.id}`,
@@ -199,13 +226,15 @@ router.get("/", async (req, res) => {
         subject: owner,
         sourceType: "INVOICE",
         sourceId: String(invoice.id),
-        createdAt: iso(invoice.issuedAt),
+        createdAt: iso(openedAt),
         dueAt: iso(dueAt),
         detailHref: "/admin/payments",
         actionLabel: "Review payout",
-        exposure: { amount: number(invoice.netPayable ?? invoice.total), currency: "TZS" },
-        metadata: { status: invoice.status, bookingId: invoice.booking.id },
+        exposure: { amount: number(invoice.netPayable), currency: "TZS" },
+        metadata: { status: invoice.status, bookingId: invoice.booking.id, payoutVerified: true },
       });
+      payoutActionCount += 1;
+      if (payoutActionCount >= 50) break;
     }
 
     for (const trip of transports) {
