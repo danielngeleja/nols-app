@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { guestOccupancyPricing } from "./guestOccupancyPricing.js";
 
 test("owner's included guests and fee apply per sellable unit", () => {
