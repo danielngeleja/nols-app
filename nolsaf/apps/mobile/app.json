@@ -25,7 +25,7 @@
     "android": {
       "package": "com.nolsaf.app",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 44,
+      "versionCode": 46,
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO"
