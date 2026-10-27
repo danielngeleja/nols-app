@@ -217,6 +217,7 @@
     "20261018190000_add_mobile_push_delivery": "87c0e8bef75a240e3dff7b593059c1dfd2974c784165a8efae157470c3c86be5",
     "20261021090000_add_payout_withdrawal_jobs": "b054a9fadbc2d12c406cc9f1314332d17a9bc8e0f1ee83a7f7f9497229af6dea",
     "20261023100000_owner_withdrawal_daily_limit": "fd23c2543e7d7a21b57a2aa3ffb8eb75ce2b8c5fce96a97ef1c3597598f8ebf9",
-    "20261023110000_owner_withdrawal_allocation_cancel": "6486a477411a967fa7580233ef0b25c7e9c0ab1d27831f5c6eb09d4d5187333b"
+    "20261023110000_owner_withdrawal_allocation_cancel": "6486a477411a967fa7580233ef0b25c7e9c0ab1d27831f5c6eb09d4d5187333b",
+    "20261027130000_add_booking_payment_cases": "c48c8fc919d01b051678d4f7894d297d9926f36143ea85efb8ab0d095207f02b"
   }
 }

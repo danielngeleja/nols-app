@@ -1,6 +1,7 @@
 "use client";
 import { FileClock as IcDraft, BadgeCheck as IcPaid, BedDouble as IcIn, DoorOpen as IcOut, Ban as IcCancel, ChevronRight as IcNext } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement } from "react";
+import Link from "next/link";
 import { Calendar, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock, CreditCard, Eye, Landmark, LogIn, LogOut, Search, Smartphone, X, XCircle } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import TableRow from "@/components/TableRow";
@@ -32,7 +33,25 @@ type Row = {
   createdAt?: string | null;
   draftExpiresAt?: string | null;
   draftExpiryStatus?: "ACTIVE" | "EXPIRED" | null;
+  attemptState?: "ABANDONED" | "AWAITING_PAYMENT" | "EXPIRED_UNPAID" | "PAYMENT_PROCESSING" | "PAYMENT_REVIEW" | null;
+  attemptNeedsReview?: boolean;
 };
+
+function attemptLabel(row: Row, now: number): string {
+  if (row.attemptState === "PAYMENT_REVIEW") return "Payment needs review";
+  if (row.attemptState === "PAYMENT_PROCESSING") return row.attemptNeedsReview ? "Processing overdue" : "Payment processing";
+  if (row.attemptState === "EXPIRED_UNPAID") return "Expired unpaid";
+  if (row.attemptState === "ABANDONED") return "No payment started";
+  const remaining = row.draftExpiresAt ? new Date(row.draftExpiresAt).getTime() - now : null;
+  return remaining != null && remaining > 0 ? `Awaiting · ${formatCountdown(remaining)}` : "Awaiting payment";
+}
+
+function attemptColors(row: Row): [string, string] {
+  if (row.attemptState === "PAYMENT_REVIEW" || row.attemptNeedsReview) return ["#fff7ed", "#c2410c"];
+  if (row.attemptState === "EXPIRED_UNPAID") return ["#fef2f2", "#dc2626"];
+  if (row.attemptState === "PAYMENT_PROCESSING") return ["#eef2ff", "#4f46e5"];
+  return ["#faf5ff", "#9333ea"];
+}
 
 /** Format remaining ms as a compact countdown, e.g. "11h 04m" or "07m 12s". */
 function formatCountdown(ms: number): string {
@@ -319,14 +338,14 @@ export default function AdminBookingsPage() {
         const inHouse = c("CHECKED_IN") + c("PENDING_CHECKIN");
         const paid = c("CONFIRMED") + inHouse + c("CHECKED_OUT") + c("CANCELED");
         const stages: Array<{ value: string; label: string; hint: string; n: number; Icon: typeof IcPaid; dot: string; dashed?: boolean }> = [
-          { value: "DRAFT", label: "Draft", hint: "Checkout started, not paid", n: c("DRAFT"), Icon: IcDraft, dot: "bg-violet-300", dashed: true },
+          { value: "DRAFT", label: "Payment attempts", hint: "Unpaid and unresolved", n: c("DRAFT"), Icon: IcDraft, dot: "bg-violet-300", dashed: true },
           { value: "CONFIRMED", label: "Validated", hint: "Paid, waiting to arrive", n: c("CONFIRMED"), Icon: IcPaid, dot: "bg-emerald-300" },
           { value: "CHECKED_IN", label: "In house", hint: "Checked in or arriving", n: inHouse, Icon: IcIn, dot: "bg-amber-300" },
           { value: "CHECKED_OUT", label: "Checked out", hint: "Stay completed", n: c("CHECKED_OUT"), Icon: IcOut, dot: "bg-sky-300" },
         ];
         const verdict = !Object.keys(counts).length
           ? "Reading bookings…"
-          : `${paid} paid ${paid === 1 ? "booking" : "bookings"}: ${inHouse} in house now, ${c("CONFIRMED")} waiting to arrive, ${c("CHECKED_OUT")} completed and ${c("CANCELED")} cancelled.`;
+          : `${paid} stay ${paid === 1 ? "record" : "records"}: ${inHouse} in house now, ${c("CONFIRMED")} waiting to arrive, ${c("CHECKED_OUT")} completed and ${c("CANCELED")} cancelled.`;
         return (
           <section className="relative overflow-hidden rounded-2xl border border-solid border-emerald-950/60 bg-[#0b2420] px-5 py-5 text-white sm:px-6" aria-label="Bookings overview">
             <div className="pointer-events-none absolute inset-0" aria-hidden style={{ background: "radial-gradient(680px circle at 6% -30%, rgba(52,211,153,0.16), transparent 60%)" }} />
@@ -337,17 +356,20 @@ export default function AdminBookingsPage() {
                   <h1 className="m-0 mt-2 text-2xl font-bold tracking-tight">Bookings</h1>
                   <p className="m-0 mt-1.5 max-w-2xl text-sm leading-6 text-emerald-50/75">
                     {verdict}
-                    {c("DRAFT") > 0 ? <span className="text-violet-200"> {c("DRAFT")} more {c("DRAFT") === 1 ? "checkout was" : "checkouts were"} started and not paid.</span> : null}
+                    {c("DRAFT") > 0 ? <span className="text-violet-200"> {c("DRAFT")} payment {c("DRAFT") === 1 ? "attempt is" : "attempts are"} tracked separately.</span> : null}
                   </p>
                 </div>
+                <div className="flex flex-wrap gap-2">
+                <Link href="/admin/payment-cases" className="inline-flex h-9 items-center rounded-lg border border-solid border-amber-300/30 bg-amber-300/10 px-3 text-xs font-semibold text-amber-100 no-underline hover:bg-amber-300/20">Payment and code cases</Link>
                 <button
                   type="button"
                   onClick={() => setStatus("")}
                   aria-pressed={status === ""}
                   className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-solid px-3 text-xs font-semibold transition ${status === "" ? "border-emerald-300/50 bg-emerald-300/15 text-white" : "border-white/10 bg-white/[0.06] text-emerald-50/75 hover:bg-white/[0.12] hover:text-white"}`}
                 >
-                  All bookings <span className="rounded-md bg-white/10 px-1.5 py-px tabular-nums">{c("DRAFT") + paid}</span>
+                  All stays <span className="rounded-md bg-white/10 px-1.5 py-px tabular-nums">{paid}</span>
                 </button>
+                </div>
               </div>
 
               {/* The journey: draft, paid, in house, done. Cancelled sits apart. */}
@@ -436,7 +458,7 @@ export default function AdminBookingsPage() {
         {/* Status tabs + date */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <p className="m-0 text-xs text-gray-500">
-            Showing <span className="font-semibold text-gray-800">{({ "": "all bookings", DRAFT: "drafts (unpaid)", CONFIRMED: "validated bookings", CHECKED_IN: "guests in house", CHECKED_OUT: "checked-out stays", CANCELED: "cancelled bookings" } as Record<string, string>)[status] ?? "bookings"}</span>
+            Showing <span className="font-semibold text-gray-800">{({ "": "all stay records", DRAFT: "payment attempts", CONFIRMED: "validated bookings", CHECKED_IN: "guests in house", CHECKED_OUT: "checked-out stays", CANCELED: "cancelled bookings" } as Record<string, string>)[status] ?? "bookings"}</span>
             {status ? <button type="button" onClick={() => setStatus("")} className="ml-2 cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] hover:underline">Show all</button> : null}
           </p>
 
@@ -566,18 +588,9 @@ export default function AdminBookingsPage() {
                       </div>
                       <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                         <span className="text-sm font-bold text-gray-900 tabular-nums">{new Intl.NumberFormat().format(b.totalAmount)} <span className="text-xs font-normal text-gray-400">TZS</span></span>
-                        {status === 'DRAFT' ? (() => {
-                          const inv = String(b.invoice?.status ?? '').toUpperCase();
-                          const remainingMs = b.draftExpiresAt ? new Date(b.draftExpiresAt).getTime() - nowTick : null;
-                          const expired = String(b.draftExpiryStatus ?? '').toUpperCase() === 'EXPIRED' || (remainingMs != null && remainingMs <= 0);
-                          if (inv === 'PROCESSING') {
-                            return <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: '#eef2ff', color: '#6366f1' }}><Clock className="h-2.5 w-2.5" /> Processing</span>;
-                          }
-                          if (expired) {
-                            return <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: '#fef2f2', color: '#ef4444' }}><XCircle className="h-2.5 w-2.5" /> Expired</span>;
-                          }
-                          return <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: '#faf5ff', color: '#a855f7' }}><Clock className="h-2.5 w-2.5" /> {remainingMs != null ? formatCountdown(remainingMs) : 'Draft'}</span>;
-                        })() : (
+                        {status === 'DRAFT' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: attemptColors(b)[0], color: attemptColors(b)[1] }}><Clock className="h-2.5 w-2.5" /> {attemptLabel(b, nowTick)}</span>
+                        ) : (
                           <StatusBadge s={b.status} />
                         )}
                         <button
@@ -696,7 +709,7 @@ export default function AdminBookingsPage() {
                                     </span>
                                   );
                                 case 'status': {
-                                  // A NEW booking shown in any admin list is an unpaid draft, so it reads "Draft".
+                                  // NEW records are payment attempts, not stay bookings.
                                   const _icons: Record<string, ReactElement | null> = {
                                     NEW: <Clock className="h-3 w-3" />,
                                     CONFIRMED: <CheckCircle2 className="h-3 w-3" />,
@@ -705,12 +718,12 @@ export default function AdminBookingsPage() {
                                     CHECKED_OUT: <LogOut className="h-3 w-3" />,
                                     CANCELED: <XCircle className="h-3 w-3" />,
                                   };
-                                  const _labels: Record<string, string> = { NEW: 'Draft', CONFIRMED: 'Validated', PENDING_CHECKIN: 'Pending', CHECKED_IN: 'Checked in', CHECKED_OUT: 'Checked out', CANCELED: 'Cancelled' };
+                                  const _labels: Record<string, string> = { NEW: attemptLabel(b, nowTick), CONFIRMED: 'Validated', PENDING_CHECKIN: 'Pending', CHECKED_IN: 'Checked in', CHECKED_OUT: 'Checked out', CANCELED: 'Cancelled' };
                                   const _palette: Record<string, [string, string]> = {
                                     NEW: ['#faf5ff','#a855f7'], CONFIRMED: ['#ecfdf5','#10b981'], PENDING_CHECKIN: ['#fffbeb','#f59e0b'],
                                     CHECKED_IN: ['#f0fdf4','#22c55e'], CHECKED_OUT: ['#f0f9ff','#0ea5e9'], CANCELED: ['#fef2f2','#ef4444'],
                                   };
-                                  const [_bg, _col] = _palette[b.status] ?? ['#f9fafb','#6b7280'];
+                                  const [_bg, _col] = b.status === 'NEW' ? attemptColors(b) : (_palette[b.status] ?? ['#f9fafb','#6b7280']);
                                   return (
                                     <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap" style={{ background: _bg, color: _col }}>
                                       {_icons[b.status] ?? null}
@@ -783,28 +796,10 @@ export default function AdminBookingsPage() {
                                   );
                                 }
                                 case 'draftStatus': {
-                                  const inv = String(b.invoice?.status ?? '').toUpperCase();
-                                  const expired = String(b.draftExpiryStatus ?? '').toUpperCase() === 'EXPIRED';
-                                  const remainingMs = b.draftExpiresAt ? new Date(b.draftExpiresAt).getTime() - nowTick : null;
-                                  // Three states: payment processing, expired, or awaiting (with countdown).
-                                  if (inv === 'PROCESSING') {
-                                    return (
-                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap" style={{ background: '#eef2ff', color: '#6366f1' }}>
-                                        <Clock className="h-3 w-3" /> Payment processing
-                                      </span>
-                                    );
-                                  }
-                                  if (expired || (remainingMs != null && remainingMs <= 0)) {
-                                    return (
-                                      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap" style={{ background: '#fef2f2', color: '#ef4444' }}>
-                                        <XCircle className="h-3 w-3" /> Expired
-                                      </span>
-                                    );
-                                  }
                                   return (
-                                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap" style={{ background: '#faf5ff', color: '#a855f7' }}>
+                                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap" style={{ background: attemptColors(b)[0], color: attemptColors(b)[1] }}>
                                       <Clock className="h-3 w-3" />
-                                      {remainingMs != null ? `Awaiting · ${formatCountdown(remainingMs)}` : 'Awaiting payment'}
+                                      {attemptLabel(b, nowTick)}
                                     </span>
                                   );
                                 }

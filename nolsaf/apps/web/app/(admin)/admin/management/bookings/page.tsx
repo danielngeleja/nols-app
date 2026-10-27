@@ -37,6 +37,8 @@ type BookingRow = {
   user?: { id: number; name: string | null; email: string | null; phone: string | null } | null;
   draftExpiresAt?: string | null;
   draftExpiryStatus?: "ACTIVE" | "EXPIRED" | null;
+  attemptState?: string | null;
+  attemptNeedsReview?: boolean;
 };
 
 type PropertyOption = { id: number; title: string; regionName?: string | null; district?: string | null };
@@ -46,7 +48,7 @@ const PAGE_SIZE = 25;
 
 /** Booking lifecycle. The filter keys are the API's; CHECKED_IN on the API also returns PENDING_CHECKIN. */
 const STAGES: Array<{ key: string; label: string; hint: string; icon: typeof Clock; text: string; bar: string; soft: string; pill: string; counts: string[] }> = [
-  { key: "DRAFT", label: "Awaiting payment", hint: "Invoice created, not paid", icon: Clock, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50/70", pill: "bg-amber-50 text-amber-800 ring-amber-200", counts: ["DRAFT"] },
+  { key: "DRAFT", label: "Payment attempts", hint: "Unpaid and unresolved", icon: Clock, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50/70", pill: "bg-amber-50 text-amber-800 ring-amber-200", counts: ["DRAFT"] },
   { key: "CONFIRMED", label: "Confirmed", hint: "Paid, guest yet to arrive", icon: CalendarCheck, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50/70", pill: "bg-emerald-50 text-emerald-700 ring-emerald-200", counts: ["CONFIRMED"] },
   { key: "CHECKED_IN", label: "In house", hint: "Checked in or arriving now", icon: LogIn, text: "text-sky-700", bar: "bg-sky-500", soft: "bg-sky-50/70", pill: "bg-sky-50 text-sky-700 ring-sky-200", counts: ["CHECKED_IN", "PENDING_CHECKIN"] },
   { key: "CHECKED_OUT", label: "Checked out", hint: "Stay completed", icon: LogOut, text: "text-violet-700", bar: "bg-violet-500", soft: "bg-violet-50/70", pill: "bg-violet-50 text-violet-700 ring-violet-200", counts: ["CHECKED_OUT"] },
@@ -54,7 +56,7 @@ const STAGES: Array<{ key: string; label: string; hint: string; icon: typeof Clo
 ];
 
 const STATUS_LABEL: Record<string, string> = {
-  NEW: "Awaiting payment",
+  NEW: "Payment attempt",
   CONFIRMED: "Confirmed",
   PENDING_CHECKIN: "Checking in",
   CHECKED_IN: "In house",
@@ -219,7 +221,7 @@ export default function BookingsManagementPage() {
   }, [items, sortKey]);
 
   const countOf = (keys: string[]) => keys.reduce((sum, k) => sum + Number(counts?.[k] ?? 0), 0);
-  const allCount = counts ? STAGES.reduce((sum, st) => sum + countOf(st.counts), 0) : null;
+  const allCount = counts ? STAGES.filter((st) => st.key !== "DRAFT").reduce((sum, st) => sum + countOf(st.counts), 0) : null;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const filtersOn = Boolean(status || search || propertyId !== "all");
   const activeStage = status ? STAGES.find((s) => s.key === status) : null;
@@ -229,7 +231,7 @@ export default function BookingsManagementPage() {
     { label: "Bookings", value: allCount != null ? allCount.toLocaleString() : "...", detail: "paid, in progress, completed or cancelled", tone: "text-white" },
     { label: "Staying today", value: stayingToday != null ? stayingToday.toLocaleString() : "...", detail: `confirmed or in house on ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: "Africa/Dar_es_Salaam" })}`, tone: stayingToday ? "text-emerald-300" : "text-white" },
     { label: "Upcoming", value: counts ? countOf(["CONFIRMED"]).toLocaleString() : "...", detail: "confirmed, guest yet to arrive", tone: "text-white" },
-    { label: "Awaiting payment", value: counts ? countOf(["DRAFT"]).toLocaleString() : "...", detail: "invoice created, not yet paid", tone: countOf(["DRAFT"]) ? "text-amber-300" : "text-white" },
+    { label: "Payment attempts", value: counts ? countOf(["DRAFT"]).toLocaleString() : "...", detail: "tracked separately from stays", tone: countOf(["DRAFT"]) ? "text-amber-300" : "text-white" },
   ];
 
   const pickStatus = (key: string) => {
@@ -423,9 +425,9 @@ export default function BookingsManagementPage() {
                       <td className="px-3 py-3">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${stage?.pill ?? "bg-neutral-100 text-neutral-600 ring-neutral-200"}`}>
                           {stage ? <stage.icon className="h-3 w-3" /> : null}
-                          {STATUS_LABEL[String(b.status).toUpperCase()] ?? b.status}
+                          {String(b.status).toUpperCase() === "NEW" ? b.attemptState === "PAYMENT_REVIEW" ? "Payment needs review" : b.attemptState === "PAYMENT_PROCESSING" ? b.attemptNeedsReview ? "Processing overdue" : "Payment processing" : b.attemptState === "EXPIRED_UNPAID" ? "Expired unpaid" : "Awaiting payment" : STATUS_LABEL[String(b.status).toUpperCase()] ?? b.status}
                         </span>
-                        {String(b.status).toUpperCase() === "NEW" && b.draftExpiresAt && (
+                        {String(b.status).toUpperCase() === "NEW" && b.draftExpiryStatus && b.draftExpiresAt && (
                           <div className={`mt-1 text-[11px] ${b.draftExpiryStatus === "EXPIRED" ? "font-semibold text-rose-600" : "text-amber-700"}`}>{b.draftExpiryStatus === "EXPIRED" ? "Payment window expired" : hoursLeft(b.draftExpiresAt)}</div>
                         )}
                       </td>

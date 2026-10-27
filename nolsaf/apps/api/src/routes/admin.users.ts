@@ -16,6 +16,7 @@ import { resolveUserRoles } from '../lib/userRoles.js';
 import { NRMS_STAFF_ROLES, nrmsStaffRoleLabel } from '../lib/nrmsStaffRoles.js';
 import { buildCustomerStatement } from '../lib/customerStatement.js';
 import { adminBookingReference } from '../lib/adminBookingReference.js';
+import { classifyBookingAttempt } from '../lib/bookingAttemptState.js';
 import { shapeKaribuPreferences } from '../lib/karibuPreferences.js';
 import { mergeNotificationPrefs } from '../lib/notificationPrefs.js';
 import { DATA_EXPORT_REASON_LABEL, DATA_EXPORT_UNLOCKED_ACTION, dataExportLockState } from '../lib/dataExportVerification.js';
@@ -779,6 +780,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
               codeVisible: true,
             },
           },
+          invoices: { select: { status: true, receiptNumber: true, paymentEvents: { where: { status: 'SUCCESS' }, select: { status: true }, take: 1 } } },
         },
         orderBy: { createdAt: 'desc' },
         take: 50,
@@ -800,6 +802,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
                 district: true,
               },
             },
+            invoices: { select: { status: true, receiptNumber: true, paymentEvents: { where: { status: 'SUCCESS' }, select: { status: true }, take: 1 } } },
           },
           orderBy: { createdAt: 'desc' },
           take: 50,
@@ -822,6 +825,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
                   district: true,
                 },
               },
+              invoices: { select: { status: true, receiptNumber: true, paymentEvents: { where: { status: 'SUCCESS' }, select: { status: true }, take: 1 } } },
             },
             orderBy: { createdAt: 'desc' },
             take: 50,
@@ -882,7 +886,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
     // profile can render one product-shaped table per tab instead of a single
     // flattened feed.
     const activities = [
-      ...bookings.map((item: any) => ({
+      ...bookings.filter((item: any) => String(item.status).toUpperCase() !== 'NEW').map((item: any) => ({
         type: 'ACCOMMODATION_BOOKING',
         id: item.id,
         // Opaque id for the admin booking URL; `reference` below is the check-in code.
@@ -1037,7 +1041,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
       currency: string;
       fxTzsPerUnit: number | null;
     }[] = [
-      ...bookings.map((row: any) => ({
+      ...bookings.filter((row: any) => String(row.status).toUpperCase() !== 'NEW').map((row: any) => ({
         product: 'stays',
         status: String(row.status || ''),
         amount: Number(row.totalAmount || 0),
@@ -1162,10 +1166,19 @@ router.get('/:id', asyncHandler(async (req, res) => {
     const responsePayload = {
       user,
       roles,
-      bookings: bookings.map((b: any) => ({ ...b, reference: adminBookingReference(b.id) })),
+      bookings: bookings.map((b: any) => {
+        const attempt = classifyBookingAttempt(b);
+        return {
+          ...b,
+          reference: adminBookingReference(b.id),
+          attemptState: attempt?.state ?? null,
+          attemptNeedsReview: attempt?.needsReview ?? false,
+          draftExpiresAt: attempt?.expiresAt.toISOString() ?? null,
+        };
+      }),
       activities,
       activityCounts: {
-        accommodationBookings: bookings.length,
+        accommodationBookings: bookings.filter((b: any) => String(b.status).toUpperCase() !== 'NEW').length,
         tourBookings: tourBookings.length,
         transportBookings: transportBookings.length,
         groupBookings: groupBookings.length,
@@ -1652,7 +1665,7 @@ router.get('/:id/behaviour', asyncHandler(async (req: any, res: any) => {
     restrictions,
   ] = await Promise.all([
     wants('stays') ? prisma.booking.findMany({
-      where: { userId: id, createdAt: createdInWindow },
+      where: { userId: id, createdAt: createdInWindow, status: { in: ['CONFIRMED', 'PENDING_CHECKIN', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELED'] } },
       select: {
         id: true, status: true, totalAmount: true, createdAt: true,
         property: { select: { regionName: true, city: true } },

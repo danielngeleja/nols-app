@@ -70,7 +70,7 @@ type CustomerActivity = {
 type ActivityTabKey = "transport" | "tours" | "groups" | "other";
 // No "overview" tab: the profile header already carries the identity, role,
 // registration, and verification state it used to repeat.
-type ProfileTabKey = "stays" | ActivityTabKey | "behaviour" | "karibu" | "audit";
+type ProfileTabKey = "stays" | "attempts" | ActivityTabKey | "behaviour" | "karibu" | "audit";
 
 const AUDIT_PAGE_SIZE = 8;
 
@@ -230,6 +230,13 @@ const PROFILE_TAB_ACCENTS: Record<
     activeBadge: "bg-blue-100 text-blue-800",
     idleIcon: "text-blue-400",
     idleHover: "hover:bg-blue-50 hover:text-blue-800 hover:ring-1 hover:ring-blue-100",
+  },
+  attempts: {
+    activePill: "bg-amber-50 text-amber-800 ring-1 ring-amber-200",
+    activeIcon: "text-amber-600",
+    activeBadge: "bg-amber-100 text-amber-800",
+    idleIcon: "text-amber-400",
+    idleHover: "hover:bg-amber-50 hover:text-amber-800 hover:ring-1 hover:ring-amber-100",
   },
   tours: {
     activePill: "bg-violet-50 text-violet-800 ring-1 ring-violet-200",
@@ -872,6 +879,8 @@ type Booking = {
   /** Opaque id for the booking URL. */
   reference?: string;
   status: string;
+  attemptState?: string | null;
+  attemptNeedsReview?: boolean;
   checkIn: string;
   checkOut: string;
   totalAmount: number;
@@ -893,6 +902,15 @@ type Booking = {
     codeVisible: string | null;
   } | null;
 };
+
+function bookingRecordLabel(booking: Booking): string {
+  if (booking.status !== "NEW") return booking.status.replace(/_/g, " ");
+  if (booking.attemptState === "PAYMENT_REVIEW") return "Payment needs review";
+  if (booking.attemptState === "PAYMENT_PROCESSING") return booking.attemptNeedsReview ? "Processing overdue" : "Payment processing";
+  if (booking.attemptState === "EXPIRED_UNPAID") return "Expired unpaid";
+  if (booking.attemptState === "ABANDONED") return "No payment started";
+  return "Awaiting payment";
+}
 
 /** Every hat this account wears. User.role is one column and cannot say that
  *  a customer also tends a bar at one property and sells as a partner. */
@@ -1042,7 +1060,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
   }, [allBookings, allActivities]);
 
   // Filtering happens here, once, before anything downstream reads the arrays.
-  const bookings = useMemo(() => {
+  const filteredBookings = useMemo(() => {
     if (!filtersActive) return allBookings;
     return allBookings.filter(
       (booking) =>
@@ -1055,6 +1073,9 @@ function AdminUserDetail({ userId }: { userId: number }) {
         ),
     );
   }, [allBookings, profileFilters, filtersActive]);
+  const allStayBookings = useMemo(() => allBookings.filter((booking) => booking.status !== "NEW"), [allBookings]);
+  const allAttemptBookings = useMemo(() => allBookings.filter((booking) => booking.status === "NEW"), [allBookings]);
+  const bookings = useMemo(() => filteredBookings.filter((booking) => tab === "attempts" ? booking.status === "NEW" : booking.status !== "NEW"), [filteredBookings, tab]);
 
   const activities = useMemo(() => {
     if (!filtersActive) return allActivities;
@@ -1785,7 +1806,8 @@ function AdminUserDetail({ userId }: { userId: number }) {
           <div className="bg-white">
             <div className="flex min-w-0 gap-1 overflow-x-auto border-0 border-b border-solid border-neutral-200 px-2" role="tablist" aria-label="Customer records">
               {([
-                { key: "stays", label: "Stays", count: bookings.length, total: allBookings.length, icon: Home },
+                { key: "stays", label: "Stays", count: filteredBookings.filter((booking) => booking.status !== "NEW").length, total: allStayBookings.length, icon: Home },
+                { key: "attempts", label: "Payment attempts", count: filteredBookings.filter((booking) => booking.status === "NEW").length, total: allAttemptBookings.length, icon: Clock },
                 { key: "tours", label: "Tours", count: activityByTab.tours.length, total: allActivityByTab.tours, icon: MapIcon },
                 { key: "transport", label: "Transport", count: activityByTab.transport.length, total: allActivityByTab.transport, icon: Car },
                 { key: "groups", label: "Group Stays", count: activityByTab.groups.length, total: allActivityByTab.groups, icon: Users },
@@ -3346,22 +3368,23 @@ function AdminUserDetail({ userId }: { userId: number }) {
                 })()}
               </div>
             )}
-            {tab === "stays" && (
+            {(tab === "stays" || tab === "attempts") && (
               <div>
+                {tab === "attempts" && <p className="m-0 border-0 border-b border-solid border-amber-100 bg-amber-50 px-5 py-3 text-xs font-medium text-amber-900">Checkout attempts are not confirmed stays. Review payment processing and provider evidence before taking action.</p>}
                 {bookings.length === 0 ? (
                   <div className="text-center py-16">
                     <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
                       <ShoppingCart className="h-8 w-8 text-gray-400" />
                     </div>
                     <p className="m-0 mb-1 text-base font-semibold text-gray-700">
-                      {filtersActive && allBookings.length > 0 ? "No stays match these filters" : "No stays found"}
+                      {filtersActive && (tab === "attempts" ? allAttemptBookings.length : allStayBookings.length) > 0 ? `No ${tab === "attempts" ? "payment attempts" : "stays"} match these filters` : `No ${tab === "attempts" ? "payment attempts" : "stays"} found`}
                     </p>
                     <p className="m-0 text-sm text-gray-500">
-                      {filtersActive && allBookings.length > 0
-                        ? `${allBookings.length} stays exist outside the current filters.`
-                        : "This user hasn't booked any accommodation yet."}
+                      {filtersActive && (tab === "attempts" ? allAttemptBookings.length : allStayBookings.length) > 0
+                        ? `${tab === "attempts" ? allAttemptBookings.length : allStayBookings.length} records exist outside the current filters.`
+                        : tab === "attempts" ? "This user has no payment attempts on record." : "This user hasn't booked any accommodation yet."}
                     </p>
-                    {filtersActive && allBookings.length > 0 && (
+                    {filtersActive && (tab === "attempts" ? allAttemptBookings.length : allStayBookings.length) > 0 && (
                       <button
                         type="button"
                         onClick={() => setProfileFilters(PROFILE_FILTERS_DEFAULT)}
@@ -3449,7 +3472,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                                       : "bg-gray-100 text-gray-800"
                                   }`}
                                 >
-                                  {booking.status.replace(/_/g, ' ')}
+                                  {bookingRecordLabel(booking)}
                                 </span>
                               </div>
                             </div>
@@ -3606,7 +3629,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                                         : "bg-gray-100 text-gray-800"
                                     }`}
                                   >
-                                    {booking.status.replace(/_/g, ' ')}
+                                    {bookingRecordLabel(booking)}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3">

@@ -1,5 +1,6 @@
 import { type Express, type RequestHandler } from "express";
 import customerBookingsRouter from "./customer.bookings";
+import customerBookingPaymentCasesRouter from "./customer.bookingPaymentCases.js";
 import customerCancellationsRouter from "./customer.cancellations";
 import customerGroupStaysRouter from "./customer.groupStays";
 import customerKaribuRouter from "./customer.karibu";
@@ -14,6 +15,7 @@ import customerTourBookingsRouter from "./customer.tourBookings";
 import customerTripSafetyRouter from "./customer.tripSafety";
 
 export function registerCustomerRoutes(app: Express): void {
+  app.use("/api/customer/booking-payment-cases", customerBookingPaymentCasesRouter as RequestHandler);
   app.use("/api/customer/bookings", customerBookingsRouter as RequestHandler);
   app.use("/api/customer/cancellations", customerCancellationsRouter as RequestHandler);
   app.use("/api/customer/rides", customerRidesRouter as RequestHandler);

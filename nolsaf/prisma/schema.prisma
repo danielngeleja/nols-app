@@ -685,6 +685,7 @@ model Booking {
   tripEstimates        TripEstimate[]
   payoutReleases       PayoutRelease[]
   guestCodeRequests    GuestCodeRequest[]
+  paymentReconciliationCase BookingPaymentCase?
 
   /// NRMS operational view of this marketplace booking (NRMS doc section 6.5).
   /// Booking remains the commercial source of truth; the linked Reservation only
@@ -10345,4 +10346,43 @@ model GuestCodeRequest {
   @@index([bookingId])
   @@index([ownerId, createdAt])
   @@map("guest_code_request")
+}
+
+/// A traveller's "paid, no code" report. A case keeps the booking and its
+/// payment evidence available until support has recorded an outcome.
+model BookingPaymentCase {
+  id                Int       @id @default(autoincrement())
+  bookingId         Int       @unique
+  customerId        Int
+  status            String    @default("OPEN") @db.VarChar(30)
+  customerReference String?   @db.VarChar(100)
+  resolution        String?   @db.VarChar(40)
+  resolvedById      Int?
+  resolvedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  booking Booking                   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  events  BookingPaymentCaseEvent[]
+
+  @@index([status, createdAt])
+  @@index([customerId, createdAt])
+  @@map("booking_payment_case")
+}
+
+/// Append-only operational record. No booking code or full payment payloads.
+model BookingPaymentCaseEvent {
+  id        Int      @id @default(autoincrement())
+  caseId    Int
+  type      String   @db.VarChar(40)
+  actorId   Int?
+  actorRole String   @db.VarChar(20)
+  note      String?  @db.VarChar(500)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  paymentCase BookingPaymentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, createdAt])
+  @@map("booking_payment_case_event")
 }

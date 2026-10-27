@@ -9,6 +9,7 @@ import adminAuditsRouter from "./admin.audits";
 import { router as adminEmail } from "./admin.auth.email";
 import adminBonusesRouter from "./admin.bonuses";
 import adminBookingsRouter from "./admin.bookings";
+import adminBookingPaymentCasesRouter from "./admin.bookingPaymentCases.js";
 import adminGuestCodeRequestsRouter from "./admin.guestCodeRequests.js";
 import adminCancellationsRouter from "./admin.cancellations";
 import adminCareersApplicationsRouter from "./admin.careers.applications";
@@ -94,6 +95,8 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/api/admin/karibu", adminKaribuRouter as RequestHandler);
   app.use("/admin/bookings", adminBookingsRouter);
   app.use("/api/admin/bookings", adminBookingsRouter as RequestHandler);
+  app.use("/admin/booking-payment-cases", adminBookingPaymentCasesRouter);
+  app.use("/api/admin/booking-payment-cases", adminBookingPaymentCasesRouter as RequestHandler);
   app.use("/api/admin/guest-code-requests", adminGuestCodeRequestsRouter as RequestHandler);
   app.use("/admin/invoices", adminInvoicesRouter);
   app.use("/api/admin/invoices", adminInvoicesRouter as RequestHandler);

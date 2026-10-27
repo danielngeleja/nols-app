@@ -16,6 +16,7 @@ import {
 import { serializeAdminWorkItem, synchronizeAdminWorkItems } from "../lib/adminSlaWorkItems.js";
 import { retentionClassForActionCenter, retentionFields } from "../lib/auditRetention.js";
 import { adminRecordReferenceOrNull as recordRef } from "../lib/adminRecordReference.js";
+import { bookingPaymentCaseReference } from "../lib/bookingPaymentCaseReference.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -53,11 +54,18 @@ router.get("/", async (req, res) => {
       channelAlerts,
       stopSellRequests,
       guestCodeRequests,
+      paymentCases,
     ] = await Promise.all([
       prisma.invoice.findMany({
         // INV-* PROCESSING is a guest checkout attempt, not money owed to an
         // owner. Only OINV-* rows represent owner payout claims.
-        where: { invoiceNumber: { startsWith: "OINV-" }, status: { in: ["APPROVED", "PROCESSING"] } },
+        where: {
+          invoiceNumber: { startsWith: "OINV-" },
+          status: { in: ["APPROVED", "PROCESSING"] },
+          // A still-NEW checkout is not an owner-payable stay, even if a
+          // provider payment event exists and needs separate reconciliation.
+          booking: { is: { status: { not: "NEW" } } },
+        },
         orderBy: { updatedAt: "asc" },
         take: 150,
         select: {
@@ -185,6 +193,12 @@ router.get("/", async (req, res) => {
           booking: { select: { guestName: true, property: { select: { title: true } } } },
         },
       }).catch(() => [] as any[]),
+      prisma.bookingPaymentCase.findMany({
+        where: { status: { not: "RESOLVED" } },
+        orderBy: { createdAt: "asc" },
+        take: 100,
+        select: { id: true, status: true, createdAt: true, booking: { select: { guestName: true, property: { select: { title: true } } } } },
+      }).catch(() => []),
     ]);
 
     const items: ActionCenterItem[] = [];
@@ -414,6 +428,26 @@ router.get("/", async (req, res) => {
         dueAt: iso(dueAt),
         detailHref: "/admin/bookings/code-requests",
         actionLabel: "Handle request",
+        exposure: null,
+      });
+    }
+
+    for (const paymentCase of paymentCases) {
+      const dueAt = new Date(paymentCase.createdAt.getTime() + 2 * 60 * 60 * 1000);
+      const reference = bookingPaymentCaseReference(paymentCase.id);
+      items.push({
+        id: `PAYMENT-CASE-${reference}`,
+        category: "BOOKINGS",
+        severity: elevateWhenOverdue(paymentCase.status === "INVENTORY_CONFLICT" ? "CRITICAL" : "HIGH", dueAt, now),
+        title: paymentCase.status === "INVENTORY_CONFLICT" ? "Paid booking needs an availability resolution" : "Traveller reported payment without a code",
+        summary: `${paymentCase.booking.guestName || "A traveller"} at ${paymentCase.booking.property?.title || "a property"}. ${paymentCase.status.replace(/_/g, " ").toLowerCase()}.`,
+        subject: paymentCase.booking.property?.title || "Booking",
+        sourceType: "BOOKING_PAYMENT_CASE",
+        sourceId: reference,
+        createdAt: iso(paymentCase.createdAt),
+        dueAt: iso(dueAt),
+        detailHref: `/admin/payment-cases/${reference}`,
+        actionLabel: "Reconcile payment",
         exposure: null,
       });
     }

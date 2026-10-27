@@ -313,7 +313,15 @@ export default function AdminBookingDetail() {
 
   const nights = Math.max(0, Math.round((new Date(b.checkOut).getTime() - new Date(b.checkIn).getTime()) / 86_400_000));
   const statusKey = String(b.status || "").toUpperCase();
-  const statusMeta = STATUS_META[statusKey] ?? { label: humanize(b.status), pill: "bg-white/10 text-white/80" };
+  const attemptState = String(b.attemptState || "");
+  const attemptMeta: Record<string, { label: string; pill: string; message: string }> = {
+    ABANDONED: { label: "No payment started", pill: "bg-white/10 text-white/80", message: "No payment was started for this stay." },
+    AWAITING_PAYMENT: { label: "Awaiting payment", pill: "bg-amber-400/20 text-amber-200", message: "Awaiting payment. A check-in code is issued only after payment is confirmed." },
+    EXPIRED_UNPAID: { label: "Expired unpaid", pill: "bg-rose-400/20 text-rose-200", message: "The payment window expired without confirmed payment." },
+    PAYMENT_PROCESSING: { label: b.attemptNeedsReview ? "Processing overdue" : "Payment processing", pill: "bg-sky-400/20 text-sky-200", message: b.attemptNeedsReview ? "Payment is still processing beyond the booking window. Check the provider result before taking action." : "Payment is processing. Wait for the provider result before taking action." },
+    PAYMENT_REVIEW: { label: "Payment needs review", pill: "bg-orange-400/20 text-orange-200", message: "A payment signal exists, but this stay is not confirmed. Reconcile the provider result before taking action." },
+  };
+  const statusMeta = statusKey === "NEW" ? (attemptMeta[attemptState] ?? STATUS_META.NEW) : (STATUS_META[statusKey] ?? { label: humanize(b.status), pill: "bg-white/10 text-white/80" });
   const guestName = b.guestName || b.user?.name || "Guest not named";
   const guestEmail = b.user?.email || null;
   const guestPhone = b.guestPhone || b.user?.phone || null;
@@ -325,7 +333,7 @@ export default function AdminBookingDetail() {
   const facts = [
     { label: "Stay", value: `${nights} ${nights === 1 ? "night" : "nights"}`, detail: `${eatDay(b.checkIn)} to ${eatDay(b.checkOut)}` },
     { label: "Guest", value: guestName, detail: guestPhone || guestEmail || "No contact on file" },
-    { label: "Amount", value: tzs(total), detail: statusKey === "NEW" ? "Not paid yet" : statusMeta.label },
+    { label: "Amount", value: tzs(total), detail: statusMeta.label },
     { label: "Per night", value: nights > 0 ? tzs(total / nights) : tzs(total), detail: b.roomCode ? `Room ${b.roomCode}` : tidy(b.property?.type) || "Room not set" },
   ];
 
@@ -422,11 +430,11 @@ export default function AdminBookingDetail() {
                   {tidy(b.property?.title) || "Property removed"}{place ? ` · ${place}` : ""}{b.roomCode ? ` · Room ${b.roomCode}` : ""}
                 </p>
               </div>
-              {/* Codes are issued automatically once payment is confirmed; unpaid bookings simply wait. */}
+              {/* A payment attempt never implies a confirmed stay. */}
               {statusKey === "NEW" && (
                 <span className="inline-flex max-w-md items-start gap-2 rounded-xl bg-amber-400/15 px-3 py-2 text-xs font-medium leading-snug text-amber-100 ring-1 ring-inset ring-amber-300/25">
                   <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-                  Awaiting payment. The check-in code is issued automatically once it is paid.
+                  {attemptMeta[attemptState]?.message ?? "Payment has not been confirmed. A check-in code is issued after confirmation."}
                 </span>
               )}
             </div>
@@ -478,7 +486,7 @@ export default function AdminBookingDetail() {
                   {codeVisible} {copyButton("code", codeVisible, "check-in code", true)}
                 </p>
               ) : (
-                <p className="m-0 mt-0.5 text-sm font-semibold text-neutral-500">{statusKey === "NEW" ? "Issued after payment" : "No active code"}</p>
+                <p className="m-0 mt-0.5 text-sm font-semibold text-neutral-500">{statusKey === "NEW" ? "No code issued" : "No active code"}</p>
               )}
               {b.code?.status && <p className={`m-0 mt-0.5 text-[11px] ${codeVisible ? "text-white/50" : "text-neutral-400"}`}>{humanize(b.code.status)}{b.code.usedAt ? ` · used ${eatDate(b.code.usedAt)}` : ""}</p>}
             </div>
