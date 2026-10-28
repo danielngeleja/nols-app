@@ -83,6 +83,10 @@ function describeCase(row: any, detail = false) {
         type: event.type, actorRole: event.actorRole,
         note: event.note,
         metadata: {
+          paymentMethod: ["MOBILE_MONEY", "CARD", "BANK", "OTHER"].includes(event.metadata?.paymentMethod) ? event.metadata.paymentMethod : undefined,
+          approximatePaidAt: typeof event.metadata?.approximatePaidAt === "string" ? event.metadata.approximatePaidAt : undefined,
+          payerPhoneLast4: /^\d{4}$/.test(String(event.metadata?.payerPhoneLast4 || "")) ? event.metadata.payerPhoneLast4 : undefined,
+          recordedAttempt: event.metadata?.recordedAttempt === true,
           channels: Array.isArray(event.metadata?.channels) ? event.metadata.channels : undefined,
           destinationMasked: event.metadata?.destinationMasked || undefined,
           ownerPhoneOverlap: Boolean(event.metadata?.ownerPhoneOverlap),
@@ -120,7 +124,7 @@ async function inventoryConflict(caseId: number, actorId: number, reason: string
 
 router.get("/", (async (req: AuthedRequest, res) => {
   const parsed = z.object({
-    status: z.enum(["OPEN", "RESOLVED", "ALL"]).default("OPEN"),
+    status: z.enum(["OPEN", "UNVERIFIED", "RESOLVED", "ALL"]).default("OPEN"),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(50).default(25),
     q: z.string().trim().max(80).default(""),
@@ -129,7 +133,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
   const { status, page, pageSize, q } = parsed.data;
   try {
     const caseId = q.startsWith("pc_") ? await resolveBookingPaymentCaseReference(q) : null;
-    const statusWhere = status === "ALL" ? {} : status === "RESOLVED" ? { status: "RESOLVED" } : { status: { not: "RESOLVED" } };
+    const statusWhere = status === "ALL" ? {} : status === "RESOLVED" ? { status: "RESOLVED" } : status === "UNVERIFIED" ? { status: "UNVERIFIED_REPORT" } : { status: { notIn: ["RESOLVED", "UNVERIFIED_REPORT"] } };
     const searchWhere = q ? { OR: [
       ...(caseId ? [{ id: caseId }] : []),
       { customerReference: { contains: q } },
@@ -146,7 +150,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
     const resolved = Number(byStatus.RESOLVED || 0);
     const all = Object.values(byStatus).reduce((sum: number, count: any) => sum + Number(count), 0);
     return res.json({ items: items.map((row: any) => describeCase(row)), total, page, pageSize, summary: {
-      needsAttention: all - resolved,
+      needsAttention: all - resolved - Number(byStatus.UNVERIFIED_REPORT || 0),
+      unverified: Number(byStatus.UNVERIFIED_REPORT || 0),
       awaitingProvider: Number(byStatus.AWAITING_PROVIDER || 0),
       roomOrRefund: Number(byStatus.INVENTORY_CONFLICT || 0) + Number(byStatus.REFUND_REQUIRED || 0),
       resolved,

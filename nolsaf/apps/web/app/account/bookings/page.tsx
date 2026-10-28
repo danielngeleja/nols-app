@@ -91,6 +91,7 @@ type Booking = {
   paymentNeedsReview?: boolean;
   bookingCode: string | null;
   paymentCase?: { reference?: string; status: string; resolution?: string | null; createdAt: string; updatedAt: string } | null;
+  paymentReportEligibility?: { state: "CODE_AVAILABLE" | "READY" | "WAITING" | "UNVERIFIED"; availableAt: string | null };
   codeStatus: string | null;
   invoice?: {
     invoiceNumber?: string;
@@ -121,19 +122,28 @@ const isDraftBooking = (b: Booking) => String(b.dashboardBucket || "").toUpperCa
 const isExpiredDraftBooking = (b: Booking) =>
   isDraftBooking(b) && String(b.draftExpiryStatus || "").toUpperCase() === "EXPIRED";
 
-function PaymentCasePanel({ booking, onCreated }: { booking: Booking; onCreated: (reference: string, paymentCase: NonNullable<Booking["paymentCase"]>) => void }) {
+function PaymentCasePanel({ booking, nowTick, onCreated }: { booking: Booking; nowTick: number; onCreated: (reference: string, paymentCase: NonNullable<Booking["paymentCase"]>) => void }) {
   const [open, setOpen] = useState(false);
   const [transactionReference, setTransactionReference] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [approximatePaidAt, setApproximatePaidAt] = useState("");
+  const [payerPhoneLast4, setPayerPhoneLast4] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if (booking.bookingCode && !booking.paymentCase) return null;
   const paymentCase = booking.paymentCase;
+  const eligibility = booking.paymentReportEligibility;
+  const waiting = eligibility?.state === "WAITING" && Boolean(eligibility.availableAt) && new Date(eligibility.availableAt!).getTime() > nowTick;
+  const unverified = eligibility?.state === "UNVERIFIED";
+  const waitMinutes = waiting ? Math.max(1, Math.ceil((new Date(eligibility!.availableAt!).getTime() - nowTick) / 60_000)) : 0;
   const caseMessage = paymentCase?.status === "RESOLVED"
     ? "Your confirmation was sent to your account and verified contact."
     : paymentCase?.status === "INVENTORY_CONFLICT" || paymentCase?.status === "REFUND_REQUIRED"
     ? "We verified the payment, but the original room needs a rebooking or refund decision. Our team is handling it."
     : paymentCase?.status === "CODE_READY"
     ? "Your code is ready. Our team is checking secure delivery."
+    : paymentCase?.status === "UNVERIFIED_REPORT"
+    ? "We have your payment details. Our team will check them with the provider before confirming the booking."
     : "Our team is checking the payment with the provider. Please do not pay again while this is open.";
   return (
     <div className="mt-3 rounded-xl border border-solid border-teal-200 bg-teal-50/70 p-3 text-[12.5px] text-slate-700">
@@ -142,19 +152,29 @@ function PaymentCasePanel({ booking, onCreated }: { booking: Booking; onCreated:
           <strong className="text-teal-900">Payment help request</strong>
           <span>{caseMessage}</span>
         </div>
+      ) : waiting ? (
+        <div className="flex items-start gap-2"><Clock className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" aria-hidden /><div><strong className="block text-teal-900">Payment is processing</strong><span>The provider may still confirm it automatically. If you have paid and no code arrives, you can report it in about {waitMinutes} {waitMinutes === 1 ? "minute" : "minutes"}.</span></div></div>
       ) : (
         <>
           <button type="button" onClick={() => setOpen((value) => !value)} className="cursor-pointer border-0 bg-transparent p-0 font-semibold text-teal-800 underline underline-offset-2">
             Paid but did not get a check-in code?
           </button>
           {open ? (
-            <form className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end" onSubmit={async (event) => {
+            <form className="mt-3 grid gap-3 sm:grid-cols-2" onSubmit={async (event) => {
               event.preventDefault();
               setBusy(true); setError("");
               try {
+                const paidAt = approximatePaidAt ? new Date(approximatePaidAt) : null;
+                if (unverified && (!paymentMethod || !paidAt || !Number.isFinite(paidAt.getTime()))) {
+                  setError("Choose how and approximately when you paid.");
+                  return;
+                }
                 const response = await api.post("/api/customer/booking-payment-cases", {
                   bookingReference: booking.bookingReference,
                   transactionReference: transactionReference.trim() || undefined,
+                  paymentMethod: paymentMethod || undefined,
+                  approximatePaidAt: paidAt && Number.isFinite(paidAt.getTime()) ? paidAt.toISOString() : undefined,
+                  payerPhoneLast4: payerPhoneLast4 || undefined,
                 });
                 onCreated(booking.bookingReference, response.data.paymentCase);
                 setOpen(false);
@@ -162,11 +182,21 @@ function PaymentCasePanel({ booking, onCreated }: { booking: Booking; onCreated:
                 setError(cause?.response?.data?.error || "We could not send your report. Please try again.");
               } finally { setBusy(false); }
             }}>
-              <label className="min-w-0 flex-1 font-medium text-slate-700">
-                Payment transaction reference <span className="font-normal text-slate-500">(optional)</span>
+              <p className="m-0 text-slate-600 sm:col-span-2">{unverified ? "We have no completed payment attempt on record. Please share details only if money left your account. We will verify with the provider before confirming your stay." : "Tell us if you paid and still have no code. We will check the provider result."}</p>
+              <label className="min-w-0 font-medium text-slate-700">
+                Transaction reference <span className="font-normal text-slate-500">(optional)</span>
                 <input value={transactionReference} onChange={(event) => setTransactionReference(event.target.value)} maxLength={100} placeholder="From your payment message" className="mt-1 block h-9 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900" />
               </label>
-              <button type="submit" disabled={busy} className="h-9 cursor-pointer rounded-lg border-0 bg-teal-800 px-4 font-semibold text-white disabled:opacity-50">{busy ? "Sending…" : "Report payment"}</button>
+              {unverified ? <label className="min-w-0 font-medium text-slate-700">Payment method
+                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className="mt-1 block h-9 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900"><option value="">Choose method</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="BANK">Bank transfer</option><option value="OTHER">Other</option></select>
+              </label> : null}
+              {unverified ? <label className="min-w-0 font-medium text-slate-700">Approximate payment time
+                <input type="datetime-local" value={approximatePaidAt} onChange={(event) => setApproximatePaidAt(event.target.value)} className="mt-1 block h-9 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900" />
+              </label> : null}
+              {unverified && paymentMethod === "MOBILE_MONEY" ? <label className="min-w-0 font-medium text-slate-700">Payer phone last 4 digits <span className="font-normal text-slate-500">(optional)</span>
+                <input inputMode="numeric" pattern="[0-9]{4}" value={payerPhoneLast4} onChange={(event) => setPayerPhoneLast4(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" className="mt-1 block h-9 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900" />
+              </label> : null}
+              <div className="flex items-end sm:col-span-2"><button type="submit" disabled={busy} className="h-9 cursor-pointer rounded-lg border-0 bg-teal-800 px-4 font-semibold text-white disabled:opacity-50">{busy ? "Sending…" : "Report payment"}</button></div>
             </form>
           ) : null}
           {error ? <p role="alert" className="m-0 mt-2 text-rose-700">{error}</p> : null}
@@ -870,7 +900,7 @@ export default function MyBookingsPage() {
                         ? booking.draftAvailability?.message || "Payment is disabled because live availability changed after this draft was created."
                         : "Complete payment to confirm this booking and receive your check-in code."}
                   </p>
-                  <PaymentCasePanel booking={booking} onCreated={(reference, paymentCase) => setBookings((items) => items.map((item) => item.bookingReference === reference ? { ...item, paymentCase } : item))} />
+                  <PaymentCasePanel booking={booking} nowTick={nowTick} onCreated={(reference, paymentCase) => setBookings((items) => items.map((item) => item.bookingReference === reference ? { ...item, paymentCase } : item))} />
                 </div>
               );
             }
@@ -954,7 +984,7 @@ export default function MyBookingsPage() {
                   </div>
                 </div>
                 {!booking.bookingCode || booking.paymentCase ? (
-                  <PaymentCasePanel booking={booking} onCreated={(reference, paymentCase) => setBookings((items) => items.map((item) => item.bookingReference === reference ? { ...item, paymentCase } : item))} />
+                  <PaymentCasePanel booking={booking} nowTick={nowTick} onCreated={(reference, paymentCase) => setBookings((items) => items.map((item) => item.bookingReference === reference ? { ...item, paymentCase } : item))} />
                 ) : null}
               </div>
             );

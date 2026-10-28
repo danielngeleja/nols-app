@@ -9,13 +9,14 @@ type PaymentCase = {
   reference: string; status: string; evidenceState: string; createdAt: string;
   booking: { adminReference: string; propertyTitle: string; guestName: string; amount: number };
 };
-type Summary = { needsAttention: number; awaitingProvider: number; roomOrRefund: number; resolved: number };
-const EMPTY_SUMMARY: Summary = { needsAttention: 0, awaitingProvider: 0, roomOrRefund: 0, resolved: 0 };
+type Summary = { needsAttention: number; unverified: number; awaitingProvider: number; roomOrRefund: number; resolved: number };
+const EMPTY_SUMMARY: Summary = { needsAttention: 0, unverified: 0, awaitingProvider: 0, roomOrRefund: 0, resolved: 0 };
 const TZ = "Africa/Dar_es_Salaam";
 const reportedAt = (value: string) => `${new Date(value).toLocaleString("en-GB", { timeZone: TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })} EAT`;
 const money = (amount: number) => `TSh ${Number(amount || 0).toLocaleString("en-GB")}`;
 const statusStyle: Record<string, { label: string; className: string }> = {
   OPEN: { label: "New report", className: "bg-sky-50 text-sky-800 ring-sky-200" },
+  UNVERIFIED_REPORT: { label: "Needs evidence", className: "bg-violet-50 text-violet-800 ring-violet-200" },
   AWAITING_PROVIDER: { label: "Provider follow-up", className: "bg-amber-50 text-amber-800 ring-amber-200" },
   CODE_READY: { label: "Code delivery", className: "bg-teal-50 text-teal-800 ring-teal-200" },
   REPAIRING: { label: "Repair in progress", className: "bg-indigo-50 text-indigo-800 ring-indigo-200" },
@@ -35,7 +36,7 @@ const evidenceLabel: Record<string, string> = {
 
 export default function PaymentCasesPage() {
   const [items, setItems] = useState<PaymentCase[]>([]);
-  const [filter, setFilter] = useState<"OPEN" | "RESOLVED">("OPEN");
+  const [filter, setFilter] = useState<"OPEN" | "UNVERIFIED" | "RESOLVED">("OPEN");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
@@ -74,8 +75,9 @@ export default function PaymentCasesPage() {
             </div>
             <Link href="/admin/bookings" className="inline-flex h-9 items-center gap-2 rounded-lg border border-solid border-white/20 bg-white/[0.06] px-3 text-xs font-semibold text-white no-underline transition hover:bg-white/[0.12]"><ArrowLeft className="h-3.5 w-3.5" aria-hidden />Bookings</Link>
           </div>
-          <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-4">
             <div className="flex items-center gap-3 rounded-xl border border-solid border-white/10 bg-white/[0.05] px-3.5 py-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-300/15 text-amber-200"><CircleAlert className="h-4.5 w-4.5" aria-hidden /></span><div><strong className="block text-xl tabular-nums leading-none">{statCount(summary.needsAttention)}</strong><span className="mt-1 block text-[11px] text-emerald-50/60">Need attention</span></div></div>
+            <div className="flex items-center gap-3 rounded-xl border border-solid border-white/10 bg-white/[0.05] px-3.5 py-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-300/15 text-violet-200"><Search className="h-4 w-4" aria-hidden /></span><div><strong className="block text-xl tabular-nums leading-none">{statCount(summary.unverified)}</strong><span className="mt-1 block text-[11px] text-emerald-50/60">Need initial evidence</span></div></div>
             <div className="flex items-center gap-3 rounded-xl border border-solid border-white/10 bg-white/[0.05] px-3.5 py-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-300/15 text-sky-200"><Clock3 className="h-4.5 w-4.5" aria-hidden /></span><div><strong className="block text-xl tabular-nums leading-none">{statCount(summary.awaitingProvider)}</strong><span className="mt-1 block text-[11px] text-emerald-50/60">Provider follow-up</span></div></div>
             <div className="flex items-center gap-3 rounded-xl border border-solid border-white/10 bg-white/[0.05] px-3.5 py-3"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-300/15 text-rose-200"><ShieldCheck className="h-4.5 w-4.5" aria-hidden /></span><div><strong className="block text-xl tabular-nums leading-none">{statCount(summary.roomOrRefund)}</strong><span className="mt-1 block text-[11px] text-emerald-50/60">Rebooking or refund review</span></div></div>
           </div>
@@ -84,9 +86,9 @@ export default function PaymentCasesPage() {
 
       <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm" aria-label="Payment case queue">
         <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-4 py-3 sm:px-5">
-          <nav aria-label="Case status" className="flex rounded-lg bg-slate-100 p-1">
-            {(["OPEN", "RESOLVED"] as const).map((value) => <button key={value} type="button" onClick={() => { setFilter(value); setPage(1); }} aria-pressed={filter === value} className={`inline-flex h-8 cursor-pointer items-center gap-2 rounded-md border-0 px-3 text-xs font-bold transition ${filter === value ? "bg-white text-[#075e55] shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-800"}`}>
-              {value === "OPEN" ? "Needs attention" : "Resolved"}<span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${filter === value ? "bg-teal-50 text-teal-800" : "bg-slate-200/70 text-slate-600"}`}>{statCount(value === "OPEN" ? summary.needsAttention : summary.resolved)}</span>
+          <nav aria-label="Case status" className="flex max-w-full overflow-x-auto rounded-lg bg-slate-100 p-1">
+            {(["OPEN", "UNVERIFIED", "RESOLVED"] as const).map((value) => <button key={value} type="button" onClick={() => { setFilter(value); setPage(1); }} aria-pressed={filter === value} className={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border-0 px-3 text-xs font-bold transition ${filter === value ? "bg-white text-[#075e55] shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-800"}`}>
+              {value === "OPEN" ? "Needs attention" : value === "UNVERIFIED" ? "Need evidence" : "Resolved"}<span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${filter === value ? "bg-teal-50 text-teal-800" : "bg-slate-200/70 text-slate-600"}`}>{statCount(value === "OPEN" ? summary.needsAttention : value === "UNVERIFIED" ? summary.unverified : summary.resolved)}</span>
             </button>)}
           </nav>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none">
@@ -100,13 +102,13 @@ export default function PaymentCasesPage() {
         {!error && !loading && items.length === 0 ? (
           <div className="flex flex-col items-center px-5 py-10 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-[#02665e] ring-1 ring-emerald-100">{filter === "RESOLVED" ? <CheckCheck className="h-6 w-6" aria-hidden /> : <Inbox className="h-6 w-6" aria-hidden />}</span>
-            <h2 className="m-0 mt-4 text-base font-bold text-slate-950">{query ? "No matching cases" : filter === "OPEN" ? "All clear for now" : "No resolved cases yet"}</h2>
-            <p className="m-0 mt-1 max-w-md text-[13px] leading-5 text-slate-500">{query ? "Try a different case reference, guest, or property." : filter === "OPEN" ? "Traveller reports about a payment or missing code will appear here. Unreported payment attempts remain in Bookings." : "Cases will appear here after payment and code issues are resolved."}</p>
+            <h2 className="m-0 mt-4 text-base font-bold text-slate-950">{query ? "No matching cases" : filter === "OPEN" ? "All clear for now" : filter === "UNVERIFIED" ? "No reports awaiting evidence" : "No resolved cases yet"}</h2>
+            <p className="m-0 mt-1 max-w-md text-[13px] leading-5 text-slate-500">{query ? "Try a different case reference, guest, or property." : filter === "OPEN" ? "Reports with a recorded payment attempt appear here. Unreported attempts remain in Bookings." : filter === "UNVERIFIED" ? "Traveller claims without a recorded payment attempt will appear here for provider verification." : "Cases will appear here after payment and code issues are resolved."}</p>
             {query ? <button type="button" onClick={() => setSearch("")} className="mt-4 cursor-pointer rounded-lg border border-solid border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">Clear search</button> : filter === "OPEN" && summary.resolved > 0 ? <button type="button" onClick={() => { setFilter("RESOLVED"); setPage(1); }} className="mt-4 cursor-pointer rounded-lg border border-solid border-slate-200 bg-white px-3 py-2 text-xs font-bold text-[#02665e]">View resolved cases</button> : null}
           </div>
         ) : null}
         {!error && !loading && items.length > 0 ? <div>
-          <div className="flex items-center justify-between bg-slate-50/70 px-4 py-2 text-[11px] font-semibold text-slate-500 sm:px-5"><span>{filter === "OPEN" ? "Oldest reports first" : "Recently resolved first"}</span><span>{total} {total === 1 ? "case" : "cases"}</span></div>
+          <div className="flex items-center justify-between bg-slate-50/70 px-4 py-2 text-[11px] font-semibold text-slate-500 sm:px-5"><span>{filter === "RESOLVED" ? "Recently resolved first" : "Oldest reports first"}</span><span>{total} {total === 1 ? "case" : "cases"}</span></div>
           <div className="divide-y divide-slate-100">{items.map((item) => {
             const state = statusStyle[item.status] || { label: item.status.replace(/_/g, " "), className: "bg-slate-100 text-slate-700 ring-slate-200" };
             return <Link key={item.reference} href={`/admin/payment-cases/${encodeURIComponent(item.reference)}`} className="group grid min-w-0 gap-3 px-4 py-4 text-inherit no-underline transition hover:bg-teal-50/40 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-center sm:px-5">

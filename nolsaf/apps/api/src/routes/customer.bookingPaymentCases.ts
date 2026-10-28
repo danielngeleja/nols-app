@@ -4,7 +4,7 @@ import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, blockImpersonated, requireAuth } from "../middleware/auth.js";
 import { isCustomerBookingReference, matchesCustomerBookingReference } from "../lib/customerBookingReference.js";
 import { bookingPaymentCaseReference } from "../lib/bookingPaymentCaseReference.js";
-import { deliverBookingCaseConfirmation } from "../lib/bookingPaymentCaseDelivery.js";
+import { paymentReportEligibility } from "../lib/bookingPaymentCaseEligibility.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler, blockImpersonated as RequestHandler);
@@ -12,7 +12,10 @@ const db = prisma as any;
 
 const reportSchema = z.object({
   bookingReference: z.string().min(1).max(80),
-  transactionReference: z.string().trim().max(100).regex(/^[A-Za-z0-9_:#\/.\- ]*$/).optional(),
+  transactionReference: z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9_:#\/.\- ]*$/).optional(),
+  paymentMethod: z.enum(["MOBILE_MONEY", "CARD", "BANK", "OTHER"]).optional(),
+  approximatePaidAt: z.string().datetime({ offset: true }).optional(),
+  payerPhoneLast4: z.string().regex(/^\d{4}$/).optional(),
 });
 
 function responseCase(row: any) {
@@ -36,7 +39,16 @@ async function findOwnedBooking(reference: string, userId: number) {
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
     const match = rows.find((row) => matchesCustomerBookingReference(reference, row.id));
-    if (match) return match;
+    if (match) return prisma.booking.findUnique({
+      where: { id: match.id },
+      select: {
+        id: true, status: true, code: { select: { status: true } },
+        invoices: { select: {
+          invoiceNumber: true, status: true, receiptNumber: true, updatedAt: true,
+          paymentEvents: { select: { status: true, createdAt: true } },
+        } },
+      },
+    });
     if (rows.length < 500) return null;
     cursor = rows[rows.length - 1].id;
   }
@@ -45,8 +57,8 @@ async function findOwnedBooking(reference: string, userId: number) {
 /** The account must own the booking; a reference alone grants nothing. */
 router.post("/", (async (req: AuthedRequest, res) => {
   const parsed = reportSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ error: "Check the booking and transaction reference" });
-  const { bookingReference, transactionReference } = parsed.data;
+  if (!parsed.success) return res.status(400).json({ error: "Check the payment details before sending." });
+  const { bookingReference, transactionReference, paymentMethod, approximatePaidAt, payerPhoneLast4 } = parsed.data;
 
   try {
     const booking = await findOwnedBooking(bookingReference, req.user!.id);
@@ -56,15 +68,37 @@ router.post("/", (async (req: AuthedRequest, res) => {
     const existing = await db.bookingPaymentCase.findUnique({ where: { bookingId } });
     if (existing) return res.json({ paymentCase: responseCase(existing), alreadyReported: true });
 
+    const eligibility = paymentReportEligibility(booking);
+    if (eligibility.state === "WAITING") return res.status(409).json({
+      code: "PAYMENT_PROCESSING", availableAt: eligibility.availableAt,
+      error: "Your payment is still processing. Please check again shortly; you can report it if no confirmation arrives.",
+    });
+    if (eligibility.state === "CODE_AVAILABLE") return res.status(409).json({
+      code: "CODE_AVAILABLE", error: "Your check-in code is available in My Bookings.",
+    });
+    if (eligibility.state === "UNVERIFIED") {
+      const paidAt = approximatePaidAt ? new Date(approximatePaidAt) : null;
+      if (!paymentMethod || !paidAt || !Number.isFinite(paidAt.getTime())) {
+        return res.status(400).json({ error: "Choose how and approximately when you paid." });
+      }
+      if (paidAt && (paidAt.getTime() > Date.now() + 5 * 60_000 || paidAt.getTime() < Date.now() - 365 * 24 * 60 * 60_000)) {
+        return res.status(400).json({ error: "Check the approximate payment date and time." });
+      }
+    }
+
     let created: any;
     try {
       created = await db.bookingPaymentCase.create({
         data: {
           bookingId,
           customerId: req.user!.id,
-          status: "OPEN",
+          status: eligibility.state === "UNVERIFIED" ? "UNVERIFIED_REPORT" : "OPEN",
           customerReference: transactionReference || null,
-          events: { create: { type: "CUSTOMER_REPORTED", actorId: req.user!.id, actorRole: "CUSTOMER", metadata: { referenceProvided: Boolean(transactionReference) } } },
+          events: { create: { type: "CUSTOMER_REPORTED", actorId: req.user!.id, actorRole: "CUSTOMER", metadata: {
+            referenceProvided: Boolean(transactionReference), paymentMethod: paymentMethod || null,
+            approximatePaidAt: approximatePaidAt || null, payerPhoneLast4: payerPhoneLast4 || null,
+            recordedAttempt: eligibility.state !== "UNVERIFIED",
+          } } },
         },
       });
     } catch (error: any) {
@@ -72,23 +106,6 @@ router.post("/", (async (req: AuthedRequest, res) => {
       const prior = await db.bookingPaymentCase.findUnique({ where: { bookingId } });
       if (!prior) throw error;
       return res.json({ paymentCase: responseCase(prior), alreadyReported: true });
-    }
-
-    // A confirmed booking with an active code is a delivery problem, so try
-    // the original verified channels once without waiting for a staff member.
-    if (["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN"].includes(booking.status) && booking.code?.status === "ACTIVE") {
-      try {
-        const delivery = await deliverBookingCaseConfirmation(bookingId);
-        await db.bookingPaymentCaseEvent.create({ data: {
-          caseId: created.id, type: "AUTO_RESEND", actorRole: "SYSTEM",
-          metadata: { channels: delivery.channels, destinationMasked: delivery.destinationMasked, ownerPhoneOverlap: delivery.ownerPhoneOverlap },
-        } });
-        if (delivery.channels.length) {
-          created = await db.bookingPaymentCase.update({ where: { id: created.id }, data: { status: "RESOLVED", resolution: "CODE_DELIVERED", resolvedAt: new Date() } });
-        }
-      } catch (error: any) {
-        console.warn("[booking-payment-case] automatic delivery deferred", { bookingId, message: error?.message });
-      }
     }
 
     return res.status(201).json({ paymentCase: responseCase(created) });

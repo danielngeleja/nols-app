@@ -433,13 +433,14 @@ router.get("/", async (req, res) => {
     }
 
     for (const paymentCase of paymentCases) {
-      const dueAt = new Date(paymentCase.createdAt.getTime() + 2 * 60 * 60 * 1000);
+      const unverified = paymentCase.status === "UNVERIFIED_REPORT";
+      const dueAt = new Date(paymentCase.createdAt.getTime() + (unverified ? 48 : 2) * 60 * 60 * 1000);
       const reference = bookingPaymentCaseReference(paymentCase.id);
       items.push({
         id: `PAYMENT-CASE-${reference}`,
         category: "BOOKINGS",
-        severity: elevateWhenOverdue(paymentCase.status === "INVENTORY_CONFLICT" ? "CRITICAL" : "HIGH", dueAt, now),
-        title: paymentCase.status === "INVENTORY_CONFLICT" ? "Paid booking needs an availability resolution" : "Traveller reported payment without a code",
+        severity: elevateWhenOverdue(paymentCase.status === "INVENTORY_CONFLICT" ? "CRITICAL" : unverified ? "LOW" : "HIGH", dueAt, now),
+        title: paymentCase.status === "INVENTORY_CONFLICT" ? "Paid booking needs an availability resolution" : unverified ? "Payment claim needs initial evidence" : "Traveller reported payment without a code",
         summary: `${paymentCase.booking.guestName || "A traveller"} at ${paymentCase.booking.property?.title || "a property"}. ${paymentCase.status.replace(/_/g, " ").toLowerCase()}.`,
         subject: paymentCase.booking.property?.title || "Booking",
         sourceType: "BOOKING_PAYMENT_CASE",
@@ -447,7 +448,7 @@ router.get("/", async (req, res) => {
         createdAt: iso(paymentCase.createdAt),
         dueAt: iso(dueAt),
         detailHref: `/admin/payment-cases/${reference}`,
-        actionLabel: "Reconcile payment",
+        actionLabel: unverified ? "Review claim" : "Reconcile payment",
         exposure: null,
       });
     }

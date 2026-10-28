@@ -9,6 +9,7 @@ import { signPublicInvoiceAccessToken } from "../lib/publicInvoiceAccess.js";
 import { computeDraftBookingAvailability } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { mapPropertyLifecycle } from "../lib/serviceLifecycle.js";
+import { paymentReportEligibility } from "../lib/bookingPaymentCaseEligibility.js";
 import {
   customerBookingReference,
   isCustomerBookingReference,
@@ -253,7 +254,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
               total: true,
               netPayable: true,
               paidAt: true,
-              paymentEvents: { where: { status: "SUCCESS" }, select: { status: true }, take: 1 },
+              updatedAt: true,
+              paymentEvents: { orderBy: { createdAt: "desc" }, take: 10, select: { status: true, createdAt: true } },
             },
             orderBy: { createdAt: "desc" },
           },
@@ -272,15 +274,19 @@ router.get("/", (async (req: AuthedRequest, res) => {
       const checkOut = new Date(booking.checkOut);
       const isValid = checkOut >= now && booking.status !== "CANCELED";
       const invoices = booking.invoices ?? [];
-      const paidInvoice = invoices.find((item) => item.status === "PAID" || (item.status === "CUSTOMER_PAID" && Boolean(item.receiptNumber)));
-      const invoice = paidInvoice || invoices[0] || null;
+      const customerInvoices = invoices.filter((item) => item.invoiceNumber?.startsWith("INV-"));
+      const paidInvoice = customerInvoices.find((item) => item.status === "PAID" || (item.status === "CUSTOMER_PAID" && Boolean(item.receiptNumber)));
+      const invoice = paidInvoice || customerInvoices[0] || null;
       const isPaid = Boolean(paidInvoice);
 
       // A NEW booking is still an attempt even if the provider has sent a paid
       // signal. It must not enter the confirmed-stay bucket until finalized.
       const isDraft = booking.status === "NEW";
-      const paymentProcessing = isDraft && !isPaid && invoices.some((item) => item.status === "PROCESSING");
-      const paymentNeedsReview = isDraft && (isPaid || invoices.some((item) => item.status === "CUSTOMER_PAID" || item.paymentEvents.length > 0));
+      const paymentProcessing = isDraft && !isPaid && customerInvoices.some((item) => {
+        const latest = item.paymentEvents[0];
+        return latest ? latest.status === "PENDING" : item.status === "PROCESSING";
+      });
+      const paymentNeedsReview = isDraft && (isPaid || customerInvoices.some((item) => item.status === "CUSTOMER_PAID" || item.paymentEvents.some((event) => event.status === "SUCCESS")));
       const dashboardBucket = isDraft ? "DRAFT" : "PAID";
 
       let draftExpiresAt: string | null = null;
@@ -338,6 +344,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
         paymentNeedsReview,
         bookingCode: booking.code?.code || null,
         paymentCase: booking.paymentReconciliationCase || null,
+        paymentReportEligibility: paymentReportEligibility(booking, now),
         codeStatus: booking.code?.status || null,
         invoice: invoice,
         dashboardBucket,

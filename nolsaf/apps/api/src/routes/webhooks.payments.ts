@@ -256,6 +256,18 @@ async function ensurePaidBookingReady(bookingId: number) {
   if (!booking) return;
   if (["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN", "CHECKED_OUT"].includes(booking.status)) {
     await generateBookingCodeForBooking(bookingId);
+    // A report opened before the provider callback should rejoin the normal
+    // code-delivery queue once the established settlement path succeeds.
+    const pendingCase = await prisma.bookingPaymentCase.findUnique({ where: { bookingId }, select: { id: true, status: true } });
+    if (pendingCase && ["UNVERIFIED_REPORT", "AWAITING_PROVIDER"].includes(pendingCase.status)) {
+      const moved = await prisma.bookingPaymentCase.updateMany({
+        where: { id: pendingCase.id, status: pendingCase.status }, data: { status: "CODE_READY" },
+      });
+      if (moved.count === 1) await prisma.bookingPaymentCaseEvent.create({ data: {
+        caseId: pendingCase.id, type: "PAYMENT_SETTLED", actorRole: "SYSTEM",
+        note: "The normal payment settlement path confirmed the booking and issued a code. Check secure delivery.",
+      } });
+    }
   }
 }
 
