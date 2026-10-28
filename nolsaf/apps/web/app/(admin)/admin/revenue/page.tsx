@@ -524,7 +524,7 @@ export default function AdminRevenue() {
 
   const emptyMessage = useMemo(() => {
     if (status === "") return "No invoices.";
-    if (status === "REQUESTED") return "No new invoices.";
+    if (status === "REQUESTED") return "No claims in the review queue.";
     const map: Record<string, string> = {
       VERIFIED: "No verified invoices.",
       APPROVED: "No approved invoices.",
@@ -718,13 +718,13 @@ export default function AdminRevenue() {
     }
   }
 
-  const STATUS_TABS: Array<{ value: string; label: string; hint: string; dot: string }> = [
-    { value: "", label: "All", hint: "Every invoice", dot: "bg-neutral-400" },
-    { value: "REQUESTED", label: "New", hint: "Waiting for review", dot: "bg-sky-500" },
-    { value: "VERIFIED", label: "Verified", hint: "Checked, needs approval", dot: "bg-amber-500" },
-    { value: "APPROVED", label: "Approved", hint: "Ready to disburse", dot: "bg-emerald-500" },
-    { value: "PAID", label: "Paid / disbursed", hint: "Money moved", dot: "bg-teal-600" },
-    { value: "REJECTED", label: "Rejected", hint: "Declined claims", dot: "bg-red-500" },
+  const STATUS_TABS: Array<{ value: string; label: string; hint: string; icon: typeof Wallet }> = [
+    { value: "", label: "All invoices", hint: "Every payment and claim", icon: Receipt },
+    { value: "REQUESTED", label: "Review queue", hint: "Requested or verified", icon: Clock },
+    { value: "VERIFIED", label: "Verified", hint: "Needs approval", icon: CheckSquare },
+    { value: "APPROVED", label: "Approved", hint: "Ready to disburse", icon: Send },
+    { value: "PAID", label: "Paid / disbursed", hint: "Completed invoices", icon: Wallet },
+    { value: "REJECTED", label: "Rejected", hint: "Declined claims", icon: X },
   ];
   const fmtShortDate = (iso: string) =>
     iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
@@ -741,6 +741,12 @@ export default function AdminRevenue() {
   const advancedCount = [ownerFilter, propertyFilter, amountMin, amountMax].filter(Boolean).length;
   const readyToDisburse = counts["APPROVED"] ?? 0;
   const waitingReview = counts["REQUESTED"] ?? 0;
+  const heroStages = [
+    { label: "Review queue", count: waitingReview, color: "text-sky-300", edge: "border-sky-400/30 bg-sky-400/[0.07]" },
+    { label: "Approved", count: readyToDisburse, color: "text-emerald-300", edge: "border-emerald-400/30 bg-emerald-400/[0.07]" },
+    { label: "Paid / disbursed", count: counts["PAID"] ?? 0, color: "text-teal-300", edge: "border-teal-400/30 bg-teal-400/[0.07]" },
+    { label: "Rejected", count: counts["REJECTED"] ?? 0, color: "text-rose-300", edge: "border-rose-400/30 bg-rose-400/[0.07]" },
+  ];
   const FIELD = "block h-9 w-full rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs text-neutral-900 outline-none transition placeholder:text-neutral-400 hover:border-neutral-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
   const TOOL = "inline-flex min-h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid px-3 text-xs font-bold transition";
 
@@ -751,72 +757,63 @@ export default function AdminRevenue() {
       <style>{`#revenue-top, #revenue-top * { box-sizing: border-box; }`}</style>
 
       {/* Workspace header */}
-      <section className="relative overflow-hidden rounded-2xl border border-solid border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-solid border-white/[0.06]" aria-hidden="true" />
-        <div className="relative flex min-w-0 flex-col gap-4">
-          <div className="flex min-w-0 items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-solid border-emerald-100 bg-white text-emerald-700 shadow-sm">
-                <Wallet className="h-5 w-5" aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">Finance</p>
-                <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Revenue</h1>
-                <p className="m-0 mt-1 text-xs leading-5 text-emerald-100/80 sm:text-sm">
-                  <span className="font-bold text-white">INV</span> is what a guest paid.{" "}
-                  <span className="font-bold text-white">OINV</span> is the owner&apos;s payout claim on it.
-                </p>
+      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_0%_100%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden />
+        <div className="pointer-events-none absolute inset-0 opacity-[0.35]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.09) 1px, transparent 1px)", backgroundSize: "18px 18px" }} aria-hidden />
+        <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80"><Wallet className="h-3.5 w-3.5" aria-hidden /> Accommodation finance</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Revenue and owner claims</h1>
+              <p className="m-0 mt-1 max-w-xl text-sm text-white/60">Review guest payments and move owner claims through verification, approval and payout.</p>
+            </div>
+            <nav aria-label="Related workspaces" className="flex flex-wrap items-center gap-2">
+              <Link href="/admin/disbursements" className="inline-flex h-9 items-center gap-2 rounded-lg border border-solid border-white/15 bg-white/[0.07] px-3 text-xs font-bold text-emerald-50 no-underline transition hover:bg-white/15"><Send className="h-3.5 w-3.5" aria-hidden /> Disbursements</Link>
+              <Link href="/admin/finance" className="inline-flex h-9 items-center gap-2 rounded-lg border border-solid border-white/15 bg-white/[0.07] px-3 text-xs font-bold text-emerald-50 no-underline transition hover:bg-white/15"><HandCoins className="h-3.5 w-3.5" aria-hidden /> Finance overview</Link>
+              <button type="button" onClick={() => { void load(); void fetchCounts(); }} disabled={loading} suppressHydrationWarning title="Refresh" aria-label="Refresh revenue" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-solid border-white/15 bg-white/[0.07] text-white transition hover:bg-white/15 disabled:cursor-wait"><RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden /></button>
+            </nav>
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-center">
+            <div className="flex flex-col items-center lg:border-0 lg:border-r lg:border-solid lg:border-white/10 lg:pr-6">
+              <div className="grid h-28 w-28 place-items-center rounded-full border-[9px] border-solid border-emerald-300/15 bg-white/[0.04] text-center">
+                <div><strong className="block text-3xl font-bold tabular-nums leading-none text-white">{counts[""] ?? 0}</strong><span className="mt-1 block text-[10px] text-white/50">invoices</span></div>
+              </div>
+              <p className="m-0 mt-3 text-center text-[11px] text-white/55">{waitingReview} in the review queue</p>
+            </div>
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/50">Accommodation payment flow</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {heroStages.map((stage) => <div key={stage.label} className={`min-w-[8.5rem] flex-1 rounded-xl border border-solid px-3 py-2.5 ${stage.edge}`}>
+                  <strong className={`block text-xl font-bold tabular-nums leading-none ${stage.color}`}>{stage.count}</strong>
+                  <span className="mt-1 block text-[11px] font-medium text-white/70">{stage.label}</span>
+                </div>)}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 border-0 border-t border-solid border-white/10 pt-3 text-[11px] text-white/55">
+                <span><strong className="text-white/85">INV</strong> guest payment</span>
+                <span><strong className="text-white/85">OINV</strong> owner payout claim</span>
+                <span>Review queue includes requested and verified claims</span>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => { void load(); void fetchCounts(); }}
-              disabled={loading}
-              suppressHydrationWarning
-              title="Refresh"
-              aria-label="Refresh revenue"
-              className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-solid border-white/20 bg-white/10 text-white transition hover:bg-white/20 disabled:cursor-wait"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
-            </button>
           </div>
-          <nav aria-label="Related workspaces" className="flex flex-wrap gap-2 border-0 border-t border-solid border-white/15 pt-4">
-            {[
-              { href: "/admin/disbursements", label: "Disbursements", Icon: Send },
-              { href: "/admin/finance", label: "Finance overview", Icon: HandCoins },
-            ].map(({ href, label, Icon }) => (
-              <Link key={href} href={href} className="inline-flex items-center gap-2 rounded-lg border border-solid border-white/15 bg-white/[0.07] px-3 py-2 text-xs font-bold text-emerald-50 no-underline transition hover:bg-white/15">
-                <Icon className="h-4 w-4" aria-hidden /> {label}
-              </Link>
-            ))}
-          </nav>
         </div>
       </section>
 
-      {/* Status strip: every count is also the filter for it */}
-      <section
-        aria-label="Filter by status"
-        className="grid min-w-0 grid-cols-2 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] sm:grid-cols-3 xl:grid-cols-6 [&>*]:border-0 [&>*]:border-b [&>*]:border-r [&>*]:border-solid [&>*]:border-neutral-100"
-      >
-        {STATUS_TABS.map((tab) => {
-          const on = status === tab.value;
-          return (
-            <button
-              key={tab.value || "all"}
-              type="button"
-              aria-pressed={on}
-              onClick={() => setStatus(tab.value)}
-              className={`relative flex min-w-0 cursor-pointer flex-col items-start gap-1 bg-transparent p-3.5 text-left transition sm:p-4 ${on ? "bg-emerald-50/70" : "hover:bg-neutral-50"}`}
-            >
-              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">
-                <span className={`h-2 w-2 rounded-full ${tab.dot}`} aria-hidden /> {tab.label}
-              </span>
-              <span className={`text-xl font-black leading-none tabular-nums ${on ? "text-emerald-800" : "text-neutral-950"}`}>{counts[tab.value] ?? 0}</span>
-              <span className="text-[11px] leading-snug text-neutral-500">{tab.hint}</span>
-              {on ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-emerald-700" aria-hidden /> : null}
-            </button>
-          );
-        })}
+      {/* Status cards filter the invoice list below. */}
+      <section aria-label="Filter by status" className="rounded-2xl border border-solid border-neutral-200 bg-white p-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+          {STATUS_TABS.map((tab) => {
+            const on = status === tab.value;
+            const Icon = tab.icon;
+            return (
+              <button key={tab.value || "all"} type="button" aria-pressed={on} onClick={() => setStatus(tab.value)} className={`min-w-0 cursor-pointer rounded-xl border border-solid p-3.5 text-left transition-all ${on ? "border-neutral-900 bg-emerald-50/50" : "border-transparent bg-neutral-50/70 hover:border-neutral-200 hover:bg-white"}`}>
+                <span className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-neutral-800">{tab.label}</span><Icon className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden /></span>
+                <span className="mt-2 block text-2xl font-bold tabular-nums leading-none text-neutral-900">{counts[tab.value] ?? 0}</span>
+                <span className="mt-1 block truncate text-[11px] text-neutral-500">{tab.hint}</span>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       {/* Work waiting on an admin */}
@@ -840,7 +837,7 @@ export default function AdminRevenue() {
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-solid border-sky-200 bg-sky-50/70 px-4 py-3">
               <p className="m-0 flex min-w-0 items-center gap-2.5 text-[13px] text-sky-950">
                 <Clock className="h-4 w-4 shrink-0 text-sky-700" aria-hidden />
-                <span><span className="font-bold">{waitingReview} {waitingReview === 1 ? "claim waits" : "claims wait"}</span> for review.</span>
+                <span><span className="font-bold">{waitingReview} {waitingReview === 1 ? "claim needs" : "claims need"}</span> review or approval.</span>
               </p>
               <button type="button" onClick={() => setStatus("REQUESTED")} className="shrink-0 cursor-pointer rounded-lg border border-solid border-sky-300 bg-white px-2.5 py-1.5 text-[12px] font-bold text-sky-800 transition hover:bg-sky-100">Review now</button>
             </div>
