@@ -108,6 +108,23 @@ router.post("/", (async (req: AuthedRequest, res) => {
       return res.json({ paymentCase: responseCase(prior), alreadyReported: true });
     }
 
+    // A webhook may finish between the eligibility read and case creation.
+    // Keep the case in the code-delivery queue if that happened.
+    try {
+      const latest = await prisma.booking.findUnique({ where: { id: bookingId }, select: { status: true, code: { select: { status: true } } } });
+      if (latest?.code?.status === "ACTIVE" && latest.status !== "NEW") {
+        const moved = await db.bookingPaymentCase.updateMany({
+          where: { id: created.id, status: created.status }, data: { status: "CODE_READY" },
+        });
+        if (moved.count === 1) {
+          await db.bookingPaymentCaseEvent.create({ data: { caseId: created.id, type: "CODE_READY_AFTER_REPORT", actorRole: "SYSTEM" } });
+          created.status = "CODE_READY";
+        }
+      }
+    } catch (error: any) {
+      console.error("[booking-payment-case] post-report code check failed", { bookingId, message: error?.message });
+    }
+
     return res.status(201).json({ paymentCase: responseCase(created) });
   } catch (error: any) {
     if (["P2021", "P2022"].includes(error?.code)) return res.status(503).json({ error: "Payment assistance is temporarily unavailable" });
