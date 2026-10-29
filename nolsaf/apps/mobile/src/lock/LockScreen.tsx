@@ -1,6 +1,6 @@
 import { Fingerprint, KeyRound, ScanFace } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, AppState, Easing, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, AppState, Easing, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle } from "react-native-svg";
@@ -12,8 +12,8 @@ import { useReducedMotion } from "../lib/useReducedMotion";
 import { colors, radius, spacing } from "../theme";
 import { useAppLock } from "./AppLockProvider";
 
-// Same geometry as the boot screen (components/BootScreen.tsx): the ring and the
-// settled mark sit in the same place, so boot fades into the lock without a jump.
+// Roomy screens keep the boot screen's ring geometry; compact screens give the
+// message and unlock controls enough space to remain readable and reachable.
 const RING = 150;
 const RING_STROKE = 2.5;
 const MARK_W = 56;
@@ -37,6 +37,7 @@ export function LockScreen() {
   const { unlock, biometric, biometricKind } = useAppLock();
   const { signOut, user } = useAuth();
   const insets = useSafeAreaInsets();
+  const { height, width, fontScale } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
   const [phase, setPhase] = useState<Phase>("idle");
   const busyRef = useRef(false);
@@ -109,6 +110,10 @@ export function LockScreen() {
 
   const firstName = (user?.name || user?.fullName || "").trim().split(/\s+/)[0] || null;
   const title = firstName ? `Welcome back, ${firstName}` : "Welcome back";
+  const compact = height <= 520 || width > height || fontScale >= 1.2 || title.length > 32;
+  // Preserve the boot-to-lock ring position unless the message needs room above
+  // the bottom actions. Short, enlarged-text, and long-name screens can scroll.
+  const verticalShift = compact ? 0 : Math.max(0, 390 - height / 2);
   const status =
     phase === "busy"
       ? "Confirm on the prompt"
@@ -125,62 +130,92 @@ export function LockScreen() {
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
   const shakeX = shake.interpolate({ inputRange: [-1, 1], outputRange: [-8, 8] });
 
-  return (
-    <View style={styles.root}>
-      <StatusBar style="light" />
-
+  const unlockPrompt = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Unlock with ${actionLabel}`}
+      onPress={attempt}
+      style={[styles.centerHit, verticalShift > 0 && { transform: [{ translateY: -verticalShift }] }]}
+    >
+      <Animated.View style={[styles.center, { transform: [{ translateX: NUDGE }, { translateY: NUDGE }, { translateX: shakeX }] }]}>
+        <Animated.View style={[styles.ring, { transform: [{ rotate }] }]}>
+          <Svg width={RING} height={RING}>
+            <Circle cx={RING / 2} cy={RING / 2} r={(RING - RING_STROKE) / 2} stroke="rgba(255,255,255,0.14)" strokeWidth={RING_STROKE} fill="none" />
+            {arc > 0 ? (
+              <Circle
+                cx={RING / 2}
+                cy={RING / 2}
+                r={(RING - RING_STROKE) / 2}
+                stroke="rgba(255,255,255,0.9)"
+                strokeWidth={RING_STROKE}
+                strokeLinecap="round"
+                strokeDasharray={`${arc} ${circumference}`}
+                fill="none"
+              />
+            ) : null}
+          </Svg>
+        </Animated.View>
+        <NolsafLogoMark color={colors.white} width={MARK_W} height={MARK_H} />
+      </Animated.View>
+    </Pressable>
+  );
+  const message = (
+    <View
+      style={compact ? styles.compactWords : [styles.words, { marginTop: RING / 2 + NUDGE + 28 - verticalShift }]}
+      accessibilityLiveRegion="polite"
+    >
+      <Text style={styles.title} numberOfLines={compact ? undefined : 2} adjustsFontSizeToFit={!compact} minimumFontScale={0.78}>
+        {title}
+      </Text>
+      <Text style={[styles.status, warn && styles.statusWarn]}>{status}</Text>
+    </View>
+  );
+  const actions = (
+    <View style={compact ? styles.compactBottom : [styles.bottom, { paddingBottom: Math.max(insets.bottom, spacing[4]) + spacing[4] }]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Unlock with ${actionLabel}`}
         onPress={attempt}
-        style={styles.centerHit}
+        disabled={phase === "busy"}
+        style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
       >
-        <Animated.View style={[styles.center, { transform: [{ translateX: NUDGE }, { translateY: NUDGE }, { translateX: shakeX }] }]}>
-          <Animated.View style={[styles.ring, { transform: [{ rotate }] }]}>
-            <Svg width={RING} height={RING}>
-              <Circle cx={RING / 2} cy={RING / 2} r={(RING - RING_STROKE) / 2} stroke="rgba(255,255,255,0.14)" strokeWidth={RING_STROKE} fill="none" />
-              {arc > 0 ? (
-                <Circle
-                  cx={RING / 2}
-                  cy={RING / 2}
-                  r={(RING - RING_STROKE) / 2}
-                  stroke="rgba(255,255,255,0.9)"
-                  strokeWidth={RING_STROKE}
-                  strokeLinecap="round"
-                  strokeDasharray={`${arc} ${circumference}`}
-                  fill="none"
-                />
-              ) : null}
-            </Svg>
-          </Animated.View>
-          <NolsafLogoMark color={colors.white} width={MARK_W} height={MARK_H} />
-        </Animated.View>
+        <ActionIcon color={colors.white} size={28} strokeWidth={1.8} />
       </Pressable>
-
-      <View style={styles.words} accessibilityLiveRegion="polite">
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text style={[styles.status, warn && styles.statusWarn]}>{status}</Text>
-      </View>
-
-      <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom, spacing[4]) + spacing[4] }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Unlock with ${actionLabel}`}
-          onPress={attempt}
-          disabled={phase === "busy"}
-          style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
-        >
-          <ActionIcon color={colors.white} size={28} strokeWidth={1.8} />
+      <Text style={styles.actionText}>{actionLabel}</Text>
+      <View style={styles.links}>
+        <Pressable accessibilityRole="button" onPress={() => void signOut()} hitSlop={8}>
+          <Text style={styles.linkText}>Sign out</Text>
         </Pressable>
-        <Text style={styles.actionText}>{actionLabel}</Text>
-        <View style={styles.links}>
-          <Pressable accessibilityRole="button" onPress={() => void signOut()} hitSlop={8}>
-            <Text style={styles.linkText}>Sign out</Text>
-          </Pressable>
-        </View>
       </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.root}>
+      <StatusBar style="light" />
+      {compact ? (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.compactContent,
+            {
+              minHeight: height,
+              paddingTop: Math.max(insets.top, spacing[4]) + spacing[4],
+              paddingBottom: Math.max(insets.bottom, spacing[4]) + spacing[4]
+            }
+          ]}
+        >
+          {unlockPrompt}
+          {message}
+          {actions}
+        </ScrollView>
+      ) : (
+        <>
+          {unlockPrompt}
+          {message}
+          {actions}
+        </>
+      )}
     </View>
   );
 }
@@ -191,6 +226,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primaryDeep
+  },
+  scroll: { flex: 1, alignSelf: "stretch" },
+  compactContent: {
+    flexGrow: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing[6]
   },
   centerHit: {
     width: RING,
@@ -208,7 +250,7 @@ const styles = StyleSheet.create({
     width: RING,
     height: RING
   },
-  // Anchored to the ring, as on the boot screen, so it never overlaps on short screens.
+  // On roomy screens, the message follows the ring; compact screens use flow layout.
   words: {
     position: "absolute",
     top: "50%",
@@ -218,7 +260,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6
   },
+  compactWords: {
+    width: "100%",
+    alignItems: "center",
+    gap: 6,
+    marginTop: spacing[5]
+  },
   title: {
+    alignSelf: "stretch",
     color: colors.white,
     fontSize: 20,
     lineHeight: 26,
@@ -227,6 +276,7 @@ const styles = StyleSheet.create({
     textAlign: "center"
   },
   status: {
+    alignSelf: "stretch",
     color: "rgba(255,255,255,0.6)",
     fontSize: 14,
     lineHeight: 20,
@@ -243,6 +293,11 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: "center",
     gap: spacing[2]
+  },
+  compactBottom: {
+    alignItems: "center",
+    gap: spacing[2],
+    marginTop: spacing[6]
   },
   action: {
     width: 68,

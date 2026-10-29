@@ -87,9 +87,10 @@ export function BootScreen({ stage, onShown, onFinished }: { stage: BootStage; o
   // While loading the ring is a quarter arc that orbits; at "done" it closes to a full circle.
   const arc = stage === "done" ? circumference : circumference * 0.26;
 
+  // Keep the app behind the boot layer untouchable until the fade unmounts it.
   return (
     <Animated.View
-      pointerEvents={stage === "done" ? "none" : "auto"}
+      pointerEvents="auto"
       onLayout={() => {
         if (shown) return;
         setShown(true);
@@ -130,7 +131,7 @@ export function BootScreen({ stage, onShown, onFinished }: { stage: BootStage; o
       </Animated.View>
 
       <Animated.View style={[styles.words, { opacity: ringIn, transform: [{ translateY: textRise }] }]}>
-        <Text style={styles.brand}>NoLSAF</Text>
+        <Text style={styles.brand} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} allowFontScaling={false}>NoLSAF</Text>
         <Text style={styles.caption}>{CAPTION[stage]}</Text>
       </Animated.View>
     </Animated.View>
@@ -169,6 +170,8 @@ const styles = StyleSheet.create({
   words: {
     position: "absolute",
     top: "50%",
+    left: 16,
+    right: 16,
     marginTop: RING / 2 + MARK_NUDGE + 28,
     alignItems: "center",
     gap: 6
