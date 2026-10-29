@@ -210,7 +210,7 @@ export default function IpAllowlistPage() {
               <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Limit admin tools to trusted networks. Changes apply to admin access checks straight away.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => setTextMode((t) => !t)} className={heroButton} disabled={loading}>
+              <button type="button" onClick={() => setTextMode((t) => !t)} className={heroButton}>
                 {textMode ? <ListFilter className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
                 {textMode ? "Edit as list" : "Edit as text"}
               </button>

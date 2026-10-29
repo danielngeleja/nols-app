@@ -256,6 +256,23 @@ async function ensurePaidBookingReady(bookingId: number) {
   if (!booking) return;
   if (["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN", "CHECKED_OUT"].includes(booking.status)) {
     await generateBookingCodeForBooking(bookingId);
+    // A report opened before the provider callback should rejoin the normal
+    // code-delivery queue once settlement succeeds. A support-case failure
+    // must never interrupt the paid invoice's confirmation or notifications.
+    try {
+      const pendingCase = await prisma.bookingPaymentCase.findUnique({ where: { bookingId }, select: { id: true, status: true } });
+      if (pendingCase && ["UNVERIFIED_REPORT", "OPEN", "AWAITING_PROVIDER"].includes(pendingCase.status)) {
+        const moved = await prisma.bookingPaymentCase.updateMany({
+          where: { id: pendingCase.id, status: pendingCase.status }, data: { status: "CODE_READY" },
+        });
+        if (moved.count === 1) await prisma.bookingPaymentCaseEvent.create({ data: {
+          caseId: pendingCase.id, type: "PAYMENT_SETTLED", actorRole: "SYSTEM",
+          note: "The normal payment settlement path confirmed the booking and issued a code. Check secure delivery.",
+        } });
+      }
+    } catch (error: any) {
+      console.error("[booking-payment-case] post-settlement case sync failed", { bookingId, message: error?.message });
+    }
   }
 }
 
@@ -1131,6 +1148,10 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     } else if (/failed|cancelled|rejected|declined/i.test(status)) {
       normalizedStatus = "FAILED";
     }
+    if (normalizedStatus === "SUCCESS" && (!Number.isSafeInteger(amount) || amount <= 0)) {
+      return res.status(400).json({ ok: false, error: "Invalid successful payment amount" });
+    }
+    const webhookCurrency = String(payload.currency || "TZS").toUpperCase();
 
     // ── Detect channel, extract phone and raw status ─────
     const paymentChannel  = detectPaymentChannel(payload);
@@ -1159,14 +1180,25 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     // and stranded the payment permanently. Resolve the target first and decide
     // below, once we can actually see whether settlement happened.
     const seenBefore = !!existing && existing.status === normalizedStatus;
+    const priorPayload = existing?.payload && typeof existing.payload === "object" ? existing.payload as any : null;
+    if (seenBefore && normalizedStatus === "SUCCESS" && priorPayload?.webhookVerified === true &&
+      (Number(priorPayload.webhookAmount) !== amount || String(priorPayload.webhookCurrency || "TZS").toUpperCase() !== webhookCurrency)) {
+      console.error("[AzamPay Webhook] conflicting amount or currency for signed replay", { eventId: String(eventId), paymentEventId: existing?.id });
+      return res.status(409).json({ ok: false, error: "Conflicting provider event" });
+    }
 
-    if (existing && !seenBefore) {
+    if (existing && (!seenBefore || (normalizedStatus === "SUCCESS" && priorPayload?.webhookVerified !== true))) {
       // Status changed (e.g. PENDING → SUCCESS): update in place
       const updated = await prisma.paymentEvent.update({
         where: { id: existing.id },
         data:  {
           status:    normalizedStatus,
           rawStatus: rawStatusStr ?? undefined,
+          ...(normalizedStatus === "SUCCESS" ? {
+            amount,
+            currency: webhookCurrency,
+            payload: { ...(priorPayload || {}), webhookVerified: true, webhookAmount: amount, webhookCurrency },
+          } : {}),
           // Only backfill channel if it was not already recorded
           ...(existing.paymentChannel ? {} : { paymentChannel: paymentChannel ?? undefined }),
           ...(existing.phone          ? {} : { phone: phone ?? undefined }),
@@ -1344,7 +1376,7 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
         tourBookingId:  tourBooking?.id ?? null,
         groupBookingId: groupBooking?.id ?? null,
         amount,
-        currency:       payload.currency || "TZS",
+        currency:       webhookCurrency,
         status:         normalizedStatus,
         paymentChannel: paymentChannel ?? undefined,
         phone:          phone ?? undefined,
@@ -1357,6 +1389,7 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
           nrmsToken:     nrmsPaymentToken?.token ?? null,
           status:        payload.status ?? null,
           provider:      payload.provider ?? null,
+          ...(normalizedStatus === "SUCCESS" ? { webhookVerified: true, webhookAmount: amount, webhookCurrency } : {}),
         },
       },
     });

@@ -9,6 +9,7 @@ import { signPublicInvoiceAccessToken } from "../lib/publicInvoiceAccess.js";
 import { computeDraftBookingAvailability } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { mapPropertyLifecycle } from "../lib/serviceLifecycle.js";
+import { paymentReportEligibility } from "../lib/bookingPaymentCaseEligibility.js";
 import {
   customerBookingReference,
   isCustomerBookingReference,
@@ -150,8 +151,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
     const excludeDrafts = String(paidOnly ?? "") === "1" || String(paidOnly ?? "").toLowerCase() === "true";
     // activeDraftsOnly=1 keeps payable drafts in summary counts but removes them as
     // soon as their 12 hour payment window closes. The full Bookings page retains
-    // expired attempts for seven days so customers can re-book, then hides them even
-    // if the background purge worker has not run yet.
+    // expired unpaid attempts for seven days so customers can re-book. Payment
+    // evidence and in-flight payments remain visible for reconciliation.
     const excludeExpiredDrafts =
       String(activeDraftsOnly ?? "") === "1" ||
       String(activeDraftsOnly ?? "").toLowerCase() === "true";
@@ -170,13 +171,14 @@ router.get("/", (async (req: AuthedRequest, res) => {
 
     // Two kinds of rows are shown:
     //  - Paid/active stays: CONFIRMED/CHECKED_IN/CHECKED_OUT with a check-in code.
-    //  - Drafts: NEW bookings that reached checkout (have an invoice) but are not yet paid.
-    //    These get a 12h payment window and surface in the "Draft" tab.
+    //  - Payment attempts: NEW bookings that reached checkout. They remain
+    //    separate from stays even when a provider has reported payment.
     const where: any = {
       AND: [
         buildCustomerBookingWhere({ id: userId }, legacyBookingIds),
         {
           OR: [
+            { paymentReconciliationCase: { isNot: null } },
             {
               status: { in: ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"] },
               code: { isNot: null },
@@ -187,14 +189,9 @@ router.get("/", (async (req: AuthedRequest, res) => {
               OR: [
                 { createdAt: { gte: visibleDraftCutoff } },
                 { invoices: { some: { status: "PAID" } } },
-                {
-                  invoices: {
-                    some: {
-                      status: "CUSTOMER_PAID",
-                      receiptNumber: { not: null },
-                    },
-                  },
-                },
+                { invoices: { some: { paymentEvents: { some: { status: "SUCCESS" } } } } },
+                ...(!excludeExpiredDrafts ? [{ invoices: { some: { status: "PROCESSING" } } }] : []),
+                { invoices: { some: { status: "CUSTOMER_PAID" } } },
               ],
             },
           ],
@@ -247,6 +244,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
               issuedAt: true,
             },
           },
+          paymentReconciliationCase: { select: { status: true, resolution: true, createdAt: true, updatedAt: true } },
           invoices: {
             select: {
               id: true,
@@ -256,8 +254,9 @@ router.get("/", (async (req: AuthedRequest, res) => {
               total: true,
               netPayable: true,
               paidAt: true,
+              updatedAt: true,
+              paymentEvents: { orderBy: { createdAt: "desc" }, take: 10, select: { status: true, createdAt: true } },
             },
-            take: 1,
             orderBy: { createdAt: "desc" },
           },
         },
@@ -274,14 +273,20 @@ router.get("/", (async (req: AuthedRequest, res) => {
     const bookingsWithValidity = await Promise.all(bookings.map(async (booking: BookingRow) => {
       const checkOut = new Date(booking.checkOut);
       const isValid = checkOut >= now && booking.status !== "CANCELED";
-      const invoice = booking.invoices?.[0] || null;
-      const isPaid =
-        invoice?.status === "PAID" ||
-        (invoice?.status === "CUSTOMER_PAID" && Boolean(invoice?.receiptNumber));
+      const invoices = booking.invoices ?? [];
+      const customerInvoices = invoices.filter((item) => item.invoiceNumber?.startsWith("INV-"));
+      const paidInvoice = customerInvoices.find((item) => item.status === "PAID" || (item.status === "CUSTOMER_PAID" && Boolean(item.receiptNumber)));
+      const invoice = paidInvoice || customerInvoices[0] || null;
+      const isPaid = Boolean(paidInvoice);
 
-      // A NEW booking with an unpaid invoice is a "draft" — payable for a fixed
-      // window (mirrors tour-package drafts), after which it shows as EXPIRED.
-      const isDraft = booking.status === "NEW" && !isPaid;
+      // A NEW booking is still an attempt even if the provider has sent a paid
+      // signal. It must not enter the confirmed-stay bucket until finalized.
+      const isDraft = booking.status === "NEW";
+      const paymentProcessing = isDraft && !isPaid && customerInvoices.some((item) => {
+        const latest = item.paymentEvents[0];
+        return latest ? latest.status === "PENDING" : item.status === "PROCESSING";
+      });
+      const paymentNeedsReview = isDraft && (isPaid || customerInvoices.some((item) => item.status === "CUSTOMER_PAID" || item.paymentEvents.some((event) => event.status === "SUCCESS")));
       const dashboardBucket = isDraft ? "DRAFT" : "PAID";
 
       let draftExpiresAt: string | null = null;
@@ -293,7 +298,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
         const createdAtMs = new Date(booking.createdAt).getTime();
         const expiresAtMs = createdAtMs + BOOKING_DRAFT_WINDOW_HOURS * 60 * 60 * 1000;
         draftExpiresAt = new Date(expiresAtMs).toISOString();
-        draftExpiryStatus = now.getTime() < expiresAtMs ? "ACTIVE" : "EXPIRED";
+        draftExpiryStatus = paymentProcessing || paymentNeedsReview ? null : now.getTime() < expiresAtMs ? "ACTIVE" : "EXPIRED";
 
         // Only mint a payment-resume token while the draft is still payable.
         if (draftExpiryStatus === "ACTIVE" && invoice?.id) {
@@ -306,7 +311,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
         }
       }
 
-      const draftAvailability = isDraft
+      const draftAvailability = isDraft && !paymentProcessing && !paymentNeedsReview
         ? await computeDraftBookingAvailability(booking, { excludeBookingId: booking.id })
         : null;
 
@@ -335,7 +340,11 @@ router.get("/", (async (req: AuthedRequest, res) => {
         services: (booking as any).services || null,
         isValid,
         isPaid,
+        paymentProcessing,
+        paymentNeedsReview,
         bookingCode: booking.code?.code || null,
+        paymentCase: booking.paymentReconciliationCase || null,
+        paymentReportEligibility: paymentReportEligibility(booking, now),
         codeStatus: booking.code?.status || null,
         invoice: invoice,
         dashboardBucket,

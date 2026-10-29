@@ -12,6 +12,8 @@ const api = apiClient;
 type BookingDetail = {
   id: number;
   status: string;
+  attemptState?: string | null;
+  attemptNeedsReview?: boolean;
   checkIn: string;
   checkOut: string;
   totalAmount: number;
@@ -227,7 +229,8 @@ export default function ManagementBookingDetail() {
 
   const nights = Math.max(0, Math.round((new Date(booking.checkOut).getTime() - new Date(booking.checkIn).getTime()) / 86_400_000));
   const statusKey = String(booking.status || "").toUpperCase();
-  const statusMeta = STATUS_META[statusKey] ?? { label: humanize(booking.status), pill: "bg-white/10 text-white/80", tone: "text-white" };
+  const attemptLabel = booking.attemptState === "PAYMENT_REVIEW" ? "Payment needs review" : booking.attemptState === "PAYMENT_PROCESSING" ? booking.attemptNeedsReview ? "Processing overdue" : "Payment processing" : booking.attemptState === "EXPIRED_UNPAID" ? "Expired unpaid" : booking.attemptState === "ABANDONED" ? "No payment started" : "Awaiting payment";
+  const statusMeta = statusKey === "NEW" ? { label: attemptLabel, pill: "bg-amber-400/20 text-amber-200", tone: "text-amber-200" } : (STATUS_META[statusKey] ?? { label: humanize(booking.status), pill: "bg-white/10 text-white/80", tone: "text-white" });
   const paidInvoice = (booking.invoices ?? []).find((i) => ["PAID", "CUSTOMER_PAID"].includes(String(i.status).toUpperCase()));
   const viewerInvoice = (booking.invoices ?? []).find((i) => i.id === receiptInvoiceId) ?? null;
   const viewerPaid = viewerInvoice ? ["PAID", "CUSTOMER_PAID"].includes(String(viewerInvoice.status).toUpperCase()) : false;
@@ -259,7 +262,7 @@ export default function ManagementBookingDetail() {
   const facts = [
     { label: "Stay", value: `${nights} ${nights === 1 ? "night" : "nights"}`, detail: `${eatDay(booking.checkIn)} to ${eatDay(booking.checkOut)}` },
     { label: "Guest", value: guestName, detail: owner?.name ? `Hosted by ${owner.name}` : booking.user?.email || "No contact on file" },
-    { label: "Amount", value: tzs(booking.totalAmount), detail: paidInvoice ? `Paid${paidInvoice.paidAt ? ` ${eatDate(paidInvoice.paidAt)}` : ""}` : "Not paid yet" },
+    { label: "Amount", value: tzs(booking.totalAmount), detail: statusKey === "NEW" ? attemptLabel : paidInvoice ? `Paid${paidInvoice.paidAt ? ` ${eatDate(paidInvoice.paidAt)}` : ""}` : "Not paid yet" },
     { label: "Per night", value: nights > 0 ? tzs(Number(booking.totalAmount) / nights) : tzs(booking.totalAmount), detail: booking.roomCode ? `Room ${booking.roomCode}` : tidy(booking.property?.type) || "Room not set", mono: false },
   ];
 
@@ -387,7 +390,7 @@ export default function ManagementBookingDetail() {
                 {booking.code.codeVisible} {copyButton("code", booking.code.codeVisible, "check-in code", true)}
               </p>
             ) : (
-              <p className="m-0 mt-0.5 text-sm font-semibold text-neutral-500">Issued after payment</p>
+              <p className="m-0 mt-0.5 text-sm font-semibold text-neutral-500">{statusKey === "NEW" ? "No code issued" : "Issued after payment"}</p>
             )}
             {booking.code?.status && <p className={`m-0 mt-0.5 text-[11px] ${booking.code?.codeVisible ? "text-white/50" : "text-neutral-400"}`}>{humanize(booking.code.status)}{booking.code.usedAt ? ` · used ${eatDate(booking.code.usedAt)}` : ""}</p>}
           </div>

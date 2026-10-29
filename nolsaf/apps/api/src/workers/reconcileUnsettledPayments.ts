@@ -132,7 +132,12 @@ export async function reconcileUnsettledPayments(now = new Date()): Promise<Unse
 
     let settled = false;
     try {
-      if (event.invoice && event.invoice.status !== "PAID") {
+      const payload = event.payload && typeof event.payload === "object" ? event.payload as any : null;
+      const verifiedAzamAmount = event.provider === "AZAMPAY" && payload?.webhookVerified === true &&
+        Number(payload.webhookAmount) === amount && String(payload.webhookCurrency || "").toUpperCase() === "TZS";
+      if (!verifiedAzamAmount) {
+        console.error(`[payment-reconciliation] Provider amount needs independent verification for event ${event.id}.`);
+      } else if (event.invoice && event.invoice.status !== "PAID") {
         const expected = expectedInvoicePaymentAmount(event.invoice);
         if (!isPaymentAmountWithinTolerance(amount, expected)) {
           console.error(

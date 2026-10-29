@@ -15,10 +15,7 @@ import AdminNotificationDrawer from "@/components/AdminNotificationDrawer";
 import FinanceGrantPanel from "@/components/FinanceGrantPanel";
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.matchMedia("(min-width: 768px)").matches;
-  });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const mainRef = useRef<HTMLDivElement | null>(null);
   const sidebarRef = useRef<HTMLDivElement | null>(null);
   const syncingRef = useRef(false);

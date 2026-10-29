@@ -5,12 +5,12 @@ import {
   Building2,
   Eye,
   EyeOff,
+  HandCoins,
   Landmark,
   ReceiptText,
   RefreshCw,
   ScanLine,
   Users,
-  WalletCards,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
@@ -55,9 +55,9 @@ const PAYOUT_ROWS: Array<{ keys: string[]; label: string; bar: string; attention
 const SHORTCUTS: Array<{ href: string; label: string; detail: string; icon: typeof Users }> = [
   { href: "/admin/properties/previews", label: "Property previews", detail: "Review and approve listings", icon: Building2 },
   { href: "/admin/owners", label: "Owners", detail: "Accounts, KYC and statements", icon: Users },
+  { href: "/admin/revenue", label: "Accommodation revenue", detail: "Verify and approve owner claims", icon: HandCoins },
   { href: "/admin/management/invoices", label: "Invoices", detail: "Payout claims and receipts", icon: ReceiptText },
   { href: "/admin/disbursements", label: "Disbursements", detail: "Batches and transfers", icon: Landmark },
-  { href: "/admin/finance", label: "Finance overview", detail: "Revenue across all streams", icon: WalletCards },
 ];
 
 const MASK = "••••••";

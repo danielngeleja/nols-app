@@ -36,7 +36,7 @@ function strandedInvoiceEvent(overrides: Record<string, unknown> = {}) {
     amount: 120000,
     phone: "+255712345678",
     createdAt: minutesAgo(20),
-    payload: { paymentRef: "INV-77" },
+    payload: { paymentRef: "INV-77", webhookVerified: true, webhookAmount: 120000, webhookCurrency: "TZS" },
     invoiceId: 77,
     tourBookingId: null,
     groupBookingId: null,
@@ -87,6 +87,20 @@ describe("reconcileUnsettledPayments", () => {
 
     const result = await reconcileUnsettledPayments(NOW);
 
+    expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ settled: 0, stillStuck: 1, escalated: 1 });
+  });
+
+  it("holds legacy success rows without a signed callback amount", async () => {
+    mocks.eventFindMany.mockResolvedValue([strandedInvoiceEvent({ payload: { paymentRef: "INV-77" }, createdAt: minutesAgo(90) })]);
+    const result = await reconcileUnsettledPayments(NOW);
+    expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ settled: 0, stillStuck: 1, escalated: 1 });
+  });
+
+  it("does not replay a card event whose stored amount came from the invoice", async () => {
+    mocks.eventFindMany.mockResolvedValue([strandedInvoiceEvent({ provider: "CORALCOMMERCE", createdAt: minutesAgo(90) })]);
+    const result = await reconcileUnsettledPayments(NOW);
     expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
     expect(result).toMatchObject({ settled: 0, stillStuck: 1, escalated: 1 });
   });

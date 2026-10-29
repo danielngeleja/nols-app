@@ -41,7 +41,10 @@ describe("expired booking purge", () => {
     );
     expect(tx.booking.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        invoices: { none: { status: { in: ["PROCESSING", "PAID", "CUSTOMER_PAID"] } } },
+        invoices: { none: { OR: [
+          { status: { in: ["PROCESSING", "PAID", "CUSTOMER_PAID"] } },
+          { paymentEvents: { some: { status: "SUCCESS" } } },
+        ] } },
       }),
     }));
     expect(tx.auditLog.createMany).toHaveBeenCalledWith({
@@ -54,7 +57,7 @@ describe("expired booking purge", () => {
       })],
     });
     expect(tx.booking.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: [10] }, status: "NEW", code: null, invoices: { none: {} } },
+      where: { id: { in: [10] }, status: "NEW", code: null, paymentReconciliationCase: { is: null }, invoices: { none: {} } },
     });
     expect(client.$transaction).toHaveBeenCalledWith(
       expect.any(Function),

@@ -18,6 +18,7 @@ import {
 } from "../lib/nolsafMarketplaceNrms.js";
 import { findUnitConflicts, getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { adminBookingReference, resolveAdminBookingReference } from "../lib/adminBookingReference.js";
+import { classifyBookingAttempt } from "../lib/bookingAttemptState.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -38,10 +39,6 @@ router.param("id", (async (req, res, next, value) => {
     next(err);
   }
 }) as any);
-
-/** Hours an unpaid booking draft stays payable before it flips to EXPIRED.
- *  Mirrors BOOKING_DRAFT_WINDOW_HOURS in customer.bookings.ts / PAYMENT_ACCESS_TOKEN_HOURS. */
-const BOOKING_DRAFT_WINDOW_HOURS = 12;
 
 /* ----------------------------- Utilities ------------------------------ */
 
@@ -115,12 +112,11 @@ router.get("/", async (req, res) => {
   const where: any = {};
   const hasStatusFilter = typeof status === "string" && status.trim().length > 0;
   if (hasStatusFilter) {
-    // Draft = a created-but-unpaid invoice: the checkout reached the invoice stage
-    // (status still NEW, no check-in code) but no payment has cleared. These mirror
-    // the tour-revenue "Draft" bucket and are otherwise hidden from admin lists.
+    // Payment attempts have a checkout invoice but have not become a stay.
+    // Include unresolved provider results so finance can reconcile them.
     if (status === 'DRAFT') {
       where.status = 'NEW';
-      where.invoices = { some: {}, none: { status: { in: ['PAID', 'CUSTOMER_PAID'] } } };
+      where.invoices = { some: {} };
     } else if (status === 'CHECKED_IN') {
       // When filtering by CHECKED_IN, include PENDING_CHECKIN as well (matches frontend count display)
       where.status = { in: ['CHECKED_IN', 'PENDING_CHECKIN'] };
@@ -128,18 +124,9 @@ router.get("/", async (req, res) => {
       where.status = status;
     }
   } else {
-    // "All" = every meaningful booking across all statuses (the union of all tabs):
-    // real bookings (CONFIRMED / CHECKED_IN / PENDING_CHECKIN / CHECKED_OUT / CANCELED)
-    // PLUS unpaid drafts (NEW with a created-but-unpaid invoice).
-    // Abandoned NEW holds with no invoice at all stay hidden.
-    where.AND = [
-      {
-        OR: [
-          { status: { in: ["CONFIRMED", "CHECKED_IN", "PENDING_CHECKIN", "CHECKED_OUT", "CANCELED"] } },
-          { status: "NEW", invoices: { some: {}, none: { status: { in: ["PAID", "CUSTOMER_PAID"] } } } },
-        ],
-      },
-    ];
+    // The default bookings view represents stays. Checkout attempts live in
+    // the explicit DRAFT view and never inflate booking counts.
+    where.status = { in: ["CONFIRMED", "CHECKED_IN", "PENDING_CHECKIN", "CHECKED_OUT", "CANCELED"] };
   }
   if (propertyId) where.propertyId = Number(propertyId);
   if (ownerId) where.property = { is: { ownerId: Number(ownerId) } };
@@ -211,6 +198,7 @@ router.get("/", async (req, res) => {
           select: {
             id: true,
             status: true,
+            receiptNumber: true,
             total: true,
             paidAt: true,
             createdAt: true,
@@ -222,7 +210,6 @@ router.get("/", async (req, res) => {
             },
           },
           orderBy: { id: 'desc' },
-          take: 1,
         },
         reviews: {
           select: { id: true, rating: true, createdAt: true },
@@ -269,16 +256,13 @@ router.get("/", async (req, res) => {
           : null;
       const invoiceStatus = String(latestInvoice?.status ?? '').toUpperCase();
 
-      // Draft payment window: a NEW booking with a created-but-unpaid invoice is
-      // payable for BOOKING_DRAFT_WINDOW_HOURS from creation, then it EXPIRES.
-      const isPaidInvoice = invoiceStatus === 'PAID' || invoiceStatus === 'CUSTOMER_PAID';
-      const isDraft = String(b.status ?? '').toUpperCase() === 'NEW' && !!latestInvoice && !isPaidInvoice;
+      // Keep the legacy expiry field only for attempts without payment evidence.
+      const attempt = classifyBookingAttempt(b);
       let draftExpiresAt: string | null = null;
       let draftExpiryStatus: 'ACTIVE' | 'EXPIRED' | null = null;
-      if (isDraft && b.createdAt) {
-        const expiresMs = new Date(b.createdAt).getTime() + BOOKING_DRAFT_WINDOW_HOURS * 60 * 60 * 1000;
-        draftExpiresAt = new Date(expiresMs).toISOString();
-        draftExpiryStatus = Date.now() < expiresMs ? 'ACTIVE' : 'EXPIRED';
+      if (attempt) {
+        draftExpiresAt = attempt.expiresAt.toISOString();
+        draftExpiryStatus = attempt.state === 'EXPIRED_UNPAID' ? 'EXPIRED' : attempt.state === 'AWAITING_PAYMENT' ? 'ACTIVE' : null;
       }
 
       const paymentSummary = {
@@ -335,6 +319,8 @@ router.get("/", async (req, res) => {
         createdAt: b.createdAt,
         draftExpiresAt,
         draftExpiryStatus,
+        attemptState: attempt?.state ?? null,
+        attemptNeedsReview: attempt?.needsReview ?? false,
       };
     }),
   };
@@ -353,7 +339,7 @@ router.get("/counts", async (req, res) => {
   try {
     const { start, end, month } = req.query as any;
 
-    // If no date params, return simple status counts (exclude NEW - unpaid bookings are never visible to admin)
+    // If no date params, return stay counts and a separate payment-attempt count.
     if (!start && !end && !month) {
       const statuses = ["CONFIRMED", "CHECKED_IN", "PENDING_CHECKIN", "CHECKED_OUT", "CANCELED"];
       const counts: Record<string, number> = {};
@@ -366,12 +352,12 @@ router.get("/counts", async (req, res) => {
         }
       }
 
-      // Draft = NEW bookings with a created-but-unpaid invoice (mirrors tour-revenue Draft).
+      // All checkout attempts belong to the separate admin payment-attempt view.
       try {
         counts["DRAFT"] = await prisma.booking.count({
           where: {
             status: "NEW",
-            invoices: { some: {}, none: { status: { in: ["PAID", "CUSTOMER_PAID"] } } },
+            invoices: { some: {} },
           },
         });
       } catch (e) {
@@ -499,6 +485,7 @@ router.get("/:id", async (req, res) => {
             paidAt: true,
             invoiceNumber: true,
             receiptNumber: true,
+            paymentEvents: { where: { status: 'SUCCESS' }, select: { status: true }, take: 1 },
           },
           orderBy: { issuedAt: 'desc' },
         },
@@ -547,9 +534,13 @@ router.get("/:id", async (req, res) => {
     const latestCancellation = b.cancellationRequests && b.cancellationRequests.length > 0 
       ? b.cancellationRequests[0] 
       : null;
+    const attempt = classifyBookingAttempt(b);
     
     const response: any = {
       ...b,
+      attemptState: attempt?.state ?? null,
+      attemptNeedsReview: attempt?.needsReview ?? false,
+      draftExpiresAt: attempt?.expiresAt.toISOString() ?? null,
       reference: adminBookingReference(b.id),
       cancelReason: latestCancellation?.reason ?? null,
       canceledAt: latestCancellation?.createdAt ?? null,

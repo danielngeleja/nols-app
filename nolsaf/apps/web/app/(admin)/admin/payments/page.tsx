@@ -1,6 +1,6 @@
 "use client";
 
-import { Wallet, CreditCard, Eye, Smartphone, Search, X, Clock, CheckCircle, User, Building, Download, CheckSquare, Square, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown, ArrowRight, ChevronRight, Landmark, ReceiptText, RefreshCw, ShieldAlert } from "lucide-react";
+import { Wallet, CreditCard, Eye, Smartphone, Search, X, Clock, CheckCircle, User, Building, Download, CheckSquare, Square, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown, Landmark, ReceiptText, RefreshCw, ShieldAlert } from "lucide-react";
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import apiClient from "@/lib/apiClient";
 import Image from "next/image";
@@ -818,65 +818,78 @@ export default function Page() {
 
   return (
     <div className="payments-workspace box-border w-full min-w-0 max-w-none space-y-4">
-      {/* Header: the money pipeline, left to right */}
+      {/* Payment operations overview */}
       {(() => {
         const n = (v: number) => (summaryLoading ? "..." : summaryError ? "n/a" : v.toLocaleString());
-        const stages: Array<{ key: string; label: string; value: string; sub: string; icon: typeof Wallet; href?: string; onClick?: () => void; active?: boolean; tone: string }> = [
-          { key: "awaiting", label: "Awaiting settlement", value: n(summary.booking.waiting), sub: "approved booking invoices", icon: Clock, onClick: () => { setActiveTab("waiting"); setPage(1); clearSelection(); }, active: activeTab === "waiting", tone: summary.booking.waiting > 0 ? "text-amber-700" : "text-slate-900" },
-          { key: "paid", label: "Settled", value: n(summary.booking.paid), sub: "booking invoices paid", icon: CheckCircle, onClick: () => { setActiveTab("paid"); setPage(1); clearSelection(); }, active: activeTab === "paid", tone: "text-emerald-700" },
-          { key: "nrms", label: "NRMS payable", value: n(summary.nrms.waiting), sub: `${summaryLoading ? "..." : summary.nrms.paid.toLocaleString()} statements paid`, icon: ReceiptText, href: "/admin/nrms/reconciliation", tone: "text-slate-900" },
-          { key: "payouts", label: "Open payouts", value: n(summary.payouts.open), sub: `${summaryLoading ? "..." : summary.payouts.paid.toLocaleString()} completed`, icon: Landmark, href: "/admin/disbursements", tone: "text-slate-900" },
-          { key: "exceptions", label: "Exceptions", value: n(summary.exceptions.total), sub: `${summary.exceptions.unmatched} unmatched · ${summary.exceptions.variance} variance`, icon: ShieldAlert, href: "/admin/action-center", tone: summary.exceptions.total > 0 ? "text-rose-700" : "text-emerald-700" },
+        const stages: Array<{ key: string; label: string; value: string; sub: string; icon: typeof Wallet; href?: string; onClick?: () => void; active?: boolean; tone: string; heroTone: string; heroSurface: string }> = [
+          { key: "awaiting", label: "Awaiting settlement", value: n(summary.booking.waiting), sub: "approved booking invoices", icon: Clock, onClick: () => { setActiveTab("waiting"); setPage(1); clearSelection(); }, active: activeTab === "waiting", tone: "text-amber-700", heroTone: "text-amber-300", heroSurface: "border-amber-400/30 bg-amber-400/[0.07]" },
+          { key: "paid", label: "Settled", value: n(summary.booking.paid), sub: "booking invoices paid", icon: CheckCircle, onClick: () => { setActiveTab("paid"); setPage(1); clearSelection(); }, active: activeTab === "paid", tone: "text-emerald-700", heroTone: "text-emerald-300", heroSurface: "border-emerald-400/30 bg-emerald-400/[0.07]" },
+          { key: "nrms", label: "NRMS payable", value: n(summary.nrms.waiting), sub: `${summaryLoading ? "..." : summary.nrms.paid.toLocaleString()} statements paid`, icon: ReceiptText, href: "/admin/nrms/reconciliation", tone: "text-slate-900", heroTone: "text-sky-300", heroSurface: "border-sky-400/30 bg-sky-400/[0.07]" },
+          { key: "payouts", label: "Open payouts", value: n(summary.payouts.open), sub: `${summaryLoading ? "..." : summary.payouts.paid.toLocaleString()} completed`, icon: Landmark, href: "/admin/disbursements", tone: "text-slate-900", heroTone: "text-teal-300", heroSurface: "border-teal-400/30 bg-teal-400/[0.07]" },
+          { key: "exceptions", label: "Exceptions", value: n(summary.exceptions.total), sub: `${summary.exceptions.unmatched} unmatched · ${summary.exceptions.variance} variance`, icon: ShieldAlert, href: "/admin/action-center", tone: summary.exceptions.total > 0 ? "text-rose-700" : "text-emerald-700", heroTone: "text-rose-300", heroSurface: "border-rose-400/30 bg-rose-400/[0.07]" },
         ];
         return (
-          <header className="min-w-0 rounded-lg border border-solid border-slate-200 bg-white">
-            <div className="flex flex-wrap items-start gap-4 px-5 py-5">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#02665e] text-white"><Wallet className="h-5 w-5" aria-hidden /></span>
-              <div className="min-w-0 flex-1">
-                <h1 className="m-0 text-xl font-bold tracking-tight text-slate-900">Payments</h1>
-                <p className="m-0 mt-1 text-sm text-slate-500">
-                  {summaryLoading
-                    ? "Reading the money pipeline..."
-                    : summaryError
-                      ? "Booking settlements, NRMS billing, owner payouts and reconciliation exceptions."
-                      : summary.exceptions.total > 0
-                        ? <><b className="text-rose-700">{summary.exceptions.total} reconciliation exception{summary.exceptions.total === 1 ? "" : "s"}</b> need a look. {summary.booking.waiting} booking invoice{summary.booking.waiting === 1 ? "" : "s"} await settlement.</>
-                        : summary.booking.waiting > 0
-                          ? <><b className="text-amber-700">{summary.booking.waiting} booking invoice{summary.booking.waiting === 1 ? "" : "s"}</b> await settlement. No reconciliation exceptions.</>
-                          : "Everything is settled and reconciled. Nothing is waiting on you."}
-                </p>
+          <div className="min-w-0 space-y-4">
+            <header className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_0%_100%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden />
+              <div className="pointer-events-none absolute inset-0 opacity-[0.35]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.09) 1px, transparent 1px)", backgroundSize: "18px 18px" }} aria-hidden />
+              <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80"><Wallet className="h-3.5 w-3.5" aria-hidden /> Finance operations</p>
+                    <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Payments</h1>
+                    <p className="m-0 mt-1 max-w-xl text-sm text-white/60">
+                      {summaryLoading ? "Reading payment activity..." : summaryError ? "Booking settlements, NRMS billing, payouts and reconciliation." : summary.exceptions.total > 0 ? `${summary.exceptions.total} reconciliation ${summary.exceptions.total === 1 ? "exception needs" : "exceptions need"} review.` : summary.booking.waiting > 0 ? `${summary.booking.waiting} booking ${summary.booking.waiting === 1 ? "invoice awaits" : "invoices await"} settlement.` : "Review booking settlements, NRMS billing and owner payouts."}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => { void loadSummary(); void loadPayments(); }} aria-label="Refresh payments" className="inline-flex h-9 items-center gap-2 rounded-lg border border-solid border-white/15 bg-white/[0.07] px-3 text-xs font-bold text-emerald-50 transition hover:bg-white/15">
+                    <RefreshCw className={`h-3.5 w-3.5 ${summaryLoading || loading ? "animate-spin" : ""}`} aria-hidden /> Refresh
+                  </button>
+                </div>
+                <div className="mt-6 grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-center">
+                  <div className="flex flex-col items-center lg:border-0 lg:border-r lg:border-solid lg:border-white/10 lg:pr-6">
+                    <div className="grid h-28 w-28 place-items-center rounded-full border-[9px] border-solid border-amber-300/20 bg-white/[0.04] text-center">
+                      <div><strong className="block text-3xl font-bold tabular-nums leading-none text-white">{stages[0].value}</strong><span className="mt-1 block text-[10px] text-white/55">awaiting</span></div>
+                    </div>
+                    <p className="m-0 mt-3 text-center text-[11px] text-white/55">Booking invoices to settle</p>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/50">Payment workspaces</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {stages.slice(1).map((st) => (
+                        <div key={st.key} className={`min-w-[8.5rem] flex-1 rounded-xl border border-solid px-3 py-2.5 ${st.heroSurface}`}>
+                          <strong className={`block text-xl font-bold tabular-nums leading-none ${st.heroTone}`}>{st.value}</strong>
+                          <span className="mt-1 block text-[11px] font-medium text-white/70">{st.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="m-0 mt-4 border-0 border-t border-solid border-white/10 pt-3 text-[11px] text-white/55">Booking invoices · NRMS statements · Owner payouts · Reconciliation</p>
+                  </div>
+                </div>
               </div>
-              <button type="button" onClick={() => { void loadSummary(); void loadPayments(); }} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                <RefreshCw className={`h-3.5 w-3.5 ${summaryLoading || loading ? "animate-spin" : ""}`} /> Refresh
-              </button>
-            </div>
-            <ol className="m-0 grid list-none grid-cols-2 gap-px border-0 border-t border-solid border-slate-200 bg-slate-200 p-0 md:grid-cols-5">
-              {stages.map((st, i) => {
-                const body = (
-                  <>
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500"><st.icon className="h-3.5 w-3.5" />{st.label}</span>
-                      {st.href ? <ArrowRight className="h-3.5 w-3.5 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500" /> : i < stages.length - 1 ? <ChevronRight className="h-3.5 w-3.5 text-slate-300" /> : null}
-                    </span>
-                    <span className={`mt-1.5 block text-2xl font-bold tabular-nums ${st.tone}`}>{st.value}</span>
-                    <span className="block truncate text-[11px] text-slate-500">{st.sub}</span>
-                  </>
-                );
-                const cls = `group block h-full min-w-0 px-5 py-3.5 text-left no-underline transition hover:no-underline ${st.active ? "bg-[#02665e]/[0.05] shadow-[inset_0_-2px_0_#02665e]" : "bg-white hover:bg-slate-50"}`;
-                return (
-                  <li key={st.key} className="min-w-0">
-                    {st.href ? <Link href={st.href} className={cls}>{body}</Link> : <button type="button" onClick={st.onClick} aria-pressed={st.active} className={`${cls} w-full border-0`}>{body}</button>}
-                  </li>
-                );
-              })}
-            </ol>
+            </header>
+            <section aria-label="Payment categories" className="rounded-2xl border border-solid border-neutral-200 bg-white p-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+                {stages.map((st) => {
+                  const body = (
+                    <>
+                      <span className="flex items-center justify-between gap-2"><span className="min-w-0 text-xs font-semibold text-neutral-800">{st.label}</span><st.icon className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden /></span>
+                      <span className={`mt-2 block text-2xl font-bold tabular-nums leading-none ${st.tone}`}>{st.value}</span>
+                      <span className="mt-1 block truncate text-[11px] text-neutral-500">{st.sub}</span>
+                    </>
+                  );
+                  const cls = `group block h-full min-w-0 rounded-xl border border-solid p-3.5 text-left no-underline transition-all hover:no-underline ${st.active ? "border-neutral-900 bg-emerald-50/50" : "border-transparent bg-neutral-50/70 hover:border-neutral-200 hover:bg-white"}`;
+                  return st.href ? <Link key={st.key} href={st.href} className={cls}>{body}</Link> : <button key={st.key} type="button" onClick={st.onClick} aria-pressed={st.active} className={`${cls} w-full cursor-pointer`}>{body}</button>;
+                })}
+              </div>
+            </section>
             {summaryError ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-amber-200 bg-amber-50 px-5 py-2.5 text-xs text-amber-900">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-solid border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900">
                 <span>{summaryError}</span>
                 <button type="button" onClick={() => void loadSummary()} className="rounded-md border border-solid border-amber-300 bg-white px-2.5 py-1 font-semibold hover:bg-amber-100">Retry</button>
               </div>
             ) : null}
-          </header>
+          </div>
         );
       })()}
 

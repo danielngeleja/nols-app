@@ -12,8 +12,8 @@
  *      retained well past the payment window, then purged after the grace period.
  *
  * In both tiers a booking is protected (never deleted) if it has any invoice
- * currently PROCESSING, PAID, or CUSTOMER_PAID — an in-flight or completed
- * payment must always win. Only NEW bookings without a code are eligible.
+ * currently PROCESSING, PAID, or CUSTOMER_PAID, or a successful provider
+ * payment event. Only NEW bookings without a code are eligible.
  *
  * Effect: hard DELETE from the database — no cancelled record left behind.
  * Associated unpaid invoices and transport bookings are also deleted.
@@ -40,8 +40,14 @@ const DEFAULT_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Milliseconds: 5 minutes */
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 
-/** Invoice statuses that protect a booking from deletion (active/successful payment). */
+/** Invoice evidence that protects a booking from deletion. */
 const PROTECTING_INVOICE_STATUSES = ["PROCESSING", "PAID", "CUSTOMER_PAID"] as const;
+const protectingInvoice = {
+  OR: [
+    { status: { in: [...PROTECTING_INVOICE_STATUSES] } },
+    { paymentEvents: { some: { status: "SUCCESS" } } },
+  ],
+};
 
 type StaleBookingCandidate = {
   id: number;
@@ -76,7 +82,8 @@ export async function purgeBookings(
         id: { in: staleIds },
         status: "NEW",
         code: null,
-        invoices: { none: { status: { in: [...PROTECTING_INVOICE_STATUSES] } } },
+        paymentReconciliationCase: { is: null },
+        invoices: { none: protectingInvoice },
       },
       select: { id: true },
     });
@@ -97,6 +104,7 @@ export async function purgeBookings(
         id: { in: deletableIds },
         status: "NEW",
         code: null,
+        paymentReconciliationCase: { is: null },
         invoices: { none: {} },
       },
       select: { id: true },
@@ -109,6 +117,7 @@ export async function purgeBookings(
         id: { in: finalCandidateIds },
         status: "NEW",
         code: null,
+        paymentReconciliationCase: { is: null },
         invoices: { none: {} },
       },
     });
@@ -167,6 +176,7 @@ async function expireStaleBookings(ttlMs: number, draftTtlMs: number): Promise<v
       status: "NEW",
       createdAt: { lt: abandonedCutoff },
       code: null,
+      paymentReconciliationCase: { is: null },
       invoices: { none: {} },
     },
     select: { id: true, createdAt: true, invoices: { select: { status: true } } },
@@ -179,9 +189,10 @@ async function expireStaleBookings(ttlMs: number, draftTtlMs: number): Promise<v
       status: "NEW",
       createdAt: { lt: draftCutoff },
       code: null,
+      paymentReconciliationCase: { is: null },
       invoices: {
         some: {},
-        none: { status: { in: [...PROTECTING_INVOICE_STATUSES] } },
+        none: protectingInvoice,
       },
     },
     select: { id: true, createdAt: true, invoices: { select: { status: true } } },
