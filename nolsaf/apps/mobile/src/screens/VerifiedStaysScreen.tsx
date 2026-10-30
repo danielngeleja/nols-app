@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ArrowLeft, ArrowUpDown, CalendarDays, ChevronDown, Search, SearchX, ShieldCheck, SlidersHorizontal, X } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Dimensions, FlatList, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "../auth";
@@ -65,6 +65,11 @@ function abbreviateAmount(n: number): string {
 }
 
 export function VerifiedStaysScreen({ navigation, route }: Props) {
+  const { width, fontScale } = useWindowDimensions();
+  const screen = Dimensions.get("screen");
+  const landscape = screen.width > screen.height && width >= 560;
+  const compact = landscape || screen.height < 700 || fontScale >= 1.35;
+  const sidebarWidth = Math.min(340, Math.max(240, width * 0.34));
   const { status, token } = useAuth();
   const { savedIds, toggleSave } = useSavedProperties(token);
   const [items, setItems] = useState<PublicPropertyCard[]>([]);
@@ -76,6 +81,7 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
   const [region, setRegion] = useState(route.params?.region ?? "");
   const [availabilityDate, setAvailabilityDate] = useState("");
   const [daysOpen, setDaysOpen] = useState(false);
+  const [regionsOpen, setRegionsOpen] = useState(false);
   const [availabilityMap, setAvailabilityMap] = useState<Record<number, number | null>>({});
   const [filters, setFilters] = useState<PropertyFilters>(
     route.params?.propertyType ? { ...DEFAULT_PROPERTY_FILTERS, types: [route.params.propertyType] } : DEFAULT_PROPERTY_FILTERS
@@ -187,6 +193,7 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
 
   function selectRegion(next: string) {
     setRegion(next);
+    setRegionsOpen(false);
   }
 
   function pickDay(value: string) {
@@ -239,30 +246,32 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
     : items;
 
   // Motion lives only in a small featured strip, and only on the calm All view.
-  const featured = !hasFilters && decoratedItems.length > 4 ? decoratedItems.slice(0, FEATURED_COUNT) : [];
+  const featured = !compact && !hasFilters && decoratedItems.length > 4 ? decoratedItems.slice(0, FEATURED_COUNT) : [];
 
   // The full inventory is laid out as compact rows of up to five tiles. Each row
   // slides by hand only (no auto rotation) to keep things calm and save space.
   const rows = chunk(decoratedItems, COLUMNS_PER_ROW);
 
   const header = (
-    <AppStack gap={5}>
-      <View style={styles.hero}>
+    <AppStack gap={compact ? 3 : 5}>
+      <View style={[styles.hero, compact && styles.heroCompact]}>
         <View style={styles.topRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => navigation.goBack()} style={styles.backButton}>
             <ArrowLeft color={colors.white} size={20} />
           </Pressable>
           <View style={styles.titleText}>
-            <AppText variant="title" weight="extraBold" tone="inverse" numberOfLines={1}>
+            <AppText variant={compact ? "titleSm" : "title"} weight="extraBold" tone="inverse" numberOfLines={compact ? 2 : 1}>
               Verified stays
             </AppText>
-            <AppText variant="caption" style={styles.heroSub} numberOfLines={1}>
-              Approved NoLSAF stays, ready to book.
-            </AppText>
+            {!compact ? (
+              <AppText variant="caption" style={styles.heroSub} numberOfLines={1}>
+                Approved NoLSAF stays, ready to book.
+              </AppText>
+            ) : null}
           </View>
         </View>
 
-        <View style={styles.heroFooter}>
+        <View style={[styles.heroFooter, (landscape || width < 360 || fontScale >= 1.35) && styles.heroFooterLandscape]}>
           <View style={styles.flex}>
             {loading && total === 0 ? (
               <AppText variant="bodySmall" weight="semiBold" style={styles.heroSub}>
@@ -278,16 +287,16 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
               </View>
             )}
           </View>
-          <CurrencySelector onDark />
+          <CurrencySelector onDark compact={compact} />
         </View>
       </View>
 
       <AppStack gap={3}>
-        <View style={styles.searchBar}>
+        <View style={[styles.searchBar, compact && styles.searchBarCompact]}>
           <Search color={colors.softText} size={18} />
           <TextInput
             accessibilityLabel="Search stays"
-            placeholder="Where to? Area or stay name"
+            placeholder={compact ? "Area or stay name" : "Where to? Area or stay name"}
             placeholderTextColor={colors.softText}
             value={query}
             onChangeText={setQuery}
@@ -302,27 +311,49 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
           ) : null}
         </View>
 
-        {/* Bleeds to the screen edge so the row reads as scrollable, not cut off. */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.bleed}
-          contentContainerStyle={[styles.chipRow, styles.bleedContent]}
-          keyboardShouldPersistTaps="handled"
-        >
-          <FilterChip label="Anywhere" active={region === ""} onPress={() => selectRegion("")} />
-          {REGIONS.map((r) => (
-            <FilterChip key={r} label={r} active={region === r} onPress={() => selectRegion(r)} />
-          ))}
-        </ScrollView>
+        {/* On short screens the region picker opens on demand to keep stays visible. */}
+        {!compact || regionsOpen ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={!landscape ? styles.bleed : undefined}
+            contentContainerStyle={[styles.chipRow, !landscape && styles.bleedContent]}
+            keyboardShouldPersistTaps="handled"
+          >
+            <FilterChip label="Anywhere" active={region === ""} onPress={() => selectRegion("")} />
+            {REGIONS.map((r) => (
+              <FilterChip key={r} label={r} active={region === r} onPress={() => selectRegion(r)} />
+            ))}
+          </ScrollView>
+        ) : null}
 
-        {/* One control row: date, filters, sort. The day strip opens only on demand. */}
-        <View style={styles.controlRow}>
+        <View style={[styles.controlRow, compact && styles.controlRowCompact, landscape && styles.controlRowLandscape]}>
+          {compact ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Region: ${region || "Anywhere"}`}
+              accessibilityState={{ expanded: regionsOpen }}
+              onPress={() => {
+                setRegionsOpen((open) => !open);
+                setDaysOpen(false);
+              }}
+              style={[styles.controlButton, styles.controlButtonCompact, landscape && styles.controlButtonLandscape, (region || regionsOpen) && styles.controlButtonActive]}
+            >
+              <Search color={colors.primary} size={15} />
+              <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1} style={styles.flexText}>
+                {region || "Anywhere"}
+              </AppText>
+              <ChevronDown color={colors.primary} size={14} style={regionsOpen ? styles.chevronOpen : undefined} />
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ expanded: daysOpen }}
-            onPress={() => setDaysOpen((open) => !open)}
-            style={[styles.controlButton, (availabilityDate || daysOpen) && styles.controlButtonActive]}
+            onPress={() => {
+              setDaysOpen((open) => !open);
+              setRegionsOpen(false);
+            }}
+            style={[styles.controlButton, compact && styles.controlButtonCompact, landscape && styles.controlButtonLandscape, (availabilityDate || daysOpen) && styles.controlButtonActive]}
           >
             <CalendarDays color={colors.primary} size={15} />
             <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1} style={styles.flexText}>
@@ -330,7 +361,7 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
             </AppText>
             <ChevronDown color={colors.primary} size={14} style={daysOpen ? styles.chevronOpen : undefined} />
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => setFiltersVisible(true)} style={[styles.controlButton, advancedCount > 0 && styles.controlButtonActive]}>
+          <Pressable accessibilityRole="button" onPress={() => setFiltersVisible(true)} style={[styles.controlButton, compact && styles.controlButtonCompact, landscape && styles.controlButtonLandscape, advancedCount > 0 && styles.controlButtonActive]}>
             <SlidersHorizontal color={colors.primary} size={15} />
             <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1} style={styles.flexText}>
               Filters
@@ -347,7 +378,7 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
             accessibilityRole="button"
             accessibilityLabel={`Sort: ${sortLabel}`}
             onPress={() => setFiltersVisible(true)}
-            style={[styles.controlButton, filters.sort !== "newest" && styles.controlButtonActive]}
+            style={[styles.controlButton, compact && styles.controlButtonCompact, landscape && styles.controlButtonLandscape, filters.sort !== "newest" && styles.controlButtonActive]}
           >
             <ArrowUpDown color={colors.primary} size={15} />
             <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1} style={styles.flexText}>
@@ -360,8 +391,8 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            style={styles.bleed}
-            contentContainerStyle={[styles.chipRow, styles.bleedContent]}
+            style={!landscape ? styles.bleed : undefined}
+            contentContainerStyle={[styles.chipRow, !landscape && styles.bleedContent]}
             keyboardShouldPersistTaps="handled"
           >
             <FilterChip label="Any day" active={availabilityDate === ""} onPress={() => pickDay("")} />
@@ -410,7 +441,7 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
         </AppStack>
       ) : null}
 
-      {!hasFilters && items.length > 0 ? (
+      {!compact && !hasFilters && items.length > 0 ? (
         <AppText variant="titleSm" weight="bold">
           All approved stays
         </AppText>
@@ -450,31 +481,45 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-        <FlatList
-          data={rows}
-          keyExtractor={(row, index) => `row-${row[0]?.id ?? index}`}
-          contentContainerStyle={styles.content}
-          ListHeaderComponent={header}
-          ListHeaderComponentStyle={styles.headerSpacing}
-          renderItem={({ item }) => (
-            <PropertyRail
-              items={item}
-              autoRotate={false}
-              onCardPress={openProperty}
-              systemCommission={systemCommission}
-              savedIds={savedIds}
-              onToggleSave={status === "authenticated" ? (property) => toggleSave(property.id) : undefined}
-            />
-          )}
-          ItemSeparatorComponent={() => <View style={styles.rowSeparator} />}
-          ListEmptyComponent={empty}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          removeClippedSubviews
-        />
+        <View style={[styles.layout, landscape && styles.layoutLandscape]}>
+          {landscape ? (
+            <ScrollView
+              style={[styles.sidebar, { width: sidebarWidth }]}
+              contentContainerStyle={styles.sidebarContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {header}
+            </ScrollView>
+          ) : null}
+          <FlatList
+            data={rows}
+            keyExtractor={(row, index) => `row-${row[0]?.id ?? index}`}
+            style={styles.resultsList}
+            contentContainerStyle={[styles.content, compact && styles.contentCompact, landscape && styles.resultsContent]}
+            ListHeaderComponent={landscape ? null : header}
+            ListHeaderComponentStyle={[styles.headerSpacing, compact && styles.headerSpacingCompact]}
+            renderItem={({ item }) => (
+              <PropertyRail
+                items={item}
+                autoRotate={false}
+                onCardPress={openProperty}
+                systemCommission={systemCommission}
+                savedIds={savedIds}
+                onToggleSave={status === "authenticated" ? (property) => toggleSave(property.id) : undefined}
+                compact={compact}
+              />
+            )}
+            ItemSeparatorComponent={() => <View style={styles.rowSeparator} />}
+            ListEmptyComponent={empty}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            removeClippedSubviews
+          />
+        </View>
       </SafeAreaView>
 
-      {status === "authenticated" ? null : <GuestBottomNav active="Search" />}
+      {status === "authenticated" ? null : <GuestBottomNav active="Search" compact={compact} />}
 
       <PropertyFiltersSheet
         visible={filtersVisible}
@@ -518,13 +563,45 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1
   },
+  layout: {
+    flex: 1,
+    minWidth: 0
+  },
+  layoutLandscape: {
+    flexDirection: "row"
+  },
+  sidebar: {
+    flexGrow: 0,
+    flexShrink: 0,
+    borderRightWidth: 1,
+    borderRightColor: colors.border
+  },
+  sidebarContent: {
+    padding: spacing[3],
+    paddingBottom: spacing[6]
+  },
+  resultsList: {
+    flex: 1,
+    minWidth: 0
+  },
   content: {
     paddingHorizontal: spacing[4],
     paddingTop: spacing[4],
     paddingBottom: spacing[8]
   },
+  contentCompact: {
+    paddingHorizontal: spacing[3],
+    paddingTop: spacing[3],
+    paddingBottom: spacing[6]
+  },
+  resultsContent: {
+    paddingTop: spacing[3]
+  },
   headerSpacing: {
     marginBottom: spacing[4]
+  },
+  headerSpacingCompact: {
+    marginBottom: spacing[3]
   },
   rowSeparator: {
     height: spacing[5]
@@ -534,6 +611,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     backgroundColor: colors.primaryDeep,
     padding: spacing[4]
+  },
+  heroCompact: {
+    gap: spacing[2],
+    padding: spacing[3],
+    borderRadius: radius.lg
   },
   heroSub: {
     color: colors.brand[200]
@@ -550,6 +632,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: spacing[3]
+  },
+  heroFooterLandscape: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+    gap: spacing[2]
   },
   countRow: {
     flexDirection: "row",
@@ -606,6 +693,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing[2]
   },
+  controlRowCompact: {
+    flexWrap: "wrap"
+  },
+  controlRowLandscape: {
+    flexDirection: "column",
+    alignItems: "stretch",
+    flexWrap: "nowrap"
+  },
+  controlButtonCompact: {
+    flex: 0,
+    flexGrow: 1,
+    flexBasis: "46%",
+    minHeight: 42
+  },
+  controlButtonLandscape: {
+    flexBasis: "auto",
+    flexGrow: 0,
+    width: "100%",
+    justifyContent: "flex-start",
+    paddingHorizontal: spacing[3]
+  },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -617,6 +725,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     paddingHorizontal: spacing[4],
     ...shadows.card
+  },
+  searchBarCompact: {
+    height: 44,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing[3]
   },
   searchInput: {
     flex: 1,

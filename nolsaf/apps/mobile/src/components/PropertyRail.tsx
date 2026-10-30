@@ -20,6 +20,8 @@ type PropertyRailProps = {
   savedIds?: Set<number>;
   /** Toggles the saved state for a property. */
   onToggleSave?: (property: PublicPropertyCard) => void;
+  /** Keep tiles short and bounded inside a split or short viewport. */
+  compact?: boolean;
 };
 
 const GAP = spacing[3];
@@ -32,7 +34,7 @@ const RESUME_MS = 6000;
  * auto rotates so the row never sits static, pauses briefly after a manual
  * swipe, and shows chevron hints plus dots so hidden tiles are discoverable.
  */
-export function PropertyRail({ items, onCardPress, autoRotate = true, systemCommission = 0, savedIds, onToggleSave }: PropertyRailProps) {
+export function PropertyRail({ items, onCardPress, autoRotate = true, systemCommission = 0, savedIds, onToggleSave, compact = false }: PropertyRailProps) {
   const { width } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
   const scrollRef = useRef<ScrollView>(null);
@@ -42,12 +44,22 @@ export function PropertyRail({ items, onCardPress, autoRotate = true, systemComm
   const hoverPausedRef = useRef(false);
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [index, setIndex] = useState(0);
+  const [measuredWidth, setMeasuredWidth] = useState(0);
 
-  const containerWidth = Math.max(0, width - SCREEN_PADDING);
-  const cardWidth = (containerWidth - GAP) / 2;
+  const containerWidth = measuredWidth || Math.max(0, width - SCREEN_PADDING);
+  const cardWidth = compact
+    ? Math.min(220, containerWidth < 340 ? containerWidth : (containerWidth - GAP) / 2)
+    : Math.max(0, (containerWidth - GAP) / 2);
   const step = cardWidth + GAP;
-  const maxIndex = Math.max(0, items.length - 2);
-  const canSlide = items.length > 2;
+  const visibleCount = Math.max(1, Math.floor((containerWidth + GAP) / step));
+  const maxIndex = Math.max(0, items.length - visibleCount);
+  const canSlide = items.length > visibleCount;
+
+  useEffect(() => {
+    indexRef.current = 0;
+    setIndex(0);
+    scrollRef.current?.scrollTo({ x: 0, animated: false });
+  }, [containerWidth, items[0]?.id]);
 
   useEffect(() => {
     if (!autoRotate || !canSlide || reducedMotion) return;
@@ -69,7 +81,7 @@ export function PropertyRail({ items, onCardPress, autoRotate = true, systemComm
 
   function onScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     const x = event.nativeEvent.contentOffset.x;
-    const i = step > 0 ? Math.round(x / step) : 0;
+    const i = step > 0 ? Math.min(maxIndex, Math.max(0, Math.round(x / step))) : 0;
     indexRef.current = i;
     setIndex(i);
   }
@@ -93,12 +105,12 @@ export function PropertyRail({ items, onCardPress, autoRotate = true, systemComm
     hoverPausedRef.current = hoverCount.current > 0;
   }
 
-  const chevronTop = cardWidth * 0.5;
+  const chevronTop = compact ? cardWidth / 1.55 / 2 : cardWidth * 0.5;
   const showLeft = canSlide && index > 0;
   const showRight = canSlide && index < maxIndex;
 
   return (
-    <View style={styles.wrap}>
+    <View style={styles.wrap} onLayout={(event) => setMeasuredWidth(event.nativeEvent.layout.width)}>
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -122,6 +134,7 @@ export function PropertyRail({ items, onCardPress, autoRotate = true, systemComm
               systemCommission={systemCommission}
               saved={savedIds?.has(property.id)}
               onToggleSave={onToggleSave ? () => onToggleSave(property) : undefined}
+              compact={compact}
             />
           </View>
         ))}
@@ -140,7 +153,7 @@ export function PropertyRail({ items, onCardPress, autoRotate = true, systemComm
 
       {canSlide ? (
         <View style={styles.dots}>
-          {items.map((_, i) => (
+          {Array.from({ length: maxIndex + 1 }, (_, i) => (
             <View key={i} style={[styles.dot, i === index && styles.dotActive]} />
           ))}
         </View>

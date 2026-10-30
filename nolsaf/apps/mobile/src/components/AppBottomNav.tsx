@@ -15,14 +15,15 @@ export type AppBottomNavItem<Key extends string> = {
 type AppBottomNavProps<Key extends string> = {
   activeKey: Key;
   items: Array<AppBottomNavItem<Key>>;
+  compact?: boolean;
 };
 
-export function AppBottomNav<Key extends string>({ activeKey, items }: AppBottomNavProps<Key>) {
+export function AppBottomNav<Key extends string>({ activeKey, items, compact = false }: AppBottomNavProps<Key>) {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.shell, { paddingBottom: Math.max(insets.bottom, spacing[2]) }]}>
-      <View style={styles.bar}>
+    <View style={[styles.shell, compact && styles.shellCompact, { paddingBottom: Math.max(insets.bottom, compact ? spacing[1] : spacing[2]) }]}>
+      <View style={[styles.bar, compact && styles.barCompact]}>
         {items.map((item) => {
           const active = item.key === activeKey;
           return (
@@ -30,6 +31,7 @@ export function AppBottomNav<Key extends string>({ activeKey, items }: AppBottom
               key={item.key}
               active={active}
               item={item}
+              compact={compact}
             />
           );
         })}
@@ -40,10 +42,12 @@ export function AppBottomNav<Key extends string>({ activeKey, items }: AppBottom
 
 function AppBottomNavButton<Key extends string>({
   item,
-  active
+  active,
+  compact
 }: {
   item: AppBottomNavItem<Key>;
   active: boolean;
+  compact: boolean;
 }) {
   const progress = useRef(new Animated.Value(active ? 1 : 0)).current;
 
@@ -84,7 +88,7 @@ function AppBottomNavButton<Key extends string>({
     <Pressable
       accessibilityRole="button"
       onPress={item.onPress}
-      style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
+      style={({ pressed }) => [styles.item, compact && styles.itemCompact, pressed && styles.itemPressed]}
     >
       <Animated.View
         pointerEvents="none"
@@ -105,7 +109,7 @@ function AppBottomNavButton<Key extends string>({
             }
           ]}
         >
-          <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
+          <View style={[styles.iconWrap, compact && styles.iconWrapCompact, active && styles.iconWrapActive]}>
             {item.icon(active ? colors.white : colors.primary)}
           </View>
         </Animated.View>
@@ -114,13 +118,14 @@ function AppBottomNavButton<Key extends string>({
           weight={active ? "extraBold" : "semiBold"}
           tone={active ? "primary" : "soft"}
           numberOfLines={2}
-          style={styles.label}
+          style={[styles.label, compact && styles.labelCompact]}
         >
           {item.label}
         </AppText>
         <Animated.View
           style={[
             styles.activeMarker,
+            compact && styles.activeMarkerCompact,
             {
               opacity: activeOpacity,
               transform: [{ scaleX: markerScale }]
@@ -138,6 +143,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     paddingTop: spacing[2]
   },
+  shellCompact: {
+    paddingTop: spacing[1]
+  },
   bar: {
     minWidth: 0,
     minHeight: 72,
@@ -152,6 +160,10 @@ const styles = StyleSheet.create({
     gap: spacing[1],
     ...shadows.card
   },
+  barCompact: {
+    minHeight: 48,
+    padding: 2
+  },
   item: {
     flex: 1,
     minWidth: 0,
@@ -165,6 +177,9 @@ const styles = StyleSheet.create({
   },
   itemPressed: {
     opacity: 0.76
+  },
+  itemCompact: {
+    paddingVertical: 2
   },
   activeCapsule: {
     position: "absolute",
@@ -201,6 +216,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary
   },
+  iconWrapCompact: {
+    width: 25,
+    height: 25
+  },
   label: {
     textAlign: "center",
     maxWidth: 82,
@@ -208,11 +227,19 @@ const styles = StyleSheet.create({
     lineHeight: 12.5,
     letterSpacing: 0
   },
+  labelCompact: {
+    fontSize: 9,
+    lineHeight: 10
+  },
   activeMarker: {
     width: 18,
     height: 3,
     borderRadius: radius.full,
     backgroundColor: colors.primary,
     marginTop: 1
+  },
+  activeMarkerCompact: {
+    height: 2,
+    marginTop: 0
   }
 });

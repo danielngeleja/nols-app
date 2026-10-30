@@ -23,6 +23,8 @@ type PropertyCardProps = {
   saved?: boolean;
   /** Toggles the saved state for this property. */
   onToggleSave?: () => void;
+  /** Shorter tile for constrained viewports such as phone landscape. */
+  compact?: boolean;
 };
 
 const PHOTO_INTERVAL_MS = 10000;
@@ -40,7 +42,7 @@ function availability(rooms: number): { label: string; bg: string; color: string
  * The image auto slides through the property photos every 10 seconds when more
  * than one is available, and the whole tile springs on press.
  */
-export function PropertyCard({ property, onPress, onInteractChange, autoSlidePhotos = false, systemCommission = 0, saved, onToggleSave }: PropertyCardProps) {
+export function PropertyCard({ property, onPress, onInteractChange, autoSlidePhotos = false, systemCommission = 0, saved, onToggleSave, compact = false }: PropertyCardProps) {
   const scale = useRef(new Animated.Value(1)).current;
   const fade = useRef(new Animated.Value(1)).current;
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -111,13 +113,13 @@ export function PropertyCard({ property, onPress, onInteractChange, autoSlidePho
           setInteract(false);
           animateTo(1);
         }}
-        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+        style={({ pressed }) => [styles.card, compact && styles.cardCompact, pressed && styles.cardPressed]}
       >
         <AppText variant="bodySmall" weight="bold" numberOfLines={1}>
           {property.title || "Verified stay"}
         </AppText>
 
-        <View style={styles.imageWrap}>
+        <View style={[styles.imageWrap, compact && styles.imageWrapCompact]}>
           {currentPhoto ? (
             <Animated.Image source={{ uri: currentPhoto }} style={[styles.image, { opacity: fade }]} resizeMode="cover" />
           ) : (
@@ -215,12 +217,19 @@ const styles = StyleSheet.create({
     borderColor: colors.brand[200],
     backgroundColor: colors.brand[50]
   },
+  cardCompact: {
+    padding: spacing[2],
+    gap: spacing[1]
+  },
   imageWrap: {
     width: "100%",
     aspectRatio: 1,
     borderRadius: radius.md,
     overflow: "hidden",
     backgroundColor: colors.brand[50]
+  },
+  imageWrapCompact: {
+    aspectRatio: 1.55
   },
   image: {
     width: "100%",

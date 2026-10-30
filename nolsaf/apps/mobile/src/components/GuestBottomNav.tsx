@@ -10,6 +10,7 @@ type GuestNavRoute = "Onboarding" | "Search" | "Login";
 
 type GuestBottomNavProps = {
   active: GuestNavRoute;
+  compact?: boolean;
 };
 
 type GuestNavItem = {
@@ -36,7 +37,7 @@ const guestNavItems: GuestNavItem[] = [
   }
 ];
 
-export function GuestBottomNav({ active }: GuestBottomNavProps) {
+export function GuestBottomNav({ active, compact = false }: GuestBottomNavProps) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   function openRoute(route: GuestNavRoute) {
@@ -57,5 +58,5 @@ export function GuestBottomNav({ active }: GuestBottomNavProps) {
     onPress: () => openRoute(item.route)
   }));
 
-  return <AppBottomNav activeKey={active} items={items} />;
+  return <AppBottomNav activeKey={active} items={items} compact={compact} />;
 }
