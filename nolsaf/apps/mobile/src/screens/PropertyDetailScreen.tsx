@@ -70,7 +70,7 @@ import {
   useWindowDimensions,
   View
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { useAuth } from "../auth";
@@ -298,10 +298,12 @@ function normalizeVerificationRecord(detail: PublicPropertyDetail): PublicProper
 
 function PhysicalVerificationCard({
   record,
-  onOpenCertificate
+  onOpenCertificate,
+  compact = false
 }: {
   record?: PublicPropertyDetail["physicalVerification"];
   onOpenCertificate: (verificationUrl: string) => void;
+  compact?: boolean;
 }) {
   const [checksExpanded, setChecksExpanded] = useState(false);
   const [certificateVisible, setCertificateVisible] = useState(false);
@@ -314,10 +316,12 @@ function PhysicalVerificationCard({
 
   return (
     <View style={styles.trustCard}>
-      <View style={styles.trustHero}>
-        <View style={styles.trustIcon}>
-          <ShieldCheck color={colors.primary} size={20} />
-        </View>
+      <View style={[styles.trustHero, compact && styles.trustHeroCompact]}>
+        {!compact ? (
+          <View style={styles.trustIcon}>
+            <ShieldCheck color={colors.primary} size={20} />
+          </View>
+        ) : null}
         <AppText variant="caption" weight="bold" tone="primary" style={styles.trustEyebrow}>
           NoLSAF trust check
         </AppText>
@@ -339,9 +343,9 @@ function PhysicalVerificationCard({
         </View>
       </View>
 
-      <VerificationCertificateButton record={record} onPress={() => setCertificateVisible(true)} />
+      <VerificationCertificateButton record={record} compact={compact} onPress={() => setCertificateVisible(true)} />
 
-      <View style={styles.trustChecklist}>
+      <View style={[styles.trustChecklist, compact && styles.trustChecklistCompact]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={checksExpanded ? "Hide NoLSAF checks" : "Show NoLSAF checks"}
@@ -435,10 +439,12 @@ function NrmsMenuCard({
 
 function VerificationCertificateButton({
   record,
-  onPress
+  onPress,
+  compact = false
 }: {
   record: NonNullable<PublicPropertyDetail["physicalVerification"]>;
   onPress: () => void;
+  compact?: boolean;
 }) {
   if (!record.verificationUrl && !record.qrCodeDataUrl) return null;
 
@@ -447,9 +453,9 @@ function VerificationCertificateButton({
       accessibilityRole="button"
       accessibilityLabel="View property verification certificate"
       onPress={onPress}
-      style={styles.certificateButton}
+      style={[styles.certificateButton, compact && styles.certificateButtonCompact]}
     >
-      <View style={styles.certificateButtonIcon}>
+      <View style={[styles.certificateButtonIcon, compact && styles.certificateButtonIconCompact]}>
         <QrCode color={colors.primary} size={20} />
       </View>
       <View style={styles.flex}>
@@ -482,7 +488,7 @@ function VerificationCertificateModal({
 }) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
-  const sheetMaxHeight = Math.max(360, height - Math.max(insets.top, spacing[3]) - spacing[3]);
+  const sheetMaxHeight = Math.max(0, height - insets.top - insets.bottom - spacing[2]);
   const qrSize = Math.min(210, Math.max(150, width - spacing[10]));
 
   const openCertificate = () => {
@@ -493,7 +499,7 @@ function VerificationCertificateModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
+      <View style={[styles.modalBackdrop, { paddingLeft: insets.left, paddingRight: insets.right }]}>
         <View style={[styles.certificateSheet, { maxHeight: sheetMaxHeight, paddingBottom: Math.max(insets.bottom + spacing[4], spacing[5]) }]}>
           <View style={styles.certificateSheetHeader}>
             <View style={styles.certificateTitleRow}>
@@ -636,7 +642,8 @@ function StayOffersCard({ included, available }: { included: string[]; available
 }
 
 export function PropertyDetailScreen({ navigation, route }: Props) {
-  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const compactLandscape = width > height && height < 600;
   const { token } = useAuth();
   const { savedIds, toggleSave } = useSavedProperties(token);
   const { id, slug, startBooking } = route.params;
@@ -811,12 +818,12 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
 
   if (error || !detail) {
     return (
-      <View style={styles.root}>
-        <FloatingBack onPress={() => navigation.goBack()} top={insets.top} />
+      <SafeAreaView style={styles.root} edges={["top", "left", "right"]}>
+        <FloatingBack onPress={() => navigation.goBack()} top={0} />
         <View style={styles.center}>
           <StateView title="Could not load stay" message={error ?? "Unknown error"} actionLabel="Try again" onAction={load} />
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -844,21 +851,20 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
   const grossBasePrice = detail.basePrice != null ? priceWithCommission(Number(detail.basePrice), commission) : null;
 
   return (
-    <View style={styles.root}>
+    <SafeAreaView style={styles.root} edges={["top", "left", "right"]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <HeroGallery
           images={detail.images}
           roomsSpec={detail.roomsSpec}
           title={detail.title}
           location={location}
-          topInset={insets.top}
           onBack={() => navigation.goBack()}
           saved={savedIds.has(id)}
           onToggleSave={token ? () => toggleSave(id) : undefined}
         />
 
-        <View style={styles.body}>
-          <AppStack gap={6}>
+        <View style={[styles.body, compactLandscape && styles.bodyCompact]}>
+          <AppStack gap={compactLandscape ? 4 : 6}>
             <View style={styles.metaRow}>
               <View style={styles.typePill}>
                 <AppText variant="caption" weight="bold" tone="primary">
@@ -955,7 +961,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
               }
             />
 
-            <PhysicalVerificationCard record={verificationRecord} onOpenCertificate={openCertificate} />
+            <PhysicalVerificationCard record={verificationRecord} compact={compactLandscape} onOpenCertificate={openCertificate} />
 
             <StayOffersCard included={includedServices} available={otherServices} />
 
@@ -1013,8 +1019,8 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
               <AppText variant="caption" tone="muted">
                 {entireUnit ? "Choose your dates to check the whole place." : "Choose your dates to see rooms that can be booked now."}
               </AppText>
-              <View style={styles.dateFields}>
-                <Pressable accessibilityRole="button" onPress={() => setCalendarVisible(true)} style={styles.dateField}>
+              <View style={[styles.dateFields, compactLandscape && styles.dateFieldsCompact]}>
+                <Pressable accessibilityRole="button" onPress={() => setCalendarVisible(true)} style={[styles.dateField, compactLandscape && styles.dateFieldCompact]}>
                   <AppText variant="caption" weight="bold" tone="muted">
                     Check in
                   </AppText>
@@ -1022,7 +1028,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
                     {checkIn ? formatPretty(checkIn) : "Select date"}
                   </AppText>
                 </Pressable>
-                <Pressable accessibilityRole="button" onPress={() => setCalendarVisible(true)} style={styles.dateField}>
+                <Pressable accessibilityRole="button" onPress={() => setCalendarVisible(true)} style={[styles.dateField, compactLandscape && styles.dateFieldCompact]}>
                   <AppText variant="caption" weight="bold" tone="muted">
                     Check out
                   </AppText>
@@ -1356,7 +1362,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
         </View>
       </ScrollView>
 
-      <BottomActionBar>
+      <BottomActionBar compact={compactLandscape}>
         <View style={styles.reserveRow}>
           <View style={styles.flex}>
             {grossBasePrice != null ? (
@@ -1364,7 +1370,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
                 amount={grossBasePrice}
                 currency={detail.currency || "TZS"}
                 showSettlementNote={false}
-                variant="titleSm"
+                variant={compactLandscape ? "body" : "titleSm"}
                 weight="bold"
                 tone="primary"
               />
@@ -1378,7 +1384,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
             </AppText>
           </View>
           <View style={styles.reserveBtn}>
-            <AppButton title={entireUnit ? "Book place" : "Choose room"} onPress={() => goToBooking(entireUnit && rooms.length === 1 ? "0" : null)} />
+            <AppButton compact={compactLandscape} title={entireUnit ? "Book place" : "Choose room"} onPress={() => goToBooking(entireUnit && rooms.length === 1 ? "0" : null)} />
           </View>
         </View>
       </BottomActionBar>
@@ -1398,7 +1404,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
         onClose={() => setReviewSheetVisible(false)}
         onSubmit={submitReview}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -1407,7 +1413,6 @@ function HeroGallery({
   roomsSpec,
   title,
   location,
-  topInset,
   onBack,
   saved,
   onToggleSave
@@ -1416,12 +1421,12 @@ function HeroGallery({
   roomsSpec: RoomSpec[];
   title: string;
   location: string;
-  topInset: number;
   onBack: () => void;
   saved?: boolean;
   onToggleSave?: () => void;
 }) {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   const listRef = useRef<FlatList<string>>(null);
   const indexRef = useRef(0);
@@ -1430,8 +1435,16 @@ function HeroGallery({
   const [index, setIndex] = useState(0);
   const [tourIndex, setTourIndex] = useState<number | null>(null);
 
-  const cardWidth = width - spacing[4] * 2;
-  const cardHeight = Math.round(cardWidth * 1.12);
+  const cardWidth = Math.max(1, Math.min(928, width - insets.left - insets.right - spacing[4] * 2));
+  const compactLandscape = width > height && height < 600;
+  const cardHeight = compactLandscape
+    ? Math.min(Math.round(cardWidth * 0.72), Math.max(180, Math.round((height - insets.top - insets.bottom) * 0.64)))
+    : Math.round(cardWidth * 1.12);
+
+  useEffect(() => {
+    const current = Math.min(indexRef.current, Math.max(0, images.length - 1));
+    listRef.current?.scrollToOffset({ offset: current * cardWidth, animated: false });
+  }, [cardWidth, images.length]);
 
   useEffect(() => {
     if (reducedMotion || images.length <= 1 || cardWidth <= 0) return;
@@ -1486,7 +1499,7 @@ function HeroGallery({
   }
 
   return (
-    <View style={[styles.heroCard, { marginTop: topInset + spacing[2], height: cardHeight }]}>
+    <View style={[styles.heroCard, { width: cardWidth, height: cardHeight }]}>
       {images.length > 0 ? (
         <FlatList
           ref={listRef}
@@ -2009,8 +2022,14 @@ function ReviewItemCard({ review }: { review: PropertyReview }) {
 
 function ReviewsCarousel({ items }: { items: PropertyReview[] }) {
   const { width } = useWindowDimensions();
-  const cardWidth = width - spacing[4] * 2;
+  const insets = useSafeAreaInsets();
+  const cardWidth = Math.max(1, Math.min(928, width - insets.left - insets.right - spacing[4] * 2));
   const [index, setIndex] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ x: Math.min(index, Math.max(0, items.length - 1)) * cardWidth, animated: false });
+  }, [cardWidth, items.length]);
 
   function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
     setIndex(cardWidth > 0 ? Math.round(e.nativeEvent.contentOffset.x / cardWidth) : 0);
@@ -2023,6 +2042,7 @@ function ReviewsCarousel({ items }: { items: PropertyReview[] }) {
   return (
     <View>
       <ScrollView
+        ref={scrollRef}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
@@ -2095,14 +2115,22 @@ const styles = StyleSheet.create({
     padding: spacing[5]
   },
   body: {
+    width: "100%",
+    maxWidth: 960,
+    alignSelf: "center",
     padding: spacing[4]
+  },
+  bodyCompact: {
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2]
   },
   flex: {
     flex: 1,
     minWidth: 0
   },
   heroCard: {
-    marginHorizontal: spacing[4],
+    alignSelf: "center",
+    marginTop: spacing[2],
     borderRadius: radius.xl,
     overflow: "hidden",
     backgroundColor: colors.brand[50],
@@ -2254,6 +2282,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand[50],
     padding: spacing[2]
   },
+  dateFieldsCompact: {
+    gap: spacing[2],
+    padding: spacing[1]
+  },
   dateField: {
     flex: 1,
     minWidth: 0,
@@ -2265,6 +2297,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[3],
     ...shadows.card
+  },
+  dateFieldCompact: {
+    paddingHorizontal: spacing[2],
+    paddingVertical: spacing[2]
   },
   dayChip: {
     borderRadius: radius.full,
@@ -2433,6 +2469,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     paddingVertical: spacing[5]
   },
+  trustHeroCompact: {
+    gap: spacing[1],
+    paddingVertical: spacing[2]
+  },
   trustIcon: {
     width: 44,
     height: 44,
@@ -2506,6 +2546,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[4],
     paddingBottom: spacing[4]
   },
+  trustChecklistCompact: {
+    gap: spacing[2],
+    paddingHorizontal: spacing[3],
+    paddingBottom: spacing[2]
+  },
   trustChecklistToggle: {
     minHeight: 44,
     flexDirection: "row",
@@ -2559,6 +2604,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand[50],
     padding: spacing[3]
   },
+  certificateButtonCompact: {
+    marginHorizontal: spacing[3],
+    marginBottom: spacing[2],
+    padding: spacing[2]
+  },
   certificateButtonIcon: {
     width: 42,
     height: 42,
@@ -2568,6 +2618,10 @@ const styles = StyleSheet.create({
     borderColor: colors.brand[200],
     alignItems: "center",
     justifyContent: "center"
+  },
+  certificateButtonIconCompact: {
+    width: 34,
+    height: 34
   },
   modalBackdrop: {
     flex: 1,

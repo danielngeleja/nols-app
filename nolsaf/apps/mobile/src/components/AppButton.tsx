@@ -11,10 +11,11 @@ type AppButtonProps = Omit<PressableProps, "children" | "style"> & {
   variant?: AppButtonVariant;
   loading?: boolean;
   icon?: ReactNode;
+  compact?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
-export function AppButton({ title, variant = "primary", loading = false, icon, disabled, style, ...props }: AppButtonProps) {
+export function AppButton({ title, variant = "primary", loading = false, icon, disabled, compact = false, style, ...props }: AppButtonProps) {
   const isDisabled = disabled || loading;
 
   return (
@@ -23,7 +24,7 @@ export function AppButton({ title, variant = "primary", loading = false, icon, d
         accessibilityRole="button"
         disabled={isDisabled}
         android_ripple={isDisabled ? undefined : { color: rippleColors[variant], borderless: false }}
-        style={({ pressed }) => [styles.inner, pressed && !isDisabled && styles.pressed]}
+        style={({ pressed }) => [styles.inner, compact && styles.innerCompact, pressed && !isDisabled && styles.pressed]}
         {...props}
       >
         {loading ? (
@@ -61,6 +62,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[3],
     alignItems: "center",
     justifyContent: "center"
+  },
+  innerCompact: {
+    minHeight: 44,
+    paddingVertical: spacing[2]
   },
   content: {
     minWidth: 0,

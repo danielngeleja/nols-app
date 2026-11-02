@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SheetModal, useSheetBottomInset } from "./SheetModal";
 
 import { colors, radius, shadows, spacing } from "../theme";
@@ -48,6 +49,10 @@ type CalendarRangeSheetProps = {
  * which compare correctly with simple string comparison.
  */
 export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onApply, mode = "range", title = "Select dates" }: CalendarRangeSheetProps) {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const compactLandscape = width > height && height < 600;
+  const maxHeight = Math.max(0, height - insets.top - insets.bottom - spacing[2]);
   // Clears the phone navigation bar, which edge-to-edge Android draws over.
   const bottomInset = useSheetBottomInset(spacing[5]);
   const [inDate, setInDate] = useState(checkIn);
@@ -102,8 +107,8 @@ export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onAppl
 
   return (
     <SheetModal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
+      <View style={[styles.overlay, { paddingLeft: insets.left, paddingRight: insets.right }]}>
+        <View style={[styles.sheet, compactLandscape && styles.sheetCompact, { maxHeight, paddingBottom: bottomInset }]}>
           <View style={styles.header}>
             <AppText variant="title" weight="bold">
               {title}
@@ -113,7 +118,8 @@ export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onAppl
             </Pressable>
           </View>
 
-          <View style={styles.summary}>
+          <ScrollView style={styles.calendarScroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.calendarContent}>
+          <View style={[styles.summary, compactLandscape && styles.summaryCompact]}>
             <View style={styles.summaryItem}>
               <AppText variant="caption" tone="muted">
                 {mode === "single" ? "Travel date" : "Check in"}
@@ -158,7 +164,7 @@ export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onAppl
 
           <View style={styles.grid}>
             {cells.map((day, i) => {
-              if (!day) return <View key={i} style={styles.dayCell} />;
+              if (!day) return <View key={i} style={[styles.dayCell, compactLandscape && styles.dayCellCompact]} />;
               const isPast = day < today;
               const isIn = day === inDate;
               const isOut = mode === "range" && day === outDate;
@@ -171,7 +177,7 @@ export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onAppl
                   accessibilityRole="button"
                   disabled={isPast}
                   onPress={() => pickDay(day)}
-                  style={[styles.dayCell, inRange && styles.dayInRange, isEdge && styles.dayEdge]}
+                  style={[styles.dayCell, compactLandscape && styles.dayCellCompact, inRange && styles.dayInRange, isEdge && styles.dayEdge]}
                 >
                   <AppText
                     variant="bodySmall"
@@ -185,10 +191,12 @@ export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onAppl
               );
             })}
           </View>
+          </ScrollView>
 
           <View style={styles.footer}>
             <View style={styles.flex}>
               <AppButton
+                compact={compactLandscape}
                 title="Clear"
                 variant="ghost"
                 onPress={() => {
@@ -198,7 +206,7 @@ export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onAppl
               />
             </View>
             <View style={styles.flex}>
-              <AppButton title="Apply" disabled={!canApply} onPress={() => onApply(inDate, mode === "single" ? inDate : outDate)} />
+              <AppButton compact={compactLandscape} title="Apply" disabled={!canApply} onPress={() => onApply(inDate, mode === "single" ? inDate : outDate)} />
             </View>
           </View>
         </View>
@@ -222,6 +230,16 @@ const styles = StyleSheet.create({
     paddingBottom: spacing[5],
     ...shadows.sheet
   },
+  sheetCompact: {
+    paddingTop: spacing[2],
+    paddingHorizontal: spacing[3]
+  },
+  calendarScroll: {
+    flexShrink: 1
+  },
+  calendarContent: {
+    paddingBottom: spacing[2]
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -240,6 +258,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing[3],
     marginBottom: spacing[4]
+  },
+  summaryCompact: {
+    marginBottom: spacing[2]
   },
   summaryItem: {
     flex: 1,
@@ -281,6 +302,10 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: "center",
     justifyContent: "center"
+  },
+  dayCellCompact: {
+    aspectRatio: undefined,
+    height: 38
   },
   dayInRange: {
     backgroundColor: colors.brand[50]

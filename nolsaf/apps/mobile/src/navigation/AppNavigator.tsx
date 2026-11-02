@@ -58,13 +58,14 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // Lets a shared invite link (https://<web-origin>/register?ref=CUSTOMER-123 or
 // nolsaf://register?ref=CUSTOMER-123) open the app straight to the Register
-// screen with the referral code attached.
+// screen with the referral code attached. Accept both public web hosts even if
+// EXPO_PUBLIC_WEB_URL names only one of them.
 //
 // The property certificate link the API prints into QR codes carries the signed token as
 // `?t=`, and the web page also accepts `?token=`, so both spellings map onto the same
 // screen param here.
 const linking: LinkingOptions<RootStackParamList> = {
-  prefixes: ["nolsaf://", webOrigin()],
+  prefixes: [...new Set(["nolsaf://", webOrigin(), "https://nolsaf.com", "https://www.nolsaf.com"])],
   config: {
     screens: {
       Register: "register",
