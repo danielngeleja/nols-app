@@ -1,11 +1,11 @@
 import Mapbox, { Camera, LineLayer, MapView, PointAnnotation, ShapeSource } from "@rnmapbox/maps";
 import { StyleSheet, View } from "react-native";
 
-import { colors, radius } from "@nolsaf/native-ui";
+import { AppText, colors, radius } from "@nolsaf/native-ui";
 
 import { env } from "../lib/env";
 
-Mapbox.setAccessToken(env.mapboxToken);
+if (env.mapboxToken) Mapbox.setAccessToken(env.mapboxToken);
 
 export type TripMapPoint = { lat: number; lng: number };
 
@@ -18,6 +18,14 @@ export type TripMapProps = {
 export function TripMap({ pickup, dropoff, driverPosition }: TripMapProps) {
   const center = driverPosition || pickup || dropoff;
   if (!center) return null;
+  if (!env.mapboxToken) {
+    return (
+      <View style={[styles.container, styles.fallback]}>
+        <AppText variant="bodySmall" weight="bold">Map preview unavailable</AppText>
+        <AppText variant="caption" tone="muted">Use Navigate to open directions to your next stop.</AppText>
+      </View>
+    );
+  }
 
   const routeLine =
     pickup && dropoff
@@ -78,5 +86,12 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     borderWidth: 2,
     borderColor: colors.white
+  },
+  fallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    padding: 20,
+    backgroundColor: colors.brand[50]
   }
 });

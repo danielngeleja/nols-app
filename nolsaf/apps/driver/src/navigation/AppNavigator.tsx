@@ -1,6 +1,7 @@
 import { DefaultTheme, NavigationContainer, useNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { colors } from "@nolsaf/native-ui";
+import { useEffect } from "react";
 
 import { useAuth } from "../auth/AuthProvider";
 import { getDriverGateState } from "../auth/driverGate";
@@ -41,6 +42,8 @@ import { ScheduledTripsScreen } from "../screens/ScheduledTripsScreen";
 import { SecurityScreen } from "../screens/SecurityScreen";
 import { SupportScreen } from "../screens/SupportScreen";
 import { TripOfferProvider } from "../components/TripOfferProvider";
+import { ActiveTripTracker } from "../components/ActiveTripTracker";
+import { registerDriverPushDevice } from "../lib/pushNotifications";
 import { TripDetailScreen } from "../screens/TripDetailScreen";
 import { TripsScreen } from "../screens/TripsScreen";
 import { TwoFactorScreen } from "../screens/TwoFactorScreen";
@@ -62,15 +65,25 @@ const navigationTheme = {
 };
 
 export function AppNavigator() {
-  const { status, user } = useAuth();
+  const { status, user, token } = useAuth();
   const navigationRef = useNavigationContainerRef<RootStackParamList>();
 
   const gateState = status === "authenticated" && user ? getDriverGateState(user) : "ok";
   const ready = status === "authenticated" && gateState === "ok";
 
+  useEffect(() => {
+    if (!ready || !token) return;
+    let current = true;
+    void registerDriverPushDevice(token, () => current).catch((error) => {
+      console.warn("[driver-push] registration unavailable", error);
+    });
+    return () => { current = false; };
+  }, [ready, token]);
+
   return (
     <NavigationContainer ref={navigationRef} theme={navigationTheme}>
       {ready ? <TripOfferProvider navigationRef={navigationRef} /> : null}
+      <ActiveTripTracker enabled={ready} />
       <Stack.Navigator
         screenOptions={{
           headerShown: false,

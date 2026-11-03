@@ -14,7 +14,7 @@ export function IncompleteOnboardingScreen() {
     <GateScreen
       icon={<ClipboardList color={colors.primary} size={28} />}
       title="Finish your professional profile"
-      message="A few details are still missing from your driver profile, such as your vehicle information, payment details, or required documents. Please complete your profile on the NoLSAF website to continue."
+      message="Complete your driver profile, payment details, and required documents. Your driving license must have a valid expiry date. Update these on the NoLSAF website to continue."
       primaryAction={{
         label: "Open NoLSAF website",
         onPress: () => void Linking.openURL("https://nolsaf.com")

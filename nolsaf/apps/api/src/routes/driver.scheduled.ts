@@ -299,6 +299,63 @@ router.get("/", limitDriverTripsList, (async (req: AuthedRequest, res: Response)
   }
 }) as RequestHandler);
 
+/** Recover live offers after a socket disconnect or app restart. */
+router.get("/offers", limitDriverTripsList, (async (req: AuthedRequest, res: Response) => {
+  try {
+    const offers = await prisma.transportBookingOffer.findMany({
+      where: {
+        driverId: req.user!.id,
+        status: "OFFERED",
+        expiresAt: { gt: new Date() },
+        booking: { is: { driverId: null, paymentStatus: "PAID", status: { in: ["PENDING_ASSIGNMENT", "PENDING"] } } },
+      },
+      select: {
+        bookingId: true,
+        expiresAt: true,
+        radiusKm: true,
+        booking: {
+          select: {
+            tripCode: true,
+            vehicleType: true,
+            scheduledDate: true,
+            fromAddress: true,
+            toAddress: true,
+            fromLatitude: true,
+            fromLongitude: true,
+            toLatitude: true,
+            toLongitude: true,
+            amount: true,
+            currency: true,
+          },
+        },
+      },
+      orderBy: { expiresAt: "asc" },
+      take: 10,
+    });
+
+    return res.json({
+      offers: offers.map(({ booking, ...offer }) => ({
+        bookingId: offer.bookingId,
+        tripCode: booking.tripCode,
+        vehicleType: booking.vehicleType,
+        scheduledDate: booking.scheduledDate?.toISOString() ?? null,
+        fromAddress: booking.fromAddress,
+        toAddress: booking.toAddress,
+        fromLatitude: booking.fromLatitude == null ? null : Number(booking.fromLatitude),
+        fromLongitude: booking.fromLongitude == null ? null : Number(booking.fromLongitude),
+        toLatitude: booking.toLatitude == null ? null : Number(booking.toLatitude),
+        toLongitude: booking.toLongitude == null ? null : Number(booking.toLongitude),
+        amount: booking.amount == null ? null : Number(booking.amount),
+        currency: booking.currency ?? "TZS",
+        offer: { expiresAt: offer.expiresAt.toISOString(), radiusKm: offer.radiusKm == null ? undefined : Number(offer.radiusKm) },
+      })),
+    });
+  } catch (error) {
+    console.error("GET /driver/trips/offers error:", error);
+    return res.status(500).json({ error: "Failed to fetch trip offers" });
+  }
+}) as RequestHandler);
+
 /**
  * GET /api/driver/trips/scheduled
  * Get scheduled trips available for driver to claim
@@ -1232,10 +1289,15 @@ router.post("/:id/accept", limitDriverTripAction, (async (req: AuthedRequest, re
         err.code = "UNAVAILABLE";
         throw err;
       }
+      if (booking.paymentStatus !== "PAID") {
+        const err: any = new Error("Trip payment is not confirmed");
+        err.code = "UNAVAILABLE";
+        throw err;
+      }
 
-      // Verify the driver has a valid, non-expired offer (when offer model is available).
-      if ((prisma as any).transportBookingOffer) {
-        const offer = await (tx as any).transportBookingOffer.findFirst({
+      // Only a persisted, live offer authorizes an app acceptance.
+      {
+        const offer = await tx.transportBookingOffer.findFirst({
           where: {
             bookingId: tripId,
             driverId: user.id,
@@ -1251,16 +1313,21 @@ router.post("/:id/accept", limitDriverTripAction, (async (req: AuthedRequest, re
         }
       }
 
-      // Concurrency-safe update: only succeeds if still unassigned.
+      // The booking must remain paid, offerable, and unassigned at write time.
       const updated = await (tx as any).transportBooking.update({
-        where: { id: tripId, driverId: null } as any,
+        where: {
+          id: tripId,
+          driverId: null,
+          paymentStatus: "PAID",
+          status: { in: ["PENDING_ASSIGNMENT", "PENDING"] },
+        } as any,
         data: { driverId: user.id, status: "CONFIRMED" },
         include: { user: { select: { id: true, name: true, phone: true, email: true } } },
       }).catch((e: any) => {
         // P2025 = record not found (another driver grabbed it first)
         if (e?.code === "P2025") {
-          const err: any = new Error("Trip already accepted by another driver");
-          err.code = "ALREADY_ASSIGNED";
+          const err: any = new Error("Trip is no longer available");
+          err.code = "UNAVAILABLE";
           throw err;
         }
         throw e;

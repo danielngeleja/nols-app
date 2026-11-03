@@ -10,12 +10,21 @@ const MAX_ATTEMPTS = 5;
 
 type ExpoResult = { status: "ok" | "error"; id?: string; message?: string; details?: { error?: string } };
 
+function isExpiredDriverOffer(type: string | null, meta: unknown): boolean {
+  if (type !== "ride" || !meta || typeof meta !== "object" || Array.isArray(meta)) return false;
+  const expiry = (meta as Record<string, unknown>).offerExpiresAt;
+  if (typeof expiry !== "string") return false;
+  const timestamp = Date.parse(expiry);
+  return Number.isFinite(timestamp) && timestamp <= Date.now();
+}
+
 async function validSessionKeys(sessionIds: string[]): Promise<Set<string>> {
   if (!sessionIds.length) return new Set();
   const now = Date.now();
-  const [idleMinutes, maxMinutes] = await Promise.all([
+  const [idleMinutes, customerMaxMinutes, driverMaxMinutes] = await Promise.all([
     getSessionIdleMinutes(),
     getRoleSessionMaxMinutes("CUSTOMER"),
+    getRoleSessionMaxMinutes("DRIVER"),
   ]);
   const sessions = await prisma.session.findMany({
     where: { id: { in: sessionIds }, revokedAt: null },
@@ -23,11 +32,11 @@ async function validSessionKeys(sessionIds: string[]): Promise<Set<string>> {
   });
   // Push eligibility follows the same idle and maximum session limits as API auth.
   return new Set(sessions.filter((session) =>
-    ["CUSTOMER", "USER"].includes(session.user.role) &&
+    ["CUSTOMER", "USER", "DRIVER"].includes(session.user.role) &&
     !session.user.isDisabled && !session.user.suspendedAt && !session.user.deletedAt &&
     (!session.user.tokensValidAfter || session.createdAt >= session.user.tokensValidAfter) &&
     now - session.lastSeenAt.getTime() <= Math.max(1, idleMinutes) * 60_000 &&
-    now - session.createdAt.getTime() <= maxMinutes * 60_000
+    now - session.createdAt.getTime() <= (session.user.role === "DRIVER" ? driverMaxMinutes : customerMaxMinutes) * 60_000
   ).map((session) => `${session.id}:${session.userId}`));
 }
 
@@ -66,13 +75,14 @@ async function enqueueNewNotifications() {
     include: { user: { select: { role: true, notificationPrefs: true } } },
   });
   const rows = [...newRows, ...recentRows];
-  const userIds = [...new Set(rows.filter((row) => row.user?.role === "CUSTOMER" || row.user?.role === "USER").map((row) => row.userId!))];
+  const userIds = [...new Set(rows.filter((row) => ["CUSTOMER", "USER", "DRIVER"].includes(row.user?.role || "")).map((row) => row.userId!))];
   const devices = userIds.length ? await prisma.pushDevice.findMany({ where: { userId: { in: userIds }, active: true } }) : [];
   const sessionIds: string[] = [...new Set<string>(devices.map((device: { sessionId: string }) => device.sessionId))];
   const validSessions = await validSessionKeys(sessionIds);
   const candidates: { notificationId: number; deviceId: number }[] = [];
   for (const row of rows) {
-    if (!row.userId || !row.user || !["CUSTOMER", "USER"].includes(row.user.role)) continue;
+    if (!row.userId || !row.user || !["CUSTOMER", "USER", "DRIVER"].includes(row.user.role)) continue;
+    if (isExpiredDriverOffer(row.type, row.meta)) continue;
     if (!mayPushNotification(row.meta, row.type, row.user.notificationPrefs)) continue;
     for (const device of devices) {
       if (device.userId !== row.userId || !validSessions.has(`${device.sessionId}:${device.userId}`)) continue;
@@ -95,23 +105,27 @@ async function sendPending() {
   const pending = await prisma.pushDelivery.findMany({
     where: { status: "PENDING", nextAttemptAt: { lte: now } },
     orderBy: { id: "asc" }, take: BATCH_SIZE,
-    include: { device: true, notification: { include: { user: { select: { notificationPrefs: true } } } } },
+    include: { device: true, notification: { include: { user: { select: { role: true, notificationPrefs: true } } } } },
   });
   if (!pending.length) return;
   const validSessions = await validSessionKeys([...new Set<string>(pending.map((item: { device: { sessionId: string } }) => item.device.sessionId))]);
   const eligible: typeof pending = [];
   for (const item of pending) {
     if (!item.device.active || item.device.userId !== item.notification.userId || !validSessions.has(`${item.device.sessionId}:${item.device.userId}`)
-      || !mayPushNotification(item.notification.meta, item.notification.type, item.notification.user?.notificationPrefs)) {
+      || !mayPushNotification(item.notification.meta, item.notification.type, item.notification.user?.notificationPrefs)
+      || isExpiredDriverOffer(item.notification.type, item.notification.meta)) {
       await prisma.pushDelivery.update({ where: { id: item.id }, data: { status: "CANCELLED" } });
     } else eligible.push(item);
   }
   if (!eligible.length) return;
   const messages = eligible.map((item) => ({
     to: item.device.token,
-    title: "NoLSAF",
-    body: "You have a new update. Open NoLSAF to view it.",
+    title: item.notification.user?.role === "DRIVER" && item.notification.type === "ride" ? "New trip nearby" : "NoLSAF",
+    body: item.notification.user?.role === "DRIVER" && item.notification.type === "ride"
+      ? "Open NoLSAF Driver to review this trip offer."
+      : "You have a new update. Open NoLSAF to view it.",
     sound: "default",
+    priority: item.notification.user?.role === "DRIVER" && item.notification.type === "ride" ? "high" : "default",
     channelId: "updates",
     data: { notificationId: item.notification.id },
   }));

@@ -23,8 +23,8 @@
         "webcredentials:nolsaf.com"
       ],
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "NoLSAF Driver uses your location while a trip is active so the passenger and dispatch can see your progress.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "NoLSAF Driver shares your location during an active trip, even in the background, so the passenger and dispatch can keep seeing your progress.",
+        "NSLocationWhenInUseUsageDescription": "NoLSAF Driver uses your location while you are online to find nearby trips and during a trip to show your progress.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "NoLSAF Driver shares your location while you are online or on an active trip, including in the background, so dispatch can find nearby trips and passengers can see your progress.",
         "UIBackgroundModes": [
           "location"
         ]
@@ -43,15 +43,23 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION"
+        "FOREGROUND_SERVICE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "plugins": [
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "NoLSAF Driver uses your location while a trip is active so the passenger and dispatch can see your progress.",
-          "locationAlwaysAndWhenInUsePermission": "NoLSAF Driver shares your location during an active trip, even in the background, so the passenger and dispatch can keep seeing your progress.",
+          "locationWhenInUsePermission": "NoLSAF Driver uses your location while you are online to find nearby trips and during a trip to show your progress.",
+          "locationAlwaysAndWhenInUsePermission": "NoLSAF Driver shares your location while you are online or on an active trip, including in the background, so dispatch can find nearby trips and passengers can see your progress.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
         }
@@ -66,8 +74,15 @@
       "expo-asset",
       "expo-font",
       "expo-secure-store",
+      "expo-notifications",
       "expo-sharing",
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "449c5e77-541e-44fe-aa91-d73444cb5bc0"
+      }
+    },
+    "owner": "nolsversion2.1"
   }
 }

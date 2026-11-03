@@ -840,25 +840,12 @@ const getAvailability: RequestHandler = async (req, res) => {
   }
 
   try {
-    let available = false;
-    try {
-      if ((prisma as any).driverAvailability) {
-        const row = await (prisma as any).driverAvailability.findUnique({
-          where: { driverId: user.id },
-          select: { available: true },
-        });
-        available = Boolean(row?.available);
-      } else if ((prisma as any).user) {
-        const row = await prisma.user.findUnique({
-          where: { id: user.id },
-          select: { available: true, isAvailable: true } as any,
-        });
-        available = Boolean((row as any)?.available ?? (row as any)?.isAvailable ?? false);
-      }
-    } catch {
-      // ignore and fall back to false
-    }
-    return res.json({ ok: true, available });
+    const row = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { available: true },
+    });
+    if (!row) return res.status(404).json({ error: 'driver_not_found' });
+    return res.json({ ok: true, available: row.available === true });
   } catch (e) {
     return res.status(500).json({ error: 'failed' });
   }
@@ -883,30 +870,8 @@ const postAvailability: RequestHandler = async (req, res) => {
   }
   const { available } = parsed.data;
   try {
-    // Persist availability best-effort.
-    // Prefer dedicated availability table if present; otherwise try user fields.
-    try {
-      if ((prisma as any).driverAvailability) {
-        await (prisma as any).driverAvailability.upsert({
-          where: { driverId: user.id },
-          update: { available, updatedAt: new Date() },
-          create: { driverId: user.id, available, updatedAt: new Date() },
-        });
-      } else if ((prisma as any).user) {
-        // Try user.available first, then fall back to user.isAvailable.
-        try {
-          await prisma.user.update({ where: { id: user.id }, data: { available } as any });
-        } catch (e1) {
-          try {
-            await prisma.user.update({ where: { id: user.id }, data: { isAvailable: available } as any });
-          } catch {
-            // ignore if schema doesn't have these fields
-          }
-        }
-      }
-    } catch {
-      // ignore persistence errors
-    }
+    // Dispatch reads user.available. A failed write must not be shown as success.
+    await prisma.user.update({ where: { id: user.id }, data: { available, isAvailable: available } });
 
     // broadcast availability change via socket.io for interested clients
     try {

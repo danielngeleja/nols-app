@@ -1,4 +1,4 @@
-import { AuthUser } from "./types";
+import type { AuthUser } from "./types";
 
 export type DriverGateState =
   | "pending_kyc"
@@ -17,13 +17,8 @@ const REQUIRED_DRIVER_DOCUMENT_GROUPS = [
 
 function extractExpiryDate(metadata: Record<string, unknown> | null | undefined): Date | null {
   if (!metadata) return null;
-  const raw =
-    metadata.expiresAt ??
-    metadata.expiresOn ??
-    metadata.expiryDate ??
-    metadata.expiry ??
-    metadata.licenseExpiresOn ??
-    metadata.licenseExpiryDate;
+  const raw = metadata.expiresAt ?? metadata.expiresOn ?? metadata.expiryDate ??
+    metadata.expiry ?? metadata.licenseExpiresOn ?? metadata.licenseExpiryDate;
   if (!raw) return null;
   const date = new Date(String(raw).includes("T") ? String(raw) : `${String(raw)}T23:59:59.999Z`);
   return Number.isNaN(date.getTime()) ? null : date;
@@ -52,17 +47,15 @@ function isDriverOnboardingComplete(account: AuthUser): boolean {
   const docTypes = new Set(
     docs.filter((doc) => doc?.url).map((doc) => String(doc?.type ?? "").toUpperCase())
   );
-  const licenseDoc = docs.find((doc) => {
-    const type = String(doc?.type ?? "").toUpperCase();
-    return ["DRIVER_LICENSE", "DRIVING_LICENSE", "DRIVER_LICENCE", "DRIVING_LICENCE", "LICENSE"].includes(type) && Boolean(doc?.url);
-  });
+  const licenseDoc = docs.find((doc) =>
+    REQUIRED_DRIVER_DOCUMENT_GROUPS[0].includes(String(doc?.type ?? "").toUpperCase()) && Boolean(doc?.url)
+  );
   const licenseExpiry = extractExpiryDate(licenseDoc?.metadata);
   if (!licenseExpiry || licenseExpiry.getTime() < Date.now()) return false;
-
   return REQUIRED_DRIVER_DOCUMENT_GROUPS.every((group) => group.some((type) => docTypes.has(type)));
 }
 
-/** Mirrors the gate logic in apps/web/app/(driver)/driver/layout.tsx. */
+/** Mirrors the protected driver API's license-expiry requirement. */
 export function getDriverGateState(user: AuthUser): DriverGateState {
   if (user.kycStatus === "PENDING_KYC") {
     return user.kycNote ? "action_required" : "pending_kyc";

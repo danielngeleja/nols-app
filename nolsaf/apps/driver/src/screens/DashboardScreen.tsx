@@ -15,16 +15,19 @@ import {
   StateView
 } from "@nolsaf/native-ui";
 import { AlertTriangle, Bell, Car, Clock, Info, MapPin, Settings, Star, Sparkles, TrendingUp } from "lucide-react-native";
+import * as Location from "expo-location";
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Linking, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth/AuthProvider";
 import { AvailabilitySwitch } from "../components/AvailabilitySwitch";
 import { DriverBottomNav } from "../components/DriverBottomNav";
 import { EarningsLineChart } from "../components/EarningsLineChart";
-import { fetchAvailability, fetchDashboard, fetchGoals, fetchNotifications, saveGoals, setAvailability } from "../driver/driverApi";
+import { fetchAvailability, fetchDashboard, fetchGoals, fetchNotifications, saveGoals, sendLocationPing, setAvailability } from "../driver/driverApi";
 import { DashboardResponse, DriverGoals } from "../driver/types";
 import { useDriverSocket } from "../hooks/useDriverSocket";
+import { stopBackgroundLocation } from "../lib/backgroundLocationTask";
+import { requestTrackingSync } from "../lib/trackingSync";
 import { RootStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
@@ -60,7 +63,7 @@ export function DashboardScreen({ navigation }: Props) {
         const [dashboardData, availabilityData, notificationsData] = await Promise.all([
           fetchDashboard(token),
           fetchAvailability(token),
-          fetchNotifications(token, "unread")
+          fetchNotifications(token, "unread").catch(() => ({ totalUnread: 0 }))
         ]);
         setDashboard(dashboardData);
         setAvailableState(availabilityData.available);
@@ -121,6 +124,8 @@ export function DashboardScreen({ navigation }: Props) {
       }
       await persistGoals(Object.keys(next).length ? next : null);
       setShowGoalsModal(false);
+    } catch (error) {
+      Alert.alert("Goals not saved", error instanceof Error ? error.message : "Please try again.");
     } finally {
       setSavingGoals(false);
     }
@@ -131,6 +136,8 @@ export function DashboardScreen({ navigation }: Props) {
     try {
       await persistGoals(null);
       setShowGoalsModal(false);
+    } catch (error) {
+      Alert.alert("Goals not cleared", error instanceof Error ? error.message : "Please try again.");
     } finally {
       setSavingGoals(false);
     }
@@ -139,12 +146,31 @@ export function DashboardScreen({ navigation }: Props) {
   async function toggleAvailability(next: boolean) {
     if (!token) return;
     setAvailabilityLoading(true);
-    setAvailableState(next);
     try {
+      if (next) {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status !== "granted") throw new Error("Allow location before going Online so dispatch can find you.");
+        const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        await sendLocationPing(token, {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracyM: position.coords.accuracy ?? undefined,
+        });
+      }
       const result = await setAvailability(token, next);
-      setAvailableState(result.available);
-    } catch {
-      setAvailableState(!next);
+      const confirmed = await fetchAvailability(token);
+      if (result.available !== next || confirmed.available !== next) throw new Error("Availability was not saved. Please retry.");
+      setAvailableState(confirmed.available);
+      requestTrackingSync();
+      if (!next) {
+        await stopBackgroundLocation().catch(() => {
+          Alert.alert("Location sharing", "Please restart the app to confirm location sharing has stopped.");
+        });
+      }
+    } catch (error) {
+      const latest = await fetchAvailability(token).catch(() => null);
+      if (latest) setAvailableState(latest.available);
+      Alert.alert("Availability not updated", error instanceof Error ? error.message : "Please try again.");
     } finally {
       setAvailabilityLoading(false);
     }

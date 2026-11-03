@@ -163,6 +163,7 @@ async function findCandidatesWithinRadius({
           available: true,
           isDisabled: true,
           suspendedAt: true,
+          kycStatus: true,
           vehicleType: true,
           isVipDriver: true,
         },
@@ -363,10 +364,8 @@ async function issueOffers({
 
   const expiresAt = new Date(now.getTime() + OFFER_TTL_MS);
 
-  // Best-effort persistence (only if model exists).
   try {
-    if ((prisma as any).transportBookingOffer) {
-      await (prisma as any).transportBookingOffer.createMany({
+    await prisma.transportBookingOffer.createMany({
         data: top.map((t) => ({
           bookingId,
           driverId: t.driverId,
@@ -379,9 +378,25 @@ async function issueOffers({
         })),
         skipDuplicates: false,
       });
-    }
-  } catch {
-    // If persistence fails, we still emit offers; accept endpoint will fallback if offer model missing.
+  } catch (error) {
+    console.warn("[transport-auto-dispatch] offer persistence failed", error);
+    return false;
+  }
+
+  // Push wakes drivers whose app is sleeping; the saved offer remains the
+  // authority when they open the app. Expired offers are suppressed at send time.
+  try {
+    await prisma.notification.createMany({
+      data: top.map((driver) => ({
+        userId: driver.driverId,
+        title: "New trip nearby",
+        body: "Open NoLSAF Driver to review this trip offer.",
+        type: "ride",
+        meta: { transportBookingId: bookingId, offerExpiresAt: expiresAt.toISOString() },
+      })),
+    });
+  } catch (error) {
+    console.warn("[transport-auto-dispatch] driver push notification unavailable", error);
   }
 
   // Emit targeted offer events to the selected drivers.

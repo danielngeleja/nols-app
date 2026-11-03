@@ -20,6 +20,7 @@ import {
 import { MessageTemplate, TRIP_STAGE_FLOW, TRIP_STAGE_LABELS, TripDetail, TripStage } from "../driver/types";
 import { useLocationPing } from "../hooks/useLocationPing";
 import { formatEta, haversineDistanceKm } from "../lib/eta";
+import { requestTrackingSync } from "../lib/trackingSync";
 import { RootStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "TripDetail">;
@@ -79,13 +80,13 @@ export function TripDetailScreen({ navigation, route }: Props) {
   const [sendingKey, setSendingKey] = useState<string | null>(null);
   const [sentKey, setSentKey] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (showLoading = true) => {
     if (!token) {
       setError("Please sign in to view this trip.");
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const detail = await fetchTripDetail(token, tripId);
@@ -103,7 +104,7 @@ export function TripDetailScreen({ navigation, route }: Props) {
 
   const isActive = trip?.status === "CONFIRMED" || trip?.status === "IN_PROGRESS";
 
-  const { position: livePosition } = useLocationPing({ enabled: Boolean(isActive), tripId, token });
+  const { position: livePosition } = useLocationPing({ enabled: Boolean(isActive), token });
   const [seedPosition, setSeedPosition] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
@@ -144,7 +145,9 @@ export function TripDetailScreen({ navigation, route }: Props) {
     setActionLoading(true);
     try {
       await acceptTrip(token, trip.id);
-      await load();
+      requestTrackingSync();
+      setTrip((current) => current ? { ...current, status: "CONFIRMED" } : current);
+      await load(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not accept this trip.");
     } finally {
@@ -169,11 +172,19 @@ export function TripDetailScreen({ navigation, route }: Props) {
     if (!token || !trip || !nextStage) return;
     setActionLoading(true);
     try {
-      await updateTripStage(token, trip.id, { stage: nextStage });
+      const response = await updateTripStage(token, trip.id, { stage: nextStage });
+      requestTrackingSync();
+      setTrip((current) => current ? {
+        ...current,
+        status: response.trip.status,
+        stageHistory: current.stageHistory.some((entry) => entry.stage === nextStage)
+          ? current.stageHistory
+          : [...current.stageHistory, { stage: nextStage, at: response.trip.at }]
+      } : current);
       if (nextStage === "passenger_picked_up" && dropoffPoint) {
         openExternalNavigation(dropoffPoint);
       }
-      await load();
+      await load(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update the trip stage.");
     } finally {
@@ -214,10 +225,16 @@ export function TripDetailScreen({ navigation, route }: Props) {
 
         {loading ? (
           <StateView title="Loading trip" message="Fetching the trip details." />
-        ) : error ? (
+        ) : error && !trip ? (
           <StateView title="Could not load this trip" message={error} actionLabel="Try again" onAction={() => load()} />
         ) : trip ? (
           <AppStack gap={3}>
+            {error ? (
+              <AppCard>
+                <AppText variant="bodySmall" style={{ color: colors.danger }}>{error}</AppText>
+                <AppButton title="Refresh trip" variant="ghost" onPress={() => void load(false)} />
+              </AppCard>
+            ) : null}
             <AppCard>
               <AppStack gap={2}>
                 <View style={styles.topRow}>

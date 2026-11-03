@@ -2,7 +2,8 @@ import { AmountText, AppButton, AppStack, AppText, colors, radius, shadows, spac
 import { setAudioModeAsync, useAudioPlayer } from "expo-audio";
 import { Car, CheckCircle2, Clock, MapPin, Sparkles, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Modal, StyleSheet, Vibration, View } from "react-native";
+import { Modal, ScrollView, StyleSheet, Vibration, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TripOffer } from "../driver/types";
 
@@ -29,11 +30,14 @@ function formatCountdown(ms: number) {
 
 export function TripOfferModal({ offer, loading, onAccept, onDecline, onExpire }: TripOfferModalProps) {
   const [remainingMs, setRemainingMs] = useState(0);
+  const [initialMs, setInitialMs] = useState(1);
+  const insets = useSafeAreaInsets();
   const player = useAudioPlayer(require("../../assets/sounds/trip-offer.wav"));
 
   useEffect(() => {
     if (!offer) return;
     const expiresAt = new Date(offer.offer.expiresAt).getTime();
+    setInitialMs(Math.max(1, expiresAt - Date.now()));
 
     const tick = () => {
       const left = expiresAt - Date.now();
@@ -64,15 +68,14 @@ export function TripOfferModal({ offer, loading, onAccept, onDecline, onExpire }
 
   if (!offer) return null;
 
-  const total = Math.max(1, new Date(offer.offer.expiresAt).getTime() - (Date.now() - remainingMs));
-  const progress = Math.max(0, Math.min(1, remainingMs / total));
+  const progress = Math.max(0, Math.min(1, remainingMs / initialMs));
   const isUrgent = remainingMs <= 30000;
   const accentColor = isUrgent ? colors.danger : colors.warning;
   const badgeBackground = isUrgent ? "#fef2f2" : "#fffbeb";
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onDecline}>
-      <View style={styles.overlay}>
+    <Modal visible transparent animationType="fade" onRequestClose={() => { if (!loading) onDecline(); }}>
+      <ScrollView style={styles.overlay} contentContainerStyle={[styles.overlayContent, { paddingTop: Math.max(insets.top, spacing[4]), paddingBottom: Math.max(insets.bottom, spacing[4]) }]}>
         <View style={styles.sheet}>
           <AppStack gap={4}>
             <View style={styles.headerRow}>
@@ -166,7 +169,7 @@ export function TripOfferModal({ offer, loading, onAccept, onDecline, onExpire }
             </AppStack>
           </AppStack>
         </View>
-      </View>
+      </ScrollView>
     </Modal>
   );
 }
@@ -174,10 +177,13 @@ export function TripOfferModal({ offer, loading, onAccept, onDecline, onExpire }
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
+    backgroundColor: "rgba(2,6,23,0.5)"
+  },
+  overlayContent: {
+    flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(2,6,23,0.5)",
-    padding: spacing[4]
+    paddingHorizontal: spacing[4]
   },
   sheet: {
     width: "100%",

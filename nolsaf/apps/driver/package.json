@@ -8,7 +8,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "test": "node --experimental-strip-types --test src/auth/driverGate.test.mjs src/driver/activeTrip.test.mjs"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
@@ -20,6 +21,7 @@
     "expo": "~56.0.0",
     "expo-asset": "~56.0.17",
     "expo-audio": "~56.0.12",
+    "expo-constants": "~56.0.27",
     "expo-dev-client": "~56.0.20",
     "expo-file-system": "~56.0.8",
     "expo-font": "~56.0.7",
@@ -27,6 +29,7 @@
     "expo-linear-gradient": "~56.0.4",
     "expo-location": "~56.0.18",
     "expo-modules-core": "~56.0.17",
+    "expo-notifications": "~56.0.26",
     "expo-secure-store": "~56.0.4",
     "expo-sharing": "~56.0.18",
     "expo-splash-screen": "~56.0.10",

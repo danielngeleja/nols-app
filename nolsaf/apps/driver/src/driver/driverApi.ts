@@ -38,6 +38,7 @@ import {
   ScheduledTripsResponse,
   SendLevelMessageResponse,
   TripDetail,
+  TripOffer,
   TripStage,
   TripStageResponse,
   TripsResponse,
@@ -90,6 +91,10 @@ export function deleteNotification(token: string, id: string) {
 
 export function fetchTrips(token: string) {
   return apiRequest<TripsResponse>("/api/driver/trips", { token });
+}
+
+export function fetchLiveOffers(token: string) {
+  return apiRequest<{ offers: TripOffer[] }>("/api/driver/trips/offers", { token });
 }
 
 export function fetchTripDetail(token: string, tripId: number) {

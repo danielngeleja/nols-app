@@ -3,6 +3,7 @@ import { signInWithNativePasskey } from "@nolsaf/native-ui";
 
 import { getCurrentAccount, loginWithPassword, logoutSession } from "./authApi";
 import { clearStoredToken, getStoredToken, storeToken } from "./secureSession";
+import { unregisterDriverPushDevice } from "../lib/pushNotifications";
 import { AuthState, AuthUser } from "./types";
 
 const WRONG_APP_MESSAGE = "This app is for NoLSAF drivers. Use the NoLSAF customer app or website instead.";
@@ -114,6 +115,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const signOut = useCallback(async () => {
     const token = state.token;
+    if (token) await unregisterDriverPushDevice(token).catch(() => undefined);
     try {
       await logoutSession(token);
     } catch {

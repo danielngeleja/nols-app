@@ -15,10 +15,12 @@ import driverRemindersRouter from "./driver.reminders";
 import driverScheduledRouter from "./driver.scheduled";
 import driverRouter from "./driver.stats";
 import driverLevelRouter from "./driver.level";
+import driverPushDevicesRouter from "./driver.pushDevices";
 
 export function registerDriverRoutes(app: Express): void {
   // Driver profile update must be mounted BEFORE the catch-all "/api/driver" mount.
   app.use("/api/driver/profile", requireRole("DRIVER") as RequestHandler, driverProfileRouter as RequestHandler);
+  app.use("/api/driver/push-devices", requireRole("DRIVER") as RequestHandler, requireApprovedDriver as RequestHandler, driverPushDevicesRouter as RequestHandler);
   app.use("/api/driver", requireRole("DRIVER") as RequestHandler, requireApprovedDriver as RequestHandler, driverRouter as RequestHandler);
   app.use("/api/driver/reminders", requireRole("DRIVER") as RequestHandler, requireApprovedDriver as RequestHandler, driverRemindersRouter as RequestHandler);
   app.use("/api/driver/bonus", requireRole("DRIVER") as RequestHandler, requireApprovedDriver as RequestHandler, driverBonusRouter as RequestHandler);

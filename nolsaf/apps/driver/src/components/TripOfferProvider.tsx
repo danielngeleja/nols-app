@@ -1,12 +1,13 @@
 import { NavigationContainerRefWithCurrent } from "@react-navigation/native";
-import { useCallback, useEffect, useState } from "react";
-import { Alert } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, AppState } from "react-native";
 
 import { useAuth } from "../auth/AuthProvider";
-import { acceptTrip, declineTrip } from "../driver/driverApi";
+import { acceptTrip, declineTrip, fetchLiveOffers } from "../driver/driverApi";
 import { TripOffer } from "../driver/types";
 import { useDriverSocket } from "../hooks/useDriverSocket";
 import { onTestTripOffer } from "../lib/tripOfferTestBus";
+import { requestTrackingSync } from "../lib/trackingSync";
 import { RootStackParamList } from "../navigation/types";
 import { TripOfferModal } from "./TripOfferModal";
 
@@ -18,6 +19,33 @@ export function TripOfferProvider({ navigationRef }: TripOfferProviderProps) {
   const { token } = useAuth();
   const [offers, setOffers] = useState<TripOffer[]>([]);
   const [loading, setLoading] = useState(false);
+  const handledIds = useRef(new Set<number>());
+
+  const isLiveOffer = useCallback((offer: TripOffer | null | undefined): offer is TripOffer =>
+    !!offer && Number.isInteger(offer.bookingId) && offer.bookingId > 0 &&
+    Number.isFinite(Date.parse(offer.offer?.expiresAt ?? "")) && Date.parse(offer.offer.expiresAt) > Date.now(), []);
+
+  const refreshOffers = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await fetchLiveOffers(token);
+      setOffers((response.offers ?? []).filter((offer) => isLiveOffer(offer) && !handledIds.current.has(offer.bookingId)));
+    } catch {
+      // Socket offers still work while the recovery endpoint is unreachable.
+    }
+  }, [isLiveOffer, token]);
+
+  useEffect(() => {
+    void refreshOffers();
+    const interval = setInterval(() => void refreshOffers(), 15_000);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refreshOffers();
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [refreshOffers]);
 
   const dequeue = useCallback((bookingId: number) => {
     setOffers((current) => current.filter((item) => item.bookingId !== bookingId));
@@ -27,7 +55,7 @@ export function TripOfferProvider({ navigationRef }: TripOfferProviderProps) {
     {
       "transport:booking:created": (payload) => {
         const offer = payload as TripOffer | null;
-        if (!offer || typeof offer.bookingId !== "number") return;
+        if (!isLiveOffer(offer) || handledIds.current.has(offer.bookingId)) return;
         setOffers((current) => (current.some((item) => item.bookingId === offer.bookingId) ? current : [...current, offer]));
       }
     },
@@ -48,30 +76,37 @@ export function TripOfferProvider({ navigationRef }: TripOfferProviderProps) {
     setLoading(true);
     try {
       await acceptTrip(token, current.bookingId);
+      requestTrackingSync();
+      handledIds.current.add(current.bookingId);
       dequeue(current.bookingId);
       navigationRef.current?.navigate("TripDetail", { tripId: current.bookingId });
     } catch (e) {
       Alert.alert("Could not accept trip", e instanceof Error ? e.message : "This trip may have already been taken.");
-      dequeue(current.bookingId);
+      void refreshOffers();
     } finally {
       setLoading(false);
     }
-  }, [token, current, dequeue, navigationRef]);
+  }, [token, current, dequeue, navigationRef, refreshOffers]);
 
   const handleDecline = useCallback(async () => {
     if (!current) return;
     const bookingId = current.bookingId;
-    dequeue(bookingId);
     if (!token) return;
+    setLoading(true);
     try {
       await declineTrip(token, bookingId);
-    } catch {
-      // ignore - offer is removed from the queue regardless
+      handledIds.current.add(bookingId);
+      dequeue(bookingId);
+    } catch (e) {
+      Alert.alert("Could not decline trip", e instanceof Error ? e.message : "Please try again.");
+    } finally {
+      setLoading(false);
     }
   }, [token, current, dequeue]);
 
   const handleExpire = useCallback(() => {
     if (!current) return;
+    handledIds.current.add(current.bookingId);
     dequeue(current.bookingId);
   }, [current, dequeue]);
 

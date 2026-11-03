@@ -55,7 +55,7 @@ export function AvailabilitySwitch({ available, loading, onToggle }: Availabilit
             {available ? "You're online" : "You're offline"}
           </AppText>
           <AppText variant="bodySmall" tone={available ? "inverse" : "muted"}>
-            {available ? "Receiving trip requests nearby." : "Go online to start receiving trip requests."}
+            {available ? "Sharing your location for nearby trip requests." : "Go online to share your location and receive trips."}
           </AppText>
         </AppStack>
 
