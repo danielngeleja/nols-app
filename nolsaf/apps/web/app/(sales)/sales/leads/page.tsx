@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Eye, Plus, UsersRound } from "lucide-react";
+import { ArrowRight, CalendarClock, ChevronLeft, ChevronRight, Plus, Search, UsersRound, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
-import SalesPageHeader from "@/components/sales/SalesPageHeader";
 
 type Lead = {
   id: number;
@@ -32,6 +31,7 @@ const STATUSES = [
   "CONVERSION_REQUESTED",
   "CONVERTED",
   "LOST",
+  "CANCELLED",
 ] as const;
 
 function shortDate(value: string | null): string {
@@ -53,7 +53,11 @@ export default function SalesLeadsPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [nowMs, setNowMs] = useState<number | null>(null);
   const pageSize = 25;
+  const hasFilters = status !== "ALL" || Boolean(followUp || search);
+  const firstResult = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastResult = Math.min(total, page * pageSize);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +85,13 @@ export default function SalesLeadsPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const updateTime = () => setNowMs(Date.now());
+    updateTime();
+    const timer = window.setInterval(updateTime, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <SalesShell>
       <style jsx global>{`
@@ -90,47 +101,58 @@ export default function SalesLeadsPage() {
           box-sizing: border-box;
         }
       `}</style>
-      <div id="sales-leads-page">
-        <SalesPageHeader
-          icon={UsersRound}
-          title="Lead pipeline"
-          description="Register prospects, keep every follow-up accountable and request conversion only when the evidence is ready."
-          actions={<Link href="/sales/leads/new" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#087f68] px-4 text-sm font-bold text-white no-underline hover:bg-[#066b59]"><Plus className="h-4 w-4" />Register lead</Link>}
-        />
+      <div id="sales-leads-page" className="w-full min-w-0 space-y-4">
+        <header className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white shadow-[0_18px_40px_-30px_rgba(3,51,44,0.8)]">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_0%_100%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden />
+          <div className="pointer-events-none absolute inset-0 opacity-[0.35]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.09) 1px, transparent 1px)", backgroundSize: "18px 18px" }} aria-hidden />
+          <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80"><UsersRound className="h-3.5 w-3.5" /> Sales workspace</p>
+                <h1 className="m-0 mt-1 text-2xl font-bold tracking-tight text-white">Lead pipeline</h1>
+                <p className="m-0 mt-1 max-w-2xl text-sm leading-5 text-white/60">Track prospects, follow-ups and conversion requests in one place.</p>
+              </div>
+              <Link href="/sales/leads/new" className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl border-0 bg-emerald-400 px-4 text-sm font-bold text-[#0b2420] no-underline shadow-sm transition hover:bg-emerald-300 hover:text-[#0b2420] hover:no-underline"><Plus className="h-4 w-4" />Register lead</Link>
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-white/10 pt-4 text-xs text-white/65">
+              <span className="inline-flex items-center gap-2"><span className="text-lg font-bold tabular-nums leading-none text-white">{loading ? "…" : total.toLocaleString()}</span> matching leads</span>
+              <span className="inline-flex items-center gap-2"><CalendarClock className="h-4 w-4 text-emerald-300" />{followUp ? `${codeLabel(followUp)} follow-ups` : "All follow-ups"}</span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-white/75">{status === "ALL" ? "Every stage" : codeLabel(status)}</span>
+            </div>
+          </div>
+        </header>
 
-        <section className="mt-5 border border-slate-200 bg-white p-4 shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]">
+        <section className="rounded-2xl border border-solid border-slate-200 bg-white p-4 shadow-sm">
           <form
-            className="flex flex-wrap gap-3"
+            className="flex flex-wrap items-end gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               setPage(1);
               setSearch(query.trim());
             }}
           >
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search property, contact or location"
-              className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-            <select
-              value={followUp}
-              onChange={(event) => {
-                setPage(1);
-                setFollowUp(event.target.value);
-              }}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">All follow-ups</option>
-              <option value="OVERDUE">Overdue</option>
-              <option value="UPCOMING">Upcoming</option>
-              <option value="NONE">Not scheduled</option>
-            </select>
-            <button type="submit" className="rounded-lg border border-brand px-4 py-2 text-sm font-medium text-brand hover:bg-brand-50">
-              Search
+            <label className="min-w-[15rem] flex-1 text-xs font-semibold text-slate-700">
+              Find a lead
+              <span className="relative mt-1.5 block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Property, contact or location" className="block h-11 w-full min-w-0 rounded-xl border border-solid border-slate-300 bg-slate-50/80 pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-100" />
+              </span>
+            </label>
+            <label className="min-w-[11rem] text-xs font-semibold text-slate-700">
+              Follow-up
+              <select value={followUp} onChange={(event) => { setPage(1); setFollowUp(event.target.value); }} className="mt-1.5 block h-11 w-full rounded-xl border border-solid border-slate-300 bg-slate-50/80 px-3 text-sm text-slate-900 outline-none focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-100">
+                <option value="">All follow-ups</option>
+                <option value="OVERDUE">Overdue</option>
+                <option value="UPCOMING">Upcoming</option>
+                <option value="NONE">Not scheduled</option>
+              </select>
+            </label>
+            <button type="submit" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border-0 px-4 text-sm font-bold text-white transition hover:opacity-90" style={{ backgroundColor: "#073c35" }}>
+              <Search className="h-4 w-4" />Search
             </button>
+            {hasFilters ? <button type="button" onClick={() => { setQuery(""); setSearch(""); setStatus("ALL"); setFollowUp(""); setPage(1); }} className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"><X className="h-3.5 w-3.5" />Clear</button> : null}
           </form>
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          <div className="mt-4 flex gap-2 overflow-x-auto border-t border-solid border-slate-100 pt-3 pb-1" role="group" aria-label="Pipeline stage filters">
             {STATUSES.map((item) => (
               <button
                 key={item}
@@ -139,9 +161,11 @@ export default function SalesLeadsPage() {
                   setPage(1);
                   setStatus(item);
                 }}
-                className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium ${
-                  status === item ? "bg-brand text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                aria-pressed={status === item}
+                className={`min-h-9 shrink-0 whitespace-nowrap rounded-lg border border-solid px-3 text-xs font-semibold transition ${
+                  status === item ? "border-[#073c35]" : "border-slate-200 bg-slate-50 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50"
                 }`}
+                style={status === item ? { backgroundColor: "#073c35", color: "#ffffff" } : undefined}
               >
                 {codeLabel(item)}
               </button>
@@ -149,15 +173,23 @@ export default function SalesLeadsPage() {
           </div>
         </section>
 
-        {error ? <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+        {error ? <p role="alert" className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
 
-        <section className="mt-5 overflow-hidden border border-slate-200 bg-white shadow-[0_14px_35px_-34px_rgba(15,23,42,0.5)]">
+        <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-solid border-slate-200 px-5 py-3.5">
+            <div>
+              <h2 className="m-0 text-sm font-bold text-slate-900">Leads</h2>
+              <p className="m-0 mt-0.5 text-xs text-slate-500">{loading ? "Loading pipeline…" : `Showing ${firstResult}–${lastResult} of ${total.toLocaleString()}`}</p>
+            </div>
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">{status === "ALL" ? "All stages" : codeLabel(status)}</span>
+          </div>
           {loading ? (
-            <div className="p-8 text-center text-sm text-gray-500">Loading leads...</div>
+            <div className="p-8 text-center text-sm text-slate-500">Loading leads…</div>
           ) : leads.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-sm font-medium text-gray-900">No leads found</p>
-              <p className="mt-1 text-sm text-gray-500">Register a prospect or change the current filters.</p>
+            <div className="grid justify-items-center px-5 py-14 text-center">
+              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><UsersRound className="h-5 w-5" /></span>
+              <p className="m-0 mt-3 text-sm font-bold text-slate-900">No leads in this view</p>
+              <p className="m-0 mt-1 text-xs text-slate-500">Try another filter or register a new prospect.</p>
             </div>
           ) : (
             <>
@@ -171,24 +203,24 @@ export default function SalesLeadsPage() {
                     <col className="w-[10%]" />
                     <col className="w-[8%]" />
                   </colgroup>
-                  <thead className="border-b border-slate-200 bg-slate-50/80 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">
-                    <tr className="h-11">
+                  <thead className="border-b border-solid border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                    <tr>
                       <th scope="col" className="px-5 py-3 font-bold">Property</th>
                       <th scope="col" className="px-4 py-3 font-bold">Product</th>
                       <th scope="col" className="px-4 py-3 font-bold">Status</th>
                       <th scope="col" className="px-4 py-3 font-bold">Follow-up</th>
                       <th scope="col" className="px-4 py-3 text-center font-bold">Activity</th>
-                      <th scope="col" className="px-4 py-3 text-center font-bold"><span className="sr-only">View</span></th>
+                      <th scope="col" className="px-4 py-3 text-center font-bold">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {leads.map((lead) => {
-                      const overdue = lead.nextFollowUpAt && new Date(lead.nextFollowUpAt).getTime() < Date.now();
+                      const overdue = nowMs !== null && lead.nextFollowUpAt && !["CONVERTED", "LOST", "CANCELLED"].includes(lead.status) && new Date(lead.nextFollowUpAt).getTime() < nowMs;
                       return (
-                        <tr key={lead.id} className="h-[4.75rem] transition-colors hover:bg-slate-50/70">
+                        <tr key={lead.id} className="transition-colors hover:bg-emerald-50/30">
                           <td className="px-5 py-3 align-middle">
-                            <p className="m-0 truncate font-semibold text-slate-900">{lead.propertyName}</p>
-                            <p className="mb-0 mt-1 truncate text-xs text-slate-500">{lead.location || lead.contactPerson || "No location recorded"}</p>
+                            <Link href={`/sales/leads/${lead.id}`} className="block truncate text-[13px] font-bold text-slate-900 no-underline hover:text-emerald-800 hover:underline">{lead.propertyName}</Link>
+                            <p className="mb-0 mt-0.5 truncate text-xs text-slate-500">{lead.location || lead.contactPerson || "No location recorded"}</p>
                             {lead.duplicateReviewStatus === "POSSIBLE_DUPLICATE" ? (
                               <span className="mt-1.5 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                                 Duplicate review
@@ -208,11 +240,10 @@ export default function SalesLeadsPage() {
                           <td className="px-4 py-3 text-center align-middle">
                             <Link
                               href={`/sales/leads/${lead.id}`}
-                              aria-label={`View ${lead.propertyName}`}
-                              title={`View ${lead.propertyName}`}
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 no-underline shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 hover:no-underline focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                              aria-label={`Open ${lead.propertyName}`}
+                              className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-solid border-slate-200 bg-white px-2.5 text-xs font-semibold text-emerald-800 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-900 hover:no-underline focus:outline-none focus:ring-2 focus:ring-emerald-200"
                             >
-                              <Eye className="h-4 w-4" aria-hidden />
+                              Open <ArrowRight className="h-3.5 w-3.5" aria-hidden />
                             </Link>
                           </td>
                         </tr>
@@ -222,7 +253,7 @@ export default function SalesLeadsPage() {
                 </table>
               </div>
 
-              <div className="divide-y divide-gray-100 md:hidden">
+              <div className="divide-y divide-slate-100 md:hidden">
                 {leads.map((lead) => (
                   <Link
                     key={lead.id}
@@ -238,11 +269,11 @@ export default function SalesLeadsPage() {
                         {codeLabel(lead.status)}
                       </span>
                     </div>
-                    <div className="mt-3 flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5 text-[11px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                      <span className="shrink-0 whitespace-nowrap rounded-lg bg-slate-100 px-2.5 py-1.5 font-bold text-slate-600">
+                    <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2 text-[11px]">
+                      <span className="rounded-lg bg-slate-100 px-2.5 py-1.5 font-semibold text-slate-600">
                         {codeLabel(lead.proposedProduct)}
                       </span>
-                      <span className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600">
+                      <span className="rounded-lg border border-solid border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600">
                         Follow-up {shortDate(lead.nextFollowUpAt)}
                       </span>
                       <span className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-700 transition group-hover:bg-emerald-100">
@@ -254,29 +285,28 @@ export default function SalesLeadsPage() {
               </div>
             </>
           )}
-        </section>
-
-        <div className="mt-4 flex items-center justify-between text-sm">
-          <span className="text-gray-600">{total.toLocaleString()} leads</span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-solid border-slate-200 bg-slate-50/70 px-5 py-3 text-xs text-slate-600">
+            <span>Page {page} of {Math.max(1, Math.ceil(total / pageSize))}</span>
+            <div className="flex gap-2">
             <button
               type="button"
-              disabled={page <= 1}
+              disabled={loading || page <= 1}
               onClick={() => setPage((value) => Math.max(1, value - 1))}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 disabled:opacity-40"
+              className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-solid border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Previous
+              <ChevronLeft className="h-3.5 w-3.5" />Previous
             </button>
             <button
               type="button"
-              disabled={page * pageSize >= total}
+              disabled={loading || page * pageSize >= total}
               onClick={() => setPage((value) => value + 1)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 disabled:opacity-40"
+              className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-solid border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Next
+              Next <ChevronRight className="h-3.5 w-3.5" />
             </button>
+            </div>
           </div>
-        </div>
+        </section>
       </div>
     </SalesShell>
   );
