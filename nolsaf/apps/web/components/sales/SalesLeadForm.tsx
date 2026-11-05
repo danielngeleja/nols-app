@@ -5,6 +5,7 @@ import {
   Building2,
   ClipboardCheck,
   MapPinned,
+  Save,
   Send,
   UserRound,
 } from "lucide-react";
@@ -63,8 +64,8 @@ const PROPERTY_TYPES = [
 ] as const;
 
 const inputClass =
-  "mt-1.5 block min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400";
-const labelClass = "block text-xs font-bold text-slate-700";
+  "mt-1.5 block min-h-11 w-full min-w-0 rounded-xl border border-solid border-slate-300 bg-slate-50/80 px-3.5 py-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none transition placeholder:font-normal placeholder:text-slate-400 hover:border-slate-400 hover:bg-white focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400";
+const labelClass = "block min-w-0 text-xs font-semibold text-slate-700";
 
 function locationKey(value: string) {
   return value.toLocaleUpperCase("en").replace(/[^A-Z0-9]/g, "");
@@ -109,11 +110,13 @@ export function toSalesLeadPayload(value: SalesLeadFormValue) {
 export default function SalesLeadForm({
   initial,
   submitLabel,
+  showTopSubmit = false,
   submitting,
   onSubmit,
 }: {
   initial?: Partial<SalesLeadFormValue>;
   submitLabel: string;
+  showTopSubmit?: boolean;
   submitting: boolean;
   onSubmit: (value: SalesLeadFormValue) => Promise<void> | void;
 }) {
@@ -126,11 +129,9 @@ export default function SalesLeadForm({
     [value.region],
   );
   const districts = selectedRegion?.districts || [];
-  const selectedDistrict = useMemo(
-    () => districts.find((district) => locationKey(district.name) === locationKey(value.district)),
-    [districts, value.district],
-  );
+  const selectedDistrict = districts.find((district) => locationKey(district.name) === locationKey(value.district));
   const wards = selectedDistrict?.wards || [];
+  const submitDisabled = submitting || value.propertyName.trim().length < 2;
 
   return (
     <form
@@ -140,18 +141,36 @@ export default function SalesLeadForm({
       }}
       className="space-y-4"
     >
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3.5">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+      {showTopSubmit ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            {initial ? "Update this lead" : "New prospect record"}
+            <span className="font-normal text-slate-400">· Property name required</span>
+          </div>
+          <button
+            type="submit"
+            disabled={submitDisabled}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border-0 px-4 text-sm font-bold shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed"
+            style={{ backgroundColor: submitDisabled ? "#e2e8f0" : "#073c35", color: submitDisabled ? "#475569" : "#ffffff" }}
+          >
+            <Save className="h-4 w-4" />
+            {submitting ? "Saving..." : submitLabel}
+          </button>
+        </div>
+      ) : null}
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center gap-3 border-b border-solid border-slate-200 bg-slate-50 px-4 py-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-800">
             <Building2 className="h-4 w-4" />
           </span>
-          <div>
-            <h2 className="m-0 text-sm font-black text-slate-900">Property and contact</h2>
-            <p className="mb-0 mt-0.5 text-[10px] text-slate-400">Core prospect identity and the primary decision-maker.</p>
+          <div className="min-w-0">
+            <p className="m-0 text-[10px] font-bold uppercase tracking-widest text-emerald-700">01 · Prospect</p>
+            <h2 className="m-0 text-sm font-bold text-slate-900">Property and contact</h2>
           </div>
         </div>
 
-        <div className="grid gap-4 p-4 sm:grid-cols-2">
+        <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
           <label className={`${labelClass} sm:col-span-2`}>
             Property name <span className="text-red-500">*</span>
             <input
@@ -213,19 +232,20 @@ export default function SalesLeadForm({
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3.5">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-sky-50 text-sky-700">
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center gap-3 border-b border-solid border-slate-200 bg-slate-50 px-4 py-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-sky-100 text-sky-800">
             <MapPinned className="h-4 w-4" />
           </span>
-          <div>
-            <h2 className="m-0 text-sm font-black text-slate-900">Property location</h2>
-            <p className="mb-0 mt-0.5 text-[10px] text-slate-400">Select the hierarchy in order, then add a useful street or landmark.</p>
+          <div className="min-w-0">
+            <p className="m-0 text-[10px] font-bold uppercase tracking-widest text-sky-700">02 · Location</p>
+            <h2 className="m-0 text-sm font-bold text-slate-900">Property location</h2>
           </div>
         </div>
 
-        <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
-          <label className={labelClass}>
+        <div className="grid gap-4 p-4 sm:grid-cols-2">
+          <label className={`${labelClass} sm:col-span-2`}>
             Region
             <select
               value={value.region}
@@ -288,7 +308,7 @@ export default function SalesLeadForm({
             </select>
           </label>
 
-          <label className={`${labelClass} sm:col-span-2 lg:col-span-3`}>
+          <label className={`${labelClass} sm:col-span-2`}>
             Street, area or nearby landmark
             <input
               value={value.location}
@@ -300,14 +320,14 @@ export default function SalesLeadForm({
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3.5">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-50 text-violet-700">
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center gap-3 border-b border-solid border-slate-200 bg-slate-50 px-4 py-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-800">
             <ClipboardCheck className="h-4 w-4" />
           </span>
-          <div>
-            <h2 className="m-0 text-sm font-black text-slate-900">Opportunity details</h2>
-            <p className="mb-0 mt-0.5 text-[10px] text-slate-400">Qualification, product interest and the next accountable action.</p>
+          <div className="min-w-0">
+            <p className="m-0 text-[10px] font-bold uppercase tracking-widest text-violet-700">03 · Opportunity</p>
+            <h2 className="m-0 text-sm font-bold text-slate-900">Opportunity details</h2>
           </div>
         </div>
 
@@ -378,16 +398,18 @@ export default function SalesLeadForm({
           </label>
         </div>
       </section>
+      </div>
 
-      <div className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/60 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-xs text-emerald-900/70">
+      <div className="flex flex-col gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-xs text-emerald-900/80">
           <UserRound className="h-4 w-4 shrink-0 text-emerald-700" />
-          The prospect is recorded under your active sales workspace.
+          {initial ? "Save changes to update this lead record." : "After registration, record calls and meetings in the activity timeline."}
         </div>
         <button
           type="submit"
-          disabled={submitting || value.propertyName.trim().length < 2}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#073c35] px-5 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+          disabled={submitDisabled}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border-0 px-5 text-sm font-bold transition hover:opacity-90 disabled:cursor-not-allowed"
+          style={{ backgroundColor: submitDisabled ? "#e2e8f0" : "#073c35", color: submitDisabled ? "#475569" : "#ffffff" }}
         >
           <Send className="h-4 w-4" />
           {submitting ? "Saving..." : submitLabel}

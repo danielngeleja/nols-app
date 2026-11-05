@@ -242,6 +242,7 @@ export default function SalesLeadDetailPage() {
     ? !["CONVERSION_REQUESTED", "CONVERTED", "LOST", "CANCELLED"].includes(lead.status)
     : false;
   const canChangeStatus = lead ? !["CONVERSION_REQUESTED", "CONVERTED"].includes(lead.status) : false;
+  const statusSaveDisabled = !lead || saving || statusEdit === lead.status || (statusEdit === "LOST" && lostReason.trim().length < 2);
 
   return (
     <SalesShell>
@@ -301,7 +302,8 @@ export default function SalesLeadDetailPage() {
                     <button
                       type="button"
                       onClick={() => setConversionConfirm(true)}
-                      className="inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white transition hover:bg-emerald-800"
+                      className="inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border-0 px-4 text-sm font-bold text-white shadow-sm transition hover:opacity-90"
+                      style={{ backgroundColor: "#073c35" }}
                     >
                       <Send className="h-4 w-4" />
                       Request conversion
@@ -347,12 +349,14 @@ export default function SalesLeadDetailPage() {
             {editing ? (
               <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
                 <div className="mb-5 flex items-center gap-2">
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
-                    <Pencil className="h-4 w-4" />
-                  </span>
-                  <div>
-                    <h2 className="m-0 text-sm font-black text-slate-900">Edit prospect details</h2>
-                    <p className="mb-0 mt-1 text-[10px] text-slate-400">Keep identity, property and follow-up information accurate.</p>
+                  <div className="flex items-center gap-2">
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+                      <Pencil className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <h2 className="m-0 text-sm font-black text-slate-900">Edit prospect details</h2>
+                      <p className="mb-0 mt-1 text-[10px] text-slate-400">Keep identity, property and follow-up information accurate.</p>
+                    </div>
                   </div>
                 </div>
                 <SalesLeadForm
@@ -374,7 +378,8 @@ export default function SalesLeadDetailPage() {
                     nextFollowUpAt: localDateTime(lead.nextFollowUpAt),
                     notes: lead.notes || "",
                   }}
-                  submitLabel="Save changes"
+                  submitLabel="Save lead changes"
+                  showTopSubmit
                   submitting={saving}
                   onSubmit={save}
                 />
@@ -388,7 +393,7 @@ export default function SalesLeadDetailPage() {
                   </div>
 
                   {canChangeStatus ? (
-                    <div className="flex flex-wrap items-end justify-end gap-2">
+                    <div className="flex w-full flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:w-auto">
                       <label>
                         <span className="mb-1 block text-[10px] font-bold text-slate-500">Pipeline status</span>
                         <select
@@ -420,8 +425,13 @@ export default function SalesLeadDetailPage() {
                       <button
                         type="button"
                         onClick={saveStatus}
-                        disabled={saving || statusEdit === lead.status || (statusEdit === "LOST" && lostReason.trim().length < 2)}
-                        className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#073c35] px-3 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                        disabled={statusSaveDisabled}
+                        className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border px-4 text-xs font-bold shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed"
+                        style={{
+                          backgroundColor: statusSaveDisabled ? "#e2e8f0" : "#073c35",
+                          borderColor: statusSaveDisabled ? "#cbd5e1" : "#073c35",
+                          color: statusSaveDisabled ? "#475569" : "#ffffff",
+                        }}
                       >
                         <Save className="h-3.5 w-3.5" />
                         Save status

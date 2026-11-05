@@ -42,7 +42,7 @@ export default function SalesDateTimeField({
   return (
     <div className="grid gap-1.5">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium text-gray-800">{label}</span>
+        <span className="text-xs font-semibold text-slate-700">{label}</span>
         {value ? (
           <button
             type="button"
@@ -64,6 +64,7 @@ export default function SalesDateTimeField({
           twoMonths={false}
           widthClassName="!w-full"
           size="sm"
+          strongBorder
         />
 
         <label className="relative block">
@@ -78,7 +79,7 @@ export default function SalesDateTimeField({
             onChange={(event) => setTime(event.target.value)}
             disabled={!current.date}
             step={300}
-            className="h-10 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-2 text-sm text-gray-900 shadow-sm outline-none transition hover:bg-brand/5 focus:border-brand focus:ring-2 focus:ring-brand/25 disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-neutral-300"
+            className="h-10 w-full rounded-xl border border-solid border-slate-300 bg-slate-50/80 pl-9 pr-2 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-400 hover:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
           />
         </label>
       </div>
