@@ -64,7 +64,7 @@ export default function DriverVerificationPage({ params }: { params: { driverId:
         <div className="bg-slate-950 px-5 py-5 text-white">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-emerald-300" />
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-white/60">NoLSAF Verify</p>
+            <p className="text-xs font-black text-white/60">NoLSAF Verify</p>
           </div>
           <h1 className="mt-3 text-2xl font-black">Driver ID Check</h1>
           <p className="mt-1 text-sm text-white/60">Use this page to match the driver and vehicle before a trip.</p>

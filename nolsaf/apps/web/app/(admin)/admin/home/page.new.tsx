@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { Activity, AlertTriangle, ArrowRight, Bell, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Layers, Lock, MapPin, RefreshCw, ShieldAlert, Truck, TrendingUp, UserCog, UserRound, Wallet } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, BedDouble, Bell, Building2, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Layers, Lock, MapPin, RefreshCw, ShieldAlert, Truck, TrendingUp, UserCog, UserRound, Wallet } from "lucide-react";
 
 import { useAdminHomeKpis, useAdminMonitoring, useAdminPerformanceHighlights, useAdminRecentActivities } from "./adminHomeHooks";
 import TanzaniaMap, { matchRegion, type PendingListing } from "./TanzaniaMap";
@@ -28,6 +28,11 @@ type RangeType = "hours" | "months" | "properties";
 type Series = { labels: string[]; commission: number[]; subscription: number[] };
 type Stream = { key: string; label: string; nolsafRevenue: number; realizedCount: number };
 type Revenue = { state: "loading" } | { state: "locked" } | { state: "error" } | { state: "ok"; total: number; streams: Stream[] };
+type RoomInventory = {
+  totals: { roomsDeclared: number; propertiesWithRooms: number };
+  topSeller: string | null;
+  rows: Array<{ type: string; roomNights: number; sellThrough: number | null }>;
+};
 
 const tsh = (v: number) => `TSh ${Math.round(Number(v) || 0).toLocaleString()}`;
 const humanize = (v: string) => String(v || "").replace(/[.]/g, "_").split(/_+/).filter(Boolean).map((t, i) => (i === 0 ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : t.toLowerCase())).join(" ") || "Activity";
@@ -104,6 +109,7 @@ export default function AdminHomePage() {
   const [hoursWindow, setHoursWindow] = useState(24);
   const [monthsWindow, setMonthsWindow] = useState(6);
   const [series, setSeries] = useState<Series | null>(null);
+  const [rooms, setRooms] = useState<RoomInventory | null>(null);
   const [nonce, setNonce] = useState(0);
   const refreshTimer = useRef<number | null>(null);
   const briefRail = useRef<HTMLDivElement | null>(null);
@@ -195,6 +201,26 @@ export default function AdminHomePage() {
     return () => window.removeEventListener("finance-grant-granted", onGranted);
   }, [loadRevenue]);
 
+  // Rooms declared on live listings and the top-selling room type, 30 days.
+  // Same source as the dashboard's room inventory panel.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const now = new Date();
+        const q = new URLSearchParams({ from: new Date(now.getTime() - 30 * 86_400_000).toISOString(), to: now.toISOString(), region: "ALL" });
+        const res = await fetch(`/api/admin/stats/room-inventory?${q}`, { credentials: "include" });
+        const json = res.ok ? await res.json() : null;
+        if (!cancelled) setRooms(json?.totals ? json : null);
+      } catch {
+        if (!cancelled) setRooms(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [nonce]);
+
   // Revenue over time.
   useEffect(() => {
     (async () => {
@@ -254,32 +280,51 @@ export default function AdminHomePage() {
   const clear = queue.filter((q) => q.count === 0);
   const queueReady = Boolean(monitoring) && paymentsWaiting != null;
 
-  // ── The brief: three plain sentences from the live numbers ──
-  // The brief as small cards: the day's facts, each tinted by meaning (amber waits on
-  // you, green is good, grey is quiet) and linked to where you act on it.
-  type BriefCard = { key: string; value: string; caption: string; tone: "amber" | "green" | "grey"; href: string; icon: typeof Lock };
+  // ── The brief: four fixed cells, none repeating the map below ──
+  // Only the first cell carries colour (amber: something waits on you, green: clear),
+  // so colour always means "act or relax". The other three are plain facts, each
+  // linked to where it is explained.
+  type BriefCard = { key: string; label: string; value: string; caption: string; tone: "amber" | "green" | "plain"; href: string; icon: typeof Lock };
   const brief = useMemo<BriefCard[] | null>(() => {
     if (!monitoring) return null;
     const META: Record<string, [string, string, typeof Lock]> = {
-      listings: ["listing waits for review", "listings wait for review", Building2],
+      listings: ["listing to review", "listings to review", Building2],
       payouts: ["owner payout to send", "owner payouts to send", Wallet],
       exceptions: ["payment to match", "payments to match", AlertTriangle],
       trips: ["driver trip to settle", "driver trips to settle", Truck],
     };
-    const cards: BriefCard[] = live.length
-      ? live.map((q) => {
-          const [one, many, icon] = META[q.key];
-          return { key: q.key, value: String(q.count), caption: q.count === 1 ? one : many, tone: "amber" as const, href: q.href, icon };
-        })
-      : [{ key: "clear", value: "All clear", caption: "nothing waits on you", tone: "green", href: "/admin/properties/previews", icon: CheckCircle2 }];
-    const bookings = monitoring.bookings;
-    cards.push({ key: "bookings", value: String(bookings), caption: bookings === 1 ? "new booking, last 24 hours" : "new bookings, last 24 hours", tone: bookings ? "green" : "grey", href: "/admin/bookings", icon: CalendarDays });
+    const waiting = live.reduce((sum, q) => sum + q.count, 0);
+    const first = live[0];
+    const needs: BriefCard = first
+      ? {
+          key: "needs", label: "Needs you", value: `${waiting} waiting`,
+          caption: `${plural(first.count, META[first.key][0], META[first.key][1])}${live.length > 1 ? `, and ${live.length - 1} more ${live.length === 2 ? "kind" : "kinds"}` : ""}`,
+          tone: "amber", href: first.href, icon: META[first.key][2],
+        }
+      : { key: "needs", label: "Needs you", value: "All clear", caption: "nothing waits on you", tone: "green", href: "/admin/properties/previews", icon: CheckCircle2 };
+
+    const roomsHref = "/admin#general-reports-page";
+    const t = rooms?.totals;
+    const roomsCard: BriefCard = {
+      key: "rooms", label: "Room inventory", tone: "plain", href: roomsHref, icon: BedDouble,
+      value: t ? plural(t.roomsDeclared, "room", "rooms") : "…",
+      caption: t ? `declared on ${plural(t.propertiesWithRooms, "live property", "live properties")}` : "rooms on live listings",
+    };
+    const topRow = rooms?.topSeller ? rooms.rows.find((r) => r.type === rooms.topSeller) : null;
+    const sellerCard: BriefCard = {
+      key: "seller", label: "Top room type, 30 days", tone: "plain", href: roomsHref, icon: TrendingUp,
+      value: rooms ? (topRow?.type ?? "No sales yet") : "…",
+      caption: topRow
+        ? `${topRow.sellThrough == null ? "" : `${topRow.sellThrough}% sell-through, `}${plural(topRow.roomNights, "room-night", "room-nights")}`
+        : "no rooms occupied in 30 days",
+    };
     const top = highlights?.mostBookedRegion;
-    if (top && top.bookings > 0) {
-      cards.push({ key: "region", value: matchRegion(top.regionName)?.name ?? humanize(top.regionName), caption: `led the month, ${plural(top.bookings, "booking", "bookings")}`, tone: "green", href: "/admin/bookings", icon: MapPin });
-    }
-    return cards;
-  }, [monitoring, live, highlights]);
+    const regionCard: BriefCard = top && top.bookings > 0
+      ? { key: "region", label: "Leading region, 30 days", value: matchRegion(top.regionName)?.name ?? humanize(top.regionName), caption: plural(top.bookings, "booking", "bookings"), tone: "plain", href: "/admin/bookings", icon: MapPin }
+      : { key: "region", label: "Leading region, 30 days", value: "No bookings yet", caption: "across Tanzania", tone: "plain", href: "/admin/bookings", icon: MapPin };
+
+    return [needs, roomsCard, sellerCard, regionCard];
+  }, [monitoring, live, highlights, rooms]);
   useEffect(() => {
     const rail = briefRail.current;
     if (!rail) return;
@@ -291,7 +336,7 @@ export default function AdminHomePage() {
   const CARD_TONE = {
     amber: { box: "border-amber-200 bg-amber-50 hover:bg-amber-100/70", icon: "bg-amber-100 text-amber-700", value: "text-amber-950", caption: "text-amber-800/80" },
     green: { box: "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50", icon: "bg-emerald-100 text-emerald-700", value: "text-emerald-950", caption: "text-emerald-800/80" },
-    grey: { box: "border-neutral-200 bg-white hover:bg-neutral-50", icon: "bg-neutral-100 text-neutral-500", value: "text-neutral-500", caption: "text-neutral-500" },
+    plain: { box: "border-neutral-200 bg-white hover:bg-neutral-50", icon: "bg-[#02665e]/10 text-[#02665e]", value: "text-neutral-950", caption: "text-neutral-500" },
   } as const;
   const hour = Number(new Date().toLocaleString("en-GB", { hour: "2-digit", hour12: false, timeZone: "Africa/Dar_es_Salaam" }));
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -404,17 +449,18 @@ export default function AdminHomePage() {
             ? brief.map((c) => {
                 const t = CARD_TONE[c.tone];
                 return (
-                  <Link key={c.key} href={c.href} className={`group flex min-h-[82px] w-[78%] shrink-0 snap-start items-center gap-3 rounded-xl border border-solid px-3 py-2.5 no-underline transition hover:no-underline sm:w-[46%] lg:w-[31%] xl:w-[calc(25%_-_0.46875rem)] ${t.box}`}>
+                  <Link key={c.key} href={c.href} className={`group flex min-h-[88px] w-[78%] shrink-0 snap-start items-center gap-3 rounded-xl border border-solid px-3 py-2.5 no-underline transition hover:no-underline sm:w-[46%] lg:w-[calc(25%_-_0.46875rem)] ${t.box}`}>
                     <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${t.icon}`}><c.icon className="h-4 w-4" aria-hidden /></span>
                     <span className="min-w-0 flex-1">
-                      <span className={`block break-words text-base font-semibold tabular-nums leading-snug ${t.value}`}>{c.value}</span>
-                      <span className={`block text-xs leading-snug ${t.caption}`}>{c.caption}</span>
+                      <span className={`block truncate text-[11px] font-medium ${t.caption}`}>{c.label}</span>
+                      <span className={`mt-0.5 block truncate text-base font-semibold tabular-nums leading-snug ${t.value}`}>{c.value}</span>
+                      <span className={`block truncate text-xs leading-snug ${t.caption}`} title={c.caption}>{c.caption}</span>
                     </span>
                     <ArrowRight className="h-3.5 w-3.5 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-neutral-600" aria-hidden />
                   </Link>
                 );
               })
-            : Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-[82px] w-[78%] shrink-0 animate-pulse rounded-xl bg-neutral-100 sm:w-[46%] lg:w-[31%] xl:w-[calc(25%_-_0.46875rem)]" />)}
+            : Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-[88px] w-[78%] shrink-0 animate-pulse rounded-xl bg-neutral-100 sm:w-[46%] lg:w-[calc(25%_-_0.46875rem)]" />)}
         </div>
       </header>
 

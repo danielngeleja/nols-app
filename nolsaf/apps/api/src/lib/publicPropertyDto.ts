@@ -141,6 +141,70 @@ function buildPhysicalVerification(p: any): PublicPropertyDetail["physicalVerifi
   };
 }
 
+/** Owner form flags in Property.services and the tag each one stands for (owner add-property servicesToArray). */
+const SERVICE_FLAG_TAGS: Record<string, string> = {
+  breakfastIncluded: "Breakfast included",
+  breakfastAvailable: "Breakfast available",
+  restaurant: "Restaurant",
+  bar: "Bar",
+  pool: "Pool",
+  sauna: "Sauna",
+  laundry: "Laundry",
+  roomService: "Room service",
+  privateChef: "Private chef",
+  security24: "24h security",
+  firstAid: "First aid",
+  fireExtinguisher: "Fire extinguisher",
+  onSiteShop: "On-site shop",
+  nearbyMall: "Nearby mall",
+  socialHall: "Social hall",
+  sportsGames: "Sports & games",
+  gym: "Gym",
+  acceptGroupBookings: "Group stay",
+  freeCancellation: "Free cancellation",
+};
+
+/**
+ * Every service tag a property carries, lower-cased, whatever shape
+ * Property.services was saved in: a legacy array of tags, or the current
+ * object with a `tags` list plus yes/no flags (older objects may have flags
+ * and no tags). The public amenities filter matches against this set.
+ */
+export function serviceTagSet(services: unknown): Set<string> {
+  let value: unknown = services;
+  if (typeof value === "string") {
+    try { value = JSON.parse(value); } catch { return new Set(); }
+  }
+  const tags = new Set<string>();
+  const add = (t: unknown) => { if (typeof t === "string" && t.trim()) tags.add(t.trim().toLowerCase()); };
+  if (Array.isArray(value)) {
+    value.forEach(add);
+  } else if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (Array.isArray(obj.tags)) obj.tags.forEach(add);
+    for (const [flag, tag] of Object.entries(SERVICE_FLAG_TAGS)) if (obj[flag] === true) add(tag);
+    if (obj.parking === "free") add("Free parking");
+  }
+  return tags;
+}
+
+/**
+ * Every nightly price a guest can book at this property: the base price and
+ * each room option's price. The public price filter matches against these, so
+ * a stay priced only through its rooms (no basePrice) is still found, and a
+ * stay whose cheapest room is below the range but has a room inside it counts.
+ */
+export function nightlyPriceOptions(p: any): number[] {
+  const out: number[] = [];
+  const basePrice = p?.basePrice != null ? Number(p.basePrice) : NaN;
+  if (Number.isFinite(basePrice) && basePrice > 0) out.push(basePrice);
+  for (const room of normalizeRoomsSpecInput(p?.roomsSpec)) {
+    const value = Number((room as any)?.pricePerNight ?? (room as any)?.price ?? NaN);
+    if (Number.isFinite(value) && value > 0) out.push(value);
+  }
+  return out;
+}
+
 function extractEffectiveBasePrice(p: any): number | null {
   const basePrice = p?.basePrice != null ? Number(p.basePrice) : NaN;
   if (Number.isFinite(basePrice) && basePrice > 0) return basePrice;

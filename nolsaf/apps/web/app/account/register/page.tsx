@@ -221,14 +221,14 @@ function CountryCodePicker({ value, onChange, embedded = false }: { value: strin
         aria-label={`Country code ${selected.code}`}
         className={embedded
           ? "flex h-full items-center gap-1.5 rounded-l-xl border-0 bg-transparent pl-3.5 pr-2.5 text-[14.5px] font-semibold text-slate-800 transition hover:bg-slate-50 focus:outline-none"
-          : "flex w-full items-center justify-between gap-1.5 rounded-xl border-2 border-solid border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 transition-all hover:border-[#02665e]/40 focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] shadow-sm"}
+          : "box-border flex h-11 w-full items-center justify-between gap-1.5 rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 [font-family:inherit] transition-colors hover:border-slate-400 focus:outline-none focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)]"}
       >
         <span className="text-base leading-none">{selected.flag}</span>
         <span>{selected.code}</span>
         <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1.5 z-50 min-w-[150px] rounded-xl border border-solid border-slate-200 bg-white ring-1 ring-black/5 shadow-xl overflow-hidden">
+        <div className="absolute top-full left-0 mt-1.5 z-50 min-w-[150px] overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-lg">
           <div className="max-h-[260px] overflow-y-auto overscroll-contain">
             {COUNTRY_CODES.map((c) => (
               <button
@@ -676,93 +676,74 @@ export default function RegisterPage() {
   const renderRegisterPage = () => {
     return (
       <div className="w-full flex flex-col bg-white relative box-border">
-        <div className="sticky top-0 z-10 bg-[#02665e] shadow-md">
-          <div className="px-6 py-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center">
-                <UserPlus className="w-5 h-5 text-white" />
-              </div>
-              <div className="flex-1">
-                <h1 className="text-xl font-bold text-white">Create Account</h1>
-                <p className="text-xs text-white/70 mt-0.5">Sign up to get started</p>
-              </div>
-              {step !== 'phone' && (
-                <div className="px-2.5 py-1 rounded-md bg-white/15 text-xs font-semibold text-white border border-white/20">
-                  {step === 'otp' ? 'Step 2' : 'Done ✓'}
-                </div>
-              )}
-            </div>
+        {/* Header: the same calm white header as sign in, with a slim progress bar */}
+        <div className="px-6 pb-1 pt-7 sm:px-8 md:pt-8">
+          <div className="flex items-start justify-between gap-3">
+            <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-white ring-1 ring-slate-200">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/assets/NoLS2025-04.png" alt="NoLSAF" className="h-6 w-6 object-contain" />
+            </span>
+            <span className="text-[12px] font-medium tabular-nums text-slate-500">
+              {step === 'phone' ? 'Step 1 of 2' : step === 'otp' ? 'Step 2 of 2' : 'Done'}
+            </span>
           </div>
-          <div className="px-6 pb-3">
-            <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
-              <div 
-                className={`h-full bg-white rounded-full transition-all duration-500 ${step === 'phone' ? 'w-1/3' : step === 'otp' ? 'w-2/3' : 'w-full'}`} 
-              />
-            </div>
+          <h1 className="m-0 text-[24px] font-bold leading-tight tracking-tight text-slate-950">Create account</h1>
+          <p className="m-0 mt-1.5 text-[14px] leading-snug text-slate-500">Sign up to book stays, drive or list your property.</p>
+          <div className="mt-4 h-1 overflow-hidden rounded-sm bg-slate-100" aria-hidden>
+            <div className={`h-full rounded-sm bg-[#02665e] transition-all duration-500 ${step === 'phone' ? 'w-1/3' : step === 'otp' ? 'w-2/3' : 'w-full'}`} />
           </div>
         </div>
 
-        <div className="px-6 py-5">
+        <div className="px-6 py-5 sm:px-8">
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5 text-sm text-red-700">
+            <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-solid border-red-200 bg-red-50 p-3 text-sm text-red-700">
               <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-500" />
               <span className="flex-1">{error}</span>
             </div>
           )}
 
           {success && (
-            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2.5 text-sm text-emerald-700">
+            <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-solid border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
               <Check className="w-4 h-4 mt-0.5 flex-shrink-0 text-emerald-500" />
               <span className="flex-1">{success}</span>
             </div>
           )}
 
-          <div className={`space-y-3 transition-opacity duration-300 ${visible ? 'opacity-100' : 'opacity-0'}`}>
+          <div className={`space-y-4 transition-opacity duration-300 ${visible ? 'opacity-100' : 'opacity-0'}`}>
             {step === 'phone' && (
               <>
-                <div
-                  className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1"
-                  aria-label="Choose where to receive your verification code"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRegisterMethod('phone');
-                      setError(null);
-                      setSuccess(null);
-                    }}
-                    aria-pressed={registerMethod === 'phone'}
-                    className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-                      registerMethod === 'phone'
-                        ? 'bg-[#02665e] text-white shadow-sm'
-                        : 'bg-transparent text-slate-600 hover:bg-white'
-                    }`}
-                  >
-                    <Phone className="h-4 w-4" />
-                    Phone
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRegisterMethod('email');
-                      setError(null);
-                      setSuccess(null);
-                    }}
-                    aria-pressed={registerMethod === 'email'}
-                    className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-                      registerMethod === 'email'
-                        ? 'bg-[#02665e] text-white shadow-sm'
-                        : 'bg-transparent text-slate-600 hover:bg-white'
-                    }`}
-                  >
-                    <Mail className="h-4 w-4" />
-                    Email
-                  </button>
+                {/* Where the code goes: a segmented switch */}
+                <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1" role="radiogroup" aria-label="Choose where to receive your verification code">
+                  {([
+                    { key: 'phone', label: 'Phone', Icon: Phone },
+                    { key: 'email', label: 'Email', Icon: Mail },
+                  ] as const).map(({ key, label, Icon }) => {
+                    const on = registerMethod === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        onClick={() => {
+                          setRegisterMethod(key);
+                          setError(null);
+                          setSuccess(null);
+                        }}
+                        className={`flex h-9 items-center justify-center gap-2 rounded-md border-0 text-[13.5px] font-semibold [font-family:inherit] transition-colors ${
+                          on ? 'bg-white text-[#02665e] shadow-sm ring-1 ring-slate-200' : 'bg-transparent text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" aria-hidden />
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {registerMethod === 'phone' ? (
-                <div className="space-y-3 min-w-0">
-                  <label className="block text-sm font-semibold text-slate-700">Phone Number</label>
+                <div className="min-w-0">
+                  <label className="mb-1.5 block text-[13px] font-semibold text-slate-700">Phone number</label>
                   <div className="flex items-center gap-2 w-full">
                     <CountryCodePicker value={countryCode} onChange={setCountryCode} />
                     <input
@@ -771,136 +752,69 @@ export default function RegisterPage() {
                       onChange={(e) => setPhone(sanitizePhoneInput(e.target.value, countryCode))}
                       placeholder={getPhonePlaceholder(countryCode)}
                       maxLength={getPhoneMaxLength(countryCode)}
-                      className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-white text-slate-900 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-all duration-200 placeholder:text-slate-400 shadow-sm hover:border-slate-300 box-border"
+                      className="box-border h-11 min-w-0 flex-1 rounded-lg border border-solid border-slate-300 bg-white px-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)]"
                     />
                   </div>
-                  <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                    <span className="w-1 h-1 bg-[#02665e] rounded-full flex-shrink-0" />
-                    <span>We&apos;ll send you a verification code</span>
-                  </p>
+                  <p className="m-0 mt-1.5 text-[12px] text-slate-500">We&apos;ll text you a verification code.</p>
                   {phone.length > 0 && !isPhoneLengthValid(phone, countryCode) ? (
-                    <p className="text-[11px] text-amber-600 font-medium">{getPhoneLengthHint(countryCode)}</p>
+                    <p className="m-0 mt-1 text-[12px] font-medium text-amber-700">{getPhoneLengthHint(countryCode)}</p>
                   ) : null}
                 </div>
                 ) : (
-                  <div className="space-y-3 min-w-0">
-                    <label className="block text-sm font-semibold text-slate-700">Email Address</label>
+                  <div className="min-w-0">
+                    <label className="mb-1.5 block text-[13px] font-semibold text-slate-700">Email address</label>
                     <input
                       type="email"
                       value={registerEmail}
                       onChange={(e) => setRegisterEmail(e.target.value)}
                       placeholder="you@example.com"
                       autoComplete="email"
-                      className="w-full max-w-full px-4 py-2.5 text-sm bg-white text-slate-900 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-all duration-200 placeholder:text-slate-400 shadow-sm hover:border-slate-300 box-border"
+                      className="box-border h-11 w-full max-w-full rounded-lg border border-solid border-slate-300 bg-white px-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)]"
                     />
-                    <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                      <span className="w-1 h-1 bg-[#02665e] rounded-full flex-shrink-0" />
-                      <span>We&apos;ll email you a verification code</span>
-                    </p>
+                    <p className="m-0 mt-1.5 text-[12px] text-slate-500">We&apos;ll email you a verification code.</p>
                     {registerEmail.length > 0 && !isValidEmail(registerEmail) ? (
-                      <p className="text-[11px] text-amber-600 font-medium">Enter a valid email address</p>
+                      <p className="m-0 mt-1 text-[12px] font-medium text-amber-700">Enter a valid email address</p>
                     ) : null}
                   </div>
                 )}
 
-                <div className="space-y-3">
-                  <label className="block text-sm font-semibold text-slate-700">I am a</label>
-                  <div className="grid grid-cols-3 gap-2.5">
-                    {/* Traveller card */}
-                    <button
-                      type="button"
-                      onClick={() => setRole('traveller')}
-                      aria-pressed={role === 'traveller'}
-                      style={role === 'traveller' ? {
-                        backgroundImage: `radial-gradient(circle, rgba(255,255,255,0.18) 1.5px, transparent 1.5px)`,
-                        backgroundSize: '16px 16px'
-                      } : undefined}
-                      className={[
-                        "relative flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all duration-200 focus:outline-none overflow-hidden",
-                        role === 'traveller'
-                          ? "border-[#02665e] bg-[#02665e] shadow-lg shadow-[#02665e]/20"
-                          : "border-slate-200 bg-white hover:border-[#02665e]/40 hover:shadow-md",
-                      ].join(" ")}
-                    >
-                      {role === 'traveller' && (
-                        <div className="absolute top-2 right-2">
-                          <div className="h-5 w-5 rounded-full bg-white/25 flex items-center justify-center">
-                            <Check className="w-3 h-3 text-white" strokeWidth={3} />
-                          </div>
-                        </div>
-                      )}
-                      <div className={["h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0", role === 'traveller' ? "bg-white/20" : "bg-[#02665e]/10"].join(" ")}>
-                        <User className={["w-4 h-4", role === 'traveller' ? "text-white" : "text-[#02665e]"].join(" ")} />
-                      </div>
-                      <div>
-                        <p className={["text-sm font-bold", role === 'traveller' ? "text-white" : "text-slate-800"].join(" ")}>Traveller</p>
-                        <p className={["text-xs mt-0.5 leading-tight", role === 'traveller' ? "text-white/75" : "text-slate-500"].join(" ")}>Book stays &amp; tours</p>
-                      </div>
-                    </button>
-
-                    {/* Driver card */}
-                    <button
-                      type="button"
-                      onClick={() => setRole('driver')}
-                      aria-pressed={role === 'driver'}
-                      style={role === 'driver' ? {
-                        backgroundImage: `radial-gradient(circle, rgba(255,255,255,0.18) 1.5px, transparent 1.5px)`,
-                        backgroundSize: '16px 16px'
-                      } : undefined}
-                      className={[
-                        "relative flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all duration-200 focus:outline-none overflow-hidden",
-                        role === 'driver'
-                          ? "border-[#02665e] bg-[#02665e] shadow-lg shadow-[#02665e]/20"
-                          : "border-slate-200 bg-white hover:border-[#02665e]/40 hover:shadow-md",
-                      ].join(" ")}
-                    >
-                      {role === 'driver' && (
-                        <div className="absolute top-2 right-2">
-                          <div className="h-5 w-5 rounded-full bg-white/25 flex items-center justify-center">
-                            <Check className="w-3 h-3 text-white" strokeWidth={3} />
-                          </div>
-                        </div>
-                      )}
-                      <div className={["h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0", role === 'driver' ? "bg-white/20" : "bg-[#02665e]/10"].join(" ")}>
-                        <Truck className={["w-4 h-4", role === 'driver' ? "text-white" : "text-[#02665e]"].join(" ")} />
-                      </div>
-                      <div>
-                        <p className={["text-sm font-bold", role === 'driver' ? "text-white" : "text-slate-800"].join(" ")}>Driver</p>
-                        <p className={["text-xs mt-0.5 leading-tight", role === 'driver' ? "text-white/75" : "text-slate-500"].join(" ")}>Drive and earn</p>
-                      </div>
-                    </button>
-
-                    {/* Owner card */}
-                    <button
-                      type="button"
-                      onClick={() => setRole('owner')}
-                      aria-pressed={role === 'owner'}
-                      style={role === 'owner' ? {
-                        backgroundImage: `radial-gradient(circle, rgba(255,255,255,0.18) 1.5px, transparent 1.5px)`,
-                        backgroundSize: '16px 16px'
-                      } : undefined}
-                      className={[
-                        "relative flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all duration-200 focus:outline-none overflow-hidden",
-                        role === 'owner'
-                          ? "border-[#02665e] bg-[#02665e] shadow-lg shadow-[#02665e]/20"
-                          : "border-slate-200 bg-white hover:border-[#02665e]/40 hover:shadow-md",
-                      ].join(" ")}
-                    >
-                      {role === 'owner' && (
-                        <div className="absolute top-2 right-2">
-                          <div className="h-5 w-5 rounded-full bg-white/25 flex items-center justify-center">
-                            <Check className="w-3 h-3 text-white" strokeWidth={3} />
-                          </div>
-                        </div>
-                      )}
-                      <div className={["h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0", role === 'owner' ? "bg-white/20" : "bg-[#02665e]/10"].join(" ")}>
-                        <Building2 className={["w-4 h-4", role === 'owner' ? "text-white" : "text-[#02665e]"].join(" ")} />
-                      </div>
-                      <div>
-                        <p className={["text-sm font-bold", role === 'owner' ? "text-white" : "text-slate-800"].join(" ")}>Owner</p>
-                        <p className={["text-xs mt-0.5 leading-tight", role === 'owner' ? "text-white/75" : "text-slate-500"].join(" ")}>List property</p>
-                      </div>
-                    </button>
+                {/* Who is signing up: one radio card per role */}
+                <div>
+                  <p id="register-role-label" className="m-0 mb-1.5 text-[13px] font-semibold text-slate-700">I am a</p>
+                  <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-labelledby="register-role-label">
+                    {([
+                      { key: 'traveller', label: 'Traveller', sub: 'Book stays and tours', Icon: User },
+                      { key: 'driver', label: 'Driver', sub: 'Drive and earn', Icon: Truck },
+                      { key: 'owner', label: 'Owner', sub: 'List a property', Icon: Building2 },
+                    ] as const).map(({ key, label, sub, Icon }) => {
+                      const on = role === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          onClick={() => setRole(key)}
+                          className={`relative flex flex-col items-start gap-2 rounded-lg border border-solid p-3 text-left [font-family:inherit] transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/15 ${
+                            on ? 'border-[#02665e] bg-[#02665e]/[0.05] ring-1 ring-[#02665e]' : 'border-slate-300 bg-white hover:border-slate-400'
+                          }`}
+                        >
+                          <span
+                            aria-hidden
+                            className={`absolute right-2.5 top-2.5 inline-flex h-4 w-4 items-center justify-center rounded-full border border-solid ${on ? 'border-[#02665e] bg-[#02665e]' : 'border-slate-300 bg-white'}`}
+                          >
+                            {on ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
+                          </span>
+                          <span className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md ${on ? 'bg-[#02665e] text-white' : 'bg-[#02665e]/[0.08] text-[#02665e]'}`}>
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className={`block text-[13.5px] font-semibold ${on ? 'text-[#02665e]' : 'text-slate-900'}`}>{label}</span>
+                            <span className="mt-0.5 block text-[11.5px] leading-tight text-slate-500">{sub}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -913,7 +827,7 @@ export default function RegisterPage() {
                       ? !isPhoneLengthValid(phone, countryCode)
                       : !isValidEmail(registerEmail))
                   }
-                  className="w-full mt-5 px-4 py-2.5 bg-[#02665e] text-white text-sm font-medium rounded-lg hover:bg-[#014e47] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="mt-1 flex h-11 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-[15px] font-semibold text-white [font-family:inherit] transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25 disabled:cursor-not-allowed disabled:bg-[#02665e]/35"
                 >
                   {loading ? (
                     <>
@@ -1159,7 +1073,7 @@ export default function RegisterPage() {
     return (
       <div className="relative flex w-full flex-col bg-white">
         <div className="px-6 pb-1 pt-7 sm:px-8 md:pt-8">
-          <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)] ring-1 ring-slate-200">
+          <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-white ring-1 ring-slate-200">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/assets/NoLS2025-04.png" alt="NoLSAF" className="h-6 w-6 object-contain" />
           </span>
@@ -1181,7 +1095,7 @@ export default function RegisterPage() {
           {renderBlockedAccountCard()}
 
           {isLockedOut && (
-            <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div role="status" aria-live="polite" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center" aria-hidden>
                   <Lock className="w-5 h-5 text-amber-600" />
@@ -1228,9 +1142,9 @@ export default function RegisterPage() {
           )}
 
           {mfaResetNeeded ? (
-            <div className="mb-4 overflow-hidden rounded-2xl border border-solid border-amber-200 bg-amber-50">
+            <div className="mb-4 overflow-hidden rounded-lg border border-solid border-amber-200 bg-amber-50">
               <div className="flex items-start gap-3 p-3.5">
-                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-400 text-amber-950">
+                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-amber-400 text-amber-950">
                   <Shield className="h-[18px] w-[18px]" />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -1253,7 +1167,7 @@ export default function RegisterPage() {
               </div>
             </div>
           ) : error ? (
-            <div id="login-error" role="alert" className="mb-4 flex items-start gap-2.5 rounded-xl border border-solid border-rose-200 bg-rose-50 px-3.5 py-3 text-[13px] leading-snug text-rose-800">
+            <div id="login-error" role="alert" className="mb-4 flex items-start gap-2.5 rounded-lg border border-solid border-rose-200 bg-rose-50 px-3.5 py-3 text-[13px] leading-snug text-rose-800">
               <AlertCircle className="mt-px h-4 w-4 flex-shrink-0 text-rose-500" />
               <span className="min-w-0 flex-1 break-words">{error}</span>
             </div>
@@ -1280,7 +1194,7 @@ export default function RegisterPage() {
                   >
                     <div className="min-w-0 space-y-1.5">
                       <label htmlFor="login-phone" className="block text-[12.5px] font-semibold text-slate-700">Phone number</label>
-                      <div className="flex h-12 min-w-0 items-stretch rounded-xl border border-solid border-slate-200 bg-white transition hover:border-slate-300 focus-within:border-[#02665e] focus-within:shadow-[0_0_0_4px_rgba(2,102,94,0.12)]">
+                      <div className="flex h-12 min-w-0 items-stretch rounded-lg border border-solid border-slate-300 bg-white transition hover:border-slate-400 focus-within:border-[#02665e] focus-within:shadow-[0_0_0_4px_rgba(2,102,94,0.12)]">
                         <CountryCodePicker value={loginCountryCode} onChange={setLoginCountryCode} embedded />
                         <span className="my-2.5 w-px flex-shrink-0 bg-slate-200" aria-hidden />
                         <input
@@ -1312,7 +1226,7 @@ export default function RegisterPage() {
                       type="submit"
                       aria-busy={loginLoading || undefined}
                       disabled={loginLoading || loginOtpCountdown > 0 || !isPhoneLengthValid(loginPhone, loginCountryCode)}
-                      className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border-0 bg-gradient-to-b from-[#037a70] to-[#02665e] px-4 text-[15px] font-semibold text-white shadow-[0_10px_22px_-12px_rgba(2,102,94,0.9),inset_0_1px_0_rgba(255,255,255,0.18)] transition hover:from-[#02665e] hover:to-[#014e47] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+                      className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-[15px] font-semibold text-white transition hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
                     >
                       {loginLoading ? (
                         <><span className="h-4 w-4 animate-spin rounded-full border-2 border-solid border-white/40 border-t-white" />Sending code</>
@@ -1347,7 +1261,7 @@ export default function RegisterPage() {
                             onChange={(e) => setLoginIdentifier(e.target.value)}
                             placeholder="you@example.com"
                             disabled={isLockedOut}
-                            className="box-border h-12 w-full max-w-full rounded-xl border border-solid border-slate-200 bg-white pl-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:bg-slate-50 [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_#ffffff] [&:-webkit-autofill]:[-webkit-text-fill-color:#0f172a] pr-4"
+                            className="box-border h-12 w-full max-w-full rounded-lg border border-solid border-slate-300 bg-white pl-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:bg-slate-50 [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_#ffffff] [&:-webkit-autofill]:[-webkit-text-fill-color:#0f172a] pr-4"
                           />
                         </div>
                       </div>
@@ -1381,7 +1295,7 @@ export default function RegisterPage() {
                             aria-invalid={error && !loginPassword ? true : undefined}
                             aria-describedby={[capsLockOn ? 'login-capslock' : '', error ? 'login-error' : ''].filter(Boolean).join(' ') || undefined}
                             disabled={isLockedOut}
-                            className="box-border h-12 w-full max-w-full rounded-xl border border-solid border-slate-200 bg-white pl-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:bg-slate-50 [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_#ffffff] [&:-webkit-autofill]:[-webkit-text-fill-color:#0f172a] pr-12"
+                            className="box-border h-12 w-full max-w-full rounded-lg border border-solid border-slate-300 bg-white pl-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:bg-slate-50 [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_#ffffff] [&:-webkit-autofill]:[-webkit-text-fill-color:#0f172a] pr-12"
                           />
                           <button
                             type="button"
@@ -1508,7 +1422,7 @@ export default function RegisterPage() {
                       }}
                       disabled={loginLoading || isLockedOut}
                       aria-busy={loginLoading || undefined}
-                      className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-4 text-[15px] font-semibold text-white shadow-[0_1px_2px_rgba(2,102,94,0.3),inset_0_1px_0_rgba(255,255,255,0.12)] transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+                      className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-[15px] font-semibold text-white transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
                     >
                       {isLockedOut ? (
                         <><Lock className="h-4 w-4" aria-hidden />Locked ({formatRemaining(lockoutRemainingSeconds)})</>
@@ -1534,7 +1448,7 @@ export default function RegisterPage() {
                     type="button"
                     onClick={handlePasskeySignIn}
                     disabled={passkeyLoading || isLockedOut}
-                    className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-800 outline-none transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:border-[#02665e] focus-visible:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border border-solid border-slate-300 bg-white px-3 text-[14px] font-semibold text-slate-800 outline-none transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:border-[#02665e] focus-visible:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label="Sign in with a passkey using face, fingerprint or screen lock"
                     aria-busy={passkeyLoading || undefined}
                   >
@@ -1550,7 +1464,7 @@ export default function RegisterPage() {
                       type="button"
                       onClick={() => selectLoginMethod(loginMethod === 'phone' ? 'credentials' : 'phone')}
                       disabled={isLockedOut}
-                      className="order-first inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-800 outline-none transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:border-[#02665e] focus-visible:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:opacity-40"
+                      className="order-first inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border border-solid border-slate-300 bg-white px-3 text-[14px] font-semibold text-slate-800 outline-none transition-colors hover:border-slate-400 hover:bg-slate-50 focus-visible:border-[#02665e] focus-visible:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label={loginMethod === 'phone' ? 'Sign in with email instead' : 'Sign in with phone instead'}
                     >
                       {loginMethod === 'phone' ? (
@@ -1623,7 +1537,7 @@ export default function RegisterPage() {
                     aria-required="true"
                     aria-invalid={error ? true : undefined}
                     aria-describedby={`login-otp-help${error ? ' login-error' : ''}`}
-                    className="box-border h-14 w-full max-w-full rounded-xl border-2 border-solid border-slate-200 bg-white px-4 text-center font-mono text-[22px] font-bold tracking-[0.4em] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)]"
+                    className="box-border h-14 w-full max-w-full rounded-lg border border-solid border-slate-300 bg-white px-4 text-center font-mono text-[22px] font-bold tracking-[0.4em] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)]"
                   />
                   <p id="login-otp-help" className="m-0 text-[12px] text-slate-500">
                     Sent by SMS to <span className="font-semibold text-slate-700 tabular-nums">{maskedLoginPhone}</span>
@@ -1633,7 +1547,7 @@ export default function RegisterPage() {
                   <button
                     type="button"
                     onClick={() => { setLoginSent(false); setLoginOtp(''); setError(null); }}
-                    className="box-border inline-flex h-12 min-w-0 flex-1 items-center justify-center rounded-xl border border-solid border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                    className="box-border inline-flex h-12 min-w-0 flex-1 items-center justify-center rounded-lg border border-solid border-slate-300 bg-white px-3 text-[14px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                   >
                     Edit phone
                   </button>
@@ -1641,7 +1555,7 @@ export default function RegisterPage() {
                     type="submit"
                     disabled={loginLoading || loginOtp.length !== 6}
                     aria-busy={loginLoading || undefined}
-                    className="box-border inline-flex h-12 min-w-0 flex-1 items-center justify-center rounded-xl border-0 bg-gradient-to-b from-[#037a70] to-[#02665e] px-4 text-[14px] font-semibold text-white transition hover:from-[#02665e] hover:to-[#014e47] disabled:cursor-not-allowed disabled:opacity-40"
+                    className="box-border inline-flex h-12 min-w-0 flex-1 items-center justify-center rounded-lg border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white transition hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {loginLoading ? 'Verifying...' : 'Verify and sign in'}
                   </button>
@@ -2141,7 +2055,7 @@ export default function RegisterPage() {
         id="nolsaf-auth-card"
         className="relative z-10 w-full max-w-[440px]"
       >
-        <div className="overflow-hidden rounded-[26px] bg-white shadow-[0_28px_80px_rgba(0,30,27,0.34)] ring-1 ring-white/40">
+        <div className="overflow-hidden rounded-xl bg-white shadow-[0_24px_64px_-12px_rgba(0,30,27,0.4)] ring-1 ring-white/40">
           <div>
             <div className="flex min-w-0 flex-col bg-white">
               <div className="flex-1">

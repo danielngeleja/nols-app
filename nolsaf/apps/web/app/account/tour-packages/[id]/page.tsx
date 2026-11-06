@@ -1634,7 +1634,7 @@ function CancellationCase({
           <p className={`m-0 text-[13.5px] font-semibold ${toneTitle[outcome.tone]}`}>{outcome.text || outcome.title}</p>
           {decisionEvent?.message ? (
             <div className="mt-3 rounded-xl bg-white/80 px-3.5 py-2.5">
-              <div className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Note from NoLSAF</div>
+              <div className="text-[10.5px] font-bold text-slate-400">Note from NoLSAF</div>
               <p className="m-0 mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700">{displayText(decisionEvent.message, "")}</p>
             </div>
           ) : null}

@@ -665,7 +665,7 @@ function OwnerStatement({ ownerId }: { ownerId: number }) {
             <FileText className="h-[18px] w-[18px]" aria-hidden />
           </span>
           <div className="min-w-0">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NoLSAF owner account record</p>
+            <p className="m-0 text-[10px] font-bold text-emerald-700">NoLSAF owner account record</p>
             <h1 className="mb-0 mt-1 truncate text-xl font-bold tracking-tight text-neutral-950">
               Owner statement{data ? ` · ${ownerLabel}` : ""}
             </h1>

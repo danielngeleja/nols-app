@@ -7,7 +7,9 @@ The admin page at `/admin/management/app-distribution` owns website promotions f
 1. Wait until the Google Play or Apple App Store listing is available to its intended audience. A review or test-track URL should not be promoted to the public site unless that audience can actually open it.
 2. Enter the exact official listing URL. Android must point to `com.nolsaf.app` on `play.google.com`; iOS must point to the app's numeric ID on `apps.apple.com`.
 3. Enable that platform, choose homepage and/or desktop footer placement, edit the headline and description, then enable the overall promotion switch and save.
-4. Verify the public homepage at `/public`, the desktop footer, the effective public API response, and (for iOS) the homepage `apple-itunes-app` metadata.
+4. Verify the public homepage at `/public`, the desktop footer, the `/app` landing page, the effective public API response, and (for iOS) the homepage `apple-itunes-app` metadata.
+
+The crawlable `/app` page is linked from the public footer and included in the sitemap. It renders the Android store link and `MobileApplication` structured data on the server only when the official Google Play listing is enabled in these settings. Google controls whether and when either the site page or the Play listing appears in search results; the site does not promise a rich result or a ranking position. Keep the Play Console title, description, screenshots and website link accurate, and submit `/app` through Search Console after publication.
 
 Turning the overall switch off hides website download buttons and the iOS Smart App Banner. It does **not** remove Android Digital Asset Links, Apple App Site Association, installed app links, Universal Links, or passkey domain association. Those protocol files are deployment configuration, not marketing controls.
 

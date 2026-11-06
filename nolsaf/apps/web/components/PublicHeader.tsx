@@ -26,7 +26,6 @@ export default function PublicHeader({
   const [mobileRegionsOpen, setMobileRegionsOpen] = useState<boolean>(false);
   const [scrolled, setScrolled] = useState<boolean>(false);
   const [headerVisible, setHeaderVisible] = useState<boolean>(true);
-  const [scrollProgress, setScrollProgress] = useState<number>(0);
   const [scrollAmount, setScrollAmount] = useState<number>(0);
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const headerRef = useRef<HTMLElement>(null);
@@ -40,6 +39,8 @@ export default function PublicHeader({
   }, []);
   const pathname = usePathname();
   const [isOverHero, setIsOverHero] = useState<boolean>(false);
+  /** Viewport top of the homepage hero, so the resting header can sit inside it. */
+  const [heroTop, setHeroTop] = useState<number | null>(null);
   const isPublicHome = pathname === "/public";
 
   // Auth state management
@@ -135,10 +136,6 @@ export default function PublicHeader({
           const scrollSpeed = Math.abs(scrollDifference);
           const isPublic = pathname?.startsWith("/public") ?? false;
           
-          // Calculate scroll progress (0-1) for smooth transitions
-          const maxScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
-          const progress = Math.min(currentScrollY / Math.max(maxScroll * 0.3, 100), 1);
-          setScrollProgress(progress);
           setScrollAmount(currentScrollY);
           // Public home hero coupling: treat header as "over hero" until hero bottom is passed.
           let heroOverNow = false;
@@ -150,6 +147,7 @@ export default function PublicHeader({
                 // rect.bottom is relative to viewport; consider header "over hero" while hero still intersects the top region
                 heroOverNow = rect.bottom > 72;
                 setIsOverHero(heroOverNow);
+                setHeroTop(Math.round(rect.top));
               } else {
                 setIsOverHero(false);
               }
@@ -203,9 +201,16 @@ export default function PublicHeader({
     
     // Initial check
     handleScroll();
-    
+
+    // The header stays mounted across pages, but the homepage fades in through
+    // the layout transition, so #public-hero may not exist on the first check.
+    // Look again over the first moments; otherwise the header keeps its solid
+    // bar at the top of the homepage until the visitor scrolls.
+    const heroRechecks = pathname === "/public" ? [80, 250, 500, 900, 1500].map((ms) => setTimeout(handleScroll, ms)) : [];
+
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
+      heroRechecks.forEach(clearTimeout);
       window.removeEventListener('scroll', handleScroll);
       if (scrollTimeout) clearTimeout(scrollTimeout);
       if (scrollStopTimeout) clearTimeout(scrollStopTimeout);
@@ -225,6 +230,14 @@ export default function PublicHeader({
   // 'overHero'  = floating pill state (transparent dark glass, not scrolled yet)
   // 'scrolled'  = compact pill after user scrolls
   const overHero = isPublicPath && pathname === "/public" && isOverHero && !scrolled;
+  // At rest on the homepage (nothing scrolled yet): no bar at all, just the
+  // logo, a hairline menu and the two actions sitting on the hero. The glass
+  // bar fades in with heroBlend as the visitor starts to scroll.
+  const atRest = overHero && heroBlend < 0.35;
+  // Desktop glass strength: transparent at rest over the homepage hero, then a
+  // light frosted bar once scrolled, firmer over plain (non-public) pages.
+  const glassAlpha = overHero ? heroBlend * 0.78 : isNonPublicPage ? 0.92 : scrolled ? 0.78 : 0.86;
+  const glassBlur = glassAlpha < 0.05 ? 'none' : `blur(${Math.round(8 + glassAlpha * 12)}px) saturate(160%)`;
   const headerVariant: "light" | "dark" = "dark";
 
   const _navTextClass    = "text-white";
@@ -233,11 +246,8 @@ export default function PublicHeader({
   const _navDotBgClass   = "bg-emerald-400";
 
   // Nav pill: premium dark-glass matching hero outer surround palette
-  const chromePillClass = overHero
-    ? "bg-[rgba(5,14,35,0.52)] ring-1 ring-white/[0.16] shadow-[0_8px_32px_rgba(0,0,0,0.44)]"
-    : scrolled
-    ? "bg-[rgba(8,22,50,0.80)] ring-1 ring-[#02665e]/50 shadow-[0_4px_20px_rgba(0,0,0,0.32)]"
-    : "bg-[rgba(11,31,92,0.88)] ring-1 ring-white/[0.14] shadow-[0_4px_16px_rgba(0,0,0,0.30)]";
+  // Menu and tools sit in one hairline group in every state: no dark pill.
+  const chromePillClass = atRest ? "bg-white/[0.06] ring-1 ring-white/25" : "bg-white/[0.07] ring-1 ring-white/15";
 
   const useOwnerLikeMobileHeader = isMobile && isPublicPath;
 
@@ -311,7 +321,7 @@ export default function PublicHeader({
       <Link
         href={href}
         onClick={onClick}
-        className={`relative text-white/90 font-medium no-underline rounded-full transition-all duration-300 ease-out hover:text-white hover:bg-white/12 hover:scale-105 active:scale-95 group ${
+        className={`relative text-white/90 font-medium no-underline rounded-md transition-all duration-300 ease-out hover:text-white hover:bg-white/12 hover:scale-105 active:scale-95 group ${
           isActive ? 'text-white bg-white/[0.14]' : ''
         }`}
         style={{
@@ -326,7 +336,7 @@ export default function PublicHeader({
           <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#2dd4bf] shadow-[0_0_8px_rgba(45,212,191,0.90)] transition-all duration-300" />
         )}
         {/* Hover fill */}
-        <span className="absolute inset-0 rounded-full transition-all duration-300 transform scale-0 group-hover:scale-100 bg-white/10" />
+        <span className="absolute inset-0 rounded-md transition-all duration-300 transform scale-0 group-hover:scale-100 bg-white/10" />
       </Link>
     );
   };
@@ -464,69 +474,40 @@ export default function PublicHeader({
               // so the header + hero read as a single, intentional composition.
               marginTop: isMobile
                 ? (useOwnerLikeMobileHeader ? '8px' : '0')
-                : (isPublicHome ? 'clamp(10px, 1.5vw, 14px)' : (scrolled ? '10px' : '0')),
+                : (isPublicHome
+                  // Over the hero, ride 12px inside its top edge so nothing straddles
+                  // the light page above it; settle at the usual inset once it scrolls up.
+                  // Fallback before the hero is measured: its 32px frame plus the same 8px.
+                  ? (overHero || !scrolled ? (heroTop != null ? `${Math.max(14, heroTop + 8)}px` : '40px') : 'clamp(10px, 1.5vw, 14px)')
+                  : (scrolled ? '10px' : '0')),
               borderRadius: isMobile
-                ? (useOwnerLikeMobileHeader ? '30px' : '0 0 10px 10px')
-                : (compact ? '20px' : (isPublicHome && !scrolled ? '28px' : '24px')),
+                ? (useOwnerLikeMobileHeader ? '14px' : '0 0 10px 10px')
+                : (compact ? '12px' : '14px'),
               width: isMobile && useOwnerLikeMobileHeader ? 'calc(100% - 12px)' : '100%',
               // Always constrain width so logo and icons never get clipped to screen edges.
               maxWidth: isMobile ? '100%' : ((overHero || scrolled) ? '1200px' : '100%'),
               marginLeft: isMobile ? (useOwnerLikeMobileHeader ? 'auto' : 0) : ((overHero || scrolled) ? 'auto' : undefined),
               marginRight: isMobile ? (useOwnerLikeMobileHeader ? 'auto' : 0) : ((overHero || scrolled) ? 'auto' : undefined),
-              // Naspers-style coupling: transparent over hero, then smoothly fills into our brand glass header.
-              // Non-public pages get full opacity for maximum visibility
-              // Dark premium glass — matches the hero card background (#05080f) with a subtle emerald tint.
+              // One frosted brand-teal glass for every desktop state. On the homepage
+              // it starts fully transparent over the hero and fills in with heroBlend;
+              // over plain pages it is more opaque so white text stays readable.
               background: useOwnerLikeMobileHeader
                 ? 'linear-gradient(135deg, rgba(2,91,83,0.96) 0%, rgba(2,102,94,0.98) 55%, rgba(3,120,103,0.96) 100%)'
-                : overHero
-                ? `linear-gradient(135deg, rgba(8,18,50,${0.62 + heroBlend * 0.14}) 0%, rgba(10,50,100,${0.44 + heroBlend * 0.12}) 55%, rgba(2,102,94,${0.12 + heroBlend * 0.10}) 100%)`
-                : scrolled
-                ? `linear-gradient(135deg, rgba(8,18,50,${0.90 + scrollProgress * 0.06}) 0%, rgba(10,92,130,${0.60 + scrollProgress * 0.14}) 55%, rgba(2,102,94,${0.50 + scrollProgress * 0.18}) 100%)`
-                : isNonPublicPage
-                ? `linear-gradient(135deg, #0b1f5c 0%, #0a5c82 52%, #02665e 100%)`
-                : `linear-gradient(135deg, rgba(11,31,92,${pathname === "/public" ? (0.18 + heroBlend * 0.60) : 0.92}) 0%, rgba(10,92,130,${pathname === "/public" ? (0.10 + heroBlend * 0.48) : 0.80}) 55%, rgba(2,102,94,${pathname === "/public" ? (0.08 + heroBlend * 0.38) : 0.72}) 100%)`,
-
-              backdropFilter: useOwnerLikeMobileHeader
-                ? 'blur(20px) saturate(180%)'
-                : overHero
-                ? `blur(${18 + heroBlend * 8}px) saturate(180%)`
-                : isNonPublicPage
-                ? `blur(16px) saturate(180%)`
-                : scrolled
-                ? `blur(${16 + scrollProgress * 6}px) saturate(${160 + scrollProgress * 20}%)`
-                : `blur(${6 + heroBlend * 10}px) saturate(${120 + heroBlend * 40}%)`,
-              WebkitBackdropFilter: useOwnerLikeMobileHeader
-                ? 'blur(20px) saturate(180%)'
-                : overHero
-                ? `blur(${18 + heroBlend * 8}px) saturate(180%)`
-                : isNonPublicPage
-                ? `blur(16px) saturate(180%)`
-                : scrolled
-                ? `blur(${16 + scrollProgress * 6}px) saturate(${160 + scrollProgress * 20}%)`
-                : `blur(${6 + heroBlend * 10}px) saturate(${120 + heroBlend * 40}%)`,
+                : `rgba(1,52,47,${glassAlpha})`,
+              backdropFilter: useOwnerLikeMobileHeader ? 'blur(20px) saturate(180%)' : glassBlur,
+              WebkitBackdropFilter: useOwnerLikeMobileHeader ? 'blur(20px) saturate(180%)' : glassBlur,
               boxShadow: useOwnerLikeMobileHeader
                 ? '0 18px 52px rgba(0,0,0,0.30), 0 0 0 1px rgba(255,255,255,0.10), inset 0 1px 0 rgba(255,255,255,0.10), 0 0 40px rgba(2,102,94,0.16)'
-                : overHero
-                ? `0 8px 32px rgba(2,102,94,0.18), inset 0 1px 0 rgba(255,255,255,0.10), inset 0 0 0 1px rgba(255,255,255,0.06)`
-                : scrolled
-                ? `0 12px 36px rgba(8,18,50,0.48), 0 0 0 1px rgba(2,102,94,0.30), inset 0 1px 0 rgba(255,255,255,0.10)`
-                : isNonPublicPage
-                ? `0 4px 20px rgba(2,102,94,0.28), 0 0 0 1px rgba(255,255,255,0.10)`
-                : pathname === "/public" && heroBlend > 0.2
-                ? `0 10px 32px rgba(8,18,50,0.32), 0 0 0 1px rgba(2,102,94,0.18)`
-                : 'none',
+                : glassAlpha < 0.2
+                ? 'none'
+                : `0 8px 24px rgba(1,30,27,${(glassAlpha * 0.28).toFixed(3)}), inset 0 1px 0 rgba(255,255,255,0.08)`,
               border: useOwnerLikeMobileHeader
                 ? '1px solid rgba(255,255,255,0.12)'
-                : overHero
-                ? "none"
-                : scrolled
-                ? '1px solid rgba(255,255,255,0.11)'
-                : isNonPublicPage
-                ? '1px solid rgba(255,255,255,0.14)'
-                : pathname === "/public" && heroBlend > 0.25
-                ? '1px solid rgba(255,255,255,0.07)'
-                : 'none',
-              transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                : `1px solid rgba(255,255,255,${(Math.min(glassAlpha, 0.8) * 0.15).toFixed(3)})`,
+              // margin-top is left out on purpose: it follows the hero while scrolling
+              // and must track it frame by frame, not lag half a second behind.
+              transition: ['background', 'backdrop-filter', '-webkit-backdrop-filter', 'box-shadow', 'border', 'border-radius', 'max-width', 'width']
+                .map((p) => `${p} 0.5s cubic-bezier(0.4, 0, 0.2, 1)`).join(', '),
               willChange: 'border-radius, background, backdrop-filter, box-shadow',
             }}
           >
@@ -575,26 +556,12 @@ export default function PublicHeader({
               </>
             )}
 
-            {/* Scroll Progress Indicator */}
-            {scrolled && scrollProgress > 0 && (
-              <div
-                className="absolute bottom-0 left-0 h-[2px] transition-all duration-300"
-                style={{
-                  width: `${scrollProgress * 100}%`,
-                  background: `linear-gradient(90deg, transparent 0%, rgba(52,211,153,0.6) 20%, rgba(56,189,248,0.8) 60%, rgba(52,211,153,0.6) 80%, transparent 100%)`,
-                  borderRadius: '0 0 24px 24px',
-                }}
-              />
-            )}
-
             <div 
               className={`flex items-center justify-between px-4 sm:px-5 ${
                 compact ? 'h-14' : scrolled ? 'h-16' : 'h-14'
               }`}
               style={{
-                textShadow: scrolled
-                  ? `0 2px 4px rgba(0,0,0,${0.4 + scrollProgress * 0.2}), 0 0 12px rgba(0,0,0,${0.25 + scrollProgress * 0.15})`
-                  : '0 1px 2px rgba(0,0,0,0.25)',
+                textShadow: '0 1px 2px rgba(0,0,0,0.18)',
                 transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
               }}
             >
@@ -637,7 +604,7 @@ export default function PublicHeader({
 
             {/* Desktop Navigation */}
             <nav 
-              className={`hidden xl:flex items-center rounded-full px-1.5 py-1 backdrop-blur-md ${chromePillClass}`}
+              className={`hidden xl:flex items-center rounded-lg px-1.5 py-1 backdrop-blur-md ${chromePillClass}`}
               style={{
                 gap: scrolled ? '4px' : '8px',
                 opacity: scrolled ? 1 : 1,
@@ -671,10 +638,11 @@ export default function PublicHeader({
                   <>
                     <Link
                       href="/account/login"
-                      className="hidden items-center justify-center rounded-full bg-white/95 font-semibold text-slate-900 no-underline shadow-[0_6px_20px_rgba(15,23,42,0.18)] ring-1 ring-white transition-all duration-300 hover:scale-105 hover:bg-white hover:text-emerald-800 active:scale-95 sm:inline-flex"
+                      className="hidden items-center justify-center rounded-lg bg-transparent font-semibold text-white no-underline ring-1 ring-white/40 transition-all duration-300 hover:bg-white/10 hover:text-white active:scale-95 sm:inline-flex"
                       style={{
                         padding: scrolled ? '7px 15px' : '9px 18px',
                         fontSize: scrolled ? '13px' : '14px',
+                        textShadow: 'none',
                         transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                       }}
                     >
@@ -682,12 +650,12 @@ export default function PublicHeader({
                     </Link>
                     <Link
                       href="/account/register"
-                      className="hidden sm:inline-flex items-center justify-center rounded-full no-underline transition-all duration-300 hover:scale-105 active:scale-95 font-semibold text-white"
+                      className="hidden sm:inline-flex items-center justify-center rounded-lg bg-white no-underline font-semibold text-[#02665e] transition-all duration-300 hover:bg-emerald-50 hover:text-[#02665e] active:scale-95"
                       style={{
                         padding: scrolled ? '7px 15px' : '9px 18px',
                         fontSize: scrolled ? '13px' : '14px',
-                        background: 'linear-gradient(135deg,#0b1f5c 0%,#0a5c82 52%,#02665e 100%)',
-                        boxShadow: '0 0 0 1px rgba(2,102,94,0.45), 0 4px 16px rgba(2,102,94,0.28)',
+                        textShadow: 'none',
+                        // The one solid action, in every state: white with the brand colour.
                         transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                       }}
                     >
@@ -696,7 +664,7 @@ export default function PublicHeader({
                   </>
                 )}
 
-                <div className={`flex items-center rounded-full px-1.5 py-1 ${isMobile ? '' : `backdrop-blur-md ${chromePillClass}`}`} style={{ gap: scrolled ? '4px' : '6px' }}>
+                <div className={`flex items-center rounded-lg px-1.5 py-1 ${isMobile ? '' : `backdrop-blur-md ${chromePillClass}`}`} style={{ gap: scrolled ? '4px' : '6px' }}>
                   <GlobalPicker variant={headerVariant} />
 
                   {authed && <span className="hidden xl:inline-flex"><UserMenu variant={headerVariant} /></span>}
@@ -1031,13 +999,25 @@ export default function PublicHeader({
   );
 }
 
+/** Region names arrive in capitals ("DAR-ES-SALAAM"); show them the way people write them. */
+function regionLabel(name: string): string {
+  const raw = String(name || "").trim();
+  if (/^dar[\s-]*es[\s-]*salaam$/i.test(raw)) return "Dar es Salaam";
+  return raw
+    .toLowerCase()
+    .split(/(\s+|-)/)
+    .map((part) => (/^\s+$|^-$/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join("");
+}
+
+/** The Zanzibar archipelago's regions, listed apart from the mainland. */
+const ISLAND_REGION = /^(mjini magharibi|pemba kaskazini|pemba kusini|unguja kaskazini|unguja kusini)$/i;
+
 function RegionsDropdown({ variant = "dark", fullWidth = false }:{ variant?: "light" | "dark"; fullWidth?: boolean }) {
   const [open, setOpen] = useState<boolean>(false);
+  const [query, setQuery] = useState<string>("");
   const ref = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<HTMLDivElement | null>(null);
-  const [minimized, setMinimized] = useState<boolean>(false);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-  const draggingRef = useRef<{ active: boolean; startX: number; startY: number; origLeft: number; origTop: number }>({ active: false, startX: 0, startY: 0, origLeft: 0, origTop: 0 });
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -1048,80 +1028,30 @@ function RegionsDropdown({ variant = "dark", fullWidth = false }:{ variant?: "li
     return () => document.removeEventListener('click', onDoc);
   }, []);
 
+  // Desktop panel: focus the search when it opens, close on Escape, start clean next time
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('nols_regions_pos');
-      if (raw) setPos(JSON.parse(raw));
-    } catch (e) {}
-  }, []);
-
-  const savePos = (p: { left: number; top: number }) => {
-    try { localStorage.setItem('nols_regions_pos', JSON.stringify(p)); } catch (e) {}
-  };
-
-  useEffect(() => {
-    const el = dragRef.current as HTMLDivElement | null;
-    if (!el) return;
-    if (pos) {
-      el.style.left = `${pos.left}px`;
-      el.style.top = `${pos.top}px`;
-    } else {
-      el.style.left = '';
-      el.style.top = '';
-    }
-  }, [pos]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('nols_regions_minimized');
-      if (raw) setMinimized(raw === '1');
-    } catch (e) {}
-  }, []);
-
-  const saveMinimized = (m: boolean) => {
-    try { localStorage.setItem('nols_regions_minimized', m ? '1' : '0'); } catch (e) {}
-  };
-
-  const startDrag = (e: React.MouseEvent | React.TouchEvent) => {
-    e.stopPropagation();
-    const isTouch = (e as React.TouchEvent).touches != null;
-    const clientX = isTouch ? (e as React.TouchEvent).touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = isTouch ? (e as React.TouchEvent).touches[0].clientY : (e as React.MouseEvent).clientY;
-    const rect = ref.current?.getBoundingClientRect();
-    const origLeft = rect ? rect.left : (window.innerWidth - 400) / 2;
-    const origTop = rect ? rect.top : 80;
-    draggingRef.current = { active: true, startX: clientX, startY: clientY, origLeft, origTop };
-
-    const onMove = (ev: MouseEvent | TouchEvent) => {
-      if (!draggingRef.current.active) return;
-      let moveX = 0, moveY = 0;
-      if ((ev as TouchEvent).touches) {
-        moveX = (ev as TouchEvent).touches[0].clientX; moveY = (ev as TouchEvent).touches[0].clientY;
-      } else {
-        moveX = (ev as MouseEvent).clientX; moveY = (ev as MouseEvent).clientY;
-      }
-      const dx = moveX - draggingRef.current.startX;
-      const dy = moveY - draggingRef.current.startY;
-      const newLeft = Math.max(8, Math.min(window.innerWidth - 16, draggingRef.current.origLeft + dx));
-      const newTop = Math.max(8, Math.min(window.innerHeight - 16, draggingRef.current.origTop + dy));
-      setPos({ left: newLeft, top: newTop });
+    if (!open || fullWidth) return;
+    const t = window.setTimeout(() => searchRef.current?.focus(), 30);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("keydown", onKey);
+      setQuery("");
     };
+  }, [open, fullWidth]);
 
-    const onUp = () => {
-      if (!draggingRef.current.active) return;
-      draggingRef.current.active = false;
-      if (pos) savePos(pos);
-      window.removeEventListener('mousemove', onMove as any);
-      window.removeEventListener('touchmove', onMove as any);
-      window.removeEventListener('mouseup', onUp as any);
-      window.removeEventListener('touchend', onUp as any);
-    };
-
-    window.addEventListener('mousemove', onMove as any, { passive: false });
-    window.addEventListener('touchmove', onMove as any, { passive: false });
-    window.addEventListener('mouseup', onUp as any);
-    window.addEventListener('touchend', onUp as any);
-  };
+  const groups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const all = (REGIONS as any[])
+      .map((r) => ({ id: String(r.id), label: regionLabel(r.name), island: ISLAND_REGION.test(String(r.name).trim()) }))
+      .filter((r) => !q || r.label.toLowerCase().includes(q))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return [
+      { title: "Mainland", items: all.filter((r) => !r.island) },
+      { title: "Zanzibar and Pemba", items: all.filter((r) => r.island) },
+    ].filter((g) => g.items.length);
+  }, [query]);
 
   return (
     <div ref={ref} className="relative">
@@ -1133,14 +1063,16 @@ function RegionsDropdown({ variant = "dark", fullWidth = false }:{ variant?: "li
         className={[
           fullWidth
             ? "w-full text-left font-semibold no-underline text-sm py-2.5 px-4 rounded-full bg-transparent appearance-none border-0 transition-all duration-200 active:scale-[0.98] group relative"
-            : "inline-flex items-center justify-center font-semibold no-underline text-sm py-2 px-3.5 rounded-full bg-transparent appearance-none border-0 transition-all duration-200 active:scale-[0.98] group relative",
-          variant === "light" ? "text-[#02665e] hover:bg-[#02665e]/10" : "text-white hover:bg-white/8",
+            // Inherits the page font (base styles are off, so a bare button falls back
+            // to the browser font) and matches the other links' weight.
+            : "inline-flex items-center justify-center [font-family:inherit] font-medium no-underline text-sm py-2 px-3.5 rounded-md bg-transparent appearance-none border-0 transition-all duration-200 active:scale-[0.98] group relative",
+          variant === "light" ? "text-[#02665e] hover:bg-[#02665e]/10" : "text-white/90 hover:bg-white/8 hover:text-white",
         ].join(" ")}
       >
-        <div className={fullWidth ? "flex items-center justify-between" : "flex items-center gap-2"}>
+        <div className={fullWidth ? "flex items-center justify-between" : "flex items-center gap-1"}>
           <span className="relative z-10">Regions</span>
-          <ChevronDown 
-            className={`h-4 w-4 ml-2 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} 
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform duration-200 ${fullWidth ? "ml-2" : ""} ${open ? 'rotate-180' : ''}`}
             aria-hidden 
           />
         </div>
@@ -1157,61 +1089,70 @@ function RegionsDropdown({ variant = "dark", fullWidth = false }:{ variant?: "li
                 onClick={() => setOpen(false)}
                 className="block px-1.5 py-2 text-[11px] font-medium text-white/70 hover:text-white hover:bg-white/[0.10] transition-all duration-150 no-underline text-center rounded-xl cursor-pointer active:scale-95 leading-tight"
               >
-                {r.name}
+                {regionLabel(r.name)}
               </Link>
             ))}
           </div>
         </div>
       )}
 
-      {/* ── Floating panel (desktop nav trigger) ── */}
+      {/* ── Floating panel (desktop nav trigger): search, two groups, readable names ── */}
       {!fullWidth && open && (
         <div
-          ref={dragRef}
-          className={`${pos ? 'fixed' : 'absolute left-1/2 transform -translate-x-1/2'} mt-2 rounded-2xl z-50 w-[calc(100vw-2rem)] sm:w-auto sm:min-w-[32rem] lg:min-w-[40rem] xl:min-w-[48rem] max-w-[calc(100vw-2rem)] transition-all duration-300 ease-out animate-in fade-in slide-in-from-top-2`}
-          style={{ background: 'linear-gradient(155deg,#080e28 0%,#0a2235 55%,#012018 100%)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', boxShadow: '0 24px 64px rgba(0,0,0,0.60), 0 0 0 1px rgba(2,102,94,0.30)', border: '1px solid rgba(255,255,255,0.08)' }}
+          className="absolute left-1/2 z-50 mt-2 box-border w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-xl border border-solid border-slate-200 bg-white text-left text-slate-900 shadow-[0_24px_60px_-20px_rgba(2,6,23,0.45)] [text-shadow:none]"
+          role="dialog"
+          aria-label="Choose a region"
         >
-          {/* Top accent */}
-          <div className="h-px bg-gradient-to-r from-transparent via-[#02665e]/60 to-transparent rounded-t-2xl" />
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.07] cursor-move select-none">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-white/90">Regions</span>
-              <span className="text-xs text-white/40">Select a region</span>
+          <div className="flex items-center gap-3 border-0 border-b border-solid border-slate-100 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-[14px] font-semibold text-slate-900">Regions</p>
+              <p className="m-0 text-[12px] text-slate-500">Stays in every region of Tanzania</p>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label={minimized ? 'Restore regions' : 'Minimize regions'}
-                onClick={(ev) => { ev.stopPropagation(); setMinimized(m => { const nm = !m; saveMinimized(nm); return nm; }); }}
-                className="text-white/50 hover:text-white/90 text-sm px-2 py-1 rounded transition-colors"
-              >
-                {minimized ? '▸' : '▾'}
-              </button>
-              <div
-                onMouseDown={startDrag}
-                onTouchStart={startDrag}
-                className="w-6 h-6 flex items-center justify-center text-white/30 hover:text-white/70 cursor-move"
-                title="Drag to move"
-              >
-                ≡
-              </div>
-            </div>
+            <label className="relative block w-48">
+              <span className="sr-only">Search regions</span>
+              <MapPin className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
+              <input
+                ref={searchRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find a region"
+                className="box-border h-8 w-full rounded-md border border-solid border-slate-300 bg-white pl-8 pr-2 text-[13px] text-slate-900 outline-none [font-family:inherit] placeholder:text-slate-400 focus:border-[#02665e] focus:shadow-[0_0_0_3px_rgba(2,102,94,0.12)]"
+              />
+            </label>
           </div>
 
-          {!minimized && (
-            <div className="p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-0.5">
-              {REGIONS.map((r: any) => (
-                <Link
-                  key={r.id}
-                  href={`/public/properties?region=${encodeURIComponent(r.id)}`}
-                  onClick={() => setOpen(false)}
-                  className="block px-3 py-2.5 text-sm text-white/75 hover:text-white hover:bg-white/[0.08] hover:font-semibold transition-all duration-200 ease-out no-underline text-center rounded-lg cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#02665e]/60 transform hover:scale-105 active:scale-95"
-                >
-                  {r.name}
-                </Link>
-              ))}
-            </div>
-          )}
+          <div className="max-h-[min(60vh,440px)] overflow-y-auto px-3 py-2">
+            {groups.length ? (
+              groups.map((g) => (
+                <div key={g.title} className="py-1.5">
+                  <p className="m-0 mb-1 px-2 text-[11.5px] font-medium text-slate-500">{g.title}</p>
+                  <ul className="m-0 grid list-none grid-cols-3 gap-0.5 p-0">
+                    {g.items.map((r) => (
+                      <li key={r.id} className="min-w-0">
+                        <Link
+                          href={`/public/properties?region=${encodeURIComponent(r.id)}`}
+                          onClick={() => setOpen(false)}
+                          className="group flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-slate-700 no-underline transition-colors hover:bg-[#02665e]/[0.06] hover:text-[#02665e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
+                        >
+                          <MapPin className="h-3.5 w-3.5 flex-none text-slate-300 transition-colors group-hover:text-[#02665e]" aria-hidden />
+                          <span className="truncate">{r.label}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
+            ) : (
+              <p className="m-0 px-2 py-6 text-center text-[13px] text-slate-500">No region matches &ldquo;{query.trim()}&rdquo;.</p>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between border-0 border-t border-solid border-slate-100 bg-slate-50 px-4 py-2.5">
+            <span className="text-[12px] text-slate-500">{(REGIONS as any[]).length} regions</span>
+            <Link href="/public/properties" onClick={() => setOpen(false)} className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#02665e] no-underline hover:underline">
+              Browse all stays <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </div>
         </div>
       )}
     </div>

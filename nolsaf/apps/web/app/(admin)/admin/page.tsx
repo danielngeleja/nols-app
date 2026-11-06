@@ -1,15 +1,15 @@
 "use client";
 import Link from "next/link";
-import {
-  ArrowUpRight,
-  Building2,
+import {
+  ArrowUpRight,
+  Building2,
   Eye,
   EyeOff,
   HandCoins,
-  Landmark,
+  Landmark,
   ReceiptText,
   RefreshCw,
-  ScanLine,
+  ScanLine,
   Users,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -23,6 +23,7 @@ const API = "";
 type Overview = {
   ownersCount?: number;
   propertiesCount?: number;
+  roomsDeclared?: number;
   totalPayment?: number;
   companyRevenue?: number;
   companyRevenueTour?: number;
@@ -207,7 +208,7 @@ export default function AdminHome() {
   const tourRevenue = Number(overview?.companyRevenueTour ?? 0);
   const facts = [
     { label: "Active owners", value: loadingKpis ? "..." : fmt(Number(overview?.ownersCount ?? 0)), detail: "verified, with a live property", tone: "text-white" },
-    { label: "Live properties", value: loadingKpis ? "..." : fmt(Number(overview?.propertiesCount ?? 0)), detail: "approved listings", tone: "text-white" },
+    { label: "Live properties", value: loadingKpis ? "..." : fmt(Number(overview?.propertiesCount ?? 0)), detail: overview?.roomsDeclared ? `approved listings · ${fmt(Number(overview.roomsDeclared))} rooms` : "approved listings", tone: "text-white" },
     { label: "Guest bookings", value: loadingKpis ? "..." : money(overview?.totalPayment), detail: "confirmed stays, all time", tone: "text-white" },
     {
       label: "Owed to payees",

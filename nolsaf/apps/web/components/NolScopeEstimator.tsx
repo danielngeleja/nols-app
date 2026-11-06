@@ -44,16 +44,14 @@ import {
   Bus,
   Calculator,
   Calendar,
-  Camera,
   Car,
+  Check,
   CheckCircle2,
   ChevronDown,
   Clock,
   Copy,
   Download,
   FileCheck,
-  Fish,
-  Footprints,
   Globe,
   HandCoins,
   Info,
@@ -62,7 +60,6 @@ import {
   Minus,
   Moon,
   Mountain,
-  Palmtree,
   Plane,
   Plus,
   Receipt,
@@ -77,9 +74,7 @@ import {
   Trees,
   TriangleAlert,
   Users,
-  UtensilsCrossed,
   Waves,
-  Wine,
   X,
 } from "lucide-react";
 
@@ -233,23 +228,6 @@ function destLook(dest: Destination): { Icon: typeof Globe; hex: string } {
   if (t.includes("park") || t.includes("reserve")) return { Icon: Trees, hex: "#059669" };
   if (t.includes("city") || t.includes("town")) return { Icon: Building2, hex: "#475569" };
   return { Icon: Globe, hex: BRAND };
-}
-
-function activityIcon(name: string, category: string) {
-  const n = name.toLowerCase();
-  const c = category.toLowerCase();
-  if (n.includes("game drive") || n.includes("safari")) return Binoculars;
-  if (n.includes("photo")) return Camera;
-  if (n.includes("hik") || n.includes("trek") || n.includes("walk")) return Footprints;
-  if (n.includes("camp")) return TentTree;
-  if (n.includes("fish")) return Fish;
-  if (n.includes("beach") || n.includes("island") || n.includes("snorkel") || n.includes("div")) return Palmtree;
-  if (n.includes("wine") || n.includes("tasting")) return Wine;
-  if (n.includes("food") || n.includes("culinary") || n.includes("dining")) return UtensilsCrossed;
-  if (c.includes("wildlife") || c.includes("safari")) return Binoculars;
-  if (c.includes("adventure") || c.includes("hiking")) return Footprints;
-  if (c.includes("cultur")) return Camera;
-  return Sparkles;
 }
 
 /** Each kind of activity keeps one colour everywhere it appears. */
@@ -600,7 +578,7 @@ export default function NolScopeEstimator() {
 
       <div className={`grid gap-6 ${step < 4 ? "lg:grid-cols-[minmax(0,1fr)_340px]" : ""}`}>
         {/* ── Step card ── */}
-        <div className="min-w-0 overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white shadow-[0_18px_40px_-28px_rgba(2,40,36,0.45)]">
+        <div className="min-w-0 overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white shadow-[0_10px_30px_-24px_rgba(2,40,36,0.45)]">
           {/* Step 0: basics */}
           {step === 0 && (
             <StepPanel index={0} title="Tell us about your trip" sub="Your passport decides visa and park rates, so start there.">
@@ -615,7 +593,7 @@ export default function NolScopeEstimator() {
                       computeNatPos();
                     }}
                     aria-expanded={natOpen}
-                    className="flex h-12 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-slate-200 bg-white px-3 text-left shadow-sm transition hover:border-[#02665e]/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
+                    className="flex h-12 w-full cursor-pointer items-center gap-2.5 rounded-lg border border-solid border-slate-300 bg-white px-3 text-left [font-family:inherit] transition hover:border-slate-400 focus:outline-none focus-visible:border-[#02665e] focus-visible:ring-4 focus-visible:ring-[#02665e]/10"
                   >
                     <span className="text-2xl leading-none" suppressHydrationWarning>{countryFlag(nationality)}</span>
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{selectedNat.label}</span>
@@ -676,6 +654,8 @@ export default function NolScopeEstimator() {
                     size="md"
                     allowPast={false}
                     twoMonths={false}
+                    strongBorder
+                    squared
                   />
                 </div>
               </div>
@@ -726,19 +706,20 @@ export default function NolScopeEstimator() {
               sub={travelMonth ? `Each place is matched to ${MONTHS[travelMonth - 1]}, your travel month.` : "Pick one or more places and the nights for each."}
             >
               <div className="-mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-slate-500">
-                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-4 rounded-full bg-emerald-400" />Best months</span>
-                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-4 rounded-full bg-amber-400" />Peak months</span>
-                {travelMonth ? <span className="inline-flex items-center gap-1.5"><span className="h-0 w-0 border-x-[4px] border-t-[5px] border-solid border-x-transparent border-t-slate-900" />{MONTHS[travelMonth - 1]}, your month</span> : null}
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-[2px] bg-emerald-400" />Best months</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-3 rounded-[2px] bg-amber-400" />Peak months</span>
+                {travelMonth ? <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3 rounded-[2px] bg-slate-200 outline outline-2 outline-offset-1 outline-slate-900" />{MONTHS[travelMonth - 1]}, your month</span> : null}
               </div>
               {loadingDests ? (
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="h-44 animate-pulse rounded-2xl bg-slate-100" />
+                    <div key={i} className="h-36 animate-pulse rounded-xl bg-slate-100" />
                   ))}
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                  {/* items-start: an open card grows on its own, its row-mates keep their height */}
+                  <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 2xl:grid-cols-3">
                     {availableDests.map((dest) => {
                       const entry = destinations.find((d) => d.code === dest.code);
                       return (
@@ -797,7 +778,7 @@ export default function NolScopeEstimator() {
                   ))}
                 </div>
               ) : activitiesByDestination.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-10 text-center">
+                <div className="rounded-lg border border-dashed border-slate-300 px-5 py-10 text-center">
                   <Sparkles className="mx-auto h-6 w-6 text-slate-300" />
                   <p className="m-0 mt-2 text-[14px] font-semibold text-slate-800">No activities listed for these places yet</p>
                   <p className="m-0 mt-1 text-[13px] text-slate-500">Continue for the base trip cost.</p>
@@ -806,7 +787,7 @@ export default function NolScopeEstimator() {
                 <>
                   {/* Filter by kind of activity, so fewer choices show at once */}
                   {activityCategories.length > 1 ? (
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Activity type">
                       {[{ key: "all", label: "All", count: availableActivities.length }, ...activityCategories].map((c) => {
                         const on = activityFilter === c.key;
                         const look = c.key === "all" ? null : categoryLook(c.key);
@@ -816,87 +797,80 @@ export default function NolScopeEstimator() {
                             type="button"
                             aria-pressed={on}
                             onClick={() => setActivityFilter(c.key)}
-                            className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-solid px-3 text-[12.5px] font-semibold transition ${
-                              on ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                            className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-solid px-2.5 text-[12.5px] font-semibold [font-family:inherit] transition-colors ${
+                              on ? "border-[#02665e] bg-[#02665e]/[0.08] text-[#02665e]" : "border-slate-300/80 bg-white text-slate-700 hover:border-slate-400"
                             }`}
                           >
-                            {look ? <span className="h-2 w-2 rounded-full" style={{ backgroundColor: look.hex }} /> : null}
+                            {look ? <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: look.hex }} /> : null}
                             {c.label}
-                            <span className={`tabular-nums ${on ? "text-white/60" : "text-slate-400"}`}>{c.count}</span>
+                            <span className={`tabular-nums ${on ? "text-[#02665e]/70" : "text-slate-400"}`}>{c.count}</span>
                           </button>
                         );
                       })}
                     </div>
                   ) : null}
 
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     {activitiesByDestination.map((group) => {
                       const shown = group.activities.filter((a) => activityFilter === "all" || (a.category || "Other") === activityFilter);
                       if (!shown.length) return null;
                       const groupTotal = group.activities.filter((a) => selectedActivities.includes(a.code)).reduce((s, a) => s + (Number(a.basePrice) || 0), 0);
                       return (
-                        <section key={group.code} className="overflow-hidden rounded-2xl border border-solid border-slate-200">
-                          <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 bg-slate-50/70 px-4 py-3">
-                            <div className="flex min-w-0 items-center gap-2.5">
-                              <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white text-[#02665e] ring-1 ring-slate-200">
-                                <MapPin className="h-4 w-4" />
-                              </span>
-                              <div className="min-w-0 leading-tight">
-                                <p className="m-0 truncate text-[14.5px] font-bold text-slate-900">{group.name}</p>
-                                <p className="m-0 text-[12px] text-slate-500">{group.days} night{group.days === 1 ? "" : "s"} here</p>
-                              </div>
-                            </div>
-                            <div className="flex flex-shrink-0 items-center gap-2">
-                              {groupTotal > 0 ? <span className="text-[12.5px] font-bold tabular-nums text-[#02665e]">{fmtUSD(groupTotal)} chosen</span> : null}
-                              <span className="rounded-full bg-white px-2.5 py-1 text-[11.5px] font-bold text-slate-600 ring-1 ring-slate-200">
-                                {group.selectedCount} of {group.activities.length}
-                              </span>
-                            </div>
+                        <section key={group.code} aria-label={group.name}>
+                          {/* Place heading: a line, not another box */}
+                          <div className="mb-2 flex items-baseline justify-between gap-3">
+                            <p className="m-0 flex min-w-0 items-center gap-1.5 text-[14px] font-semibold text-slate-900">
+                              <MapPin className="h-3.5 w-3.5 flex-shrink-0 self-center text-[#02665e]" aria-hidden />
+                              <span className="truncate">{group.name}</span>
+                              <span className="flex-shrink-0 font-normal text-slate-400">· {group.days} night{group.days === 1 ? "" : "s"}</span>
+                            </p>
+                            <p className="m-0 flex-shrink-0 text-[12px] text-slate-500">
+                              {groupTotal > 0 ? <span className="font-semibold tabular-nums text-[#02665e]">{fmtUSD(groupTotal)} · </span> : null}
+                              {group.selectedCount} of {group.activities.length} added
+                            </p>
                           </div>
-                          <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2">
+
+                          {/* One list per place: tick, what it is, what it costs */}
+                          <ul className="m-0 list-none overflow-hidden rounded-lg border border-solid border-slate-300/80 p-0">
                             {shown.map((act) => {
                               const on = selectedActivities.includes(act.code);
-                              const Icon = activityIcon(act.name, act.category);
                               const look = categoryLook(act.category || "Other");
                               return (
-                                <button
-                                  key={`${group.code}-${act.code}`}
-                                  type="button"
-                                  aria-pressed={on}
-                                  onClick={() => setSelectedActivities((prev) => (on ? prev.filter((c) => c !== act.code) : [...prev, act.code]))}
-                                  className={`flex cursor-pointer items-center gap-3 rounded-xl border border-solid p-3 text-left transition ${
-                                    on ? "border-[#02665e] bg-[#02665e]/[0.04] ring-1 ring-[#02665e]" : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm"
-                                  }`}
-                                >
-                                  <span
-                                    className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl"
-                                    style={on ? { backgroundColor: BRAND, color: "#fff" } : { backgroundColor: `${look.hex}14`, color: look.hex }}
+                                <li key={`${group.code}-${act.code}`} className="border-0 border-t border-solid border-slate-100 first:border-t-0">
+                                  <button
+                                    type="button"
+                                    aria-pressed={on}
+                                    onClick={() => setSelectedActivities((prev) => (on ? prev.filter((c) => c !== act.code) : [...prev, act.code]))}
+                                    className={`flex w-full cursor-pointer items-center gap-3 border-0 px-3.5 py-3 text-left [font-family:inherit] transition-colors ${
+                                      on ? "bg-[#02665e]/[0.05]" : "bg-white hover:bg-slate-50"
+                                    }`}
                                   >
-                                    <Icon className="h-5 w-5" />
-                                  </span>
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block text-[14px] font-semibold leading-snug text-slate-900">{act.name}</span>
-                                    <span className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold" style={{ color: look.hex }}>
-                                      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: look.hex }} />
-                                      {cleanLabel(act.category || "Activity")}
+                                    <span
+                                      className={`inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-solid ${
+                                        on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white"
+                                      }`}
+                                    >
+                                      {on ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
                                     </span>
-                                    {act.description ? <span className="mt-0.5 block truncate text-[11.5px] text-slate-500">{act.description}</span> : null}
-                                  </span>
-                                  <span className="flex flex-shrink-0 flex-col items-end gap-1.5">
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-[14px] font-semibold leading-snug text-slate-900">{act.name}</span>
+                                      <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12px] text-slate-500">
+                                        <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: look.hex }} />
+                                        <span className="flex-shrink-0 font-medium text-slate-600">{cleanLabel(act.category || "Activity")}</span>
+                                        {act.description ? <span className="hidden truncate sm:inline">· {act.description}</span> : null}
+                                      </span>
+                                    </span>
                                     {act.basePrice ? (
-                                      <span className="text-right leading-tight">
-                                        <span className="block text-[15px] font-bold tabular-nums text-slate-900">{fmtUSD(act.basePrice)}</span>
+                                      <span className="flex-shrink-0 text-right leading-tight">
+                                        <span className={`block text-[14.5px] font-bold tabular-nums ${on ? "text-[#02665e]" : "text-slate-900"}`}>{fmtUSD(act.basePrice)}</span>
                                         <span className="block text-[10.5px] text-slate-400">per person</span>
                                       </span>
                                     ) : null}
-                                    <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-solid ${on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white"}`}>
-                                      {on ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
-                                    </span>
-                                  </span>
-                                </button>
+                                  </button>
+                                </li>
                               );
                             })}
-                          </div>
+                          </ul>
                         </section>
                       );
                     })}
@@ -904,7 +878,7 @@ export default function NolScopeEstimator() {
 
                   {/* Running total of what is chosen */}
                   {selectedActivities.length ? (
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#02665e] px-4 py-3 text-white">
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#02665e] px-4 py-3 text-white">
                       <p className="m-0 text-[13.5px]">
                         <span className="font-bold">{selectedActivities.length} activit{selectedActivities.length === 1 ? "y" : "ies"} chosen</span>
                         <span className="text-white/75"> · about {fmtUSD(selectedActivityCost)} per person</span>
@@ -912,7 +886,7 @@ export default function NolScopeEstimator() {
                       <button
                         type="button"
                         onClick={() => setSelectedActivities([])}
-                        className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-lg border-0 bg-white/15 px-3 text-[12.5px] font-semibold text-white hover:bg-white/25"
+                        className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md border-0 bg-white/15 px-3 text-[12.5px] font-semibold text-white [font-family:inherit] hover:bg-white/25"
                       >
                         <X className="h-3.5 w-3.5" /> Clear
                       </button>
@@ -927,25 +901,36 @@ export default function NolScopeEstimator() {
           {step === 3 && (
             <StepPanel index={3} title="Travel style and transport" sub="These two choices move the estimate the most.">
               <div>
-                <p className="m-0 mb-2.5 text-[14px] font-bold text-slate-900">Where you sleep</p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  {TIERS.map((t) => {
+                <p className="m-0 mb-2.5 text-[14px] font-semibold text-slate-900">Where you sleep</p>
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3" role="radiogroup" aria-label="Where you sleep">
+                  {TIERS.map((t, i) => {
                     const on = tier === t.key;
                     return (
                       <button
                         key={t.key}
                         type="button"
-                        aria-pressed={on}
+                        role="radio"
+                        aria-checked={on}
                         onClick={() => setTier(t.key)}
-                        className={`relative flex cursor-pointer flex-col items-start gap-2 rounded-2xl border border-solid p-4 text-left transition ${on ? "bg-white shadow-md ring-2" : "border-slate-200 bg-white hover:border-slate-300"}`}
-                        style={on ? { borderColor: t.hex, ["--tw-ring-color" as any]: `${t.hex}40` } : undefined}
+                        className={`relative flex cursor-pointer items-start gap-3 rounded-lg border border-solid p-3.5 text-left [font-family:inherit] transition-colors ${
+                          on ? "border-[#02665e] bg-[#02665e]/[0.04] ring-1 ring-[#02665e]" : "border-slate-300/80 bg-white hover:border-slate-400"
+                        }`}
                       >
-                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: `${t.hex}14`, color: t.hex }}>
-                          <t.Icon className="h-5 w-5" />
+                        <span className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${on ? "bg-[#02665e] text-white" : "bg-[#02665e]/[0.07] text-[#02665e]"}`}>
+                          <t.Icon className="h-[18px] w-[18px]" />
                         </span>
-                        <span className="text-[15px] font-bold text-slate-900">{t.label}</span>
-                        <span className="text-[12.5px] leading-snug text-slate-500">{t.sub}</span>
-                        {on ? <CheckCircle2 className="absolute right-3 top-3 h-5 w-5" style={{ color: t.hex }} /> : null}
+                        <span className="min-w-0 flex-1 pr-5">
+                          <span className="flex items-baseline gap-2">
+                            <span className="text-[14.5px] font-semibold text-slate-900">{t.label}</span>
+                            {/* Relative cost at a glance */}
+                            <span className="text-[12px] font-semibold tracking-wide" aria-label={["Lowest cost", "Mid cost", "Highest cost"][i] ?? undefined}>
+                              <span className="text-[#02665e]">{"$".repeat(i + 1)}</span>
+                              <span className="text-slate-300">{"$".repeat(Math.max(0, TIERS.length - i - 1))}</span>
+                            </span>
+                          </span>
+                          <span className="mt-0.5 block text-[12.5px] leading-snug text-slate-500">{t.sub}</span>
+                        </span>
+                        <RadioDot on={on} />
                       </button>
                     );
                   })}
@@ -953,23 +938,27 @@ export default function NolScopeEstimator() {
               </div>
 
               <div className="border-0 border-t border-solid border-slate-100 pt-5">
-                <p className="m-0 mb-2.5 text-[14px] font-bold text-slate-900">How you move between places</p>
-                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+                <p className="m-0 mb-2.5 text-[14px] font-semibold text-slate-900">How you move between places</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5" role="radiogroup" aria-label="How you move between places">
                   {TRANSPORT_OPTIONS.map((opt) => {
                     const on = transportPref === opt.value;
                     return (
                       <button
                         key={opt.value}
                         type="button"
-                        aria-pressed={on}
+                        role="radio"
+                        aria-checked={on}
                         onClick={() => setTransportPref(opt.value)}
-                        className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-solid px-2 py-3 text-center transition ${on ? "border-[#02665e] bg-[#02665e]/[0.05] ring-1 ring-[#02665e]" : "border-slate-200 bg-white hover:border-slate-300"}`}
+                        className={`relative flex cursor-pointer flex-col items-start gap-1 rounded-lg border border-solid px-3 py-2.5 text-left [font-family:inherit] transition-colors ${
+                          on ? "border-[#02665e] bg-[#02665e]/[0.04] ring-1 ring-[#02665e]" : "border-slate-300/80 bg-white hover:border-slate-400"
+                        }`}
                       >
-                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: on ? opt.hex : `${opt.hex}14`, color: on ? "#fff" : opt.hex }}>
-                          <opt.Icon className="h-4 w-4" />
+                        <span className="flex w-full items-center justify-between gap-2">
+                          <opt.Icon className={`h-4 w-4 ${on ? "text-[#02665e]" : "text-slate-500"}`} aria-hidden />
+                          <RadioDot on={on} inline />
                         </span>
-                        <span className={`text-[12.5px] font-semibold ${on ? "text-[#02665e]" : "text-slate-700"}`}>{opt.label}</span>
-                        <span className="text-[10.5px] text-slate-400">{opt.sub}</span>
+                        <span className={`mt-0.5 text-[13px] font-semibold leading-tight ${on ? "text-[#02665e]" : "text-slate-800"}`}>{opt.label}</span>
+                        <span className="text-[11px] leading-tight text-slate-500">{opt.sub}</span>
                       </button>
                     );
                   })}
@@ -1019,7 +1008,7 @@ export default function NolScopeEstimator() {
                 onClick={goBack}
                 suppressHydrationWarning
                 disabled={step === 0}
-                className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 [font-family:inherit] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ArrowLeft className="h-4 w-4" /> Back
               </button>
@@ -1029,7 +1018,7 @@ export default function NolScopeEstimator() {
                 onClick={goNext}
                 suppressHydrationWarning
                 disabled={!canNext()}
-                className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-6 text-sm font-bold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-6 text-sm font-semibold text-white [font-family:inherit] transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-[#02665e]/35"
               >
                 {step === 3 ? (
                   <>
@@ -1084,38 +1073,67 @@ export default function NolScopeEstimator() {
 // ─── Layout pieces ─────────────────────────────────────────────────────────────
 
 function StepBar({ current, onJump }: { current: number; onJump: (i: number) => void }) {
-  // One connected strip: each step is a segment that fills as you pass it
+  // A light progress stepper: square markers joined by lines that fill as you
+  // pass each step. Finished steps are buttons back; the rest are plain labels.
   return (
-    <ol className="m-0 mb-6 grid list-none grid-cols-5 gap-1.5 rounded-2xl border border-solid border-slate-200 bg-white p-1.5 shadow-sm">
-      {STEPS.map(({ label, Icon }, i) => {
-        const done = i < current;
-        const active = i === current;
-        return (
-          <li key={label} className="min-w-0">
-            <button
-              type="button"
-              onClick={() => onJump(i)}
-              suppressHydrationWarning
-              disabled={!done}
-              aria-current={active ? "step" : undefined}
-              aria-label={done ? `Back to ${label}` : label}
-              className={[
-                "flex w-full items-center justify-center gap-2 rounded-xl border-0 px-2 py-2.5 text-left transition sm:justify-start sm:px-3",
-                done ? "cursor-pointer bg-[#02665e]/[0.08] text-[#02665e] hover:bg-[#02665e]/[0.14]" : active ? "bg-[#02665e] text-white shadow-sm" : "bg-transparent text-slate-400",
-              ].join(" ")}
-            >
-              <span className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${done ? "bg-[#02665e] text-white" : active ? "bg-white/20" : "bg-slate-100"}`}>
-                {done ? <CheckCircle2 className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
-              </span>
-              <span className="hidden min-w-0 leading-tight sm:block">
-                <span className={`block text-[10.5px] font-semibold ${active ? "text-white/70" : "text-slate-400"}`}>Step {i + 1}</span>
-                <span className="block truncate text-[13px] font-bold">{label}</span>
-              </span>
-            </button>
-          </li>
-        );
-      })}
-    </ol>
+    <nav aria-label="Estimate steps" className="mb-6 rounded-xl border border-solid border-slate-300/80 bg-white px-3 py-3 sm:px-5">
+      <ol className="m-0 flex list-none items-center p-0">
+        {STEPS.map(({ label }, i) => {
+          const done = i < current;
+          const active = i === current;
+          const last = i === STEPS.length - 1;
+          return (
+            <li key={label} className={`flex min-w-0 items-center ${last ? "" : "flex-1"}`}>
+              <button
+                type="button"
+                onClick={() => onJump(i)}
+                suppressHydrationWarning
+                disabled={!done}
+                aria-current={active ? "step" : undefined}
+                aria-label={done ? `Back to ${label}` : `Step ${i + 1}: ${label}`}
+                className={`group inline-flex min-w-0 items-center gap-2 rounded-md border-0 bg-transparent p-0.5 [font-family:inherit] ${done ? "cursor-pointer" : "cursor-default"}`}
+              >
+                <span
+                  className={`inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[11.5px] font-bold tabular-nums transition-colors ${
+                    done
+                      ? "bg-[#02665e] text-white group-hover:bg-[#014d47]"
+                      : active
+                        ? "bg-[#02665e] text-white ring-4 ring-[#02665e]/15"
+                        : "border border-solid border-slate-300 bg-white text-slate-400"
+                  }`}
+                >
+                  {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : i + 1}
+                </span>
+                <span
+                  className={`truncate text-[13px] font-semibold ${active ? "block text-slate-900" : "hidden sm:block"} ${
+                    done ? "text-[#02665e] group-hover:underline" : active ? "" : "text-slate-400"
+                  }`}
+                >
+                  {label}
+                </span>
+              </button>
+              {!last && (
+                <span aria-hidden className={`mx-2 h-px min-w-3 flex-1 sm:mx-3 ${done ? "bg-[#02665e]" : "bg-slate-200"}`} />
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
+
+/** Single-choice marker for radio cards: a small ring, filled in brand green when chosen. */
+function RadioDot({ on, inline = false }: { on: boolean; inline?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`${inline ? "" : "absolute right-3 top-3.5 "}inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border border-solid ${
+        on ? "border-[#02665e] bg-[#02665e]" : "border-slate-300 bg-white"
+      }`}
+    >
+      {on ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
+    </span>
   );
 }
 
@@ -1138,12 +1156,12 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 function InsightCard({ Icon, hex, title, children }: { Icon: typeof Globe; hex: string; title: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-solid border-slate-200 bg-slate-50/60 px-3.5 py-3">
+    <div className="flex items-start gap-3 rounded-lg bg-slate-50 px-3.5 py-3 ring-1 ring-inset ring-slate-200">
       <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${hex}14`, color: hex }}>
         <Icon className="h-4 w-4" />
       </span>
       <div className="min-w-0 leading-snug">
-        <p className="m-0 text-[11.5px] font-bold text-slate-500">{title}</p>
+        <p className="m-0 text-[11.5px] font-semibold text-slate-500">{title}</p>
         <p className="m-0 mt-0.5 text-[13px] text-slate-700">{children}</p>
       </div>
     </div>
@@ -1167,30 +1185,30 @@ function IconButton({ label, disabled, onClick, children }: { label: string; dis
 
 function CounterField({ label, sub, value, min, max, onChange }: { label: string; sub?: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-solid border-slate-200 bg-white px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-solid border-slate-300 bg-white px-4 py-3">
       <div className="leading-tight">
         <span className="block text-[14px] font-semibold text-slate-800">{label}</span>
         {sub ? <span className="text-[11.5px] text-slate-400">{sub}</span> : null}
       </div>
-      <div className="inline-flex items-center rounded-full border border-solid border-slate-200 bg-white shadow-sm">
+      <div className="inline-flex items-center overflow-hidden rounded-md border border-solid border-slate-300 bg-white">
         <button
           type="button"
           aria-label={`Fewer ${label.toLowerCase()}`}
           onClick={() => onChange(Math.max(min, value - 1))}
           suppressHydrationWarning
           disabled={value <= min}
-          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-slate-700 hover:text-[#02665e] disabled:cursor-not-allowed disabled:text-slate-300"
+          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center border-0 bg-transparent text-slate-700 transition-colors hover:bg-slate-50 hover:text-[#02665e] disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300"
         >
           <Minus className="h-4 w-4" />
         </button>
-        <span className="w-7 text-center text-[16px] font-bold tabular-nums text-slate-900">{value}</span>
+        <span className="flex h-9 w-9 items-center justify-center border-0 border-x border-solid border-slate-200 text-[15px] font-bold tabular-nums text-slate-900">{value}</span>
         <button
           type="button"
           aria-label={`More ${label.toLowerCase()}`}
           onClick={() => onChange(Math.min(max, value + 1))}
           suppressHydrationWarning
           disabled={value >= max}
-          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-slate-700 hover:text-[#02665e] disabled:cursor-not-allowed disabled:text-slate-300"
+          className="inline-flex h-9 w-9 cursor-pointer items-center justify-center border-0 bg-transparent text-slate-700 transition-colors hover:bg-slate-50 hover:text-[#02665e] disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300"
         >
           <Plus className="h-4 w-4" />
         </button>
@@ -1202,22 +1220,21 @@ function CounterField({ label, sub, value, min, max, onChange }: { label: string
 /** A 12-month strip: best months green, peak months amber, the travel month outlined. */
 function MonthStrip({ dest, month }: { dest: Destination; month: number | null }) {
   if (!dest.bestMonths.length && !dest.peakMonths.length) return null;
-  // One slim bar; the travel month is a small marker above it (legend sits in the step header)
+  // Twelve small cells; the travel month is outlined in place, so there is no
+  // floating marker to read around. The legend sits in the step header.
   return (
-    <span className={`relative block ${month ? "pt-5" : "pt-1"}`} aria-hidden>
-      {month ? (
-        // The travel month, named above its marker
-        <span className="absolute top-0 flex -translate-x-1/2 flex-col items-center" style={{ left: `${((month - 0.5) / 12) * 100}%` }}>
-          <span className="rounded bg-slate-900 px-1 text-[9.5px] font-bold leading-[14px] text-white">{MONTHS[month - 1]}</span>
-          <span className="h-0 w-0 border-x-[4px] border-t-[4px] border-solid border-x-transparent border-t-slate-900" />
-        </span>
-      ) : null}
-      <span className="flex h-1.5 gap-px overflow-hidden rounded-full">
-        {MONTHS.map((m, i) => {
-          const n = i + 1;
-          return <span key={m} className={`flex-1 ${dest.peakMonths.includes(n) ? "bg-amber-400" : dest.bestMonths.includes(n) ? "bg-emerald-400" : "bg-slate-200"}`} />;
-        })}
-      </span>
+    <span className="flex items-center gap-[3px]" aria-hidden>
+      {MONTHS.map((m, i) => {
+        const n = i + 1;
+        const tone = dest.peakMonths.includes(n) ? "bg-amber-400" : dest.bestMonths.includes(n) ? "bg-emerald-400" : "bg-slate-200";
+        const isTravel = month === n;
+        return (
+          <span
+            key={m}
+            className={`flex-1 rounded-[2px] ${tone} ${isTravel ? "h-3 outline outline-2 outline-offset-1 outline-slate-900" : "h-2"}`}
+          />
+        );
+      })}
     </span>
   );
 }
@@ -1241,9 +1258,14 @@ function DestCard({
   const { Icon } = destLook(dest);
   const fit = seasonFit(dest, month);
   const best = monthRanges(dest.bestMonths);
+  const typical = dest.avgStayDays || 0;
   return (
-    <div className={`flex flex-col overflow-hidden rounded-2xl border border-solid bg-white transition duration-200 ${selected ? "border-[#02665e] shadow-[0_12px_28px_-18px_rgba(2,102,94,0.6)] ring-1 ring-[#02665e]" : "border-slate-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_14px_30px_-20px_rgba(15,23,42,0.4)]"}`}>
-      <button type="button" onClick={onToggle} aria-pressed={selected} className="flex w-full cursor-pointer flex-col border-0 bg-transparent p-0 text-left">
+    <div
+      className={`flex flex-col overflow-hidden rounded-xl border border-solid bg-white transition-colors ${
+        selected ? "border-[#02665e] ring-1 ring-[#02665e]" : "border-slate-300/80 hover:border-slate-400"
+      }`}
+    >
+      <button type="button" onClick={onToggle} aria-pressed={selected} className="flex w-full cursor-pointer flex-col border-0 bg-transparent p-0 text-left [font-family:inherit]">
         {dest.imageUrl ? (
           <span className="relative block h-28 w-full overflow-hidden bg-slate-100">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1251,109 +1273,83 @@ function DestCard({
             <span className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
           </span>
         ) : null}
-        {/* Calm header: one icon style for every place; the emblem still says what kind of place it is */}
-        <span className="relative flex items-center gap-3 p-4">
+
+        {/* Header: what the place is, and whether it is in the trip (its stop number when it is) */}
+        <span className="flex items-start gap-3 px-3.5 pb-2.5 pt-3.5">
           <span
-            className={`relative inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
-              selected ? "bg-[#02665e] text-white" : "bg-[#02665e]/[0.06] text-[#02665e] ring-1 ring-inset ring-[#02665e]/15"
+            className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${
+              selected ? "bg-[#02665e] text-white" : "bg-[#02665e]/[0.07] text-[#02665e]"
             }`}
           >
-            {selected ? <span className="text-[14px] font-black">{order}</span> : <Icon className="h-5 w-5" strokeWidth={1.9} />}
+            {selected ? <span className="text-[13px] font-bold tabular-nums">{order}</span> : <Icon className="h-[18px] w-[18px]" strokeWidth={1.9} />}
           </span>
-          <span className="relative min-w-0 flex-1">
-            <span className="block text-[15px] font-bold leading-snug text-slate-900">{dest.name}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[14.5px] font-semibold leading-snug text-slate-900">{dest.name}</span>
             <span className="mt-0.5 block truncate text-[12px] text-slate-500">
-              {[cleanLabel(dest.destinationType), dest.region, dest.avgStayDays ? `${dest.avgStayDays} nights typical` : null].filter(Boolean).join(" · ")}
+              {[cleanLabel(dest.destinationType), dest.region, typical ? `${typical} nights typical` : null].filter(Boolean).join(" · ")}
             </span>
           </span>
-          <span className={`relative inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 border-solid ${selected ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white"}`}>
-            {selected ? <CheckCircle2 className="h-4 w-4" /> : null}
+          <span
+            className={`mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-solid ${
+              selected ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white"
+            }`}
+          >
+            {selected ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
           </span>
         </span>
-        {/* Two facts only: how it fits your month, and when it is best */}
-        <span className="flex items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 px-4 py-2.5">
-          {fit ? (
-            <span className={`rounded-md px-2 py-0.5 text-[11.5px] font-bold ${fit.tone}`}>{fit.label}</span>
-          ) : (
-            <span className="text-[11.5px] text-slate-400">Pick a date to see the season</span>
-          )}
-          {best ? <span className="truncate text-[11.5px] text-slate-500">Best {best}</span> : null}
-        </span>
-        <span className="block px-4 pb-3">
+
+        {/* Season: how your month fits, when it is best, and the year at a glance */}
+        <span className="block px-3.5 pb-3.5">
+          <span className="mb-2 flex items-center justify-between gap-3">
+            {fit ? (
+              <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${fit.tone}`}>
+                {month ? `${MONTHS[month - 1].slice(0, 3)} · ` : ""}{fit.label}
+              </span>
+            ) : (
+              <span className="text-[11.5px] text-slate-400">Pick a date to see the season</span>
+            )}
+            {best ? <span className="truncate text-[11.5px] text-slate-500">Best {best}</span> : null}
+          </span>
           <MonthStrip dest={dest} month={month} />
         </span>
       </button>
 
       {selected ? (
-        <div className="mt-auto border-0 border-t border-solid border-[#02665e]/15 bg-[#02665e]/[0.04] px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-700">
-              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-white text-[#02665e] ring-1 ring-[#02665e]/15">
-                <Moon className="h-3.5 w-3.5" />
-              </span>
-              Nights here
+        <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-[#02665e]/15 bg-[#02665e]/[0.04] px-3.5 py-2.5">
+          <span className="min-w-0">
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-800">
+              <Moon className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /> Nights here
             </span>
-            <div className="inline-flex items-center rounded-full border border-solid border-slate-200 bg-white shadow-sm">
-              <button type="button" aria-label="Fewer nights" onClick={() => onDaysChange(days - 1)} disabled={days <= 1} className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-slate-700 disabled:text-slate-300">
-                <Minus className="h-3.5 w-3.5" />
-              </button>
-              <span className="w-7 text-center text-[15px] font-bold tabular-nums text-[#02665e]">{days}</span>
-              <button type="button" aria-label="More nights" onClick={() => onDaysChange(days + 1)} disabled={days >= 30} className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-slate-700 disabled:text-slate-300">
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
+            {typical ? (
+              days === typical ? (
+                <span className="mt-0.5 flex items-center gap-1 text-[11.5px] font-medium text-[#02665e]">
+                  <Check className="h-3 w-3" strokeWidth={3} aria-hidden /> Typical stay
+                </span>
+              ) : (
+                <span className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-slate-500">
+                  Most stay {typical}
+                  <button
+                    type="button"
+                    onClick={() => onDaysChange(typical)}
+                    className="cursor-pointer border-0 bg-transparent p-0 text-[11.5px] font-semibold text-[#02665e] underline-offset-2 [font-family:inherit] hover:underline"
+                  >
+                    Use {typical}
+                  </button>
+                </span>
+              )
+            ) : null}
+          </span>
+          <div className="inline-flex flex-shrink-0 items-center overflow-hidden rounded-md border border-solid border-slate-300 bg-white">
+            <button type="button" aria-label="Fewer nights" onClick={() => onDaysChange(days - 1)} disabled={days <= 1} className="inline-flex h-8 w-8 cursor-pointer items-center justify-center border-0 bg-transparent text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300">
+              <Minus className="h-3.5 w-3.5" />
+            </button>
+            <span className="flex h-8 w-9 items-center justify-center border-0 border-x border-solid border-slate-200 text-[14px] font-bold tabular-nums text-slate-900" aria-live="polite">
+              {days}
+            </span>
+            <button type="button" aria-label="More nights" onClick={() => onDaysChange(days + 1)} disabled={days >= 30} className="inline-flex h-8 w-8 cursor-pointer items-center justify-center border-0 bg-transparent text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300">
+              <Plus className="h-3.5 w-3.5" />
+            </button>
           </div>
-          {/* One tap to the likely lengths, centred on the typical stay */}
-          {(() => {
-            const typical = dest.avgStayDays || 0;
-            const options = typical
-              ? [...new Set([typical - 1, typical, typical + 1, typical + 2])].filter((n) => n >= 1 && n <= 30)
-              : [2, 3, 4, 5];
-            // One segmented row of equal cells: numbers only, the typical length marked with a dot
-            return (
-              <div className="mt-2.5">
-                <div className="grid gap-1 rounded-xl bg-white p-1 ring-1 ring-slate-200" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
-                  {options.map((n) => {
-                    const on = n === days;
-                    return (
-                      <button
-                        key={n}
-                        type="button"
-                        aria-pressed={on}
-                        aria-label={`${n} night${n === 1 ? "" : "s"}${n === typical ? ", typical stay" : ""}`}
-                        onClick={() => onDaysChange(n)}
-                        className={`relative flex h-9 cursor-pointer items-center justify-center rounded-lg border-0 text-[14px] font-bold tabular-nums transition ${
-                          on ? "bg-[#02665e] text-white shadow-sm" : "bg-transparent text-slate-700 hover:bg-slate-100"
-                        }`}
-                      >
-                        {n}
-                        {n === typical ? <span className={`absolute bottom-1 h-1 w-1 rounded-full ${on ? "bg-white" : "bg-[#02665e]"}`} /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-                {typical ? (
-                  <p className="m-0 mt-1 flex items-center gap-1 text-[10.5px] text-slate-400">
-                    <span className="h-1 w-1 rounded-full bg-[#02665e]" /> typical stay
-                  </p>
-                ) : null}
-              </div>
-            );
-          })()}
-          {dest.avgStayDays ? (
-            <p
-              className={`m-0 mt-2 flex items-center gap-1.5 text-[12px] font-medium ${
-                days === dest.avgStayDays ? "text-[#02665e]" : days < dest.avgStayDays ? "text-amber-700" : "text-sky-700"
-              }`}
-            >
-              {days === dest.avgStayDays ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" /> : <Info className="h-3.5 w-3.5 flex-shrink-0" />}
-              {days === dest.avgStayDays
-                ? "Matches how long most visitors stay."
-                : days < dest.avgStayDays
-                  ? `Shorter than usual. Most visitors stay ${dest.avgStayDays} nights.`
-                  : `Longer than usual, with time to explore beyond the ${dest.avgStayDays}-night average.`}
-            </p>
-          ) : null}
         </div>
       ) : null}
     </div>
@@ -1444,66 +1440,65 @@ function TripPanel({
   ];
   const ready = rows.filter((r) => !r.empty).length;
   return (
-    <div className="overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white">
-      {/* Plain header: what the trip is so far, and how complete it is */}
-      <div className="px-5 pb-3 pt-4">
+    <div className="overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white">
+      {/* Header: what the trip is so far, and how complete it is */}
+      <div className="px-4 pb-3 pt-3.5">
         <div className="flex items-baseline justify-between gap-3">
-          <p className="m-0 text-[16px] font-bold text-slate-950">Your trip</p>
-          <span className="text-[12px] font-semibold tabular-nums text-slate-500">
+          <p className="m-0 text-[15px] font-semibold text-slate-950">Your trip</p>
+          <span className="text-[11.5px] font-medium tabular-nums text-slate-500">
             {ready} of {rows.length} ready
           </span>
         </div>
         <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">{destinations.length ? `${totalNights} night${totalNights === 1 ? "" : "s"} in Tanzania` : "Fill in the steps to build it"}</p>
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
-          <div className="h-full rounded-full bg-[#02665e] transition-all duration-500" style={{ width: `${(ready / rows.length) * 100}%` }} />
+        <div className="mt-2.5 h-1 overflow-hidden rounded-sm bg-slate-100">
+          <div className="h-full rounded-sm bg-[#02665e] transition-all duration-500" style={{ width: `${(ready / rows.length) * 100}%` }} />
         </div>
       </div>
-      <ul className="m-0 list-none border-0 border-t border-solid border-slate-100 p-0">
+
+      {/* Summary lines: label left, value right; finished steps open for editing */}
+      <div className="border-0 border-t border-solid border-slate-100">
         {rows.map((row) => {
           const clickable = row.i < step;
-          const inner = (
+          const body = (
             <>
-              <span className={`relative inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${row.empty ? "bg-slate-50 text-slate-300" : "bg-[#02665e]/[0.08] text-[#02665e]"}`}>
-                <row.Icon className="h-4 w-4" />
-                {!row.empty ? (
-                  <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#02665e] ring-2 ring-white">
-                    <CheckCircle2 className="h-2.5 w-2.5 text-white" strokeWidth={3} />
-                  </span>
-                ) : null}
+              <span className="w-[76px] flex-shrink-0 text-[12px] text-slate-500">{row.label}</span>
+              <span className={`block min-w-0 flex-1 truncate text-right text-[12.5px] ${row.empty ? "text-slate-400" : "font-semibold text-slate-900"} ${clickable ? "group-hover:hidden" : ""}`}>
+                {row.value}
               </span>
-              <span className="min-w-0 flex-1 leading-tight">
-                <span className="block text-[11.5px] font-semibold text-slate-500">{row.label}</span>
-                <span className={`mt-0.5 block truncate text-[13px] ${row.empty ? "text-slate-400" : "font-semibold text-slate-900"}`}>{row.value}</span>
-              </span>
-              {clickable ? <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 -rotate-90 text-slate-300 transition group-hover:text-[#02665e]" /> : null}
+              {clickable ? <span className="hidden flex-1 text-right text-[12.5px] font-semibold text-[#02665e] group-hover:block">Edit</span> : null}
             </>
           );
-          return (
-            <li key={row.label} className="border-0 border-b border-solid border-slate-100 last:border-b-0">
-              {clickable ? (
-                <button type="button" onClick={() => onJump(row.i)} className="group flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-5 py-2.5 text-left hover:bg-slate-50" title={`Edit ${row.label.toLowerCase()}`}>
-                  {inner}
-                </button>
-              ) : (
-                <div className="flex items-center gap-3 px-5 py-2.5">{inner}</div>
-              )}
-            </li>
+          return clickable ? (
+            <button
+              key={row.label}
+              type="button"
+              onClick={() => onJump(row.i)}
+              title={`Edit ${row.label.toLowerCase()}`}
+              className="group flex w-full cursor-pointer items-center gap-3 border-0 border-b border-solid border-slate-100 bg-transparent px-4 py-2.5 text-left [font-family:inherit] last:border-b-0 hover:bg-slate-50"
+            >
+              {body}
+            </button>
+          ) : (
+            <div key={row.label} className="flex items-center gap-3 border-0 border-b border-solid border-slate-100 px-4 py-2.5 last:border-b-0">
+              {body}
+            </div>
           );
         })}
-      </ul>
+      </div>
+
       {destinations.length ? (
-        <div className="border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-5 py-3">
-          <p className="m-0 mb-2 text-[11.5px] font-semibold text-slate-500">Route order</p>
+        <div className="border-0 border-t border-solid border-slate-100 bg-slate-50/70 px-4 py-3">
+          <p className="m-0 mb-2 text-[11.5px] font-medium text-slate-500">Route order</p>
           <ol className="m-0 list-none space-y-1.5 p-0">
             {destinations.map((d, i) => {
               const dest = destByCode.get(d.code.toUpperCase());
               const fit = dest ? seasonFit(dest, month) : null;
               return (
                 <li key={d.code} className="flex items-center gap-2 text-[12.5px]">
-                  <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e] text-[10.5px] font-black text-white">{i + 1}</span>
-                  <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{dest?.name ?? d.code}</span>
+                  <span className="inline-flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded bg-[#02665e] text-[10.5px] font-bold tabular-nums text-white">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{dest?.name ?? d.code}</span>
                   <span className="flex-shrink-0 text-[11px] tabular-nums text-slate-500">{d.days}n</span>
-                  {fit ? <span className={`flex-shrink-0 rounded px-1.5 py-px text-[10px] font-bold ${fit.tone}`}>{fit.label.replace(" to go", "")}</span> : null}
+                  {fit ? <span className={`flex-shrink-0 rounded px-1.5 py-px text-[10px] font-semibold ${fit.tone}`}>{fit.label.replace(" to go", "")}</span> : null}
                 </li>
               );
             })}
@@ -1658,79 +1653,132 @@ function ResultView({
   return (
     <div className="flex flex-col gap-5">
       {/* ── Headline ── */}
-      <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#02665e] to-[#013d38] text-white">
-        <div className="grid gap-6 p-6 sm:p-7 md:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="overflow-hidden rounded-xl bg-[#024d47] text-white">
+        <div className="grid gap-6 p-5 sm:p-6 md:grid-cols-[minmax(0,1fr)_240px] md:gap-8">
           <div className="min-w-0">
-            <p className="m-0 flex flex-wrap items-center gap-2 text-[12.5px] text-white/75">
-              Estimated trip cost for {pax} traveller{pax === 1 ? "" : "s"}
-              <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11.5px] text-white/90">
+            <p className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12.5px] text-white/70">
+              Estimated trip cost · {pax} traveller{pax === 1 ? "" : "s"} ·
+              <span className="inline-flex items-center gap-1 text-white/90">
                 <span suppressHydrationWarning>{countryFlag(nationality)}</span> {nat.label}
               </span>
             </p>
-            <p className="m-0 mt-1 text-[44px] font-black leading-none tracking-tight tabular-nums">{fmtUSD(result.totalAvg)}</p>
+            <p className="m-0 mt-1.5 text-[40px] font-bold leading-none tracking-tight tabular-nums">{fmtUSD(result.totalAvg)}</p>
+
             {/* Range with the estimate marked on it */}
             <div className="mt-4 max-w-md">
-              <div className="relative h-2 rounded-full bg-white/15">
-                <span className="absolute inset-y-0 left-0 rounded-full bg-white/35" style={{ width: `${avgPos}%` }} />
-                <span className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-solid border-white bg-emerald-300" style={{ left: `${avgPos}%` }} />
+              <div className="relative h-1.5 rounded-sm bg-white/15">
+                <span className="absolute inset-y-0 left-0 rounded-sm bg-emerald-300/60" style={{ width: `${avgPos}%` }} />
+                <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white ring-2 ring-emerald-300" style={{ left: `${avgPos}%` }} />
               </div>
-              <div className="mt-1.5 flex justify-between text-[11.5px] tabular-nums text-white/65">
+              <div className="mt-1.5 flex justify-between text-[11.5px] tabular-nums text-white/60">
                 <span>Low {fmtUSD(result.totalMin)}</span>
                 <span>High {fmtUSD(result.totalMax)}</span>
               </div>
             </div>
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              {[`${result.totalDays} night${result.totalDays === 1 ? "" : "s"}`, `${cleanLabel(result.season)} season`, cleanLabel(result.tier)].map((t) => (
-                <span key={t} className="rounded-full bg-white/10 px-2.5 py-1 text-[11.5px] font-semibold text-white/85">{t}</span>
-              ))}
-              <span className={`rounded-full bg-white/10 px-2.5 py-1 text-[11.5px] font-bold ${conf.tone}`}>{conf.text}</span>
-            </div>
+
+            <p className="m-0 mt-4 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12px] text-white/75">
+              <span>{result.totalDays} night{result.totalDays === 1 ? "" : "s"} · {cleanLabel(result.season)} season · {cleanLabel(result.tier)}</span>
+              <span className={`rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-semibold ${conf.tone}`}>{conf.text}</span>
+            </p>
           </div>
-          <div className="grid grid-cols-2 gap-2 self-start md:grid-cols-1">
-            <HeadlineStat label="Per adult" value={fmtUSD(result.perAdultAvg)} />
-            <HeadlineStat label="Per person, per day" value={fmtUSD(perPersonPerDay)} />
-            <HeadlineStat label="Biggest cost" value={biggest ? `${biggest.label} · ${Math.round((biggest.amount / sum) * 100)}%` : "None"} />
-          </div>
+
+          {/* Three figures that explain the total, divided by hairlines */}
+          <dl className="m-0 grid grid-cols-3 self-center border-0 border-t border-solid border-white/10 pt-4 md:grid-cols-1 md:border-l md:border-t-0 md:pl-6 md:pt-0">
+            {[
+              { label: "Per adult", value: fmtUSD(result.perAdultAvg) },
+              { label: "Per person, per day", value: fmtUSD(perPersonPerDay) },
+              { label: "Biggest cost", value: biggest ? `${biggest.label} · ${Math.round((biggest.amount / sum) * 100)}%` : "None" },
+            ].map((f, i) => (
+              <div key={f.label} className={`min-w-0 ${i > 0 ? "border-0 border-l border-solid border-white/10 pl-3 md:border-l-0 md:border-t md:pl-0 md:pt-3" : ""} ${i < 2 ? "pr-3 md:pb-3 md:pr-0" : ""}`}>
+                <dt className="truncate text-[11px] text-white/60">{f.label}</dt>
+                <dd className="m-0 mt-0.5 truncate text-[15px] font-semibold tabular-nums text-white">{f.value}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
 
-        {/* Where the money goes */}
-        <div className="bg-black/15 px-6 py-4 sm:px-7">
-          <div className="flex h-3 overflow-hidden rounded-full bg-white/10">
+        {/* Where the money goes: one segmented bar, then a legend you can open */}
+        <div className="border-0 border-t border-solid border-white/10 bg-black/10 px-5 py-4 sm:px-6">
+          <div className="flex h-2 gap-[2px] overflow-hidden rounded-sm">
             {amounts.map((a) => (a.amount > 0 ? <span key={a.key} title={`${a.label}: ${fmtUSD(a.amount)}`} style={{ width: `${(a.amount / sum) * 100}%`, backgroundColor: a.hex }} /> : null))}
           </div>
-          <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
-            {amounts.filter((a) => a.amount > 0).map((a) => (
-              <button key={a.key} type="button" onClick={() => setOpen(a.key)} className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-[11.5px] text-white/80 hover:text-white">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: a.hex }} />
-                {a.label} <span className="font-bold tabular-nums text-white">{Math.round((a.amount / sum) * 100)}%</span>
-              </button>
-            ))}
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+            {amounts.filter((a) => a.amount > 0).map((a) => {
+              const pct = (a.amount / sum) * 100;
+              return (
+                <button key={a.key} type="button" onClick={() => setOpen(a.key)} className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-[11.5px] text-white/75 [font-family:inherit] hover:text-white">
+                  <span className="h-2 w-2 rounded-[2px]" style={{ backgroundColor: a.hex }} />
+                  {a.label} <span className="font-semibold tabular-nums text-white">{pct > 0 && pct < 1 ? "<1%" : `${Math.round(pct)}%`}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* ── Know before you go ── */}
-      {insights.length ? (
-        <div className="rounded-2xl border border-solid border-amber-200 bg-amber-50/60 p-4">
-          <p className="m-0 flex items-center gap-2 text-[14px] font-bold text-amber-950">
-            <Info className="h-4 w-4 text-amber-600" /> Know before you book
-          </p>
-          <ul className="m-0 mt-2 list-none space-y-1.5 p-0">
-            {insights.map((t) => (
-              <li key={t} className="flex items-start gap-2 text-[13px] leading-relaxed text-amber-950/90">
-                <span className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" />
-                {t}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      {/* ── Know before you book ── */}
+      {(() => {
+        // Split the engine's notes: legs we could not price become one list,
+        // other cautions stay as bullets, and plain facts (rates applied,
+        // fees included) drop to a quiet info line instead of a warning.
+        const gaps: Array<[string, string]> = [];
+        const cautions: string[] = [];
+        const facts: string[] = [];
+        for (const t of insights) {
+          const m = t.match(/^No transport route found between (.+?) and (.+?)\./i);
+          if (m) gaps.push([m[1], m[2]]);
+          else if (/applied|included/i.test(t)) facts.push(t);
+          else cautions.push(t);
+        }
+        if (!gaps.length && !cautions.length && !facts.length) return null;
+        return (
+          <div className="space-y-2">
+            {gaps.length || cautions.length ? (
+              <div className="rounded-lg border border-solid border-amber-300/70 bg-amber-50/70 px-4 py-3">
+                <p className="m-0 flex items-center gap-2 text-[13.5px] font-semibold text-amber-950">
+                  <TriangleAlert className="h-4 w-4 text-amber-600" aria-hidden /> Check before you book
+                </p>
+                {gaps.length ? (
+                  <div className="mt-2">
+                    <p className="m-0 text-[12.5px] text-amber-950/85">
+                      Transport is not priced for {gaps.length === 1 ? "this leg" : `these ${gaps.length} legs`}. Ask operators for the fares:
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {gaps.map(([from, to]) => (
+                        <span key={`${from}-${to}`} className="inline-flex items-center gap-1 rounded bg-white px-2 py-0.5 text-[12px] font-medium text-amber-950 ring-1 ring-inset ring-amber-200">
+                          {from} <ArrowRight className="h-3 w-3 text-amber-500" aria-hidden /> {to}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {cautions.length ? (
+                  <ul className="m-0 mt-2 list-none space-y-1 p-0">
+                    {cautions.map((t) => (
+                      <li key={t} className="flex items-start gap-2 text-[12.5px] leading-relaxed text-amber-950/90">
+                        <span className="mt-[7px] h-1 w-1 flex-shrink-0 rounded-full bg-amber-500" />
+                        {t}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+            {facts.length ? (
+              <p className="m-0 flex items-start gap-2 px-1 text-[12px] leading-relaxed text-slate-500">
+                <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-slate-400" aria-hidden />
+                {facts.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+        );
+      })()}
 
-      {/* ── Itemised breakdown ── */}
-      <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
-        <div className="flex items-center justify-between border-0 border-b border-solid border-slate-100 px-5 py-4">
-          <p className="m-0 text-[16px] font-bold text-slate-950">Line by line</p>
-          <span className="text-[12px] text-slate-500">Open any line for the detail</span>
+      {/* ── Itemised breakdown: a cost table you can open line by line ── */}
+      <div className="overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white">
+        <div className="flex items-baseline justify-between gap-3 border-0 border-b border-solid border-slate-100 px-4 py-3 sm:px-5">
+          <p className="m-0 text-[15px] font-semibold text-slate-950">Line by line</p>
+          <span className="text-[12px] text-slate-500">Open a line for the detail</span>
         </div>
         <ul className="m-0 list-none p-0">
           {amounts.map((cat) => {
@@ -1738,30 +1786,33 @@ function ResultView({
             if (!item) return null;
             const isOpen = open === cat.key;
             const pct = (cat.amount / sum) * 100;
+            // Transport at zero means legs we could not price, not free travel
+            const unpriced = cat.key === "transport" && cat.amount === 0;
             return (
               <li key={cat.key} className="border-0 border-b border-solid border-slate-100 last:border-b-0">
                 <button
                   type="button"
                   onClick={() => setOpen(isOpen ? null : cat.key)}
                   aria-expanded={isOpen}
-                  className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-5 py-3.5 text-left hover:bg-slate-50/70"
+                  className={`flex w-full cursor-pointer items-center gap-3 border-0 px-4 py-3 text-left [font-family:inherit] transition-colors sm:px-5 ${isOpen ? "bg-slate-50" : "bg-transparent hover:bg-slate-50/70"}`}
                 >
-                  <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: `${cat.hex}14`, color: cat.hex }}>
-                    <cat.Icon className="h-[18px] w-[18px]" />
-                  </span>
+                  <span className="h-2.5 w-2.5 flex-shrink-0 rounded-[3px]" style={{ backgroundColor: cat.hex }} aria-hidden />
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-baseline justify-between gap-3">
-                      <span className="text-[14.5px] font-semibold text-slate-900">{cat.label}</span>
-                      <span className="text-[15px] font-bold tabular-nums text-slate-950">{fmtUSD(cat.amount)}</span>
-                    </span>
-                    <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-slate-100">
-                      <span className="block h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: cat.hex }} />
+                    <span className="block truncate text-[14px] font-medium text-slate-900">{cat.label}</span>
+                    <span className="mt-1.5 block h-1 max-w-[320px] overflow-hidden rounded-sm bg-slate-100">
+                      <span className="block h-full rounded-sm" style={{ width: `${pct}%`, backgroundColor: cat.hex }} />
                     </span>
                   </span>
-                  <ChevronDown className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                  <span className="w-11 flex-shrink-0 text-right text-[12px] tabular-nums text-slate-400">
+                    {cat.amount > 0 ? (pct < 1 ? "<1%" : `${Math.round(pct)}%`) : ""}
+                  </span>
+                  <span className={`w-24 flex-shrink-0 text-right text-[14.5px] font-semibold tabular-nums ${unpriced ? "text-[12.5px] font-medium text-amber-700" : "text-slate-950"}`}>
+                    {unpriced ? "Not priced" : fmtUSD(cat.amount)}
+                  </span>
+                  <ChevronDown className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden />
                 </button>
                 {isOpen ? (
-                  <div className="bg-slate-50/60 px-5 pb-4 pt-1">
+                  <div className="border-0 border-t border-solid border-slate-100 bg-slate-50 px-4 pb-4 pt-3 sm:px-5 sm:pl-[42px]">
                     <CategoryDetail cat={cat.key} result={result} nameOf={nameOf} />
                   </div>
                 ) : null}
@@ -1769,15 +1820,19 @@ function ResultView({
             );
           })}
         </ul>
+        <div className="flex items-baseline justify-between gap-3 border-0 border-t border-solid border-slate-200 bg-slate-50/60 px-4 py-3 sm:px-5">
+          <span className="text-[13px] font-semibold text-slate-700">Estimated total</span>
+          <span className="text-[16px] font-bold tabular-nums text-slate-950">{fmtUSD(result.totalAvg)}</span>
+        </div>
       </div>
 
       {/* ── Seasonal pricing ── */}
       {result.appliedRules?.length ? (
-        <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
-          <p className="m-0 text-[15px] font-bold text-slate-950">Seasonal pricing applied</p>
+        <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-4 sm:p-5">
+          <p className="m-0 text-[15px] font-semibold text-slate-950">Seasonal pricing applied</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {result.appliedRules.map((r, i) => (
-              <div key={i} className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200/70">
+              <div key={i} className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200/70">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[13px] font-bold text-slate-900">{cleanLabel(r.seasonName)}</span>
                   <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${r.multiplier > 1 ? "bg-amber-100 text-amber-900" : r.multiplier < 1 ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
@@ -1792,13 +1847,13 @@ function ResultView({
       ) : null}
 
       {/* ── Where the numbers come from ── */}
-      <div className="rounded-2xl border border-solid border-[#02665e]/20 bg-[#02665e]/[0.04] p-5">
+      <div className="rounded-xl border border-solid border-[#02665e]/20 bg-[#02665e]/[0.04] p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="m-0 flex items-center gap-2 text-[15px] font-bold text-slate-950">
+          <p className="m-0 flex items-center gap-2 text-[15px] font-semibold text-slate-950">
             <ShieldCheck className="h-5 w-5 text-[#02665e]" /> Where these numbers come from
           </p>
           {result.dataFreshness?.lastUpdatedAt ? (
-            <span className="rounded-full bg-white px-2.5 py-1 text-[11.5px] font-semibold text-[#02665e] ring-1 ring-[#02665e]/20">
+            <span className="rounded bg-white px-2 py-0.5 text-[11.5px] font-semibold text-[#02665e] ring-1 ring-[#02665e]/20">
               Last verified {fmtDate(result.dataFreshness.lastUpdatedAt)}
             </span>
           ) : null}
@@ -1812,7 +1867,7 @@ function ResultView({
             { label: "Seasonal rules", ts: result.dataFreshness?.categories?.pricingRules },
             { label: "Accommodation", ts: null as string | null, fixed: "NoLSAF verified" },
           ].map((row) => (
-            <div key={row.label} className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200/80">
+            <div key={row.label} className="rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200/80">
               <p className="m-0 text-[12px] font-semibold text-slate-800">{row.label}</p>
               <p className="m-0 text-[11.5px] text-slate-500">{row.ts ? fmtDate(row.ts) : "fixed" in row && row.fixed ? row.fixed : "Not recorded"}</p>
             </div>
@@ -1825,30 +1880,30 @@ function ResultView({
       </div>
 
       {/* ── Next: book it, keep it, or change it ── */}
-      <div className="overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white">
-        <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
+      <div className="overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white">
+        <div className="grid gap-2.5 p-3.5 sm:grid-cols-2 sm:p-4">
           <a
             href={staysHref}
-            className="group flex items-center gap-3 rounded-2xl bg-[#02665e] p-4 text-white no-underline shadow-[0_12px_28px_-16px_rgba(2,102,94,0.9)] transition hover:bg-[#014d47]"
+            className="group flex items-center gap-3 rounded-lg bg-[#02665e] px-4 py-3.5 text-white no-underline transition-colors hover:bg-[#014d47]"
           >
-            <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-white/15">
+            <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-white/15">
               <BedDouble className="h-5 w-5" />
             </span>
             <span className="min-w-0 flex-1 leading-tight">
-              <span className="block text-[15px] font-bold">Find verified stays</span>
+              <span className="block text-[14.5px] font-semibold">Find verified stays</span>
               <span className="mt-0.5 block text-[12px] text-white/75">Book the nights this estimate priced</span>
             </span>
             <ArrowRight className="h-5 w-5 flex-shrink-0 transition-transform group-hover:translate-x-0.5" />
           </a>
           <Link
             href="/public/tour-packages"
-            className="group flex items-center gap-3 rounded-2xl border border-solid border-[#02665e]/25 bg-[#02665e]/[0.04] p-4 text-[#02665e] no-underline transition hover:bg-[#02665e]/[0.08]"
+            className="group flex items-center gap-3 rounded-lg border border-solid border-slate-300/80 bg-white px-4 py-3.5 text-[#02665e] no-underline transition-colors hover:border-[#02665e]/40 hover:bg-[#02665e]/[0.03]"
           >
-            <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-white ring-1 ring-[#02665e]/15">
+            <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e]/[0.07]">
               <Ticket className="h-5 w-5" />
             </span>
             <span className="min-w-0 flex-1 leading-tight">
-              <span className="block text-[15px] font-bold text-slate-900">Compare tour packages</span>
+              <span className="block text-[14.5px] font-semibold text-slate-900">Compare tour packages</span>
               <span className="mt-0.5 block text-[12px] text-slate-500">Verified operators, all-in prices</span>
             </span>
             <ArrowRight className="h-5 w-5 flex-shrink-0 transition-transform group-hover:translate-x-0.5" />
@@ -1861,15 +1916,6 @@ function ResultView({
           <ToolAction onClick={onRestart} Icon={RefreshCw} label="New estimate" sub="Start again" />
         </div>
       </div>
-    </div>
-  );
-}
-
-function HeadlineStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-white/10 px-3.5 py-2.5 ring-1 ring-white/10">
-      <p className="m-0 text-[11px] text-white/65">{label}</p>
-      <p className="m-0 mt-0.5 text-[15px] font-bold tabular-nums text-white">{value}</p>
     </div>
   );
 }
@@ -1894,17 +1940,17 @@ function ToolAction({
     <button
       type="button"
       onClick={onClick}
-      className="group flex cursor-pointer items-center gap-3 border-0 border-b border-r border-solid border-slate-100 bg-transparent px-4 py-3.5 text-left transition hover:bg-slate-50 sm:border-b-0"
+      className="group flex cursor-pointer items-center gap-3 border-0 border-b border-r border-solid border-slate-100 bg-transparent px-4 py-3 text-left [font-family:inherit] transition-colors hover:bg-slate-50 sm:border-b-0"
     >
       <span
-        className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl transition ${
-          highlight ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-600 group-hover:bg-[#02665e]/10 group-hover:text-[#02665e]"
+        className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md transition-colors ${
+          highlight ? "bg-[#02665e]/10 text-[#02665e]" : "bg-slate-100 text-slate-600 group-hover:bg-[#02665e]/10 group-hover:text-[#02665e]"
         }`}
       >
         <Icon className={`h-4 w-4 ${spin ? "animate-spin" : ""}`} />
       </span>
       <span className="min-w-0 leading-tight">
-        <span className="block truncate text-[13px] font-bold text-slate-900">{label}</span>
+        <span className="block truncate text-[13px] font-semibold text-slate-900">{label}</span>
         <span className="block truncate text-[11px] text-slate-500">{sub}</span>
       </span>
     </button>
@@ -1946,10 +1992,10 @@ function CategoryDetail({ cat, result, nameOf }: { cat: CategoryKey; result: Est
         {rows.length ? (
           <div className="space-y-2">
             {rows.map((p, i) => (
-              <div key={i} className="rounded-xl bg-white p-3 ring-1 ring-slate-200/80">
+              <div key={i} className="rounded-md bg-white px-3 py-2.5 ring-1 ring-slate-200">
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-[13.5px] font-bold text-slate-900">{p.parkName || nameOf(p.destination)}</span>
-                  <span className="text-[13.5px] font-bold tabular-nums">{fmtUSD(p.subtotal)}</span>
+                  <span className="text-[13.5px] font-semibold text-slate-900">{p.parkName || nameOf(p.destination)}</span>
+                  <span className="text-[13.5px] font-semibold tabular-nums">{fmtUSD(p.subtotal)}</span>
                 </div>
                 <p className="m-0 mt-1 text-[12px] text-slate-600">
                   {p.days} day{p.days === 1 ? "" : "s"} · {fmtUSD(p.adultFeePerDay)} per adult per day · {cleanLabel(p.rateCategory)} rate
@@ -1976,12 +2022,12 @@ function CategoryDetail({ cat, result, nameOf }: { cat: CategoryKey; result: Est
         {legs.length ? (
           <ol className="m-0 list-none space-y-2 p-0">
             {legs.map((l, i) => (
-              <li key={i} className={`rounded-xl p-3 ring-1 ${l.status === "no-data" ? "bg-amber-50 ring-amber-200" : "bg-white ring-slate-200/80"}`}>
+              <li key={i} className={`rounded-md px-3 py-2.5 ring-1 ${l.status === "no-data" ? "bg-amber-50 ring-amber-200" : "bg-white ring-slate-200/80"}`}>
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-[13.5px] font-bold text-slate-900">
+                  <span className="text-[13.5px] font-semibold text-slate-900">
                     {nameOf(l.from)} <span className="text-slate-400">to</span> {nameOf(l.to)}
                   </span>
-                  <span className="text-[13.5px] font-bold tabular-nums">{l.legCostAvg != null ? fmtUSD(l.legCostAvg) : "Not priced"}</span>
+                  <span className="text-[13.5px] font-semibold tabular-nums">{l.legCostAvg != null ? fmtUSD(l.legCostAvg) : "Not priced"}</span>
                 </div>
                 <p className="m-0 mt-1 text-[12px] text-slate-600">
                   {l.status === "no-data"
@@ -2015,10 +2061,10 @@ function CategoryDetail({ cat, result, nameOf }: { cat: CategoryKey; result: Est
         {acts.length ? (
           <div className="space-y-2">
             {acts.map((a, i) => (
-              <div key={i} className="rounded-xl bg-white p-3 ring-1 ring-slate-200/80">
+              <div key={i} className="rounded-md bg-white px-3 py-2.5 ring-1 ring-slate-200">
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-[13.5px] font-bold text-slate-900">{a.activityName}</span>
-                  <span className="text-[13.5px] font-bold tabular-nums">{fmtUSD(a.totalCostAvg)}</span>
+                  <span className="text-[13.5px] font-semibold text-slate-900">{a.activityName}</span>
+                  <span className="text-[13.5px] font-semibold tabular-nums">{fmtUSD(a.totalCostAvg)}</span>
                 </div>
                 <p className="m-0 mt-1 text-[12px] text-slate-600">
                   {fmtUSD(a.unitCostAvg)} {a.priceUnit === "per-vehicle" ? "per vehicle" : a.priceUnit === "per-group" ? "per group" : "per adult"}
@@ -2052,14 +2098,14 @@ function CategoryDetail({ cat, result, nameOf }: { cat: CategoryKey; result: Est
         {stays.length ? (
           <div className="space-y-2">
             {stays.map((s, i) => (
-              <div key={i} className="flex items-baseline justify-between gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-200/80">
+              <div key={i} className="flex items-baseline justify-between gap-3 rounded-md bg-white p-3 ring-1 ring-slate-200/80">
                 <span className="min-w-0">
-                  <span className="block text-[13.5px] font-bold text-slate-900">{nameOf(s.destination)}</span>
+                  <span className="block text-[13.5px] font-semibold text-slate-900">{nameOf(s.destination)}</span>
                   <span className="block text-[12px] text-slate-600">
                     {s.nights} night{s.nights === 1 ? "" : "s"} · {fmtUSD(s.perNightPerAdultAvg)} per adult per night · {cleanLabel(s.tier)}
                   </span>
                 </span>
-                <span className="text-[13.5px] font-bold tabular-nums">{fmtUSD(s.subtotalAvg)}</span>
+                <span className="text-[13.5px] font-semibold tabular-nums">{fmtUSD(s.subtotalAvg)}</span>
               </div>
             ))}
           </div>

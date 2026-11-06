@@ -352,7 +352,7 @@ function AdminDriverInvoiceReview({ id }: { id: number }) {
           <p className="mt-2 text-xl font-bold text-gray-900">{formatMoney(invoice.gross, invoice.currency)}</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">NoLSAF %</p>
+          <p className="text-xs font-semibold text-gray-500">NoLSAF %</p>
           <p className="mt-2 inline-flex items-center gap-2 text-xl font-bold text-gray-900">
             <Percent className="h-5 w-5 text-gray-400" />
             {Number(invoice.commissionPercent ?? 0).toLocaleString()}%
@@ -459,7 +459,7 @@ function AdminDriverInvoiceReview({ id }: { id: number }) {
               <p className="mt-2 text-sm font-bold text-gray-900">{formatMoney(invoice.gross, invoice.currency)}</p>
             </div>
             <div className="rounded-lg bg-gray-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">NoLSAF Commission</p>
+              <p className="text-xs font-semibold text-gray-500">NoLSAF Commission</p>
               <p className="mt-2 text-sm font-bold text-amber-700">-{formatMoney(invoice.commissionAmount, invoice.currency)}</p>
             </div>
             <div className="rounded-lg bg-emerald-50 p-4">

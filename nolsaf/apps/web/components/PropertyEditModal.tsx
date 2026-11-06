@@ -208,7 +208,7 @@ export default function PropertyEditModal({ property, isOpen, onClose, onSave }:
           {/* 1. Commission */}
           <section className="border-0 border-b border-solid border-neutral-100 px-5 py-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">NoLSAF commission</p>
+              <p className="m-0 text-[11px] font-semibold text-neutral-500">NoLSAF commission</p>
               <span className="text-[11px] text-neutral-500">Guests pay the owner&apos;s price plus <span className="font-bold tabular-nums text-neutral-900">{rate}%</span> at checkout</span>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">

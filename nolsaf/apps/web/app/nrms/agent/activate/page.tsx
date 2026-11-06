@@ -48,7 +48,7 @@ function ActivateInner() {
         <div className="flex items-center gap-3">
           <span className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm"><Handshake className="h-5 w-5" /></span>
           <div>
-            <p className="m-0 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">NoLSAF Travel Agent</p>
+            <p className="m-0 text-[10px] font-semibold text-emerald-700">NoLSAF Travel Agent</p>
             <h1 className="m-0 text-[18px] font-extrabold text-neutral-900">Activate your account</h1>
           </div>
         </div>

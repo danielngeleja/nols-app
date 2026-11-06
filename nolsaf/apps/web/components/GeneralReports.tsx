@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BarChart3, Download, FileImage, FileSpreadsheet, Printer, RefreshCw } from "lucide-react";
+import { AlertTriangle, BarChart3, Download, FileImage, FileSpreadsheet, Printer, RefreshCw, Trophy } from "lucide-react";
 import Chart from "@/components/Chart";
 import { REGIONS } from "@/lib/tzRegions";
 import { escapeAttr, escapeHtml } from "@/utils/html";
@@ -16,6 +16,14 @@ import { escapeAttr, escapeHtml } from "@/utils/html";
 type Timeframe = "24h" | "7d" | "30d" | "12m";
 type Series = { labels: string[]; data: number[] };
 type StageTotal = { stage: string; label: string; count: number; total: number; netPayable: number; commission: number };
+type RoomTypeRow = { type: string; roomsDeclared: number; properties: number; bookings: number; roomNights: number; sellThrough: number | null };
+type RoomInventory = {
+  nights: number;
+  totals: { roomTypes: number; roomsDeclared: number; propertiesWithRooms: number; bookings: number; roomNights: number; sellThrough: number | null };
+  topSeller: string | null;
+  rows: RoomTypeRow[];
+};
+const UNASSIGNED_TYPE = "Unassigned";
 
 const TIMEFRAMES: Array<{ key: Timeframe; label: string; long: string; days: number }> = [
   { key: "24h", label: "24h", long: "Last 24 hours", days: 1 },
@@ -114,6 +122,105 @@ function Panel({ title, subtitle, children, aside }: { title: string; subtitle: 
   );
 }
 
+function pct(v: number | null) {
+  return v == null ? "No rooms" : `${v.toLocaleString("en-US", { maximumFractionDigits: 1 })}%`;
+}
+
+/**
+ * Rooms owners declared by room type, and which types guests actually occupy.
+ * Ranked by occupied room-nights; sell-through puts that against how many
+ * rooms of the type exist, so a small type that fills up is visible next to
+ * a large one that sells more in total.
+ */
+function RoomInventoryPanel({ data, loading, failed, timeframeLong }: { data: RoomInventory | null; loading: boolean; failed: boolean; timeframeLong: string }) {
+  const rows = data?.rows ?? [];
+  const maxNights = Math.max(1, ...rows.map((r) => r.roomNights));
+  const unassigned = rows.find((r) => r.type === UNASSIGNED_TYPE);
+  const totals = data?.totals;
+  const facts = [
+    { label: "Room types in use", value: totals ? totals.roomTypes.toLocaleString() : "...", detail: totals ? `across ${totals.propertiesWithRooms.toLocaleString()} properties` : "" },
+    { label: "Rooms declared", value: totals ? totals.roomsDeclared.toLocaleString() : "...", detail: "on approved listings" },
+    { label: "Room-nights occupied", value: totals ? totals.roomNights.toLocaleString() : "...", detail: totals ? `${totals.bookings.toLocaleString()} bookings` : "" },
+    { label: "Sell-through", value: totals ? pct(totals.sellThrough) : "...", detail: data && totals ? `of ${totals.roomsDeclared.toLocaleString()} rooms x ${data.nights} nights` : "" },
+  ];
+
+  return (
+    <Panel
+      title="Room inventory and sales"
+      subtitle={`${timeframeLong}, occupied room-nights by room type`}
+      aside={data?.topSeller ? (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#02665e]/10 px-2 py-1 text-[11px] font-semibold text-[#02665e]">
+          <Trophy className="h-3 w-3" /> Top seller: {data.topSeller}
+        </span>
+      ) : undefined}
+    >
+      {failed ? (
+        <p className="m-0 py-8 text-center text-xs text-neutral-400">Room inventory could not load.</p>
+      ) : (
+        <>
+          <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 lg:grid-cols-4">
+            {facts.map((f) => (
+              <div key={f.label} className="min-w-0 bg-white px-3 py-2.5">
+                <dt className="text-[11px] text-neutral-500">{f.label}</dt>
+                <dd className="m-0 mt-0.5 truncate text-base font-bold tabular-nums text-neutral-900">{loading && !data ? "..." : f.value}</dd>
+                <dd className="m-0 truncate text-[11px] text-neutral-400">{f.detail}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[520px] border-collapse text-xs">
+              <thead>
+                <tr className="text-left text-[11px] text-neutral-500">
+                  <th className="py-2 pr-3 font-medium">Room type</th>
+                  <th className="py-2 pr-3 text-right font-medium">Rooms</th>
+                  <th className="hidden py-2 pr-3 text-right font-medium sm:table-cell">Properties</th>
+                  <th className="w-[40%] py-2 pr-3 font-medium">Room-nights occupied</th>
+                  <th className="py-2 text-right font-medium">Sell-through</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length ? rows.map((r) => {
+                  const isUnassigned = r.type === UNASSIGNED_TYPE;
+                  const isTop = r.type === data?.topSeller;
+                  return (
+                    <tr key={r.type} className="border-0 border-t border-solid border-neutral-100">
+                      <td className="py-2 pr-3">
+                        <span className={`inline-flex items-center gap-1.5 font-semibold ${isUnassigned ? "text-neutral-400" : "text-neutral-900"}`}>
+                          {r.type}
+                          {isTop && <Trophy className="h-3 w-3 text-[#02665e]" aria-label="Top seller" />}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums text-neutral-700">{isUnassigned ? "" : r.roomsDeclared.toLocaleString()}</td>
+                      <td className="hidden py-2 pr-3 text-right tabular-nums text-neutral-500 sm:table-cell">{isUnassigned ? "" : r.properties.toLocaleString()}</td>
+                      <td className="py-2 pr-3">
+                        <div className="flex items-center gap-2">
+                          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-100">
+                            <span className={`block h-full rounded-full ${isUnassigned ? "bg-neutral-300" : isTop ? "bg-[#02665e]" : "bg-[#02665e]/45"}`} style={{ width: `${r.roomNights > 0 ? Math.max((r.roomNights / maxNights) * 100, 2) : 0}%` }} />
+                          </span>
+                          <span className="w-12 shrink-0 text-right font-semibold tabular-nums text-neutral-900">{r.roomNights.toLocaleString()}</span>
+                        </div>
+                      </td>
+                      <td className="py-2 text-right font-semibold tabular-nums text-neutral-700">{isUnassigned ? "" : pct(r.sellThrough)}</td>
+                    </tr>
+                  );
+                }) : (
+                  <tr><td colSpan={5} className="py-8 text-center text-neutral-400">{loading ? "Loading..." : "No rooms declared on approved listings yet."}</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {unassigned && unassigned.roomNights > 0 && (
+            <p className="m-0 mt-2 text-[11px] text-neutral-500">
+              Unassigned: {unassigned.bookings.toLocaleString()} older {unassigned.bookings === 1 ? "booking" : "bookings"} that cannot be tied to one room type. Counted in the totals, not in any type.
+            </p>
+          )}
+        </>
+      )}
+    </Panel>
+  );
+}
+
 export default function GeneralReports() {
   const [activeTab, setActiveTab] = useState<"financial" | "payouts">("financial");
   const [region, setRegion] = useState("ALL");
@@ -134,6 +241,9 @@ export default function GeneralReports() {
   const [revenueBreakdown, setRevenueBreakdown] = useState<Series>({ labels: [], data: [] });
   const [propertiesBreakdown, setPropertiesBreakdown] = useState<Series>({ labels: [], data: [] });
   const [stageTotals, setStageTotals] = useState<StageTotal[]>([]);
+  const [rooms, setRooms] = useState<RoomInventory | null>(null);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [roomsError, setRoomsError] = useState(false);
 
   // Property region ids are the numeric region codes (property.regionId).
   const regionOptions = [{ id: "ALL", name: "All regions" }, ...REGIONS.map((r) => ({ id: r.code ?? r.id, name: r.name }))];
@@ -191,6 +301,22 @@ export default function GeneralReports() {
       cancelled = true;
     };
   }, [region, timeframe, groupBy]);
+
+  // Room inventory loads on its own: if it fails, the charts above still show.
+  useEffect(() => {
+    let cancelled = false;
+    const { from, to } = rangeFor(timeframe);
+    setRoomsLoading(true);
+    setRoomsError(false);
+    fetch(`/admin/stats/room-inventory?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&region=${encodeURIComponent(region)}`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: RoomInventory) => { if (!cancelled) setRooms(data); })
+      .catch(() => { if (!cancelled) { setRooms(null); setRoomsError(true); } })
+      .finally(() => { if (!cancelled) setRoomsLoading(false); });
+    return () => {
+      cancelled = true;
+    };
+  }, [region, timeframe]);
 
   // ── Derived figures ────────────────────────────────────────────────────
   const revenueTotal = revenueSeries.data.reduce((s, v) => s + Number(v || 0), 0);
@@ -316,6 +442,10 @@ export default function GeneralReports() {
     revenueSeries.labels.forEach((day, i) => rows.push(["Guest money by day", day, String(revenueSeries.data[i] ?? 0), String(propertiesSeries.data[i] ?? ""), "", ""]));
     breakdown.labels.forEach((l, i) => rows.push([groupBy === "region" ? "By region" : "By property type", humanize(l), String(breakdown.revenue[i]), String(breakdown.properties[i]), "", ""]));
     stageTotals.forEach((s) => rows.push(["Payout invoices by money stage", s.label, "", "", String(s.count), String(Math.round(s.netPayable))]));
+    if (rooms?.rows.length) {
+      rows.push([], ["room_type", "rooms_declared", "properties", "bookings", "room_nights", "sell_through_percent"]);
+      rooms.rows.forEach((r) => rows.push([r.type, String(r.roomsDeclared), String(r.properties), String(r.bookings), String(r.roomNights), r.sellThrough == null ? "" : String(r.sellThrough)]));
+    }
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
     const a = document.createElement("a");
@@ -466,6 +596,8 @@ export default function GeneralReports() {
                 </div>
               </Panel>
             </div>
+
+            <RoomInventoryPanel data={rooms} loading={roomsLoading} failed={roomsError} timeframeLong={timeframeLong} />
           </>
         ) : (
           <>

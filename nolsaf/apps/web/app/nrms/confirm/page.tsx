@@ -57,7 +57,7 @@ function ConfirmContent() {
         <div className="flex items-center gap-3 border-b border-neutral-100 bg-[#082f2a] px-6 py-5 text-white">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400 text-emerald-950"><BedDouble className="h-5 w-5" /></span>
           <div>
-            <p className="m-0 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-300">NoLSAF</p>
+            <p className="m-0 text-[9px] font-bold text-emerald-300">NoLSAF</p>
             <h1 className="m-0 text-base font-bold">Staff assignment</h1>
           </div>
         </div>

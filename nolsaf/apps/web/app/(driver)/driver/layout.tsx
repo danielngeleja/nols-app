@@ -107,7 +107,7 @@ function PendingApprovalScreen({ kycNote }: { kycNote: string | null }) {
               <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3.5">
                 <div className="flex items-center gap-2 mb-2">
                   <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />
-                  <span className="text-xs font-black text-orange-700 uppercase tracking-wide">Message from NoLSAF Team</span>
+                  <span className="text-xs font-black text-orange-700">Message from NoLSAF Team</span>
                 </div>
                 <p className="text-sm text-orange-900 leading-relaxed">{kycNote}</p>
               </div>

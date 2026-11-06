@@ -2449,7 +2449,7 @@ export default function PropertyPreview({
                     )}
 
                     <div className="border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-4 py-3.5 sm:px-5">
-                      <p className="m-0 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-slate-400">Applies to every NoLSAF stay</p>
+                      <p className="m-0 text-[11.5px] font-semibold text-slate-400">Applies to every NoLSAF stay</p>
                       <ul className="m-0 mt-2 grid list-none gap-x-6 gap-y-1.5 p-0 sm:grid-cols-2">
                         {[
                           "Keep the property clean and well maintained",

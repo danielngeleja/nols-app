@@ -279,28 +279,42 @@ export default function TourPackagesFilterPanel() {
     <section className="min-w-0 overflow-x-clip">
       {/* overflow-x-clip, not -hidden: hidden makes this section a scroll box and draws a stray vertical scrollbar */}
       {/* One calm hero: title, one line, search and filters in it, live counts under it */}
-      <div className="overflow-hidden rounded-3xl bg-[#024d47] text-white">
-        <div className="px-4 py-6 sm:px-10 sm:py-10">
-          <div className="mx-auto max-w-3xl text-center">
-            <h1 className="m-0 text-[28px] font-extrabold leading-tight tracking-tight sm:text-[42px]">Tour Packages</h1>
-            <p className="m-0 mt-1.5 text-[13.5px] text-white/70 sm:mt-2 sm:text-[15px]">Compare prices, inclusions and itineraries from verified operators.</p>
+      <div className="overflow-hidden rounded-xl bg-[#024d47] text-white" style={{ background: "linear-gradient(120deg, #012623 0%, #023a35 55%, #02574f 100%)" }}>
+        <div className="px-4 py-4 sm:px-6 sm:py-5">
+          <div className="min-w-0">
+            {/* Title and live counts on one line */}
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <h1 className="m-0 text-xl font-bold leading-tight tracking-tight sm:text-2xl">Tour Packages</h1>
+              <p className="m-0 text-[13px] text-white/60">
+                {agentsLoading ? (
+                  "Loading verified operators"
+                ) : (
+                  <>
+                    <span className="font-semibold text-white/90">{catalogStats.packages}</span> package{catalogStats.packages === 1 ? "" : "s"} from{" "}
+                    <span className="font-semibold text-white/90">{catalogStats.operators}</span> verified operator{catalogStats.operators === 1 ? "" : "s"}
+                    <span className="hidden sm:inline"> · per person, NoLSAF fee included</span>
+                  </>
+                )}
+              </p>
+            </div>
 
-            <div className="mt-5 flex min-w-0 items-center gap-1.5 rounded-xl bg-white p-1 shadow-[0_18px_40px_-18px_rgba(0,0,0,0.5)] sm:mt-6 sm:gap-2 sm:rounded-2xl sm:p-1.5">
+            {/* Search bar: field and filters */}
+            <div className="mt-3 flex min-w-0 items-center gap-1 rounded-lg bg-white p-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.55)] sm:mt-4">
               <label className="relative min-w-0 flex-1">
                 <span className="sr-only">Search tours or operators</span>
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 sm:left-3 sm:h-5 sm:w-5" aria-hidden />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search a tour, park or operator"
-                  className="box-border h-9 w-full min-w-0 rounded-lg border-0 bg-transparent pl-8 pr-9 text-[13.5px] text-slate-900 outline-none placeholder:text-slate-400 sm:h-11 sm:rounded-xl sm:pl-10 sm:pr-10 sm:text-[14.5px]"
+                  className="box-border h-10 w-full min-w-0 rounded-md border-0 bg-transparent pl-9 pr-9 text-[14px] text-slate-900 outline-none placeholder:text-slate-400"
                 />
                 {search ? (
                   <button
                     type="button"
                     onClick={() => setSearch("")}
                     aria-label="Clear search"
-                    className="absolute right-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 sm:right-2 sm:h-7 sm:w-7 cursor-pointer items-center justify-center rounded-full border-0 bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800"
+                    className="absolute right-1.5 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border-0 bg-slate-100 text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-800"
                   >
                     <X className="h-3.5 w-3.5" aria-hidden />
                   </button>
@@ -310,15 +324,15 @@ export default function TourPackagesFilterPanel() {
                 type="button"
                 onClick={() => setShowAdvanced((value) => !value)}
                 aria-expanded={showAdvanced}
-                aria-label="Filters"
-                className={`inline-flex h-9 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[13.5px] font-semibold transition sm:h-11 sm:rounded-xl sm:px-4 ${
-                  showAdvanced ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                aria-label={activeFilterCount ? `Filters, ${activeFilterCount} applied` : "Filters"}
+                className={`inline-flex h-10 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 text-[13px] font-semibold [font-family:inherit] transition-colors sm:px-4 ${
+                  showAdvanced ? "bg-[#014e47] text-white" : "bg-[#02665e] text-white hover:bg-[#014e47]"
                 }`}
               >
                 <Filter className="h-4 w-4" aria-hidden />
                 <span className="hidden sm:inline">Filters</span>
                 {activeFilterCount ? (
-                  <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${showAdvanced ? "bg-white text-[#02665e]" : "bg-[#02665e] text-white"}`}>
+                  <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded bg-emerald-300 px-1 text-[11px] font-bold text-[#012e29]">
                     {activeFilterCount}
                   </span>
                 ) : null}
@@ -326,29 +340,38 @@ export default function TourPackagesFilterPanel() {
               </button>
             </div>
 
-            {/* Live counts from the listing, not fixed numbers */}
-            <p className="m-0 mt-3 text-[11.5px] text-white/55 sm:mt-4 sm:text-[12.5px]">
-              {agentsLoading ? (
-                "Loading verified operators"
-              ) : (
-                <>
-                  {catalogStats.operators} verified operator{catalogStats.operators === 1 ? "" : "s"} · {catalogStats.packages} package{catalogStats.packages === 1 ? "" : "s"}
-                  {/* The fee note is long; phones get the short line only */}
-                  <span className="hidden sm:inline"> · Prices per person, NoLSAF fee included</span>
-                </>
-              )}
-            </p>
+            {/* One-tap categories: the same category filter the panel sets */}
+            {categories.length > 1 ? (
+              <div className="-mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none]" role="group" aria-label="Quick categories">
+                {["All", ...categories.slice(0, 7)].map((item) => {
+                  const on = category === item;
+                  return (
+                    <button
+                      key={item}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setCategory(on && item !== "All" ? "All" : item)}
+                      className={`h-8 flex-none cursor-pointer rounded-md border border-solid px-3 text-[12.5px] font-semibold [font-family:inherit] transition-colors ${
+                        on ? "border-white bg-white text-[#02665e]" : "border-white/20 bg-white/[0.06] text-white/85 hover:border-white/40 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      {item}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
 
         {showAdvanced ? (
-            <div className="mx-auto mt-4 max-w-3xl space-y-3 rounded-2xl bg-white/[0.06] p-3 text-left ring-1 ring-white/10 sm:space-y-4 sm:p-4">
+            <div className="mt-4 space-y-3 rounded-lg bg-white/[0.06] p-3 text-left ring-1 ring-white/10 sm:space-y-4 sm:p-4">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h2 className="m-0 text-sm font-semibold" style={{ color: "rgba(255,255,255,0.85)" }}>Filters</h2>
                 {activeFilterCount ? (
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-white/10 px-3 py-1 text-[12px] font-semibold text-white/85 transition hover:bg-white/20"
+                    className="inline-flex cursor-pointer items-center gap-1 rounded-md border-0 bg-white/10 px-3 py-1 text-[12px] font-semibold text-white/85 [font-family:inherit] transition-colors hover:bg-white/20"
                   >
                     <X className="h-3.5 w-3.5" aria-hidden /> Reset filters
                   </button>

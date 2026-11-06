@@ -888,7 +888,7 @@ export default function DriverProfile() {
               <X className="h-5 w-5" />
             </button>
           </div>
-          <p className="text-center text-[10px] font-semibold uppercase tracking-widest text-white/40 mb-3">Your NoLSAF Driver ID</p>
+          <p className="text-center text-[10px] font-semibold text-white/40 mb-3">Your NoLSAF Driver ID</p>
           <div style={{ perspective: "1200px" }}>
             <div className="h-[240px]" style={{ position: "relative", transformStyle: "preserve-3d", transition: "transform 0.7s cubic-bezier(0.4,0,0.2,1)", transform: idCardFlipped ? "rotateY(180deg)" : "rotateY(0deg)" }}>
               {/* FRONT */}
@@ -927,7 +927,7 @@ export default function DriverProfile() {
                   <div className="flex-1 min-w-0 flex flex-col justify-between py-2 pr-4 pl-3">
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="text-[9px] font-black uppercase tracking-[0.3em] text-white/40">NoLSAF</p>
+                        <p className="text-[9px] font-black text-white/40">NoLSAF</p>
                         <p className="text-[10px] font-black text-white/55 tracking-widest">DRIVER ID CARD</p>
                       </div>
                       <button onClick={() => setIdCardFlipped(true)} className="h-6 w-6 rounded-full flex items-center justify-center" style={{ border: "1px solid rgba(255,255,255,0.15)", background: "transparent" }}>
@@ -936,7 +936,7 @@ export default function DriverProfile() {
                     </div>
                     <div>
                       <p className="font-black text-white uppercase" style={{ fontSize: "clamp(0.85rem,3.5vw,1.1rem)", textShadow: "0 2px 10px rgba(0,0,0,0.4)" }}>{form.fullName || me.name}</p>
-                      <p className="text-[8px] font-black uppercase tracking-[0.25em] text-emerald-400 mt-0.5">{(form.isVipDriver ?? me.isVipDriver) ? "✶ Premium Certified" : "NoLSAF Certified Driver"}</p>
+                      <p className="text-[8px] font-black text-emerald-400 mt-0.5">{(form.isVipDriver ?? me.isVipDriver) ? "✶ Premium Certified" : "NoLSAF Certified Driver"}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
                       <div><p className="text-[7px] font-bold uppercase tracking-widest text-white/35">ID No.</p><p className="text-[10px] font-black text-white mt-0">{me.driverVerificationCode || "Not issued"}</p></div>
@@ -976,7 +976,7 @@ export default function DriverProfile() {
                     {/* Header */}
                     <div className="flex items-start justify-between">
                       <div className="min-w-0">
-                        <p className="text-[8px] font-black uppercase tracking-[0.28em]" style={{color:"rgba(255,255,255,0.35)"}}>NoLSAF \u00b7 Driver Profile</p>
+                        <p className="text-[8px] font-black" style={{color:"rgba(255,255,255,0.35)"}}>NoLSAF \u00b7 Driver Profile</p>
                         <p className="text-[13px] font-black text-white mt-0.5 leading-none truncate">{form.fullName||me.name||"\u2014"}</p>
                       </div>
                       <button onClick={() => setIdCardFlipped(false)} className="h-6 w-6 rounded-full flex items-center justify-center ml-2 flex-shrink-0" style={{ border: "1px solid rgba(255,255,255,0.15)", background: "transparent" }}>
@@ -1001,7 +1001,7 @@ export default function DriverProfile() {
                     <div className="flex-1" />
                     <div className="pt-2 border-t" style={{borderColor:"rgba(255,255,255,0.08)"}}>
                       <div className="flex items-center gap-2">
-                        <p className="text-[7px] font-black uppercase tracking-widest flex-shrink-0" style={{color:"rgba(255,255,255,0.28)"}}>NoLSAF \u00a9 {new Date().getFullYear()}</p>
+                        <p className="text-[7px] font-black flex-shrink-0" style={{color:"rgba(255,255,255,0.28)"}}>NoLSAF \u00a9 {new Date().getFullYear()}</p>
                         <svg className="flex-1" height="16" viewBox="0 0 130 16" preserveAspectRatio="xMidYMid meet" aria-hidden style={{background:"rgba(255,255,255,0.12)",borderRadius:"2px"}}>
                           {(()=>{ const pat=[1,1,3,1,2,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,1,2,1,1,2,3,1,1,2,1,1,3,1,1,2,1,3,1,1,2,1,1,3,2,1,1,2,1,3]; const r:ReactElement[]=[]; let x=2; pat.forEach((w,i)=>{ if(i%2===0){ r.push(<rect key={i} x={x} y={0} width={w} height={16} fill="rgba(255,255,255,0.85)"/>); } x+=w; }); return r; })()}
                         </svg>

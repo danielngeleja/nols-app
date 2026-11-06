@@ -88,7 +88,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
     <footer id="site-footer" aria-label="Site footer" className="relative mt-10 hidden w-full page-bottom-buffer md:block">
       <div className="public-container relative z-10 pb-10 pt-4">
         <div
-          className="relative box-border overflow-hidden rounded-[20px] text-white ring-1 ring-inset ring-white/[0.06] shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
+          className="relative box-border overflow-hidden rounded-xl text-white ring-1 ring-inset ring-white/[0.06] shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
           style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 60%, #0d1714 100%)" }}
         >
           <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(560px circle at 0% 0%, rgba(2,102,94,0.28), transparent 60%)" }} />
@@ -115,10 +115,10 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
               </p>
 
               {/* Official contacts: one joined card (System Settings via /api/public/support) */}
-              <div className="mt-6 overflow-hidden rounded-2xl border border-solid border-white/[0.08] bg-white/[0.025]">
+              <div className="mt-6 overflow-hidden rounded-lg border border-solid border-white/[0.08] bg-white/[0.025]">
                 <div className="flex items-center justify-between gap-2 px-4 py-3">
                   <span className="text-[13px] font-semibold text-white">Official contacts</span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-300/12 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-300 ring-1 ring-inset ring-emerald-300/25">
+                  <span className="inline-flex items-center gap-1 rounded bg-emerald-300/12 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-300 ring-1 ring-inset ring-emerald-300/25">
                     <BadgeCheck className="h-3 w-3" aria-hidden /> Verified
                   </span>
                 </div>
@@ -145,7 +145,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
                               rel="noopener noreferrer"
                               aria-label={a.label}
                               title={a.label}
-                              className="grid h-8 w-8 place-items-center rounded-full bg-emerald-300/10 text-emerald-300 no-underline transition hover:bg-emerald-300 hover:text-[#012e29]"
+                              className="grid h-8 w-8 place-items-center rounded-md bg-emerald-300/10 text-emerald-300 no-underline transition hover:bg-emerald-300 hover:text-[#012e29]"
                             >
                               <a.Icon className="h-[15px] w-[15px]" aria-hidden />
                             </a>
@@ -184,6 +184,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
                   { href: "/about/who", label: "Who we are" },
                   { href: "/about/what", label: "What we do" },
                   { href: "/about/story", label: "Our story" },
+                  { href: "/app", label: "NoLSAF mobile app" },
                   { href: "/careers", label: "Careers" },
                 ],
               },
@@ -227,7 +228,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
             </div>
 
             {/* Newsletter: its own card on large screens, full row under the columns on tablets */}
-            <div className="col-span-4 box-border min-w-0 rounded-2xl border border-solid border-white/[0.09] p-5 lg:col-span-1" style={{ background: "linear-gradient(160deg, rgba(2,102,94,0.22) 0%, rgba(255,255,255,0.03) 70%)" }}>
+            <div className="col-span-4 box-border min-w-0 rounded-lg border border-solid border-white/[0.09] p-5 lg:col-span-1" style={{ background: "linear-gradient(160deg, rgba(2,102,94,0.22) 0%, rgba(255,255,255,0.03) 70%)" }}>
               <p className="m-0 flex items-center gap-2 whitespace-nowrap text-[14px] font-semibold text-white"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-300/15 text-emerald-300"><Mail className="h-3.5 w-3.5" aria-hidden /></span>Monthly travel updates</p>
               <p className="m-0 mt-2 text-[12.5px] leading-snug text-white/55">New stays, destinations and features. No spam.</p>
               <form

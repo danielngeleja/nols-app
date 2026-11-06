@@ -48,7 +48,7 @@ export default function BookingFlowCard() {
   return (
     <section
       aria-labelledby="how-booking-works-heading"
-      className="relative box-border w-full max-w-full overflow-hidden rounded-2xl text-white ring-1 ring-inset ring-white/[0.06] shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)] lg:rounded-[20px]"
+      className="relative box-border w-full max-w-full overflow-hidden rounded-xl text-white ring-1 ring-inset ring-white/[0.06] shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
       style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 60%, #0d1714 100%)" }}
     >
       <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -89,9 +89,9 @@ export default function BookingFlowCard() {
             const onLeft = index % 2 === 1;
             return (
               <li key={title} className="relative grid min-w-0 grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)] items-start gap-x-3 pb-4 last:pb-0 lg:flex lg:flex-col lg:items-center lg:gap-0 lg:pb-0 lg:text-center">
-                <span className="relative z-10 col-start-2 row-start-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0b1211] text-emerald-300 ring-1 ring-inset ring-emerald-300/35 shadow-[0_0_0_4px_#0b1211]">
+                <span className="relative z-10 col-start-2 row-start-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0b1211] text-emerald-300 ring-1 ring-inset ring-emerald-300/35 shadow-[0_0_0_4px_#0b1211]">
                   <Icon className="h-[18px] w-[18px]" aria-hidden />
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-400 px-1 text-[9.5px] font-bold text-[#012e29]" aria-hidden>
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded bg-emerald-400 px-1 text-[9.5px] font-bold text-[#012e29]" aria-hidden>
                     {index + 1}
                   </span>
                 </span>
@@ -138,7 +138,7 @@ export default function BookingFlowCard() {
         {/* Phone CTA */}
         <Link
           href="/public/properties"
-          className="mt-5 flex h-11 items-center justify-center gap-1.5 rounded-xl bg-white text-[14px] font-semibold text-[#02665e] no-underline sm:hidden"
+          className="mt-5 flex h-11 items-center justify-center gap-1.5 rounded-lg bg-white text-[14px] font-semibold text-[#02665e] no-underline sm:hidden"
         >
           Start booking
           <ArrowRight className="h-4 w-4" aria-hidden />

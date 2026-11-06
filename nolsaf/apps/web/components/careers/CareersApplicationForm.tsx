@@ -471,6 +471,12 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Only a deliberate click on "Submit Application" sends the application.
+    // Pressing Enter in a field, or any other path, must never submit early,
+    // and a multi-step application only submits from its last step.
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLElement | null;
+    if (submitter?.dataset.finalSubmit !== "true") return;
+    if (isTravelAgentPosition && currentStep < travelFlowSteps.length - 1) return;
     setError(null);
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -653,7 +659,15 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 sm:p-6 pb-[calc(8rem+env(safe-area-inset-bottom))] sm:pb-6 space-y-8 overflow-x-hidden bg-slate-50/60">
+        <form
+          onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            // Enter in a single-line field would submit the form; keep it for
+            // the fields' own "add" handlers (they run first) and for textareas.
+            const target = e.target as HTMLElement;
+            if (e.key === "Enter" && target.tagName === "INPUT") e.preventDefault();
+          }}
+          className="p-4 sm:p-6 pb-[calc(8rem+env(safe-area-inset-bottom))] sm:pb-6 space-y-8 overflow-x-hidden bg-slate-50/60">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{error}</div>}
 
           {isTravelAgentPosition && (
@@ -954,7 +968,7 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                 list="language-options"
                 value={languageInput}
                 onChange={(e) => setLanguageInput(e.target.value)}
-                onKeyPress={(e) => {
+                onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
                     handleAddLanguage();
@@ -1773,8 +1787,12 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                     Back
                   </button>
                 )}
+                {/* Distinct keys: without them React reuses one <button> and flips it to
+                    type="submit" during the "Next Step" click, which submitted the form
+                    the moment the last step opened. */}
                 {currentStep < travelFlowSteps.length - 1 ? (
                   <button type="button"
+                    key="next-step"
                     onClick={handleNextStep}
                     className="w-full px-4 sm:px-6 py-2.5 sm:py-3 bg-[#02665e] text-white rounded-lg font-semibold hover:bg-[#024d47] transition-colors min-w-0 sm:flex-1"
                   >
@@ -1782,6 +1800,8 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                   </button>
                 ) : (
                   <button type="submit"
+                    key="final-submit"
+                    data-final-submit="true"
                     disabled={submitting || aboutInvalid}
                     className="w-full px-4 sm:px-6 py-2.5 sm:py-3 bg-[#02665e] text-white rounded-lg font-semibold hover:bg-[#024d47] transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-0 sm:flex-1"
                   >
@@ -1791,6 +1811,7 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
               </>
             ) : (
               <button type="submit"
+                data-final-submit="true"
                 disabled={submitting || aboutInvalid}
                 className="w-full px-4 sm:px-6 py-2.5 sm:py-3 bg-[#02665e] text-white rounded-lg font-semibold hover:bg-[#024d47] transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-0 sm:flex-1"
               >

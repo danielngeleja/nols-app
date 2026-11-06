@@ -178,7 +178,7 @@ export default function HelpEventManagerPage() {
                   <Lightbulb className="h-5 w-5 text-[#a78bfa]" />
                 </div>
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-widest text-[#a78bfa] mb-2">NoLSAF Mission</p>
+                  <p className="text-[11px] font-bold text-[#a78bfa] mb-2">NoLSAF Mission</p>
                   <h2 className="text-xl sm:text-2xl font-black text-white leading-snug">
                     The platform is a treatment,<br className="hidden sm:block" /> not just a booking tool.
                   </h2>

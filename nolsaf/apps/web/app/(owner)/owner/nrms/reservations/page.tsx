@@ -428,7 +428,7 @@ function MarketplaceSettlement({ reservation }: { reservation: Reservation }) {
   return <section aria-label="Marketplace settlement" className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
     <div className="bg-emerald-50/50 px-4 pb-4 pt-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">NoLSAF settlement</p>
+        <p className="m-0 text-[11px] font-bold text-slate-500">NoLSAF settlement</p>
         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold ring-1 ring-inset ${guestPaid ? "bg-white text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-200"}`}>
           {guestPaid ? <Check className="h-3 w-3" aria-hidden="true" /> : <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />}
           Guest {guestPaid ? "paid" : customerPaymentLabel}

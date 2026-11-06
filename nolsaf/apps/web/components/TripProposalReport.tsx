@@ -162,7 +162,7 @@ export default function TripProposalReport({ request, label }: Props) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/assets/NoLS2025-04.png" alt="NoLSAF" className="w-14 h-14 object-contain flex-shrink-0 drop-shadow" />
               <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-white/50">NoLSAF</p>
+                <p className="text-[10px] font-black text-white/50">NoLSAF</p>
                 <div className="text-white font-black text-[17px] tracking-tight leading-tight">NoLS Africa Co Ltd</div>
                 <div className="text-[11px] font-bold text-teal-300 mt-0.5 tracking-wide">Quality Stay For Every Wallet</div>
                 <div className="text-[10px] text-white/40 mt-0.5">P.O BOX 23091 · Dar es Salaam, Tanzania</div>
@@ -240,7 +240,7 @@ export default function TripProposalReport({ request, label }: Props) {
           <div className="bg-gradient-to-br from-teal-50 to-blue-50 rounded-xl border border-teal-100 px-5 py-4">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-1 h-4 bg-teal-500 rounded-full" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-teal-700">A Message from NoLSAF</span>
+              <span className="text-[10px] font-black text-teal-700">A Message from NoLSAF</span>
             </div>
             <p className="text-sm text-gray-800 leading-relaxed font-medium">
               Every journey you take is a story waiting to be told. At <strong>NoLSAF</strong>, we don&apos;t just plan trips — we craft experiences that stay with you long after you return home.

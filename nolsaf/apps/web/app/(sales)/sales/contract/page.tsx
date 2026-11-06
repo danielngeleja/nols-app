@@ -230,7 +230,7 @@ function AgreementDocument({ content }: { content: string }) {
       <header className="bg-[#073c35] px-5 py-6 text-white sm:px-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-200">NoLSAF legal document</p>
+            <p className="m-0 text-[10px] font-bold text-emerald-200">NoLSAF legal document</p>
             <h2 className="mb-0 mt-2 text-2xl font-bold tracking-tight">{title.replace(/^NoLSAF\s+/i, "")}</h2>
             <p className="mb-0 mt-2 text-xs text-white/70">Partner onboarding · Controlled agreement record</p>
           </div>

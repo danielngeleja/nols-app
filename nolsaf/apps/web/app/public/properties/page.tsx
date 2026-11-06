@@ -82,6 +82,67 @@ type ListResponse = {
   pageSize: number;
 };
 
+function pageChoices(page: number, totalPages: number): Array<number | string> {
+  const nearby = [...new Set([1, page - 1, page, page + 1, totalPages])]
+    .filter((value) => value >= 1 && value <= totalPages)
+    .sort((a, b) => a - b);
+  const choices: Array<number | string> = [];
+  nearby.forEach((value, index) => {
+    const previous = nearby[index - 1];
+    if (previous && value - previous === 2) choices.push(previous + 1);
+    if (previous && value - previous > 2) choices.push(`gap-${previous}-${value}`);
+    choices.push(value);
+  });
+  return choices;
+}
+
+function ApprovedPropertyPager({
+  page,
+  totalPages,
+  total,
+  pageSize,
+  onPage,
+  className = "",
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+  onPage: (page: number) => void;
+  className?: string;
+}) {
+  if (totalPages <= 1) return null;
+  const currentPage = Math.min(page, totalPages);
+  const first = (currentPage - 1) * pageSize + 1;
+  const last = Math.min(currentPage * pageSize, total);
+  const navButton = "inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-solid border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40";
+
+  return (
+    <nav className={`mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-slate-200 bg-slate-50/70 px-3 py-3 sm:px-4 ${className}`} aria-label="Approved property pages">
+      <p className="m-0 text-xs text-slate-600">
+        Showing <strong className="tabular-nums text-slate-900">{first}–{last}</strong> of <strong className="tabular-nums text-slate-900">{total}</strong> approved {total === 1 ? "stay" : "stays"}
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button type="button" onClick={() => onPage(currentPage - 1)} disabled={currentPage <= 1} aria-label="Previous page" className={navButton}>
+          <ChevronLeft className="h-3.5 w-3.5" aria-hidden /><span className="hidden sm:inline">Previous</span>
+        </button>
+        {pageChoices(currentPage, totalPages).map((choice) =>
+          typeof choice === "string" ? (
+            <span key={choice} className="px-1 text-xs text-slate-400" aria-hidden>…</span>
+          ) : (
+            <button key={choice} type="button" onClick={() => onPage(choice)} aria-label={`Page ${choice}`} aria-current={choice === currentPage ? "page" : undefined} className={`h-9 min-w-9 rounded-lg border border-solid px-2 text-xs font-bold tabular-nums transition ${choice === currentPage ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}`}>
+              {choice}
+            </button>
+          )
+        )}
+        <button type="button" onClick={() => onPage(currentPage + 1)} disabled={currentPage >= totalPages} aria-label="Next page" className={navButton}>
+          <span className="hidden sm:inline">Next</span><ChevronRight className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 const PROPERTY_TYPES = [
   { key: "HOTEL", label: "Hotel" },
   { key: "LODGE", label: "Lodge" },
@@ -276,7 +337,7 @@ function OptionGrid({
     <div>
       {title && (
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</span>
+          <span className="text-[12px] font-medium text-slate-500">{title}</span>
           {!single && picked > 0 && <span className="text-[11px] font-semibold text-[#02665e]">{picked} selected</span>}
         </div>
       )}
@@ -296,7 +357,7 @@ function OptionGrid({
               aria-checked={on}
               onClick={() => onPick(o.key)}
               className={[
-                "box-border flex min-w-0 items-center gap-2.5 border-0 border-solid border-slate-100 px-3 py-2.5 text-left transition-colors",
+                "box-border flex min-w-0 items-center gap-2.5 border-0 border-solid border-slate-100 px-3 py-2.5 text-left [font-family:inherit] transition-colors",
                 columns === 2 && i % 2 === 1 ? "border-l" : "",
                 i >= columns ? "border-t" : "",
                 on ? "bg-[#02665e]/[0.06]" : "bg-white hover:bg-slate-50",
@@ -363,16 +424,16 @@ function FilterSection({
         onClick={onToggle}
         aria-expanded={open}
         aria-controls={`filter-panel-${id}`}
-        className={`box-border flex h-[52px] w-full items-center gap-3 border-0 px-4 text-left transition-colors ${open ? "bg-slate-50" : "bg-white hover:bg-slate-50"}`}
+        className={`box-border flex h-12 w-full items-center gap-3 border-0 px-4 text-left [font-family:inherit] transition-colors ${open ? "bg-slate-50" : "bg-white hover:bg-slate-50"}`}
       >
         <span
-          className={`flex h-8 w-8 flex-none items-center justify-center rounded-lg ring-1 ring-inset ${
-            isSet ? "bg-[#02665e] text-white ring-[#02665e]" : "bg-[#02665e]/[0.07] text-[#02665e] ring-[#02665e]/10"
+          className={`flex h-7 w-7 flex-none items-center justify-center rounded-md ${
+            isSet ? "bg-[#02665e] text-white" : "bg-[#02665e]/[0.07] text-[#02665e]"
           }`}
         >
           <Icon className="h-4 w-4" aria-hidden />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-slate-900">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-slate-900">{title}</span>
         {/* Current choice: quiet grey when open-ended, brand when set */}
         <span className={`max-w-[42%] flex-none truncate text-[13px] ${isSet ? "font-semibold text-[#02665e]" : "text-slate-500"}`}>
           {summary}
@@ -383,7 +444,7 @@ function FilterSection({
         <div id={`filter-panel-${id}`} className="min-w-0 border-0 border-t border-solid border-slate-100 bg-slate-50 px-4 pb-3.5 pt-3">
           {children}
           {onClear && (
-            <button type="button" onClick={onClear} className="mt-3 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline">
+            <button type="button" onClick={onClear} className="mt-3 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] [font-family:inherit] hover:underline">
               Clear {title.toLowerCase()}
             </button>
           )}
@@ -762,7 +823,8 @@ export default function PropertiesPage() {
     };
   }, [filtersOpen]);
 
-  const applyFilters = () => {
+  // The draft as URL params: used to apply the filters and to preview how many stays they leave.
+  const draftParams = useCallback(() => {
     const next = new URLSearchParams(qp.toString());
     // reset paging when filters change
     next.set("page", "1");
@@ -809,10 +871,32 @@ export default function PropertiesPage() {
       next.delete("nearLng");
       next.delete("radiusKm");
     }
+    return next;
+  }, [qp, draft]);
 
-    router.push(propertiesUrl(next));
+  const applyFilters = () => {
+    router.push(propertiesUrl(draftParams()));
     closeFilters();
   };
+
+  // Live preview: how many stays the draft would show, so the main button says it before applying.
+  const [draftCount, setDraftCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const controller = new AbortController();
+    const t = window.setTimeout(() => {
+      const params = draftParams();
+      params.set("pageSize", "1");
+      fetch(`/api/public/properties?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => setDraftCount(typeof json?.total === "number" ? json.total : null))
+        .catch(() => {});
+    }, 350);
+    return () => {
+      window.clearTimeout(t);
+      controller.abort();
+    };
+  }, [filtersOpen, draftParams]);
 
   const clearFilters = () => {
     const next = new URLSearchParams(qp.toString());
@@ -849,65 +933,83 @@ export default function PropertiesPage() {
     );
   };
 
+  // One results line for phone and desktop: what is listed, how many, and in
+  // what order. The range only appears when there is more than one page.
+  const sortNow = getParam(qp, "sort");
+  const sortLabel = sortNow === "price_asc" ? "Lowest price first" : sortNow === "price_desc" ? "Highest price first" : "Newest first";
+  const firstShown = (page - 1) * pageSize + 1;
+  const lastShown = Math.min(page * pageSize, total);
+  const resultsHeading = (
+    <div className="flex items-end justify-between gap-3 border-0 border-b border-solid border-slate-100 pb-2.5">
+      <div className="min-w-0">
+        <h2 className="m-0 text-[15px] font-semibold tracking-tight text-slate-900">
+          {appliedChips.length > 0 || q ? "Matching stays" : "All stays"}
+        </h2>
+        <p className="m-0 mt-0.5 text-xs text-slate-500">
+          <span className="font-semibold tabular-nums text-slate-700">{total.toLocaleString()}</span> verified {total === 1 ? "stay" : "stays"}
+          {totalPages > 1 && <> · showing <span className="tabular-nums">{firstShown}–{lastShown}</span></>}
+        </p>
+      </div>
+      <p className="m-0 shrink-0 text-right text-xs text-slate-500">
+        {sortLabel}
+        {totalPages > 1 && <span className="hidden sm:inline"> · page {page} of {totalPages}</span>}
+      </p>
+    </div>
+  );
+
   return (
     <main className="relative min-h-screen bg-white text-slate-900 header-offset">
-      <section className="py-8">
+      <section className="py-5 sm:py-6">
         <div className="public-container">
           <div className="flex flex-col gap-3">
             <div className="w-full min-w-0">
-              {/* Premium header card */}
+              {/* Search band: compact, one job (find a stay), with one-tap type picks */}
               <motion.div
-                initial={{ opacity: 0, y: 18 }}
+                initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.45, ease: [0.22, 0.8, 0.32, 1] }}
-                className="relative overflow-hidden rounded-3xl px-4 pb-4 pt-5 shadow-[0_18px_44px_-20px_rgba(1,40,36,0.75)] sm:rounded-[32px] sm:px-10 sm:pb-8 sm:pt-9"
-                style={{ background: 'linear-gradient(135deg, #011a18 0%, #023a35 50%, #02665e 100%)' }}
+                transition={{ duration: 0.4, ease: [0.22, 0.8, 0.32, 1] }}
+                className="relative overflow-hidden rounded-xl px-4 py-4 sm:px-6 sm:py-5"
+                style={{ background: 'linear-gradient(120deg, #012623 0%, #023a35 55%, #02574f 100%)' }}
               >
-                  {/* Texture: same soft emerald light and dot grid as the account and header surfaces */}
                   <div className="pointer-events-none absolute inset-0" aria-hidden>
-                    <div className="absolute inset-0" style={{ background: 'radial-gradient(520px circle at 100% 0%, rgba(52,211,153,0.22), transparent 60%), radial-gradient(380px circle at 0% 100%, rgba(2,102,94,0.45), transparent 60%)' }} />
+                    <div className="absolute inset-0" style={{ background: 'radial-gradient(420px circle at 100% 0%, rgba(52,211,153,0.16), transparent 60%)' }} />
                     <div
-                      className="absolute inset-0 opacity-[0.16]"
+                      className="absolute inset-0 opacity-[0.12]"
                       style={{
                         backgroundImage: 'radial-gradient(rgba(255,255,255,0.55) 1px, transparent 1px)',
                         backgroundSize: '18px 18px',
-                        WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, #000 60%)',
-                        maskImage: 'linear-gradient(90deg, transparent 0%, #000 60%)',
+                        WebkitMaskImage: 'linear-gradient(90deg, transparent 30%, #000 85%)',
+                        maskImage: 'linear-gradient(90deg, transparent 30%, #000 85%)',
                       }}
                     />
                   </div>
 
-                  <div className="relative z-10 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-                    <div className="min-w-0">
-                      <h1 className="m-0 text-[26px] font-bold leading-[1.15] tracking-tight text-white sm:text-4xl lg:text-[2.75rem]">
-                        {q
-                          ? <>{`Results for `}<span className="text-emerald-300">&ldquo;{q}&rdquo;</span></>
-                          : 'Find your stay'}
-                      </h1>
-                      <p className="m-0 mt-1.5 text-[13.5px] text-white/60 sm:text-base">
-                        Verified properties across Tanzania, booked securely.
-                      </p>
-                    </div>
-
-                    {/* Count as a quiet chip, not a separate card */}
-                    <span className="mt-2.5 inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-emerald-300/10 px-2.5 py-1 text-[12px] font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-300/25 sm:mt-0">
-                      <BadgeCheck className="h-3.5 w-3.5" aria-hidden />
-                      {loading ? 'Loading' : `${total.toLocaleString()} verified ${total === 1 ? 'property' : 'properties'}`}
-                    </span>
+                  <div className="relative z-10 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <h1 className="m-0 text-xl font-bold leading-tight tracking-tight text-white sm:text-2xl">
+                      {q
+                        ? <>{`Results for `}<span className="text-emerald-300">&ldquo;{q}&rdquo;</span></>
+                        : 'Find your stay'}
+                    </h1>
+                    <p className="m-0 inline-flex items-center gap-1.5 text-[13px] text-white/60">
+                      <BadgeCheck className="h-3.5 w-3.5 text-emerald-300" aria-hidden />
+                      {loading
+                        ? 'Loading stays'
+                        : <><span className="font-semibold text-white/90">{total.toLocaleString()}</span>{` verified ${total === 1 ? 'stay' : 'stays'} across Tanzania`}</>}
+                    </p>
                   </div>
 
-                  {/* Search: solid white so it is the obvious next step */}
-                  <div className="relative z-10 mt-4 flex items-center gap-1.5 rounded-2xl bg-white p-1.5 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] sm:mt-6">
+                  {/* Search bar: field, price order, filters */}
+                  <div className="relative z-10 mt-3 flex items-center gap-1 rounded-lg bg-white p-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.55)] sm:mt-4">
                     <label className="relative flex min-w-0 flex-1 items-center">
                       <span className="sr-only">Search properties</span>
-                      <Search className="pointer-events-none absolute left-3 h-[18px] w-[18px] text-slate-400" aria-hidden />
+                      <Search className="pointer-events-none absolute left-3 h-4 w-4 text-slate-400" aria-hidden />
                       <input
                         type="search"
                         value={searchInput}
                         onChange={(e) => onSearchChange(e.target.value)}
                         placeholder="Region, city or property name"
                         enterKeyHint="search"
-                        className="box-border h-11 w-full min-w-0 rounded-xl border-0 bg-transparent pl-10 pr-2 text-[14.5px] text-slate-900 outline-none placeholder:text-slate-400"
+                        className="box-border h-10 w-full min-w-0 rounded-md border-0 bg-transparent pl-9 pr-2 text-[14px] text-slate-900 outline-none placeholder:text-slate-400"
                       />
                     </label>
 
@@ -925,38 +1027,81 @@ export default function PropertiesPage() {
                           : cur === "price_desc"
                             ? "Price: high to low"
                             : "Sort by price";
+                      const short = cur === "price_asc" ? "Price ↑" : cur === "price_desc" ? "Price ↓" : "Price";
                       return (
                         <button
                           type="button"
                           onClick={() => setSort(nextSort(cur))}
-                          className={`flex h-11 w-11 flex-none items-center justify-center rounded-xl border-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 ${
-                            cur ? "bg-[#02665e]/[0.08] text-[#02665e]" : "bg-slate-100 text-slate-600 active:bg-slate-200"
+                          className={`flex h-10 flex-none items-center justify-center gap-1.5 rounded-md border-0 px-2.5 text-[13px] font-semibold [font-family:inherit] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 sm:px-3 ${
+                            cur ? "bg-[#02665e]/[0.08] text-[#02665e]" : "bg-transparent text-slate-600 hover:bg-slate-100"
                           }`}
                           aria-label={label}
                           title={label}
                         >
-                          <ChevronsUpDown className={`h-[18px] w-[18px] ${cur === "price_desc" ? "rotate-180" : ""}`} />
+                          <ChevronsUpDown className="h-4 w-4" aria-hidden />
+                          <span className="hidden sm:inline">{short}</span>
                         </button>
                       );
                     })()}
+
+                    <span className="h-6 w-px flex-none bg-slate-200" aria-hidden />
 
                     <button
                       type="button"
                       onClick={openFilters}
                       aria-label={appliedChips.length > 0 ? `Filters, ${appliedChips.length} applied` : "Filters"}
                       title="Filters"
-                      className="relative flex h-11 flex-none items-center justify-center gap-1.5 rounded-xl border-0 px-3 text-[13.5px] font-semibold text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40 active:scale-[0.97] sm:px-4"
-                      style={{ background: 'linear-gradient(135deg, #014e47 0%, #02665e 100%)' }}
+                      className="relative flex h-10 flex-none items-center justify-center gap-1.5 rounded-md border-0 bg-[#02665e] px-3 text-[13px] font-semibold text-white [font-family:inherit] transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40 sm:px-4"
                     >
-                      <SlidersHorizontal className="h-[18px] w-[18px]" />
+                      <SlidersHorizontal className="h-4 w-4" aria-hidden />
                       <span className="hidden sm:inline">Filters</span>
                       {appliedChips.length > 0 && (
-                        <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-400 px-1 text-[11px] font-bold text-[#012e29] ring-2 ring-white">
+                        <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded bg-emerald-300 px-1 text-[11px] font-bold text-[#012e29]">
                           {appliedChips.length}
                         </span>
                       )}
                     </button>
                   </div>
+
+                  {/* One-tap type picks: toggles the same `types` filter the Filters panel sets */}
+                  {(() => {
+                    const active = parseTypesParam(qp);
+                    const toggleType = (key: string) => {
+                      const next = new URLSearchParams(qp.toString());
+                      const set = new Set(active);
+                      if (set.has(key)) set.delete(key);
+                      else set.add(key);
+                      next.set("page", "1");
+                      next.delete("type");
+                      if (set.size) next.set("types", [...set].join(","));
+                      else next.delete("types");
+                      router.push(propertiesUrl(next));
+                    };
+                    const QUICK = ["HOTEL", "LODGE", "GUEST_HOUSE", "APARTMENT", "VILLA", "HOMESTAY"];
+                    return (
+                      <div className="relative z-10 -mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none]" role="group" aria-label="Quick property types">
+                        {QUICK.map((key) => {
+                          const on = active.includes(key);
+                          const label = PROPERTY_TYPES.find((t) => t.key === key)?.label ?? key;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              aria-pressed={on}
+                              onClick={() => toggleType(key)}
+                              className={`h-8 flex-none rounded-md border border-solid px-3 text-[12.5px] font-semibold [font-family:inherit] transition-colors ${
+                                on
+                                  ? "border-white bg-white text-[#02665e]"
+                                  : "border-white/20 bg-white/[0.06] text-white/85 hover:border-white/40 hover:bg-white/10 hover:text-white"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
               </motion.div>
 
             </div>
@@ -1241,128 +1386,36 @@ export default function PropertiesPage() {
 
           {!loading && !error && (data?.items?.length ?? 0) > 0 && (
             <>
-              {/* ── Mobile: rows of 5, each row is a swipe strip (2 visible, swipe for rest) ── */}
-              <div className="sm:hidden space-y-5">
-                {/* Header: total count */}
-                <div className="flex items-center justify-between px-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-block w-1 h-4 rounded-full" style={{ background: 'linear-gradient(to bottom, #10b981, #02665e)' }} />
-                    <span className="text-[11px] font-semibold text-slate-700 tracking-wide">
-                      {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)}
-                      <span className="font-normal text-slate-400"> of {total} properties</span>
-                    </span>
-                  </div>
-                  {totalPages > 1 && (
-                    <span className="text-[10px] font-medium text-slate-400 tracking-wider uppercase">Page {page}/{totalPages}</span>
-                  )}
+              {/* ── Mobile ── */}
+              <div className="sm:hidden space-y-4">
+                {resultsHeading}
+
+                {/* Phones: a plain two-column grid, so every stay is visible while scrolling down */}
+                <div className="grid grid-cols-2 gap-3">
+                  {(data?.items ?? []).map((p, idx) => (
+                    <motion.div
+                      key={p.id}
+                      className="min-w-0"
+                      initial={{ opacity: 0, y: 10 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true, amount: 0.2 }}
+                      transition={{ duration: 0.3, delay: (idx % 2) * 0.04, ease: [0.22, 0.8, 0.32, 1] }}
+                      onClick={() => addRecentProperty({ title: p.title, slug: p.slug, location: p.location, primaryImage: p.primaryImage, basePrice: p.basePrice, currency: p.currency, services: p.services })}
+                    >
+                      <PublicApprovedPropertyCard
+                        p={p}
+                        systemCommission={systemCommission}
+                        priorityImage={idx === 0}
+                      />
+                    </motion.div>
+                  ))}
                 </div>
 
-                {Array.from({ length: Math.ceil((data?.items?.length ?? 0) / 5) }).map((_, rowIdx) => {
-                  const rowItems = (data?.items ?? []).slice(rowIdx * 5, rowIdx * 5 + 5);
-                  const rowCount = Math.ceil((data?.items?.length ?? 0) / 5);
-                  const startNum = (page - 1) * pageSize + rowIdx * 5 + 1;
-                  const endNum = Math.min(startNum + rowItems.length - 1, total);
-                  return (
-                    <div key={rowIdx}>
-                      {/* Row label */}
-                      <div className="flex items-center justify-between mb-2 px-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-md text-[10px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#02665e,#10b981)' }}>
-                            {rowIdx + 1}
-                          </span>
-                          <span className="text-[11px] font-semibold text-slate-600 tabular-nums">
-                            {startNum}–{endNum}
-                          </span>
-                        </div>
-                        <motion.span
-                          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest select-none"
-                          style={{ color: '#10b981' }}
-                          animate={{ x: [0, 4, 0] }}
-                          transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
-                        >
-                          <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
-                          swipe
-                        </motion.span>
-                      </div>
-                      <div className="relative">
-                        <div className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth gap-3 pb-2 -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                          {rowItems.map((p, idx) => (
-                            <motion.div
-                              key={p.id}
-                              className="snap-start shrink-0 w-[calc(50vw-20px)]"
-                              initial={{ opacity: 0, x: 40, scale: 0.97 }}
-                              whileInView={{ opacity: 1, x: 0, scale: 1 }}
-                              viewport={{ once: false, amount: 0.3, root: undefined }}
-                              transition={{ duration: 0.35, delay: idx * 0.04, ease: [0.22, 0.8, 0.32, 1] }}
-                              onClick={() => addRecentProperty({ title: p.title, slug: p.slug, location: p.location, primaryImage: p.primaryImage, basePrice: p.basePrice, currency: p.currency, services: p.services })}
-                            >
-                              <PublicApprovedPropertyCard
-                                p={p}
-                                systemCommission={systemCommission}
-                                priorityImage={rowIdx === 0 && idx === 0}
-                              />
-                            </motion.div>
-                          ))}
-                        </div>
-                      </div>
-                      {/* Divider between rows */}
-                      {rowIdx < rowCount - 1 && (
-                        <div className="mt-5 flex items-center gap-3">
-                          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
-                          <span className="text-[9px] font-semibold uppercase tracking-widest text-slate-300 select-none">more</span>
-                          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-
-                {/* Mobile pagination */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between pt-2">
-                    <button
-                      type="button"
-                      onClick={() => goToPage(page - 1)}
-                      disabled={page <= 1}
-                      aria-label="Previous page"
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" /> Previous
-                    </button>
-                    <span className="text-xs text-slate-500">Page <span className="font-semibold">{page}</span> / {totalPages}</span>
-                    <button
-                      type="button"
-                      onClick={() => goToPage(page + 1)}
-                      disabled={page >= totalPages}
-                      aria-label="Next page"
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
-                    >
-                      Next <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
+                <ApprovedPropertyPager page={page} totalPages={totalPages} total={total} pageSize={pageSize} onPage={goToPage} />
               </div>
 
               {/* ── Desktop: full grid (all items) ── */}
-              <div className="hidden sm:flex items-center gap-2 mb-3">
-                <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-emerald-600 shadow-sm">
-                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>
-                </span>
-                <span className="text-[13px] font-bold text-slate-800 tracking-tight">All properties</span>
-                <span className="ml-1 text-[11px] font-normal text-slate-400">{total} listed</span>
-              </div>
-              <div className="hidden sm:flex items-center justify-between gap-3 mb-1">
-                <div className="flex items-center gap-2">
-                  <span className="inline-block w-1 h-4 rounded-full" style={{ background: 'linear-gradient(to bottom, #10b981, #02665e)' }} />
-                  <span className="text-[11px] font-semibold text-slate-700 tracking-wide">
-                    {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)}
-                    <span className="font-normal text-slate-400"> of {total} properties</span>
-                  </span>
-                </div>
-                {totalPages > 1 && (
-                  <span className="text-[10px] font-medium text-slate-400 tracking-wider uppercase">Page {page}/{totalPages}</span>
-                )}
-              </div>
+              <div className="mb-4 hidden sm:block">{resultsHeading}</div>
               <div className="hidden sm:grid grid-cols-2 lg:grid-cols-5 gap-5">
                 {(data?.items ?? []).map((p, idx) => (
                   <motion.div
@@ -1380,29 +1433,8 @@ export default function PropertiesPage() {
                   </motion.div>
                 ))}
               </div>
-              {/* Pagination */}
-              <div className="mt-8 flex items-center justify-end gap-3 w-full">
-                <button
-                  type="button"
-                  onClick={() => goToPage(page - 1)}
-                  disabled={page <= 1}
-                  aria-label="Previous page"
-                  className="inline-flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div className="text-sm text-slate-700">
-                  Page <span className="font-semibold">{page}</span> / {totalPages}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => goToPage(page + 1)}
-                  disabled={page >= totalPages}
-                  aria-label="Next page"
-                  className="inline-flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+              <div className="hidden sm:block">
+                <ApprovedPropertyPager page={page} totalPages={totalPages} total={total} pageSize={pageSize} onPage={goToPage} />
               </div>
             </>
           )}
@@ -1457,7 +1489,7 @@ export default function PropertiesPage() {
 
             <div
               className={[
-                "absolute box-border flex h-auto flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_-18px_rgba(0,0,0,0.45)]",
+                "absolute box-border flex h-auto flex-col overflow-hidden rounded-xl bg-white shadow-[0_24px_60px_-18px_rgba(0,0,0,0.45)]",
                 // Phone: bottom sheet that hugs its content
                 "inset-x-2 bottom-2 top-auto max-h-[calc(100vh-1rem)]",
                 // sm+: floating panel at the top right, also content height
@@ -1467,38 +1499,33 @@ export default function PropertiesPage() {
               ].join(" ")}
             >
 
-              {/* Header */}
-              {/* Brand band: title, live count and one-tap quick picks */}
-              <div
-                className="relative flex-none overflow-hidden text-white sm:rounded-t-xl"
-                style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 55%, #02665e 160%)" }}
-              >
-                <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(320px circle at 100% 0%, rgba(52,211,153,0.18), transparent 60%)" }} />
-                <div className="relative flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+              {/* Header: title, what is set, and one-tap quick picks */}
+              <div className="flex-none border-0 border-b border-solid border-slate-200 bg-white">
+                <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-3.5">
                   <div className="min-w-0">
-                    <h2 id="filters-title" className="m-0 flex items-center gap-2 text-[17px] font-bold leading-tight">
-                      <SlidersHorizontal className="h-4 w-4 text-emerald-300" aria-hidden />
+                    <h2 id="filters-title" className="m-0 flex items-center gap-2 text-[16px] font-semibold leading-tight text-slate-900">
+                      <SlidersHorizontal className="h-4 w-4 text-[#02665e]" aria-hidden />
                       Filters
                       {activeCount > 0 && (
-                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-emerald-300 px-1.5 text-[11px] font-bold text-[#012e29]">{activeCount}</span>
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded bg-[#02665e] px-1.5 text-[11px] font-bold text-white">{activeCount}</span>
                       )}
                     </h2>
-                    <p className="m-0 mt-0.5 text-[12px] text-white/55">
-                      {activeCount > 0 ? `${activeCount} filter${activeCount === 1 ? "" : "s"} ready to apply` : "Quick picks or refine below"}
+                    <p className="m-0 mt-0.5 text-[12px] text-slate-500">
+                      {activeCount > 0 ? `${activeCount} filter${activeCount === 1 ? "" : "s"} set` : "Quick picks or refine below"}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={closeFilters}
                     aria-label="Close filters"
-                    className="flex h-9 w-9 flex-none items-center justify-center rounded-lg border-0 bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+                    className="flex h-8 w-8 flex-none items-center justify-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
 
                 {/* Quick picks: the most-used filters, one tap each */}
-                <div className="relative grid grid-cols-3 gap-1.5 px-4 pb-3.5 pt-1">
+                <div className="grid grid-cols-3 gap-1.5 px-4 pb-3 pt-1">
                   {([
                     { label: "Flexible", Icon: BadgeCheck, on: draft.freeCancellation, toggle: () => setDraft((d) => ({ ...d, freeCancellation: !d.freeCancellation })) },
                     {
@@ -1544,11 +1571,11 @@ export default function PropertiesPage() {
                       type="button"
                       aria-pressed={on}
                       onClick={toggle}
-                      className={`box-border inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-solid px-2 text-[12.5px] font-semibold transition-colors ${
-                        on ? "border-emerald-300 bg-emerald-300 text-[#012e29]" : "border-white/15 bg-white/[0.06] text-white/85 hover:bg-white/[0.12]"
+                      className={`box-border inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-solid px-2 text-[12.5px] font-medium [font-family:inherit] transition-colors ${
+                        on ? "border-[#02665e] bg-[#02665e]/[0.06] text-[#02665e] ring-1 ring-[#02665e]" : "border-slate-300/80 bg-white text-slate-700 hover:border-slate-400"
                       }`}
                     >
-                      {on ? <Check className="h-3.5 w-3.5 flex-none" strokeWidth={3} aria-hidden /> : <Icon className="h-3.5 w-3.5 flex-none" aria-hidden />}
+                      {on ? <Check className="h-3.5 w-3.5 flex-none" strokeWidth={3} aria-hidden /> : <Icon className="h-3.5 w-3.5 flex-none text-slate-500" aria-hidden />}
                       <span className="truncate">{label}</span>
                     </button>
                   ))}
@@ -1816,7 +1843,7 @@ export default function PropertiesPage() {
                   type="button"
                   onClick={clearFilters}
                   disabled={activeCount === 0}
-                  className="box-border inline-flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                  className="box-border inline-flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-solid border-slate-300 bg-white px-3 text-[14px] font-semibold text-slate-700 [font-family:inherit] transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                 >
                   <Trash2 className="h-4 w-4 flex-none" aria-hidden />
                   Clear all
@@ -1824,10 +1851,12 @@ export default function PropertiesPage() {
                 <button
                   type="button"
                   onClick={applyFilters}
-                  className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-3 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47] active:bg-[#013a35] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40"
+                  className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-3 text-[14px] font-semibold text-white [font-family:inherit] transition-colors hover:bg-[#014e47] active:bg-[#013a35] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40"
                 >
                   <Check className="h-4 w-4" aria-hidden />
-                  Show results
+                  <span className="truncate tabular-nums">
+                    {draftCount == null ? "Show results" : draftCount === 0 ? "No stays match" : `Show ${draftCount.toLocaleString()} ${draftCount === 1 ? "stay" : "stays"}`}
+                  </span>
                 </button>
               </div>
             </div>

@@ -92,136 +92,69 @@ function JobCard({ job, onClick }: { job: Job; onClick: () => void }) {
     return `${((salary.min || salary.max || 0) / 1000).toFixed(0)}K ${currency}/${period}`;
   };
 
-  const getTypeColor = (type: JobType) => {
-    switch (type) {
-      case "FULL_TIME": return "bg-green-100 text-green-800";
-      case "PART_TIME": return "bg-blue-100 text-blue-800";
-      case "CONTRACT": return "bg-purple-100 text-purple-800";
-      case "INTERNSHIP": return "bg-yellow-100 text-yellow-800";
-      case "FREELANCE": return "bg-orange-100 text-orange-800";
-      case "PARTNERSHIP": return "bg-emerald-100 text-emerald-800";
-      case "AGENCY_AGREEMENT": return "bg-cyan-100 text-cyan-800";
-      case "RESELLER": return "bg-indigo-100 text-indigo-800";
-      case "AFFILIATE": return "bg-teal-100 text-teal-800";
-      case "WHITE_LABEL": return "bg-slate-200 text-slate-800";
-      default: return "bg-slate-100 text-slate-700";
-    }
-  };
+  const LOCATION_ICON = { REMOTE: Globe, ONSITE: Building2, HYBRID: RefreshCw } as const;
+  const LEVEL_LABEL = { ENTRY: "Entry level", MID: "Mid level", SENIOR: "Senior", LEAD: "Lead" } as const;
+  const LocationIcon = LOCATION_ICON[job.location] ?? MapPin;
+  const typeLabel = job.type.charAt(0) + job.type.slice(1).toLowerCase().replace(/_/g, " ");
+  const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Dar_es_Salaam" });
 
-  const getLocationIcon = (location: JobLocation) => {
-    switch (location) {
-      case "REMOTE": return <Globe size={14} className="flex-shrink-0 text-blue-600" />;
-      case "ONSITE": return <Building2 size={14} className="flex-shrink-0 text-gray-700" />;
-      case "HYBRID": return <RefreshCw size={14} className="flex-shrink-0 text-purple-600" />;
-    }
-  };
+  // Days until the deadline, by calendar day in EAT.
+  const daysLeft = (() => {
+    if (!job.applicationDeadline) return null;
+    const day = (d: Date) => Date.parse(d.toLocaleDateString("en-CA", { timeZone: "Africa/Dar_es_Salaam" }));
+    return Math.round((day(new Date(job.applicationDeadline)) - day(new Date())) / 86_400_000);
+  })();
+  const closingSoon = daysLeft != null && daysLeft >= 0 && daysLeft <= 7;
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className={`group bg-white rounded-2xl shadow-sm border border-solid cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${
-        job.featured 
-          ? "border-[#02665e]/30 shadow-md ring-1 ring-[#02665e]/10" 
-          : "border-gray-200/60 hover:border-[#02665e]/30"
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+      aria-label={`${job.title}, ${typeLabel}. View details`}
+      className={`group flex h-full cursor-pointer flex-col rounded-xl border border-solid bg-white p-4 transition hover:border-[#02665e]/40 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#02665e] ${
+        job.featured ? "border-[#02665e]/30" : "border-gray-200"
       }`}
     >
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2.5 mb-2 flex-wrap">
-              {job.featured && (
-                <span className="px-2.5 py-1 text-xs font-semibold bg-gradient-to-r from-[#02665e] to-[#038a7c] text-white rounded-md shadow-sm">
-                  Featured
-                </span>
-              )}
-              <h3 className="text-xl font-bold text-gray-900 group-hover:text-[#02665e] transition-colors">
-                {job.title}
-              </h3>
-            </div>
-            <p className="text-sm font-medium text-gray-500 mb-4">{job.department}</p>
-          </div>
-          <ChevronRight className="text-gray-300 group-hover:text-[#02665e] flex-shrink-0 transition-colors mt-1" size={20} />
-        </div>
-
-        {/* Tags */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${getTypeColor(job.type)} shadow-sm`}>
-            {job.type.replace(/_/g, " ")}
+      {/* Eyebrow: department, featured, posted */}
+      <div className="flex items-center gap-2 text-[11px] text-gray-500">
+        <span className="truncate font-medium">{job.department}</span>
+        {job.featured && (
+          <span className="inline-flex shrink-0 items-center gap-1 font-semibold text-[#02665e]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#02665e]" aria-hidden /> Featured
           </span>
-          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-700 flex items-center gap-1.5 border border-solid border-gray-200/50">
-            {getLocationIcon(job.location)} 
-            <span className="capitalize">{job.location.toLowerCase()}</span>
-          </span>
-          {job.locationDetail && (
-            <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-700 flex items-center gap-1.5 border border-solid border-gray-200/50">
-              <MapPin size={14} className="text-gray-500" /> 
-              {job.locationDetail}
-            </span>
-          )}
-          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-700 border border-solid border-gray-200/50">
-            {job.experienceLevel}
-          </span>
-        </div>
+        )}
+        <span className="ml-auto shrink-0">Posted {shortDate(job.postedDate)}</span>
+      </div>
 
-        {/* Description */}
-        <p className="text-sm text-gray-600 mb-5 line-clamp-2 leading-relaxed">{job.description}</p>
+      <h3 className="m-0 mt-1.5 line-clamp-1 text-[15px] font-semibold leading-snug text-gray-900 transition-colors group-hover:text-[#02665e]">
+        {job.title}
+      </h3>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-4 border-0 border-t border-solid border-gray-100">
-          <div className="flex flex-col gap-2 text-xs flex-1">
-            <div className="flex items-center gap-4 text-gray-500">
-              <span className="flex items-center gap-1.5">
-                <DollarSign size={14} className="text-gray-400" />
-                <span className="font-medium text-gray-700">{formatSalary(job.salary)}</span>
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-gray-500">
-              <span className="flex items-center gap-1.5">
-                <Calendar size={14} className="text-gray-400" />
-                <span>Posted: <span className="font-medium text-gray-700">{new Date(job.postedDate).toLocaleDateString()}</span></span>
-              </span>
-              {job.applicationDeadline && (() => {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                const expiryDate = new Date(job.applicationDeadline);
-                expiryDate.setHours(0, 0, 0, 0);
-                const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                const isExpiringSoon = daysUntilExpiry <= 7 && daysUntilExpiry >= 0;
-                
-                return (
-                  <span className={`flex items-center gap-1.5 ${isExpiringSoon ? 'text-amber-600' : 'text-gray-500'}`}>
-                    <Clock size={14} className={isExpiringSoon ? 'text-amber-500' : 'text-gray-400'} />
-                    <span>
-                      {isExpiringSoon ? (
-                        <>
-                          Expires: <span className="font-semibold text-amber-600">{new Date(job.applicationDeadline).toLocaleDateString()}</span>
-                          <span className="ml-1 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold">
-                            {daysUntilExpiry === 0 ? 'Today' : daysUntilExpiry === 1 ? '1 day left' : `${daysUntilExpiry} days left`}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          Expires: <span className="font-medium text-gray-700">{new Date(job.applicationDeadline).toLocaleDateString()}</span>
-                        </>
-                      )}
-                    </span>
-                  </span>
-                );
-              })()}
-            </div>
-          </div>
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              onClick();
-            }}
-            className="px-4 py-2 cursor-pointer bg-[#02665e]/5 hover:bg-[#02665e]/10 text-[#02665e] font-semibold rounded-lg flex items-center gap-2 transition-all duration-200 group/btn border border-solid border-[#02665e]/20 hover:border-[#02665e]/40"
-          >
-            <span>View Details</span>
-            <ChevronRight size={16} className="group-hover/btn:translate-x-1 transition-transform" />
-          </button>
-        </div>
+      {/* One quiet meta line instead of a row of pills */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+        <span className="rounded-md bg-[#02665e]/[0.08] px-2 py-0.5 font-semibold text-[#02665e]">{typeLabel}</span>
+        <span className="inline-flex items-center gap-1"><LocationIcon size={13} className="text-gray-400" aria-hidden /> <span className="capitalize">{job.location.toLowerCase()}</span></span>
+        {job.locationDetail && <span className="inline-flex min-w-0 items-center gap-1"><MapPin size={13} className="shrink-0 text-gray-400" aria-hidden /> <span className="truncate">{job.locationDetail}</span></span>}
+        <span className="inline-flex items-center gap-1"><Briefcase size={13} className="text-gray-400" aria-hidden /> {LEVEL_LABEL[job.experienceLevel] ?? job.experienceLevel}</span>
+      </div>
+
+      <p className="m-0 mb-3.5 mt-2.5 line-clamp-2 text-[13px] leading-5 text-gray-500">{job.description}</p>
+
+      {/* Footer: pay, deadline, and the action hint */}
+      <div className="mt-auto flex items-center gap-3 border-0 border-t border-solid border-gray-100 pt-3 text-xs">
+        <span className="font-semibold text-gray-800">{formatSalary(job.salary)}</span>
+        {job.applicationDeadline && daysLeft != null && (
+          <span className={`inline-flex items-center gap-1 ${closingSoon ? "rounded-md bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700" : "text-gray-500"}`}>
+            <Clock size={12} aria-hidden />
+            {daysLeft < 0 ? "Closed" : `Closes ${shortDate(job.applicationDeadline)}`}
+            {closingSoon && <span className="font-medium">· {daysLeft === 0 ? "today" : daysLeft === 1 ? "1 day left" : `${daysLeft} days left`}</span>}
+          </span>
+        )}
+        <span className="ml-auto inline-flex shrink-0 items-center gap-0.5 font-semibold text-[#02665e]">
+          View <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" aria-hidden />
+        </span>
       </div>
     </div>
   );
@@ -237,6 +170,7 @@ function JobDetailModal({ job, onClose, onApply }: { job: Job; onClose: () => vo
     }
     return `${((salary.min || salary.max || 0) / 1000).toFixed(0)}K ${currency}/${period}`;
   };
+  const longDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
 
   const getTypeColor = (type: JobType) => {
     switch (type) {
@@ -263,27 +197,36 @@ function JobDetailModal({ job, onClose, onApply }: { job: Job; onClose: () => vo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
-        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-0 border-b border-solid border-gray-200/60 p-6 sm:p-8 flex items-start justify-between z-10">
-          <div className="flex-1 min-w-0 pr-4">
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2 leading-tight">{job.title}</h2>
-            <p className="text-base text-gray-500 font-medium">{job.department}</p>
+    // Above the mobile tab bar (z-50). On phones it is a bottom sheet; the header
+    // and the Apply bar stay put and only the middle scrolls, so nothing shows
+    // through the title and Apply is always reachable.
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 sm:items-center sm:p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="job-detail-title"
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[92dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-0 border-b border-solid border-gray-200 bg-white px-5 py-4 sm:px-8 sm:py-6">
+          <div className="min-w-0 flex-1">
+            <p className="m-0 text-xs font-medium text-gray-500">{job.department}</p>
+            <h2 id="job-detail-title" className="m-0 mt-1 text-lg font-bold leading-snug text-gray-900 sm:text-2xl">{job.title}</h2>
           </div>
           <button
             onClick={onClose}
-            className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-solid border-gray-200 bg-white hover:bg-gray-50 transition-colors flex-shrink-0"
+            className="inline-flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full border border-solid border-gray-200 bg-white transition-colors hover:bg-gray-50"
             aria-label="Close"
           >
-            <X size={20} className="text-gray-500" />
+            <X size={18} className="text-gray-500" />
           </button>
         </div>
 
-        <div className="p-6 sm:p-8 space-y-8">
+        <div className="min-h-0 flex-1 space-y-7 overflow-y-auto overscroll-contain px-5 py-5 sm:space-y-8 sm:p-8">
           {/* Badges Section */}
           <div className="flex flex-wrap gap-3">
             <span className={`px-4 py-2.5 rounded-lg text-sm font-semibold border border-solid ${getTypeColor(job.type)} shadow-sm`}>
-              {job.type.replace(/_/g, " ")}
+              {job.type.charAt(0) + job.type.slice(1).toLowerCase().replace(/_/g, " ")}
             </span>
             <span className="px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-50 text-gray-700 border border-solid border-gray-200 flex items-center gap-2 shadow-sm">
               {getLocationIcon(job.location)}
@@ -296,7 +239,7 @@ function JobDetailModal({ job, onClose, onApply }: { job: Job; onClose: () => vo
               )}
             </span>
             <span className="px-4 py-2.5 rounded-lg text-sm font-medium bg-purple-50 text-purple-700 border border-solid border-purple-200 shadow-sm">
-              {job.experienceLevel} Level
+              {({ ENTRY: "Entry level", MID: "Mid level", SENIOR: "Senior", LEAD: "Lead" } as const)[job.experienceLevel] ?? job.experienceLevel}
             </span>
             {job.salary && (
               <span className="px-4 py-2.5 rounded-lg text-sm font-semibold bg-amber-50 text-amber-700 border border-solid border-amber-200 flex items-center gap-2 shadow-sm">
@@ -368,27 +311,22 @@ function JobDetailModal({ job, onClose, onApply }: { job: Job; onClose: () => vo
             </div>
           )}
 
-          {/* Footer */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-6 border-0 border-t border-solid border-gray-200">
-            <div className="text-sm text-gray-600 space-y-1">
-              <p className="flex items-center gap-2">
-                <Calendar size={16} className="text-gray-400" />
-                <span>Posted: <span className="font-medium text-gray-700">{new Date(job.postedDate).toLocaleDateString()}</span></span>
-              </p>
-              {job.applicationDeadline && (
-                <p className="flex items-center gap-2">
-                  <Clock size={16} className="text-gray-400" />
-                  <span>Deadline: <span className="font-medium text-gray-700">{new Date(job.applicationDeadline).toLocaleDateString()}</span></span>
-                </p>
-              )}
-            </div>
-            <button
-              onClick={onApply}
-              className="px-8 py-3 cursor-pointer border-0 bg-gradient-to-r from-[#02665e] to-[#038a7c] text-white rounded-lg font-semibold hover:from-[#024d47] hover:to-[#02665e] transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 w-full sm:w-auto"
-            >
-              Apply Now
-            </button>
+        </div>
+
+        {/* Apply bar: always visible, clear of the phone's home indicator */}
+        <div className="flex shrink-0 items-center gap-3 border-0 border-t border-solid border-gray-200 bg-white px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-8 sm:py-4">
+          <div className="min-w-0 flex-1 text-xs leading-5 text-gray-500">
+            <p className="m-0 flex items-center gap-1.5"><Calendar size={13} className="shrink-0 text-gray-400" aria-hidden /> Posted {longDate(job.postedDate)}</p>
+            {job.applicationDeadline && (
+              <p className="m-0 flex items-center gap-1.5"><Clock size={13} className="shrink-0 text-gray-400" aria-hidden /> Closes <span className="font-semibold text-gray-700">{longDate(job.applicationDeadline)}</span></p>
+            )}
           </div>
+          <button
+            onClick={onApply}
+            className="h-11 shrink-0 cursor-pointer rounded-lg border-0 bg-[#02665e] px-6 text-sm font-semibold text-white transition-colors hover:bg-[#024d47]"
+          >
+            Apply now
+          </button>
         </div>
       </div>
     </div>
@@ -910,7 +848,7 @@ export default function CareersPage() {
                   ))}
                 </div>
               ) : filteredJobs.length > 0 ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {filteredJobs.map((job) => (
                     <JobCard
                       key={job.id}

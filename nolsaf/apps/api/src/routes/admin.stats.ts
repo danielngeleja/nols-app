@@ -1,6 +1,7 @@
 import { Router, RequestHandler } from "express";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { getRevenueSeries, getActivePropertiesSeries, getRevenueByType, getActivePropertiesBreakdown, getInvoiceStatus, getInvoiceStages } from "../services/adminStats.js";
+import { getRoomInventory } from "../services/adminRoomInventory.js";
 import type { SeriesResponse, BreakdownResponse } from "../types/stats.js";
 
 export const router = Router();
@@ -69,6 +70,22 @@ router.get('/revenue-by-type', async (req, res) => {
   } catch (err: any) {
     console.error('Error in revenue-by-type:', err);
     res.status(500).json({ error: 'failed', message: err?.message || String(err) });
+  }
+});
+
+/**
+ * GET /admin/stats/room-inventory?from=&to=&region=
+ * Rooms declared by type on approved properties, with occupied room-nights and
+ * sell-through for the window. See services/adminRoomInventory.ts.
+ */
+router.get('/room-inventory', async (req, res) => {
+  try {
+    const { from, to, region } = req.query as any;
+    res.json(await getRoomInventory(from, to, region));
+  } catch (err: any) {
+    if (err?.status === 400) return res.status(400).json({ error: err.message });
+    console.error('Error in room-inventory:', err);
+    res.status(500).json({ error: 'failed' });
   }
 });
 

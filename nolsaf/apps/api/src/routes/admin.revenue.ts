@@ -15,6 +15,8 @@ import { generateOwnerDisbursementPdf } from "../lib/pdfDocuments.js";
 import { getOwnerDisbursementEmail } from "../lib/bookingEmailTemplates.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import { BASE_CURRENCY, getFxRates } from "../lib/fx.js";
+import { moneyStageOf } from "../lib/invoiceMoneyStage.js";
+import { GUEST_MONEY_IN, loadOwnerInvoiceDisbursements } from "../lib/invoiceMoneyStageIndex.js";
 import {
   customerBookingReference,
   isOwnerInvoiceReference,
@@ -1541,18 +1543,49 @@ function revenueAmountInTzs(amount: unknown, currency: unknown, rates: Record<st
   return Number.isFinite(rate) && rate > 0 ? value * rate : value;
 }
 
+/**
+ * Accommodation commission NoLSAF has earned, one row per booking invoice, by
+ * the same rule as lib/platformMargin.accommodationTake (Finance overview and
+ * the admin dashboard): booking invoices only (an OINV- owner claim restates
+ * one), counted once the guest has paid, dated by when they paid.
+ *
+ * Invoice status cannot stand in for this. A paid booking invoice moves on
+ * through REQUESTED and VERIFIED as the owner claims it, and PAID also marks
+ * owner payouts, so a status filter both drops earned commission and can
+ * count a booking twice.
+ */
+async function earnedCommissionRows(range?: { gte: Date; lte: Date }) {
+  const bookingInvoice = { OR: [{ invoiceNumber: null }, { NOT: { invoiceNumber: { startsWith: "OINV-" } } }] };
+  const rows = await prisma.invoice.findMany({
+    where: (range ? { AND: [bookingInvoice, { OR: [{ paidAt: range }, { paidAt: null, issuedAt: range }] }] } : bookingInvoice) as any,
+    select: {
+      id: true, status: true, invoiceNumber: true, commissionAmount: true, paidAt: true, issuedAt: true,
+      booking: { select: { property: { select: { id: true, title: true } } } },
+    },
+  });
+  const disbursements = await loadOwnerInvoiceDisbursements(range ? rows.map((r) => r.id) : undefined);
+  return rows
+    .filter((row) => GUEST_MONEY_IN.has(moneyStageOf(row as any, disbursements.get(row.id) ?? []).stage))
+    .map((row) => ({
+      commission: Number(row.commissionAmount ?? 0),
+      earnedAt: (row.paidAt ?? row.issuedAt) as Date,
+      propertyId: row.booking?.property?.id ?? null,
+      propertyTitle: row.booking?.property?.title ?? "",
+    }));
+}
+
+/** EAT bucket label matching the SQL DATE_FORMAT labels used for subscriptions. */
+function eatBucketLabel(at: Date, interval: string): string {
+  const iso = new Date(at.getTime() + 3 * 60 * 60 * 1000).toISOString();
+  if (interval === "hour") return `${iso.slice(0, 10)} ${iso.slice(11, 13)}:00`;
+  if (interval === "month") return iso.slice(0, 7);
+  return iso.slice(0, 10);
+}
+
 router.get('/properties', async (req, res) => {
   try {
     const top = Math.max(1, Math.min(200, Number(req.query.top ?? 10)));
-    const [commissionRows, subscriptionRows, fx] = await Promise.all([prisma.$queryRaw<Array<any>>`
-      SELECT p.id AS id, p.title AS name,
-        COALESCE(SUM(i.commissionAmount), 0) AS commission_total
-      FROM invoice i
-      JOIN booking b ON i.bookingId = b.id
-      JOIN property p ON b.propertyId = p.id
-      WHERE i.status IN ('APPROVED', 'PAID')
-      GROUP BY p.id, p.title
-    `, prisma.$queryRaw<Array<any>>`
+    const [earned, subscriptionRows, fx] = await Promise.all([earnedCommissionRows(), prisma.$queryRaw<Array<any>>`
       SELECT p.id AS id, p.title AS name, pay.currency AS currency,
         COALESCE(SUM(pay.amount), 0) AS subscription_total
       FROM nrms_service_payment pay
@@ -1565,10 +1598,12 @@ router.get('/properties', async (req, res) => {
     `, getFxRates()]);
 
     const byProperty = new Map<number, { id: number; name: string; total: number; commission: number; subscription: number }>();
-    for (const row of commissionRows) {
-      const id = Number(row.id);
-      const commission = Number(row.commission_total ?? 0);
-      byProperty.set(id, { id, name: String(row.name ?? ''), total: commission, commission, subscription: 0 });
+    for (const row of earned) {
+      if (row.propertyId == null) continue;
+      const current = byProperty.get(row.propertyId) ?? { id: row.propertyId, name: row.propertyTitle, total: 0, commission: 0, subscription: 0 };
+      current.commission += row.commission;
+      current.total = current.commission + current.subscription;
+      byProperty.set(row.propertyId, current);
     }
     for (const row of subscriptionRows) {
       const id = Number(row.id);
@@ -1602,14 +1637,7 @@ router.get('/series', async (req, res) => {
     if (interval === 'hour') fmt = '%Y-%m-%d %H:00';
     if (interval === 'month') fmt = '%Y-%m';
 
-    const [commissionRows, subscriptionRows, fx] = await Promise.all([prisma.$queryRaw<Array<any>>`
-      SELECT DATE_FORMAT(CONVERT_TZ(i.issuedAt, '+00:00', '+03:00'), ${fmt}) AS label,
-        COALESCE(SUM(i.commissionAmount),0) AS commission_total
-      FROM invoice i
-      WHERE i.status IN ('APPROVED','PAID') AND i.issuedAt BETWEEN ${sqlFromIso} AND ${sqlToIso}
-      GROUP BY label
-      ORDER BY label
-    `, prisma.$queryRaw<Array<any>>`
+    const [earned, subscriptionRows, fx] = await Promise.all([earnedCommissionRows({ gte: fromDate, lte: toDate }), prisma.$queryRaw<Array<any>>`
       SELECT DATE_FORMAT(CONVERT_TZ(pay.verifiedAt, '+00:00', '+03:00'), ${fmt}) AS label,
         pay.currency AS currency, COALESCE(SUM(pay.amount), 0) AS subscription_total
       FROM nrms_service_payment pay
@@ -1619,10 +1647,11 @@ router.get('/series', async (req, res) => {
     `, getFxRates()]);
 
     const byLabel = new Map<string, { label: string; commission: number; subscription: number }>();
-    for (const row of commissionRows) {
-      if (row.label == null) continue;
-      const label = String(row.label);
-      byLabel.set(label, { label, commission: Number(row.commission_total ?? 0), subscription: 0 });
+    for (const row of earned) {
+      const label = eatBucketLabel(row.earnedAt, String(interval));
+      const current = byLabel.get(label) ?? { label, commission: 0, subscription: 0 };
+      current.commission += row.commission;
+      byLabel.set(label, current);
     }
     for (const row of subscriptionRows) {
       if (row.label == null) continue;
