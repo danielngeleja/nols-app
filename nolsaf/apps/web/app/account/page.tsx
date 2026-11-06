@@ -7,18 +7,25 @@ import Image from "next/image";
 
 const api = apiClient;
 
+/*
+ * Loading placeholders. The shapes shimmer slowly and softly; the surfaces behind
+ * them never pulse, so nothing flashes against the page while the account loads.
+ * Visitors who prefer reduced motion see still shapes.
+ */
+const SKELETON_CSS = `
+@keyframes acc-shimmer { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.9; } }
+.acc-skel { animation: acc-shimmer 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .acc-skel { animation: none; } }
+`;
+
 function SkeletonLine({ w = "w-full", className = "" }: { w?: string; className?: string }) {
-  return <div className={`h-4 ${w} rounded-full bg-slate-200/80 animate-pulse ${className}`} />;
+  return <div className={`acc-skel h-3.5 ${w} rounded bg-slate-200 ${className}`} />;
 }
 
 function StatCardSkeleton() {
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-      <div className="absolute top-0 left-0 right-0 h-[3px] rounded-t-3xl bg-slate-200/80 animate-pulse" />
-      <div className="flex items-start justify-between gap-3 pt-1">
-        <div className="h-10 w-10 rounded-2xl bg-slate-200/80 animate-pulse" />
-        <div className="h-5 w-5 rounded-full bg-slate-100 animate-pulse" />
-      </div>
+    <div className="rounded-xl border border-solid border-slate-200 bg-white p-4">
+      <div className="acc-skel h-9 w-9 rounded-md bg-slate-200" />
       <div className="mt-3 space-y-2">
         <SkeletonLine w="w-12" />
         <SkeletonLine w="w-24" />
@@ -401,18 +408,34 @@ export default function AccountIndex() {
   if (loading) {
     return (
       <div className="w-full space-y-6">
-        {/* Hero skeleton */}
-        <div className="relative overflow-hidden rounded-3xl animate-pulse"
-          style={{ background: "linear-gradient(135deg, #011a18 0%, #023d38 52%, #02665e 100%)", minHeight: 260 }}>
-          <div className="flex flex-col items-center justify-center gap-4 py-14">
-            <div className="h-24 w-24 rounded-full bg-white/10" />
-            <div className="h-7 w-48 rounded-full bg-white/10" />
-            <div className="h-4 w-36 rounded-full bg-white/10" />
-            <div className="flex gap-3 mt-1">
-              {[72, 88, 72].map((w, i) => (
-                <div key={i} className="h-7 rounded-full bg-white/10" style={{ width: w }} />
-              ))}
-      </div>
+        <style>{SKELETON_CSS}</style>
+        {/* Hero skeleton: matches the real header (same background, layout and height) and never pulses itself */}
+        <div
+          className="relative overflow-hidden rounded-xl"
+          style={{ background: "linear-gradient(135deg, #011a18 0%, #023a35 45%, #02665e 100%)" }}
+          aria-busy="true"
+          aria-label="Loading your account"
+        >
+          <div className="flex flex-col gap-5 px-5 py-5 sm:px-7 sm:py-7 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-4">
+                <div className="acc-skel h-16 w-16 shrink-0 rounded-lg bg-white/[0.12] sm:h-20 sm:w-20" />
+                <div className="space-y-2">
+                  <div className="acc-skel h-3 w-28 rounded bg-white/[0.12]" />
+                  <div className="acc-skel h-6 w-48 rounded bg-white/[0.16]" />
+                  <div className="acc-skel h-3 w-40 rounded bg-white/[0.12]" />
+                </div>
+              </div>
+              <div className="mt-4 flex gap-1.5 sm:pl-24">
+                {[72, 132].map((w) => (
+                  <div key={w} className="acc-skel h-6 rounded-md bg-white/[0.10]" style={{ width: w }} />
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <div className="acc-skel h-9 w-32 rounded-lg bg-white/[0.16]" />
+              <div className="acc-skel h-9 w-28 rounded-lg bg-white/[0.10]" />
+            </div>
           </div>
         </div>
         {/* Stats skeleton */}
@@ -420,13 +443,13 @@ export default function AccountIndex() {
           {Array.from({ length: 5 }).map((_, i) => <StatCardSkeleton key={i} />)}
         </div>
         {/* Profile card skeleton */}
-        <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm space-y-4">
+        <div className="space-y-3 rounded-xl border border-solid border-slate-200 bg-white p-5">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="rounded-2xl bg-slate-50 border border-slate-100 p-4 flex items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-slate-200 animate-pulse" />
+            <div key={i} className="flex items-center gap-3 rounded-lg border border-solid border-slate-100 bg-slate-50 p-3.5">
+              <div className="acc-skel h-9 w-9 rounded-md bg-slate-200" />
               <div className="flex-1 space-y-2">
-                <div className="h-3 w-20 rounded-full bg-slate-200 animate-pulse" />
-                <div className="h-4 w-40 rounded-full bg-slate-100 animate-pulse" />
+                <SkeletonLine w="w-20" />
+                <SkeletonLine w="w-40" />
               </div>
             </div>
           ))}
@@ -456,7 +479,7 @@ export default function AccountIndex() {
 
         return (
           <section
-            className="relative overflow-hidden rounded-3xl text-white shadow-[0_18px_44px_-20px_rgba(1,40,36,0.75)]"
+            className="relative overflow-hidden rounded-xl text-white shadow-[0_14px_36px_-22px_rgba(1,40,36,0.7)]"
             style={{ background: "linear-gradient(135deg, #011a18 0%, #023a35 45%, #02665e 100%)" }}
             aria-labelledby="account-hero-name"
           >
@@ -472,8 +495,6 @@ export default function AccountIndex() {
                   maskImage: "linear-gradient(90deg, transparent 0%, #000 55%, #000 100%)",
                 }}
               />
-              <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full border border-solid border-white/10" />
-              <div className="absolute -right-4 -top-4 h-32 w-32 rounded-full border border-solid border-white/10" />
             </div>
 
             <div className="relative flex flex-col gap-5 px-5 py-5 sm:px-7 sm:py-7 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
@@ -484,7 +505,7 @@ export default function AccountIndex() {
                   <button
                     type="button"
                     onClick={handleAvatarClick}
-                    className="group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-0 bg-white/10 p-0 ring-[3px] ring-white/20 transition hover:ring-white/35 focus-visible:outline-none focus-visible:ring-emerald-300/60 sm:h-20 sm:w-20"
+                    className="group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border-0 bg-white/10 p-0 ring-2 ring-white/20 transition hover:ring-white/35 focus-visible:outline-none focus-visible:ring-emerald-300/60 sm:h-20 sm:w-20"
                     aria-label="Change profile photo"
                   >
                     {avatarSrc ? (
@@ -502,7 +523,7 @@ export default function AccountIndex() {
                     </span>
                   </button>
                   <span
-                    className="pointer-events-none absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-white text-[#02665e] shadow-md ring-2 ring-[#023a35]"
+                    className="pointer-events-none absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-md bg-white text-[#02665e] shadow-md ring-2 ring-[#023a35]"
                     aria-hidden="true"
                   >
                     <Upload className="h-3 w-3" strokeWidth={2.6} />
@@ -511,7 +532,7 @@ export default function AccountIndex() {
 
                 <div className="min-w-0">
                   <p className="m-0 text-[12px] font-medium text-emerald-200/80">{greeting}, {firstName}</p>
-                  <h1 id="account-hero-name" className="m-0 truncate text-[22px] font-extrabold leading-tight tracking-tight sm:text-[28px]">
+                  <h1 id="account-hero-name" className="m-0 truncate text-[22px] font-bold leading-tight tracking-tight sm:text-[26px]">
                     {displayName}
                   </h1>
                   {(form.email || user?.email) && (
@@ -522,18 +543,18 @@ export default function AccountIndex() {
 
                   {/* Status chips: their own full-width row, lined up with the text on wider screens */}
                   <div className="mt-4 flex flex-wrap items-center gap-1.5 sm:pl-24">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-semibold ring-1 ring-inset ${emailVerified ? "bg-emerald-400/15 text-emerald-200 ring-emerald-300/25" : "bg-amber-400/15 text-amber-200 ring-amber-300/25"}`}>
+                    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11.5px] font-semibold ring-1 ring-inset ${emailVerified ? "bg-emerald-400/15 text-emerald-200 ring-emerald-300/25" : "bg-amber-400/15 text-amber-200 ring-amber-300/25"}`}>
                       {emailVerified ? <CheckCircle className="h-3.5 w-3.5" aria-hidden="true" /> : <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />}
                       {emailVerified ? "Verified" : "Email not verified"}
                     </span>
                     {user?.twoFactorEnabled && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11.5px] font-semibold text-white/85 ring-1 ring-inset ring-white/15">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-0.5 text-[11.5px] font-semibold text-white/85 ring-1 ring-inset ring-white/15">
                         <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                         2-step on
                       </span>
                     )}
                     {memberSince && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11.5px] font-medium text-white/75 ring-1 ring-inset ring-white/15">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-0.5 text-[11.5px] font-medium text-white/75 ring-1 ring-inset ring-white/15">
                         <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
                         Member since {memberSince}
                       </span>
@@ -543,7 +564,7 @@ export default function AccountIndex() {
 
               {/* Right side: save a new photo when one is pending, otherwise quick actions */}
               {photoPending ? (
-                <div className="flex flex-col gap-2 rounded-2xl bg-white/10 p-3 ring-1 ring-inset ring-white/15 sm:flex-row sm:items-center lg:shrink-0">
+                <div className="flex flex-col gap-2 rounded-lg bg-white/10 p-3 ring-1 ring-inset ring-white/15 sm:flex-row sm:items-center lg:shrink-0">
                   <span className="px-1 text-[13px] font-medium text-white/85">New photo selected</span>
                   <div className="flex gap-2">
                     <button
@@ -552,7 +573,7 @@ export default function AccountIndex() {
                         setForm((current: any) => ({ ...current, avatarUrl: user?.avatarUrl ?? null }));
                         if (avatarFileInputRef.current) avatarFileInputRef.current.value = "";
                       }}
-                      className="inline-flex h-10 flex-1 items-center justify-center rounded-xl border-0 bg-white/10 px-4 text-[13px] font-semibold text-white transition hover:bg-white/20 sm:flex-none"
+                      className="inline-flex h-10 flex-1 items-center justify-center rounded-lg border-0 bg-white/10 px-4 text-[13px] font-semibold text-white transition hover:bg-white/20 sm:flex-none"
                     >
                       Cancel
                     </button>
@@ -560,7 +581,7 @@ export default function AccountIndex() {
                       type="button"
                       onClick={save}
                       disabled={saving}
-                      className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border-0 bg-white px-4 text-[13px] font-semibold text-[#02665e] shadow-sm transition hover:bg-emerald-50 disabled:opacity-60 sm:flex-none"
+                      className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border-0 bg-white px-4 text-[13px] font-semibold text-[#02665e] shadow-sm transition hover:bg-emerald-50 disabled:opacity-60 sm:flex-none"
                     >
                       {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
                       {saving ? "Saving" : "Save photo"}
