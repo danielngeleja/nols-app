@@ -8,6 +8,17 @@ import {
   Minimize2, Send, ThumbsDown, ThumbsUp, X,
 } from "lucide-react";
 
+/** One short, page-aware prompt for the launcher nudge. */
+function nudgeFor(pathname: string | null): string {
+  const p = pathname || "";
+  if (p.startsWith("/public/properties")) return "Looking for a stay? Ask Twiga for options that fit.";
+  if (p.startsWith("/public/nolscope")) return "Questions about trip costs? Twiga can explain them.";
+  if (p.startsWith("/public/tour-packages")) return "Not sure which tour fits? Ask Twiga.";
+  if (p.startsWith("/public/group-stays")) return "Planning for a group? Twiga can walk you through it.";
+  if (p.startsWith("/account")) return "Need help with a booking? Ask Twiga.";
+  return "Hi, I'm Twiga. Ask me anything about your trip.";
+}
+
 /*
  * Twiga support widget.
  *
@@ -367,6 +378,20 @@ export default function FloatingChatWidget({
   const mentionOpenRef = useRef(false);
   const mentionCacheRef = useRef(new Map<string, MentionOption[]>());
   const pathname = usePathname();
+  // A one-time, page-aware nudge: shown once per visit after a short pause,
+  // never over an agent reply or unread messages.
+  const [nudge, setNudge] = useState<string | null>(null);
+  useEffect(() => {
+    let seen = false;
+    try { seen = sessionStorage.getItem("twiga.nudge.seen") === "1"; } catch {}
+    if (seen) return;
+    const t = window.setTimeout(() => setNudge(nudgeFor(pathname)), 6000);
+    return () => window.clearTimeout(t);
+  }, [pathname]);
+  const dismissNudge = useCallback(() => {
+    setNudge(null);
+    try { sessionStorage.setItem("twiga.nudge.seen", "1"); } catch {}
+  }, []);
 
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1205,7 +1230,7 @@ export default function FloatingChatWidget({
 
       {isOpen && (
         <div
-          className={`twiga-panel animate-fadeIn fixed flex flex-col overflow-hidden rounded-2xl border border-solid shadow-[0_24px_60px_-12px_rgba(0,0,0,0.6)] transition-colors duration-500 ${theme.panel}`}
+          className={`twiga-panel animate-fadeIn fixed flex flex-col overflow-hidden rounded-xl border border-solid shadow-[0_24px_60px_-12px_rgba(0,0,0,0.6)] transition-colors duration-500 ${theme.panel}`}
           style={{
             ...anchor,
             bottom: "20px",
@@ -1296,13 +1321,13 @@ export default function FloatingChatWidget({
                     <Globe className="h-3.5 w-3.5" />
                   </button>
                   {languageOpen && (
-                    <div className="absolute right-0 top-9 z-10 w-40 overflow-hidden rounded-xl border border-solid border-white/10 bg-[#15211f] py-1 shadow-2xl">
+                    <div className="absolute right-0 top-9 z-10 w-40 overflow-hidden rounded-lg border border-solid border-white/10 bg-[#15211f] py-1 shadow-2xl">
                       {LANGUAGES.map((l) => (
                         <button
                           key={l.code}
                           type="button"
                           onClick={() => changeLanguage(l.code)}
-                          className="flex w-full items-center justify-between border-0 bg-transparent px-3 py-2 text-left text-[13px] text-white/80 transition hover:bg-white/[0.06] hover:text-white"
+                          className="flex w-full items-center justify-between border-0 bg-transparent px-3 py-2 text-left text-[13px] text-white/80 [font-family:inherit] transition hover:bg-white/[0.06] hover:text-white"
                         >
                           {l.name}
                           {language === l.code && <Check className="h-3.5 w-3.5 text-emerald-400" />}
@@ -1396,11 +1421,10 @@ export default function FloatingChatWidget({
                 ) : !hasConversation ? (
                   /* Welcome state: a compact greeting with real starting points,
                      rather than a seven line feature list inside a bubble. */
-                  <div className="flex h-full flex-col justify-end">
-                    <div className="mb-5">
-                      <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-white">
-                        <BrandMark className="h-7 w-7 object-contain" />
-                      </div>
+                  // min-h-full + mt-auto, not h-full + justify-end: the latter pushes
+                  // overflow off the top, where it cannot be scrolled to.
+                  <div className="flex min-h-full flex-col">
+                    <div className="mb-5 mt-auto">
                       <p className="text-base font-semibold leading-snug text-white">Karibu. I am Twiga.</p>
                       <p className="mt-1 text-[13.5px] leading-relaxed text-white/55">
                         Ask me about bookings, payments, transport, tours or your account. If you would
@@ -1410,7 +1434,7 @@ export default function FloatingChatWidget({
                     {/* Say which page these suggestions came from, so they do not
                         look like a random list. */}
                     {pageContext.label && (
-                      <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-white/35">
+                      <p className="mb-2 text-[11.5px] font-medium text-white/45">
                         {pageContext.label}
                       </p>
                     )}
@@ -1420,7 +1444,7 @@ export default function FloatingChatWidget({
                           key={s}
                           type="button"
                           onClick={() => void send(s)}
-                          className="flex w-full items-center justify-between gap-2 rounded-xl border border-solid border-white/[0.08] bg-white/[0.03] px-3.5 py-2.5 text-left text-[13px] font-medium text-white/85 transition hover:border-emerald-400/40 hover:bg-emerald-400/[0.06]"
+                          className="flex w-full items-center justify-between gap-2 rounded-lg border border-solid border-white/[0.1] bg-white/[0.03] px-3.5 py-2.5 text-left text-[13px] font-medium text-white/85 [font-family:inherit] transition hover:border-emerald-400/40 hover:bg-emerald-400/[0.06]"
                         >
                           {s}
                           <ArrowUpRight className="h-3.5 w-3.5 flex-shrink-0 text-white/35" />
@@ -1781,7 +1805,7 @@ export default function FloatingChatWidget({
                     e.preventDefault();
                     void send(input);
                   }}
-                  className={`flex items-end gap-2 rounded-2xl border border-solid px-3 py-2 transition focus-within:bg-white/[0.06] focus-within:ring-2 ${theme.field}`}
+                  className={`flex items-end gap-2 rounded-lg border border-solid px-3 py-2 transition focus-within:bg-white/[0.06] focus-within:ring-2 ${theme.field}`}
                 >
                   <textarea
                     ref={inputRef}
@@ -1805,7 +1829,7 @@ export default function FloatingChatWidget({
                     onClick={startMention}
                     aria-label="Tag a property or region"
                     title="Tag a property or region"
-                    className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-0 bg-transparent text-white/45 transition hover:bg-white/10 ${theme.pickerIcon}`}
+                    className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border-0 bg-transparent text-white/45 transition hover:bg-white/10 ${theme.pickerIcon}`}
                   >
                     <AtSign className="h-4 w-4" />
                   </button>
@@ -1813,7 +1837,7 @@ export default function FloatingChatWidget({
                     type="submit"
                     disabled={!input.trim() || isSending}
                     aria-label="Send message"
-                    className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border-0 transition ${
+                    className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border-0 transition ${
                       input.trim() && !isSending
                         ? theme.send
                         : "cursor-not-allowed bg-white/[0.08] text-white/30"
@@ -1890,28 +1914,66 @@ export default function FloatingChatWidget({
         </div>
       )}
 
+      {/* Page-aware nudge: once per visit, small, dismissible */}
+      {!isOpen && nudge && !preview && unreadCount === 0 && (
+        <div className="twiga-preview animate-fadeIn fixed w-[min(calc(100vw-32px),280px)]" style={{ ...anchor, bottom: "84px" }}>
+          <div className="relative rounded-lg border border-solid border-slate-200 bg-white shadow-[0_14px_36px_-12px_rgba(15,23,42,0.35)]">
+            <button
+              type="button"
+              onClick={() => {
+                dismissNudge();
+                setIsOpen(true);
+                setIsMinimized(false);
+              }}
+              className="flex w-full items-start gap-2.5 border-0 bg-transparent py-3 pl-3 pr-8 text-left [font-family:inherit]"
+            >
+              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-brand text-white">
+                <MessageCircle className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[12px] font-semibold text-slate-900">Twiga</span>
+                <span className="mt-0.5 block text-[12.5px] leading-snug text-slate-600">{nudge}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={dismissNudge}
+              aria-label="Dismiss"
+              className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-md border-0 bg-transparent text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {!isOpen && (
         <button
           type="button"
           onClick={() => {
+            dismissNudge();
             setIsOpen(true);
             setIsMinimized(false);
             setUnreadCount(0);
           }}
           aria-label={unreadCount > 0 ? `Open chat, ${unreadCount} new replies` : "Open chat with Twiga"}
           title="Ask Twiga (Ctrl + /)"
-          className="twiga-launcher group fixed flex h-14 items-center gap-2 rounded-full border-0 bg-brand px-4 text-white shadow-card transition-all hover:-translate-y-0.5 hover:brightness-95"
+          className="twiga-launcher group fixed flex h-12 items-center gap-2 rounded-xl border-0 bg-brand px-3.5 text-white shadow-[0_12px_28px_-12px_rgba(2,102,94,0.75)] transition-colors hover:bg-[#014e47] [font-family:inherit]"
           style={{ ...anchor, bottom: "20px" }}
         >
           {/* A ring that keeps pulsing until the reply is read. */}
-          {unreadCount > 0 && <span className="absolute inset-0 animate-ping rounded-full bg-amber-400/40" aria-hidden />}
-          <MessageCircle className="relative h-[22px] w-[22px] flex-shrink-0" />
-          {/* The label only appears on hover, so the resting footprint stays a circle. */}
-          <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold opacity-0 transition-all duration-200 group-hover:max-w-[7rem] group-hover:opacity-100 sm:inline">
+          {unreadCount > 0 && <span className="absolute inset-0 animate-ping rounded-xl bg-amber-400/40" aria-hidden />}
+          <span className="relative flex-shrink-0">
+            <MessageCircle className="h-5 w-5" />
+            {/* Twiga is always available: a small online dot */}
+            <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-300 ring-2 ring-brand" aria-hidden />
+          </span>
+          {/* The label only appears on hover, so the resting footprint stays compact. */}
+          <span className="hidden max-w-0 overflow-hidden whitespace-nowrap text-[13.5px] font-semibold opacity-0 transition-all duration-200 group-hover:max-w-[7rem] group-hover:opacity-100 sm:inline">
             Ask Twiga
           </span>
           {unreadCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white ring-2 ring-white">
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-md bg-danger px-1 text-[10px] font-bold text-white ring-2 ring-white">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}

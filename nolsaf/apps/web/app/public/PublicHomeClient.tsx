@@ -312,7 +312,7 @@ export default function Page() {
   const [trustBrandsLoading, setTrustBrandsLoading] = useState(true);
 
   // Newest updates, listed inside the expanded "Latest updates" band on large screens.
-  const [latestUpdatePreviews, setLatestUpdatePreviews] = useState<{ id: string; title: string; createdAt: string }[]>([]);
+  const [latestUpdatePreviews, setLatestUpdatePreviews] = useState<{ id: string; title: string; createdAt: string; excerpt: string }[]>([]);
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia("(min-width: 1024px)").matches) return;
     const controller = new AbortController();
@@ -324,7 +324,7 @@ export default function Page() {
           items
             .filter((u: any) => u?.title)
             .slice(0, 3)
-            .map((u: any) => ({ id: String(u.id ?? u.title), title: String(u.title), createdAt: String(u.createdAt || "") }))
+            .map((u: any) => ({ id: String(u.id ?? u.title), title: String(u.title), createdAt: String(u.createdAt || ""), excerpt: String(u.content || "").replace(/\s+/g, " ").trim() }))
         );
       })
       .catch(() => undefined);
@@ -770,14 +770,14 @@ export default function Page() {
       {/* Layout edge markers (left/right) to indicate content boundaries */}
       {/* Hero surround frame */}
       <div className="public-container py-5 sm:py-8">
-        <div className="relative mx-0 overflow-hidden rounded-3xl p-0">
+        <div className="relative mx-0 overflow-hidden rounded-xl p-0">
 
           {/* Inner 1px border — teal-to-blue premium line */}
-          <div className="relative rounded-3xl border border-emerald-950/15 bg-[#02665e]">
+          <div className="relative rounded-xl border border-emerald-950/15 bg-[#02665e]">
 
             <section
               id="public-hero"
-              className="relative isolate overflow-hidden rounded-[23px] text-white"
+              className="relative isolate overflow-hidden rounded-[11px] text-white"
               ref={heroRef as any}
               onPointerEnter={() => setHeroPointerActive(true)}
               onPointerLeave={() => { setHeroPointerActive(false); setHeroPressed(false); }}
@@ -1494,18 +1494,10 @@ export default function Page() {
 
         <div className="public-container relative z-10">
 
-          {/* Compact header: same scale as the other homepage sections */}
-          <div className="mb-6 flex flex-col items-center text-center sm:mb-8">
-            <p className="m-0 inline-flex items-center rounded-md bg-[#02665e]/[0.08] px-2 py-1 text-[11px] font-semibold text-[#02665e]">
-              Who it&apos;s for
-            </p>
-            <h2 className="m-0 mt-3 text-[22px] font-bold leading-snug tracking-tight text-slate-900 sm:text-[26px] lg:text-[30px]">
-              Built for <span className="text-[#02665e]">everyone in the trip</span>
-            </h2>
-            <p className="m-0 mt-2 max-w-[52ch] text-[14px] leading-relaxed text-slate-500">
-              Travellers, drivers, property owners and tour operators, connected in one booking.
-            </p>
-          </div>
+          {/* One line of heading: the tree below shows the connection, so no subtitle repeats it */}
+          <h2 className="m-0 mb-4 text-center text-[20px] font-bold leading-snug tracking-tight text-slate-900 sm:mb-5 sm:text-[24px]">
+            Everyone your trip depends on, <span className="text-[#02665e]">connected.</span>
+          </h2>
 
           <div className="mb-6 sm:mb-8">
             <TravelRolesConnected />
@@ -1558,10 +1550,10 @@ export default function Page() {
                 <Link
                   href={href}
                   aria-label={`Browse ${c.title} stays`}
-                  className="group relative block overflow-hidden rounded-[22px] no-underline
-                    ring-1 ring-white/20 shadow-[0_8px_28px_rgba(2,6,23,0.13)]
-                    transition-all duration-500
-                    hover:ring-white/40 hover:shadow-[0_20px_56px_rgba(2,6,23,0.22)] hover:-translate-y-1"
+                  className="group relative block overflow-hidden rounded-xl no-underline
+                    ring-1 ring-slate-200 shadow-[0_8px_24px_-14px_rgba(2,6,23,0.35)]
+                    transition-shadow duration-300
+                    hover:shadow-[0_16px_40px_-16px_rgba(2,6,23,0.45)]"
                 >
                   {/* ── Image ── */}
                   <div className="relative h-[190px] sm:h-[215px] overflow-hidden">
@@ -1584,28 +1576,12 @@ export default function Page() {
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-[var(--ac-tint)] via-transparent to-transparent"
                       style={{ '--ac-tint': ac.tint } as React.CSSProperties} />
 
-                    {/* ── Top-right count pill ── */}
-                    <div className="absolute top-2.5 right-2.5 z-10">
-                      <AttentionBlink active={blinkCounts}>
-                        <span className={[
-                          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1",
-                          "bg-black/45 backdrop-blur-md ring-1 ring-white/20",
-                          "text-[11px] font-bold text-white tabular-nums",
-                          countsLoading ? "animate-pulse" : "",
-                        ].join(" ")}>
-                          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                            style={{ background: ac.line, boxShadow: `0 0 6px ${ac.glow}` }} aria-hidden />
-                          {typeof count === "number" ? count.toLocaleString() : "—"}
-                        </span>
-                      </AttentionBlink>
-                    </div>
-
                     {/* ── Slide-up hover CTA ── */}
                     <div aria-hidden
                       className="absolute inset-x-0 bottom-0 flex items-center justify-center pb-3
                         translate-y-2 opacity-0 group-hover:translate-y-0 group-hover:opacity-100
                         transition-all duration-400 ease-out z-10">
-                      <span className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold text-white
+                      <span className="inline-flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-semibold text-white
                         backdrop-blur-md ring-1 ring-white/35 shadow-lg"
                         style={{ background: `linear-gradient(135deg, ${ac.line}cc, ${ac.line}88)` }}>
                         Browse &rarr;
@@ -1613,14 +1589,17 @@ export default function Page() {
                     </div>
                   </div>
 
-                  {/* ── Footer strip ── */}
+                  {/* ── Footer: the type and how many stays it has, in words ── */}
                   <div className="bg-white px-3 py-2.5 flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-bold text-slate-900 tracking-tight leading-none">{c.title}</span>
-                    {/* thin coloured accent dot + line */}
-                    <span aria-hidden className="flex items-center gap-1 flex-shrink-0">
-                      <span className="h-0.5 w-4 rounded-full" style={{ background: ac.line, opacity: 0.6 }} />
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: ac.line, boxShadow: `0 0 5px ${ac.glow}` }} />
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span aria-hidden className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: ac.line }} />
+                      <span className="truncate text-[13px] font-bold text-slate-900 tracking-tight leading-none">{c.title}</span>
                     </span>
+                    <AttentionBlink active={blinkCounts}>
+                      <span className={`flex-shrink-0 text-[12px] tabular-nums text-slate-500 ${countsLoading ? "animate-pulse" : ""}`}>
+                        {typeof count === "number" ? `${count.toLocaleString()} ${count === 1 ? "stay" : "stays"}` : countsLoading ? "…" : ""}
+                      </span>
+                    </AttentionBlink>
                   </div>
                 </Link>
                 </motion.div>
@@ -1765,7 +1744,7 @@ export default function Page() {
           <ScrollReveal direction="up" distance={24} className="mt-10">
             <section
               aria-labelledby="why-nolsaf-heading"
-              className="relative box-border w-full max-w-full overflow-hidden rounded-2xl text-white shadow-[0_18px_44px_-20px_rgba(0,0,0,0.75)] ring-1 ring-inset ring-white/[0.06] lg:rounded-[20px]"
+              className="relative box-border w-full max-w-full overflow-hidden rounded-xl text-white shadow-[0_18px_44px_-20px_rgba(0,0,0,0.75)] ring-1 ring-inset ring-white/[0.06]"
               style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 60%, #0d1714 100%)" }}
             >
               <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -1808,7 +1787,7 @@ export default function Page() {
 
                 {/* Right: where to go next, as real links */}
                 <nav aria-label="NoLSAF services" className="min-w-0">
-                  <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] overflow-hidden rounded-xl bg-white/[0.05] p-0 ring-1 ring-inset ring-white/10 sm:grid-cols-2 sm:gap-2 sm:overflow-visible sm:rounded-none sm:bg-transparent sm:ring-0">
+                  <ul className="m-0 grid list-none grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg bg-white/[0.05] p-0 ring-1 ring-inset ring-white/10 sm:grid-cols-2 sm:gap-2 sm:overflow-visible sm:rounded-none sm:bg-transparent sm:ring-0">
                     {[
                       { title: "Verified stays", desc: "Checked properties, instant booking code", Icon: Home, href: "/public/properties" },
                       { title: "Tour packages", desc: "Trusted operators with a clear itinerary", Icon: Compass, href: "/public/tour-packages" },
@@ -1819,9 +1798,9 @@ export default function Page() {
                       <li key={title} className={`min-w-0 border-0 border-t border-solid border-white/10 first:border-t-0 sm:border-t-0 ${wide ? "sm:col-span-2" : ""}`}>
                         <Link
                           href={href}
-                          className="group box-border flex h-full min-w-0 items-center gap-3 px-3 py-3 no-underline transition active:bg-white/[0.06] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-300/50 sm:rounded-xl sm:bg-white/[0.045] sm:ring-1 sm:ring-inset sm:ring-white/[0.08] sm:hover:bg-white/[0.08] sm:hover:ring-emerald-300/30"
+                          className="group box-border flex h-full min-w-0 items-center gap-3 px-3 py-3 no-underline transition active:bg-white/[0.06] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-300/50 sm:rounded-lg sm:bg-white/[0.045] sm:ring-1 sm:ring-inset sm:ring-white/[0.08] sm:hover:bg-white/[0.08] sm:hover:ring-emerald-300/30"
                         >
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-[#02665e] shadow-[0_6px_14px_-8px_rgba(0,0,0,0.6)]">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-[#02665e] shadow-[0_6px_14px_-8px_rgba(0,0,0,0.6)]">
                             <Icon className="h-[18px] w-[18px]" aria-hidden />
                           </span>
                           <span className="min-w-0 flex-1">
@@ -1841,7 +1820,7 @@ export default function Page() {
           <ScrollReveal direction="up" distance={24} className="mt-10">
             <section
               aria-labelledby="explore-tanzania-heading"
-              className="relative box-border w-full max-w-full overflow-hidden rounded-2xl text-white shadow-[0_18px_44px_-20px_rgba(1,40,36,0.7)] lg:rounded-[20px]"
+              className="relative box-border w-full max-w-full overflow-hidden rounded-xl text-white shadow-[0_14px_36px_-22px_rgba(1,40,36,0.7)]"
               style={{ background: "linear-gradient(135deg, #023a35 0%, #02665e 60%, #037a70 100%)" }}
             >
               <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -1857,7 +1836,8 @@ export default function Page() {
                 />
               </div>
 
-              <div className="relative box-border grid w-full grid-cols-[minmax(0,1fr)] gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-center lg:gap-8 lg:p-8">
+              {/* Content centred at a readable width; the text column is capped so the places sit beside it */}
+              <div className="relative mx-auto box-border grid w-full max-w-[1040px] grid-cols-[minmax(0,1fr)] gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] lg:items-center lg:gap-10 lg:p-7">
                 <div className="min-w-0">
                   <p className="m-0 inline-flex items-center gap-2 rounded-md bg-white/10 px-2 py-1 text-[11px] font-semibold text-white/85 ring-1 ring-inset ring-white/15">
                     {/* Tanzania flag colours */}
@@ -1877,33 +1857,45 @@ export default function Page() {
                   </p>
                   <Link
                     href="/public/countries/tanzania"
-                    className="mt-4 inline-flex h-10 items-center gap-1.5 rounded-lg bg-white px-4 text-[13.5px] font-semibold text-[#02665e] no-underline shadow-[0_8px_18px_-10px_rgba(0,0,0,0.6)] transition hover:bg-emerald-50 hover:no-underline"
+                    className="mt-4 inline-flex h-10 items-center gap-1.5 rounded-lg bg-white px-4 text-[13.5px] font-semibold text-[#02665e] no-underline transition-colors hover:bg-emerald-50 hover:no-underline"
                   >
                     Explore Tanzania
                     <ChevronRight className="h-4 w-4" aria-hidden />
                   </Link>
                 </div>
 
-                {/* Popular places: straight into a filtered stay search */}
+                {/* Popular places: live stay counts, busiest first, straight into a stay search */}
                 <nav aria-label="Popular places in Tanzania" className="min-w-0">
-                  <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">Popular places</p>
+                  <p className="m-0 mb-2 text-[12px] font-medium text-white/60">Popular places</p>
                   <ul className="m-0 grid list-none grid-cols-2 gap-2 p-0">
                     {[
-                      { name: "Zanzibar", note: "Beaches & Stone Town" },
+                      { name: "Zanzibar", note: "Beaches and Stone Town" },
                       { name: "Arusha", note: "Gateway to safaris" },
-                      { name: "Dar es Salaam", note: "City & coast" },
-                      { name: "Kilimanjaro", note: "Moshi & the mountain" },
-                    ].map((place) => (
+                      { name: "Dar es Salaam", note: "City and coast" },
+                      { name: "Kilimanjaro", note: "Moshi and the mountain" },
+                    ]
+                      .map((place, i) => ({ ...place, i, count: featuredCityCounts[place.name] }))
+                      .sort((x, y) => (Number(y.count ?? -1) - Number(x.count ?? -1)) || x.i - y.i)
+                      .map((place) => (
                       <li key={place.name} className="min-w-0">
                         <Link
                           href={`/public/properties?q=${encodeURIComponent(place.name)}`}
-                          className="group box-border flex h-full min-w-0 items-center gap-2.5 rounded-xl bg-white/[0.08] px-3 py-2.5 no-underline ring-1 ring-inset ring-white/10 transition hover:bg-white/[0.14] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                          className="group box-border flex h-full min-w-0 items-center gap-2.5 rounded-lg bg-white/[0.07] px-3 py-2.5 no-underline ring-1 ring-inset ring-white/10 transition-colors hover:bg-white/[0.13] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
                         >
-                          <MapPin className="h-4 w-4 shrink-0 text-emerald-200" aria-hidden />
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/10 text-emerald-200">
+                            <MapPin className="h-4 w-4" aria-hidden />
+                          </span>
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-[13.5px] font-semibold text-white">{place.name}</span>
                             <span className="block truncate text-[11.5px] text-white/60">{place.note}</span>
                           </span>
+                          {/* Live count from the home summary; quiet when there is nothing yet */}
+                          {typeof place.count === "number" ? (
+                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${place.count > 0 ? "bg-white text-[#02665e]" : "bg-white/10 text-white/55"}`}>
+                              {place.count > 0 ? `${place.count} ${place.count === 1 ? "stay" : "stays"}` : "Soon"}
+                            </span>
+                          ) : null}
+                          <ChevronRight className="hidden h-4 w-4 shrink-0 text-white/35 transition group-hover:translate-x-0.5 group-hover:text-white sm:block" aria-hidden />
                         </Link>
                       </li>
                     ))}
@@ -1931,7 +1923,7 @@ export default function Page() {
             <ScrollReveal direction="up" distance={20} className="mt-10">
               <section
                 aria-labelledby="trusted-by-heading"
-                className="relative box-border w-full max-w-full overflow-hidden rounded-2xl text-white ring-1 ring-inset ring-white/[0.06] shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)] lg:rounded-[20px]"
+                className="relative box-border w-full max-w-full overflow-hidden rounded-xl text-white ring-1 ring-inset ring-white/[0.06] shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
                 style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 60%, #0d1714 100%)" }}
               >
                 <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(420px circle at 0% 0%, rgba(2,102,94,0.3), transparent 60%)" }} />
@@ -1939,7 +1931,7 @@ export default function Page() {
                 <div className="relative box-border flex flex-col gap-4 p-4 sm:p-5 md:flex-row md:items-center md:gap-6">
                   {/* Label */}
                   <div className="flex shrink-0 items-center gap-3 md:w-[220px]">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-300 ring-1 ring-inset ring-emerald-300/20">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-300/10 text-emerald-300 ring-1 ring-inset ring-emerald-300/20">
                       <ShieldCheck className="h-5 w-5" aria-hidden />
                     </span>
                     <div className="min-w-0">
@@ -1964,7 +1956,7 @@ export default function Page() {
                       {[...trustBrands, ...trustBrands, ...(trustBrands.length < 4 ? [...trustBrands, ...trustBrands] : [])].map((brand, index) => {
                         const duplicate = index >= trustBrands.length;
                         const chip = (
-                          <span className="box-border flex h-14 w-[148px] items-center justify-center rounded-xl bg-white px-4 shadow-[0_8px_20px_-12px_rgba(0,0,0,0.6)] transition-transform duration-300 hover:-translate-y-0.5">
+                          <span className="box-border flex h-14 w-[148px] items-center justify-center rounded-lg bg-white px-4 shadow-[0_8px_20px_-12px_rgba(0,0,0,0.6)] transition-transform duration-300 hover:-translate-y-0.5">
                             {brand.logoUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img src={brand.logoUrl} alt={duplicate ? "" : brand.name} loading="lazy" className="max-h-9 max-w-full object-contain" />
@@ -1997,7 +1989,7 @@ export default function Page() {
           <ScrollReveal direction="up" distance={20} className="mt-10">
             <section
               aria-labelledby="latest-updates-heading"
-              className="relative box-border w-full max-w-full overflow-hidden rounded-2xl text-white lg:rounded-[20px]"
+              className="relative box-border w-full max-w-full overflow-hidden rounded-xl text-white"
               style={{ background: "linear-gradient(135deg, #013d38 0%, #02665e 55%, #037a70 100%)" }}
             >
               <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -2011,33 +2003,32 @@ export default function Page() {
                     maskImage: "linear-gradient(90deg, transparent 0%, #000 60%)",
                   }}
                 />
-                {/* Large megaphone watermark */}
-                <Megaphone className="absolute -bottom-10 left-[38%] hidden h-48 w-48 -rotate-12 text-white opacity-[0.05] lg:block" />
               </div>
 
-              <div className="relative box-border grid grid-cols-[minmax(0,1fr)] gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center lg:gap-10 lg:p-9">
+              {/* Content centred at the same readable width as Explore Tanzania */}
+              <div className="relative mx-auto box-border grid w-full max-w-[1040px] grid-cols-[minmax(0,1fr)] gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-center lg:gap-10 lg:p-7">
                 {/* Left: what this is */}
                 <div className="flex min-w-0 items-center justify-between gap-4 lg:block">
                   <div className="flex min-w-0 items-center gap-3 lg:block">
-                    <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-inset ring-white/20 lg:h-12 lg:w-12">
-                      <Megaphone className="h-[18px] w-[18px] lg:h-[22px] lg:w-[22px]" aria-hidden />
+                    <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-inset ring-white/20">
+                      <Megaphone className="h-[18px] w-[18px]" aria-hidden />
                       <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5" aria-hidden>
                         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-70" />
                         <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300 ring-2 ring-[#02665e]" />
                       </span>
                     </span>
-                    <div className="min-w-0 lg:mt-5">
-                      <h2 id="latest-updates-heading" className="m-0 text-[18px] font-bold leading-tight tracking-tight sm:text-[21px] lg:text-[30px]">
+                    <div className="min-w-0 lg:mt-4">
+                      <h2 id="latest-updates-heading" className="m-0 text-[18px] font-bold leading-tight tracking-tight sm:text-[21px] lg:text-[24px]">
                         Latest updates
                       </h2>
-                      <p className="m-0 mt-0.5 truncate text-[12.5px] text-white/70 lg:mt-2 lg:whitespace-normal lg:text-[15px] lg:leading-relaxed">
+                      <p className="m-0 mt-0.5 truncate text-[12.5px] text-white/70 lg:mt-2 lg:whitespace-normal lg:text-[14px] lg:leading-relaxed">
                         New features and news from NoLSAF<span className="hidden lg:inline">, so you always know what just got better.</span>
                       </p>
                     </div>
                   </div>
                   <Link
                     href="/updates"
-                    className="group inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-white px-3 text-[13px] font-semibold text-[#02665e] no-underline transition hover:bg-emerald-50 hover:no-underline lg:mt-6 lg:h-11 lg:px-5 lg:text-[14px]"
+                    className="group inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-white px-3 text-[13px] font-semibold text-[#02665e] no-underline transition-colors hover:bg-emerald-50 hover:no-underline lg:mt-5 lg:h-10 lg:px-4 lg:text-[13.5px]"
                   >
                     <span className="lg:hidden">View all</span>
                     <span className="hidden lg:inline">See all updates</span>
@@ -2045,40 +2036,36 @@ export default function Page() {
                   </Link>
                 </div>
 
-                {/* Right (large screens): the latest three as a small timeline */}
+                {/* Right (large screens): the latest three as a small timeline, with what each says and how recent it is */}
                 {latestUpdatePreviews.length > 0 && (
                   <ol className="relative m-0 hidden list-none p-0 lg:block">
-                    <span aria-hidden className="absolute bottom-6 left-[15px] top-6 w-px bg-white/20" />
+                    <span aria-hidden className="absolute bottom-8 left-[13px] top-8 w-px bg-white/20" />
                     {latestUpdatePreviews.map((u, index) => {
                       const date = new Date(u.createdAt);
                       const valid = !Number.isNaN(date.getTime());
-                      const isRecent = valid && Date.now() - date.getTime() < 30 * 24 * 60 * 60 * 1000;
+                      const days = valid ? Math.floor((Date.now() - date.getTime()) / 86_400_000) : null;
+                      const isRecent = days != null && days < 30;
+                      const when = days == null ? "" : days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 30 ? `${days} days ago` : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
                       return (
-                        <li key={u.id} className={index > 0 ? "mt-2.5" : ""}>
-                          <Link
-                            href="/updates"
-                            className="group/item relative flex items-center gap-4 rounded-xl py-1 pr-2 no-underline hover:no-underline"
-                          >
+                        <li key={u.id} className={index > 0 ? "mt-2" : ""}>
+                          <Link href="/updates" className="group/item relative flex items-center gap-3.5 no-underline hover:no-underline">
                             <span
                               aria-hidden
-                              className={`relative z-10 flex h-[31px] w-[31px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold ring-4 ring-[#02665e] ${
+                              className={`relative z-10 flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-md text-[11px] font-bold ring-4 ring-[#02665e] ${
                                 index === 0 ? "bg-emerald-300 text-[#013d38]" : "bg-white/15 text-white/80"
                               }`}
                             >
                               {index + 1}
                             </span>
-                            <span className="flex min-w-0 flex-1 items-center gap-3 rounded-xl bg-black/15 px-4 py-3 ring-1 ring-inset ring-white/10 transition group-hover/item:bg-black/25 group-hover/item:ring-white/25">
+                            <span className="flex min-w-0 flex-1 items-center gap-3 rounded-lg bg-black/15 px-3.5 py-2.5 ring-1 ring-inset ring-white/10 transition-colors group-hover/item:bg-black/25 group-hover/item:ring-white/25">
                               <span className="min-w-0 flex-1">
-                                <span className="block truncate text-[14.5px] font-semibold text-white">{u.title}</span>
-                                {valid && (
-                                  <span className="mt-0.5 block text-[12px] text-white/55">
-                                    {date.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
-                                  </span>
-                                )}
+                                <span className="flex items-center gap-2">
+                                  <span className="truncate text-[14px] font-semibold text-white">{u.title}</span>
+                                  {isRecent && <span className="shrink-0 rounded bg-emerald-300 px-1.5 py-px text-[10.5px] font-bold text-[#013d38]">New</span>}
+                                </span>
+                                {u.excerpt ? <span className="mt-0.5 block truncate text-[12.5px] text-white/65">{u.excerpt}</span> : null}
+                                {when ? <span className="mt-0.5 block text-[11.5px] text-white/45">{when}</span> : null}
                               </span>
-                              {isRecent && (
-                                <span className="shrink-0 rounded-md bg-emerald-300 px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-[#013d38]">New</span>
-                              )}
                               <ChevronRight className="h-4 w-4 shrink-0 text-white/40 transition group-hover/item:translate-x-0.5 group-hover/item:text-white" aria-hidden />
                             </span>
                           </Link>

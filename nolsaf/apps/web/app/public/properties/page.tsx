@@ -337,7 +337,7 @@ function OptionGrid({
     <div>
       {title && (
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</span>
+          <span className="text-[12px] font-medium text-slate-500">{title}</span>
           {!single && picked > 0 && <span className="text-[11px] font-semibold text-[#02665e]">{picked} selected</span>}
         </div>
       )}
@@ -357,7 +357,7 @@ function OptionGrid({
               aria-checked={on}
               onClick={() => onPick(o.key)}
               className={[
-                "box-border flex min-w-0 items-center gap-2.5 border-0 border-solid border-slate-100 px-3 py-2.5 text-left transition-colors",
+                "box-border flex min-w-0 items-center gap-2.5 border-0 border-solid border-slate-100 px-3 py-2.5 text-left [font-family:inherit] transition-colors",
                 columns === 2 && i % 2 === 1 ? "border-l" : "",
                 i >= columns ? "border-t" : "",
                 on ? "bg-[#02665e]/[0.06]" : "bg-white hover:bg-slate-50",
@@ -424,16 +424,16 @@ function FilterSection({
         onClick={onToggle}
         aria-expanded={open}
         aria-controls={`filter-panel-${id}`}
-        className={`box-border flex h-[52px] w-full items-center gap-3 border-0 px-4 text-left transition-colors ${open ? "bg-slate-50" : "bg-white hover:bg-slate-50"}`}
+        className={`box-border flex h-12 w-full items-center gap-3 border-0 px-4 text-left [font-family:inherit] transition-colors ${open ? "bg-slate-50" : "bg-white hover:bg-slate-50"}`}
       >
         <span
-          className={`flex h-8 w-8 flex-none items-center justify-center rounded-lg ring-1 ring-inset ${
-            isSet ? "bg-[#02665e] text-white ring-[#02665e]" : "bg-[#02665e]/[0.07] text-[#02665e] ring-[#02665e]/10"
+          className={`flex h-7 w-7 flex-none items-center justify-center rounded-md ${
+            isSet ? "bg-[#02665e] text-white" : "bg-[#02665e]/[0.07] text-[#02665e]"
           }`}
         >
           <Icon className="h-4 w-4" aria-hidden />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-slate-900">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-slate-900">{title}</span>
         {/* Current choice: quiet grey when open-ended, brand when set */}
         <span className={`max-w-[42%] flex-none truncate text-[13px] ${isSet ? "font-semibold text-[#02665e]" : "text-slate-500"}`}>
           {summary}
@@ -444,7 +444,7 @@ function FilterSection({
         <div id={`filter-panel-${id}`} className="min-w-0 border-0 border-t border-solid border-slate-100 bg-slate-50 px-4 pb-3.5 pt-3">
           {children}
           {onClear && (
-            <button type="button" onClick={onClear} className="mt-3 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline">
+            <button type="button" onClick={onClear} className="mt-3 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] [font-family:inherit] hover:underline">
               Clear {title.toLowerCase()}
             </button>
           )}
@@ -823,7 +823,8 @@ export default function PropertiesPage() {
     };
   }, [filtersOpen]);
 
-  const applyFilters = () => {
+  // The draft as URL params: used to apply the filters and to preview how many stays they leave.
+  const draftParams = useCallback(() => {
     const next = new URLSearchParams(qp.toString());
     // reset paging when filters change
     next.set("page", "1");
@@ -870,10 +871,32 @@ export default function PropertiesPage() {
       next.delete("nearLng");
       next.delete("radiusKm");
     }
+    return next;
+  }, [qp, draft]);
 
-    router.push(propertiesUrl(next));
+  const applyFilters = () => {
+    router.push(propertiesUrl(draftParams()));
     closeFilters();
   };
+
+  // Live preview: how many stays the draft would show, so the main button says it before applying.
+  const [draftCount, setDraftCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const controller = new AbortController();
+    const t = window.setTimeout(() => {
+      const params = draftParams();
+      params.set("pageSize", "1");
+      fetch(`/api/public/properties?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => setDraftCount(typeof json?.total === "number" ? json.total : null))
+        .catch(() => {});
+    }, 350);
+    return () => {
+      window.clearTimeout(t);
+      controller.abort();
+    };
+  }, [filtersOpen, draftParams]);
 
   const clearFilters = () => {
     const next = new URLSearchParams(qp.toString());
@@ -1466,7 +1489,7 @@ export default function PropertiesPage() {
 
             <div
               className={[
-                "absolute box-border flex h-auto flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_-18px_rgba(0,0,0,0.45)]",
+                "absolute box-border flex h-auto flex-col overflow-hidden rounded-xl bg-white shadow-[0_24px_60px_-18px_rgba(0,0,0,0.45)]",
                 // Phone: bottom sheet that hugs its content
                 "inset-x-2 bottom-2 top-auto max-h-[calc(100vh-1rem)]",
                 // sm+: floating panel at the top right, also content height
@@ -1476,38 +1499,33 @@ export default function PropertiesPage() {
               ].join(" ")}
             >
 
-              {/* Header */}
-              {/* Brand band: title, live count and one-tap quick picks */}
-              <div
-                className="relative flex-none overflow-hidden text-white sm:rounded-t-xl"
-                style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 55%, #02665e 160%)" }}
-              >
-                <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(320px circle at 100% 0%, rgba(52,211,153,0.18), transparent 60%)" }} />
-                <div className="relative flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+              {/* Header: title, what is set, and one-tap quick picks */}
+              <div className="flex-none border-0 border-b border-solid border-slate-200 bg-white">
+                <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-3.5">
                   <div className="min-w-0">
-                    <h2 id="filters-title" className="m-0 flex items-center gap-2 text-[17px] font-bold leading-tight">
-                      <SlidersHorizontal className="h-4 w-4 text-emerald-300" aria-hidden />
+                    <h2 id="filters-title" className="m-0 flex items-center gap-2 text-[16px] font-semibold leading-tight text-slate-900">
+                      <SlidersHorizontal className="h-4 w-4 text-[#02665e]" aria-hidden />
                       Filters
                       {activeCount > 0 && (
-                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-emerald-300 px-1.5 text-[11px] font-bold text-[#012e29]">{activeCount}</span>
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded bg-[#02665e] px-1.5 text-[11px] font-bold text-white">{activeCount}</span>
                       )}
                     </h2>
-                    <p className="m-0 mt-0.5 text-[12px] text-white/55">
-                      {activeCount > 0 ? `${activeCount} filter${activeCount === 1 ? "" : "s"} ready to apply` : "Quick picks or refine below"}
+                    <p className="m-0 mt-0.5 text-[12px] text-slate-500">
+                      {activeCount > 0 ? `${activeCount} filter${activeCount === 1 ? "" : "s"} set` : "Quick picks or refine below"}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={closeFilters}
                     aria-label="Close filters"
-                    className="flex h-9 w-9 flex-none items-center justify-center rounded-lg border-0 bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+                    className="flex h-8 w-8 flex-none items-center justify-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
                   >
                     <X className="h-4 w-4" />
                   </button>
                 </div>
 
                 {/* Quick picks: the most-used filters, one tap each */}
-                <div className="relative grid grid-cols-3 gap-1.5 px-4 pb-3.5 pt-1">
+                <div className="grid grid-cols-3 gap-1.5 px-4 pb-3 pt-1">
                   {([
                     { label: "Flexible", Icon: BadgeCheck, on: draft.freeCancellation, toggle: () => setDraft((d) => ({ ...d, freeCancellation: !d.freeCancellation })) },
                     {
@@ -1553,11 +1571,11 @@ export default function PropertiesPage() {
                       type="button"
                       aria-pressed={on}
                       onClick={toggle}
-                      className={`box-border inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-solid px-2 text-[12.5px] font-semibold transition-colors ${
-                        on ? "border-emerald-300 bg-emerald-300 text-[#012e29]" : "border-white/15 bg-white/[0.06] text-white/85 hover:bg-white/[0.12]"
+                      className={`box-border inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-md border border-solid px-2 text-[12.5px] font-medium [font-family:inherit] transition-colors ${
+                        on ? "border-[#02665e] bg-[#02665e]/[0.06] text-[#02665e] ring-1 ring-[#02665e]" : "border-slate-300/80 bg-white text-slate-700 hover:border-slate-400"
                       }`}
                     >
-                      {on ? <Check className="h-3.5 w-3.5 flex-none" strokeWidth={3} aria-hidden /> : <Icon className="h-3.5 w-3.5 flex-none" aria-hidden />}
+                      {on ? <Check className="h-3.5 w-3.5 flex-none" strokeWidth={3} aria-hidden /> : <Icon className="h-3.5 w-3.5 flex-none text-slate-500" aria-hidden />}
                       <span className="truncate">{label}</span>
                     </button>
                   ))}
@@ -1825,7 +1843,7 @@ export default function PropertiesPage() {
                   type="button"
                   onClick={clearFilters}
                   disabled={activeCount === 0}
-                  className="box-border inline-flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                  className="box-border inline-flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg border border-solid border-slate-300 bg-white px-3 text-[14px] font-semibold text-slate-700 [font-family:inherit] transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                 >
                   <Trash2 className="h-4 w-4 flex-none" aria-hidden />
                   Clear all
@@ -1833,10 +1851,12 @@ export default function PropertiesPage() {
                 <button
                   type="button"
                   onClick={applyFilters}
-                  className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-3 text-[14px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47] active:bg-[#013a35] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40"
+                  className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-3 text-[14px] font-semibold text-white [font-family:inherit] transition-colors hover:bg-[#014e47] active:bg-[#013a35] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40"
                 >
                   <Check className="h-4 w-4" aria-hidden />
-                  Show results
+                  <span className="truncate tabular-nums">
+                    {draftCount == null ? "Show results" : draftCount === 0 ? "No stays match" : `Show ${draftCount.toLocaleString()} ${draftCount === 1 ? "stay" : "stays"}`}
+                  </span>
                 </button>
               </div>
             </div>

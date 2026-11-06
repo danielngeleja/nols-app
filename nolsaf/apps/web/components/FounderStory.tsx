@@ -17,7 +17,7 @@ type Props = {
 export default function FounderStory({ imageSrc = "/assets/Founder.jpg" }: Props) {
   return (
     <section aria-labelledby="our-story-heading" className="mt-10">
-      <div className="box-border grid w-full grid-cols-[minmax(0,1fr)] overflow-hidden rounded-2xl bg-white ring-1 ring-inset ring-slate-200/80 shadow-[0_18px_44px_-24px_rgba(2,40,36,0.35)] md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:rounded-[20px]">
+      <div className="box-border grid w-full grid-cols-[minmax(0,1fr)] overflow-hidden rounded-xl bg-white ring-1 ring-inset ring-slate-200/80 shadow-[0_18px_44px_-24px_rgba(2,40,36,0.35)] md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         {/* Photo: fills its column, caption on the image */}
         <div className="group relative min-h-[220px] overflow-hidden md:min-h-[380px] md:rounded-r-xl">
           <Image
@@ -61,8 +61,8 @@ export default function FounderStory({ imageSrc = "/assets/Founder.jpg" }: Props
               { Icon: Smartphone, title: "Pay locally", text: "Mobile money, bank or card" },
               { Icon: Globe2, title: "One platform", text: "Stays, rides and tours" },
             ].map(({ Icon, title, text }) => (
-              <li key={title} className="flex min-w-0 items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-inset ring-slate-200/70">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white" style={{ background: "linear-gradient(135deg, #014e47, #02665e)" }}>
+              <li key={title} className="flex min-w-0 items-center gap-2.5 rounded-lg bg-slate-50 px-3 py-2.5 ring-1 ring-inset ring-slate-200/70">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white" style={{ background: "linear-gradient(135deg, #014e47, #02665e)" }}>
                   <Icon className="h-4 w-4" aria-hidden />
                 </span>
                 <span className="min-w-0">
@@ -73,7 +73,7 @@ export default function FounderStory({ imageSrc = "/assets/Founder.jpg" }: Props
             ))}
           </ul>
 
-          <figure className="m-0 mt-4 rounded-xl border-0 border-l-[3px] border-solid border-[#02665e] bg-[#02665e]/[0.04] py-3.5 pl-4 pr-4">
+          <figure className="m-0 mt-4 rounded-lg border-0 border-l-[3px] border-solid border-[#02665e] bg-[#02665e]/[0.04] py-3.5 pl-4 pr-4">
             <Quote className="h-4 w-4 text-[#02665e]/50" aria-hidden />
             <blockquote className="m-0 mt-1.5 text-[14.5px] font-medium leading-relaxed text-slate-800">
               Everyone deserves an easy, friendly way to travel, explore and connect with new cultures, all in one platform.
