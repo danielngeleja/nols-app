@@ -11,7 +11,7 @@ export type PublicAppDistribution = {
 };
 
 type Placement = "home" | "footer";
-type StoreLink = { href: string; platform: string; store: string; kind: "android" | "ios" };
+export type StoreLink = { href: string; platform: string; store: string; kind: "android" | "ios" };
 
 function AppleStoreMark({ compact }: { compact: boolean }) {
   // Apple mark from Apple's Download on the App Store badge artwork.
@@ -30,7 +30,7 @@ function GooglePlayMark({ compact }: { compact: boolean }) {
   </svg>;
 }
 
-function StoreBadge({ item, compact, dark = false }: { item: StoreLink; compact: boolean; dark?: boolean }) {
+export function StoreBadge({ item, compact, dark = false }: { item: StoreLink; compact: boolean; dark?: boolean }) {
   const content = <>
     {item.kind === "ios" ? <AppleStoreMark compact={compact} /> : <GooglePlayMark compact={compact} />}
     <span className="min-w-0 text-left">

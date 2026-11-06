@@ -184,6 +184,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
                   { href: "/about/who", label: "Who we are" },
                   { href: "/about/what", label: "What we do" },
                   { href: "/about/story", label: "Our story" },
+                  { href: "/app", label: "NoLSAF mobile app" },
                   { href: "/careers", label: "Careers" },
                 ],
               },

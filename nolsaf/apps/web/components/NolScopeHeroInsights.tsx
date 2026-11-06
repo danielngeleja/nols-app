@@ -125,7 +125,7 @@ export default function NolScopeHeroInsights() {
   const slide = dir === 1 ? "ns-right" : "ns-left";
 
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-white/[0.05] ring-1 ring-white/10">
+    <div className="relative overflow-hidden rounded-xl bg-white/[0.05] ring-1 ring-white/10">
       <style>{MOTION_CSS}</style>
 
       {/* Title and month controls */}
@@ -133,7 +133,7 @@ export default function NolScopeHeroInsights() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="m-0 text-[12px] text-white/55">Best places to go in</p>
-            <p key={`m-${tick}`} className={`m-0 mt-0.5 text-[22px] font-bold leading-tight text-white ${tick ? slide : ""}`} suppressHydrationWarning>
+            <p key={`m-${tick}`} className={`m-0 mt-0.5 text-[19px] font-bold leading-tight text-white ${tick ? slide : ""}`} suppressHydrationWarning>
               {MONTHS[month - 1]}
             </p>
             {dests && dests.length ? (
@@ -143,10 +143,10 @@ export default function NolScopeHeroInsights() {
             ) : null}
           </div>
           <div className="flex items-center gap-1.5">
-            <button type="button" aria-label="Previous month" onClick={() => shift(-1)} className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-white/10 text-white transition hover:scale-105 hover:bg-white/20 active:scale-95">
+            <button type="button" aria-label="Previous month" onClick={() => shift(-1)} className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border-0 bg-white/10 text-white transition-colors hover:bg-white/20">
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <button type="button" aria-label="Next month" onClick={() => shift(1)} className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-white/10 text-white transition hover:scale-105 hover:bg-white/20 active:scale-95">
+            <button type="button" aria-label="Next month" onClick={() => shift(1)} className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border-0 bg-white/10 text-white transition-colors hover:bg-white/20">
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
@@ -154,8 +154,8 @@ export default function NolScopeHeroInsights() {
 
         {/* The year at a glance: bar height = places at their best that month */}
         {dests && dests.length ? (
-          <div className="relative mt-6" role="group" aria-label="Pick a month">
-            <div className="flex h-12 items-end gap-1">
+          <div className="relative mt-5" role="group" aria-label="Pick a month">
+            <div className="flex h-10 items-end gap-1">
               {bestByMonth.map((count, i) => {
                 const active = i + 1 === month;
                 const isNow = i + 1 === nowMonth;
@@ -177,7 +177,7 @@ export default function NolScopeHeroInsights() {
                     ) : null}
                     <span
                       className={`w-full rounded-t-[3px] transition-all duration-500 ${
-                        active ? "bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.7)]" : isNow ? "bg-white/45 group-hover:bg-white/55" : "bg-white/20 group-hover:bg-white/35"
+                        active ? "bg-emerald-300" : isNow ? "bg-white/45 group-hover:bg-white/55" : "bg-white/20 group-hover:bg-white/35"
                       }`}
                       style={{ height: `${Math.max(12, (count / maxBest) * 100)}%` }}
                     />
@@ -218,11 +218,11 @@ export default function NolScopeHeroInsights() {
             {ranked.slice(0, 5).map(({ d, fit }, i) => (
               <li
                 key={d.code}
-                className="ns-row flex items-center gap-3 border-0 border-t border-solid border-white/[0.07] px-2 py-3 first:border-t-0"
+                className="ns-row flex items-center gap-3 border-0 border-t border-solid border-white/[0.07] px-2 py-2.5 first:border-t-0"
                 style={{ animationDelay: `${i * 55}ms` }}
               >
-                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-white/90">{d.name}</span>
-                <span className={`flex-shrink-0 rounded-md px-2 py-1 text-[11px] font-bold ring-1 ring-inset ${FIT[fit].tone}`}>{FIT[fit].label}</span>
+                <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-white/90">{d.name}</span>
+                <span className={`flex-shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${FIT[fit].tone}`}>{FIT[fit].label}</span>
               </li>
             ))}
           </ul>

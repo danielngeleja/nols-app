@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 
 /**
- * One quiet line of live facts under the hero action: the real destination
- * count and when rates were last verified, read from the estimator's own API.
+ * Three live proof points under the hero action, read from the estimator's own
+ * API: how many destinations it prices, when rates were last verified, and
+ * that it costs nothing. Shown as figures, not a sentence, so they carry weight.
  */
 export default function NolScopeHeroFacts() {
   const [destCount, setDestCount] = useState<number | null>(null);
@@ -18,14 +19,28 @@ export default function NolScopeHeroFacts() {
       .catch(() => {});
     fetch("/api/public/nolscope/data-freshness")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => alive && d?.lastUpdatedAt && setVerified(new Date(d.lastUpdatedAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })))
+      .then((d) => alive && d?.lastUpdatedAt && setVerified(new Date(d.lastUpdatedAt).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" })))
       .catch(() => {});
     return () => {
       alive = false;
     };
   }, []);
 
-  const parts = [destCount != null ? `${destCount} destinations` : null, verified ? `Rates verified ${verified}` : null, "Free, no sign-up"].filter(Boolean);
+  const facts = [
+    { value: destCount != null ? String(destCount) : "…", label: "destinations priced" },
+    { value: verified ?? "…", label: "rates last verified" },
+    { value: "Free", label: "no sign-up needed" },
+  ];
 
-  return <p className="m-0 mt-5 text-[12.5px] text-white/55">{parts.join("  ·  ")}</p>;
+  return (
+    <dl className="m-0 mx-auto mt-6 grid max-w-md grid-cols-3 md:mx-0 border-0 border-t border-solid border-white/10 pt-4 text-left">
+      {facts.map((f, i) => (
+        <div key={f.label} className={`min-w-0 ${i > 0 ? "border-0 border-l border-solid border-white/10 pl-4" : "pr-4"}`}>
+          <dt className="sr-only">{f.label}</dt>
+          <dd className="m-0 truncate text-[17px] font-bold leading-tight tabular-nums text-white">{f.value}</dd>
+          <dd className="m-0 mt-0.5 text-[11.5px] leading-snug text-white/55">{f.label}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }

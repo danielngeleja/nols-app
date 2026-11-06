@@ -26,7 +26,6 @@ export default function PublicHeader({
   const [mobileRegionsOpen, setMobileRegionsOpen] = useState<boolean>(false);
   const [scrolled, setScrolled] = useState<boolean>(false);
   const [headerVisible, setHeaderVisible] = useState<boolean>(true);
-  const [scrollProgress, setScrollProgress] = useState<number>(0);
   const [scrollAmount, setScrollAmount] = useState<number>(0);
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const headerRef = useRef<HTMLElement>(null);
@@ -40,6 +39,8 @@ export default function PublicHeader({
   }, []);
   const pathname = usePathname();
   const [isOverHero, setIsOverHero] = useState<boolean>(false);
+  /** Viewport top of the homepage hero, so the resting header can sit inside it. */
+  const [heroTop, setHeroTop] = useState<number | null>(null);
   const isPublicHome = pathname === "/public";
 
   // Auth state management
@@ -135,10 +136,6 @@ export default function PublicHeader({
           const scrollSpeed = Math.abs(scrollDifference);
           const isPublic = pathname?.startsWith("/public") ?? false;
           
-          // Calculate scroll progress (0-1) for smooth transitions
-          const maxScroll = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
-          const progress = Math.min(currentScrollY / Math.max(maxScroll * 0.3, 100), 1);
-          setScrollProgress(progress);
           setScrollAmount(currentScrollY);
           // Public home hero coupling: treat header as "over hero" until hero bottom is passed.
           let heroOverNow = false;
@@ -150,6 +147,7 @@ export default function PublicHeader({
                 // rect.bottom is relative to viewport; consider header "over hero" while hero still intersects the top region
                 heroOverNow = rect.bottom > 72;
                 setIsOverHero(heroOverNow);
+                setHeroTop(Math.round(rect.top));
               } else {
                 setIsOverHero(false);
               }
@@ -203,9 +201,16 @@ export default function PublicHeader({
     
     // Initial check
     handleScroll();
-    
+
+    // The header stays mounted across pages, but the homepage fades in through
+    // the layout transition, so #public-hero may not exist on the first check.
+    // Look again over the first moments; otherwise the header keeps its solid
+    // bar at the top of the homepage until the visitor scrolls.
+    const heroRechecks = pathname === "/public" ? [80, 250, 500, 900, 1500].map((ms) => setTimeout(handleScroll, ms)) : [];
+
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
+      heroRechecks.forEach(clearTimeout);
       window.removeEventListener('scroll', handleScroll);
       if (scrollTimeout) clearTimeout(scrollTimeout);
       if (scrollStopTimeout) clearTimeout(scrollStopTimeout);
@@ -225,6 +230,14 @@ export default function PublicHeader({
   // 'overHero'  = floating pill state (transparent dark glass, not scrolled yet)
   // 'scrolled'  = compact pill after user scrolls
   const overHero = isPublicPath && pathname === "/public" && isOverHero && !scrolled;
+  // At rest on the homepage (nothing scrolled yet): no bar at all, just the
+  // logo, a hairline menu and the two actions sitting on the hero. The glass
+  // bar fades in with heroBlend as the visitor starts to scroll.
+  const atRest = overHero && heroBlend < 0.35;
+  // Desktop glass strength: transparent at rest over the homepage hero, then a
+  // light frosted bar once scrolled, firmer over plain (non-public) pages.
+  const glassAlpha = overHero ? heroBlend * 0.78 : isNonPublicPage ? 0.92 : scrolled ? 0.78 : 0.86;
+  const glassBlur = glassAlpha < 0.05 ? 'none' : `blur(${Math.round(8 + glassAlpha * 12)}px) saturate(160%)`;
   const headerVariant: "light" | "dark" = "dark";
 
   const _navTextClass    = "text-white";
@@ -233,11 +246,8 @@ export default function PublicHeader({
   const _navDotBgClass   = "bg-emerald-400";
 
   // Nav pill: premium dark-glass matching hero outer surround palette
-  const chromePillClass = overHero
-    ? "bg-[rgba(5,14,35,0.52)] ring-1 ring-white/[0.16] shadow-[0_8px_32px_rgba(0,0,0,0.44)]"
-    : scrolled
-    ? "bg-[rgba(8,22,50,0.80)] ring-1 ring-[#02665e]/50 shadow-[0_4px_20px_rgba(0,0,0,0.32)]"
-    : "bg-[rgba(11,31,92,0.88)] ring-1 ring-white/[0.14] shadow-[0_4px_16px_rgba(0,0,0,0.30)]";
+  // Menu and tools sit in one hairline group in every state: no dark pill.
+  const chromePillClass = atRest ? "bg-white/[0.06] ring-1 ring-white/25" : "bg-white/[0.07] ring-1 ring-white/15";
 
   const useOwnerLikeMobileHeader = isMobile && isPublicPath;
 
@@ -464,7 +474,12 @@ export default function PublicHeader({
               // so the header + hero read as a single, intentional composition.
               marginTop: isMobile
                 ? (useOwnerLikeMobileHeader ? '8px' : '0')
-                : (isPublicHome ? 'clamp(10px, 1.5vw, 14px)' : (scrolled ? '10px' : '0')),
+                : (isPublicHome
+                  // Over the hero, ride 12px inside its top edge so nothing straddles
+                  // the light page above it; settle at the usual inset once it scrolls up.
+                  // Fallback before the hero is measured: its 32px frame plus the same 8px.
+                  ? (overHero || !scrolled ? (heroTop != null ? `${Math.max(14, heroTop + 8)}px` : '40px') : 'clamp(10px, 1.5vw, 14px)')
+                  : (scrolled ? '10px' : '0')),
               borderRadius: isMobile
                 ? (useOwnerLikeMobileHeader ? '30px' : '0 0 10px 10px')
                 : (compact ? '20px' : (isPublicHome && !scrolled ? '28px' : '24px')),
@@ -473,60 +488,26 @@ export default function PublicHeader({
               maxWidth: isMobile ? '100%' : ((overHero || scrolled) ? '1200px' : '100%'),
               marginLeft: isMobile ? (useOwnerLikeMobileHeader ? 'auto' : 0) : ((overHero || scrolled) ? 'auto' : undefined),
               marginRight: isMobile ? (useOwnerLikeMobileHeader ? 'auto' : 0) : ((overHero || scrolled) ? 'auto' : undefined),
-              // Naspers-style coupling: transparent over hero, then smoothly fills into our brand glass header.
-              // Non-public pages get full opacity for maximum visibility
-              // Dark premium glass — matches the hero card background (#05080f) with a subtle emerald tint.
+              // One frosted brand-teal glass for every desktop state. On the homepage
+              // it starts fully transparent over the hero and fills in with heroBlend;
+              // over plain pages it is more opaque so white text stays readable.
               background: useOwnerLikeMobileHeader
                 ? 'linear-gradient(135deg, rgba(2,91,83,0.96) 0%, rgba(2,102,94,0.98) 55%, rgba(3,120,103,0.96) 100%)'
-                : overHero
-                ? `linear-gradient(135deg, rgba(8,18,50,${0.62 + heroBlend * 0.14}) 0%, rgba(10,50,100,${0.44 + heroBlend * 0.12}) 55%, rgba(2,102,94,${0.12 + heroBlend * 0.10}) 100%)`
-                : scrolled
-                ? `linear-gradient(135deg, rgba(8,18,50,${0.90 + scrollProgress * 0.06}) 0%, rgba(10,92,130,${0.60 + scrollProgress * 0.14}) 55%, rgba(2,102,94,${0.50 + scrollProgress * 0.18}) 100%)`
-                : isNonPublicPage
-                ? `linear-gradient(135deg, #0b1f5c 0%, #0a5c82 52%, #02665e 100%)`
-                : `linear-gradient(135deg, rgba(11,31,92,${pathname === "/public" ? (0.18 + heroBlend * 0.60) : 0.92}) 0%, rgba(10,92,130,${pathname === "/public" ? (0.10 + heroBlend * 0.48) : 0.80}) 55%, rgba(2,102,94,${pathname === "/public" ? (0.08 + heroBlend * 0.38) : 0.72}) 100%)`,
-
-              backdropFilter: useOwnerLikeMobileHeader
-                ? 'blur(20px) saturate(180%)'
-                : overHero
-                ? `blur(${18 + heroBlend * 8}px) saturate(180%)`
-                : isNonPublicPage
-                ? `blur(16px) saturate(180%)`
-                : scrolled
-                ? `blur(${16 + scrollProgress * 6}px) saturate(${160 + scrollProgress * 20}%)`
-                : `blur(${6 + heroBlend * 10}px) saturate(${120 + heroBlend * 40}%)`,
-              WebkitBackdropFilter: useOwnerLikeMobileHeader
-                ? 'blur(20px) saturate(180%)'
-                : overHero
-                ? `blur(${18 + heroBlend * 8}px) saturate(180%)`
-                : isNonPublicPage
-                ? `blur(16px) saturate(180%)`
-                : scrolled
-                ? `blur(${16 + scrollProgress * 6}px) saturate(${160 + scrollProgress * 20}%)`
-                : `blur(${6 + heroBlend * 10}px) saturate(${120 + heroBlend * 40}%)`,
+                : `rgba(1,52,47,${glassAlpha})`,
+              backdropFilter: useOwnerLikeMobileHeader ? 'blur(20px) saturate(180%)' : glassBlur,
+              WebkitBackdropFilter: useOwnerLikeMobileHeader ? 'blur(20px) saturate(180%)' : glassBlur,
               boxShadow: useOwnerLikeMobileHeader
                 ? '0 18px 52px rgba(0,0,0,0.30), 0 0 0 1px rgba(255,255,255,0.10), inset 0 1px 0 rgba(255,255,255,0.10), 0 0 40px rgba(2,102,94,0.16)'
-                : overHero
-                ? `0 8px 32px rgba(2,102,94,0.18), inset 0 1px 0 rgba(255,255,255,0.10), inset 0 0 0 1px rgba(255,255,255,0.06)`
-                : scrolled
-                ? `0 12px 36px rgba(8,18,50,0.48), 0 0 0 1px rgba(2,102,94,0.30), inset 0 1px 0 rgba(255,255,255,0.10)`
-                : isNonPublicPage
-                ? `0 4px 20px rgba(2,102,94,0.28), 0 0 0 1px rgba(255,255,255,0.10)`
-                : pathname === "/public" && heroBlend > 0.2
-                ? `0 10px 32px rgba(8,18,50,0.32), 0 0 0 1px rgba(2,102,94,0.18)`
-                : 'none',
+                : glassAlpha < 0.2
+                ? 'none'
+                : `0 8px 24px rgba(1,30,27,${(glassAlpha * 0.28).toFixed(3)}), inset 0 1px 0 rgba(255,255,255,0.08)`,
               border: useOwnerLikeMobileHeader
                 ? '1px solid rgba(255,255,255,0.12)'
-                : overHero
-                ? "none"
-                : scrolled
-                ? '1px solid rgba(255,255,255,0.11)'
-                : isNonPublicPage
-                ? '1px solid rgba(255,255,255,0.14)'
-                : pathname === "/public" && heroBlend > 0.25
-                ? '1px solid rgba(255,255,255,0.07)'
-                : 'none',
-              transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                : `1px solid rgba(255,255,255,${(Math.min(glassAlpha, 0.8) * 0.15).toFixed(3)})`,
+              // margin-top is left out on purpose: it follows the hero while scrolling
+              // and must track it frame by frame, not lag half a second behind.
+              transition: ['background', 'backdrop-filter', '-webkit-backdrop-filter', 'box-shadow', 'border', 'border-radius', 'max-width', 'width']
+                .map((p) => `${p} 0.5s cubic-bezier(0.4, 0, 0.2, 1)`).join(', '),
               willChange: 'border-radius, background, backdrop-filter, box-shadow',
             }}
           >
@@ -575,26 +556,12 @@ export default function PublicHeader({
               </>
             )}
 
-            {/* Scroll Progress Indicator */}
-            {scrolled && scrollProgress > 0 && (
-              <div
-                className="absolute bottom-0 left-0 h-[2px] transition-all duration-300"
-                style={{
-                  width: `${scrollProgress * 100}%`,
-                  background: `linear-gradient(90deg, transparent 0%, rgba(52,211,153,0.6) 20%, rgba(56,189,248,0.8) 60%, rgba(52,211,153,0.6) 80%, transparent 100%)`,
-                  borderRadius: '0 0 24px 24px',
-                }}
-              />
-            )}
-
             <div 
               className={`flex items-center justify-between px-4 sm:px-5 ${
                 compact ? 'h-14' : scrolled ? 'h-16' : 'h-14'
               }`}
               style={{
-                textShadow: scrolled
-                  ? `0 2px 4px rgba(0,0,0,${0.4 + scrollProgress * 0.2}), 0 0 12px rgba(0,0,0,${0.25 + scrollProgress * 0.15})`
-                  : '0 1px 2px rgba(0,0,0,0.25)',
+                textShadow: '0 1px 2px rgba(0,0,0,0.18)',
                 transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
               }}
             >
@@ -671,10 +638,11 @@ export default function PublicHeader({
                   <>
                     <Link
                       href="/account/login"
-                      className="hidden items-center justify-center rounded-full bg-white/95 font-semibold text-slate-900 no-underline shadow-[0_6px_20px_rgba(15,23,42,0.18)] ring-1 ring-white transition-all duration-300 hover:scale-105 hover:bg-white hover:text-emerald-800 active:scale-95 sm:inline-flex"
+                      className="hidden items-center justify-center rounded-full bg-transparent font-semibold text-white no-underline ring-1 ring-white/40 transition-all duration-300 hover:bg-white/10 hover:text-white active:scale-95 sm:inline-flex"
                       style={{
                         padding: scrolled ? '7px 15px' : '9px 18px',
                         fontSize: scrolled ? '13px' : '14px',
+                        textShadow: 'none',
                         transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                       }}
                     >
@@ -682,12 +650,12 @@ export default function PublicHeader({
                     </Link>
                     <Link
                       href="/account/register"
-                      className="hidden sm:inline-flex items-center justify-center rounded-full no-underline transition-all duration-300 hover:scale-105 active:scale-95 font-semibold text-white"
+                      className="hidden sm:inline-flex items-center justify-center rounded-full bg-white no-underline font-semibold text-[#02665e] transition-all duration-300 hover:bg-emerald-50 hover:text-[#02665e] active:scale-95"
                       style={{
                         padding: scrolled ? '7px 15px' : '9px 18px',
                         fontSize: scrolled ? '13px' : '14px',
-                        background: 'linear-gradient(135deg,#0b1f5c 0%,#0a5c82 52%,#02665e 100%)',
-                        boxShadow: '0 0 0 1px rgba(2,102,94,0.45), 0 4px 16px rgba(2,102,94,0.28)',
+                        textShadow: 'none',
+                        // The one solid action, in every state: white with the brand colour.
                         transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                       }}
                     >
@@ -1133,14 +1101,16 @@ function RegionsDropdown({ variant = "dark", fullWidth = false }:{ variant?: "li
         className={[
           fullWidth
             ? "w-full text-left font-semibold no-underline text-sm py-2.5 px-4 rounded-full bg-transparent appearance-none border-0 transition-all duration-200 active:scale-[0.98] group relative"
-            : "inline-flex items-center justify-center font-semibold no-underline text-sm py-2 px-3.5 rounded-full bg-transparent appearance-none border-0 transition-all duration-200 active:scale-[0.98] group relative",
-          variant === "light" ? "text-[#02665e] hover:bg-[#02665e]/10" : "text-white hover:bg-white/8",
+            // Inherits the page font (base styles are off, so a bare button falls back
+            // to the browser font) and matches the other links' weight.
+            : "inline-flex items-center justify-center [font-family:inherit] font-medium no-underline text-sm py-2 px-3.5 rounded-full bg-transparent appearance-none border-0 transition-all duration-200 active:scale-[0.98] group relative",
+          variant === "light" ? "text-[#02665e] hover:bg-[#02665e]/10" : "text-white/90 hover:bg-white/8 hover:text-white",
         ].join(" ")}
       >
-        <div className={fullWidth ? "flex items-center justify-between" : "flex items-center gap-2"}>
+        <div className={fullWidth ? "flex items-center justify-between" : "flex items-center gap-1"}>
           <span className="relative z-10">Regions</span>
-          <ChevronDown 
-            className={`h-4 w-4 ml-2 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} 
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform duration-200 ${fullWidth ? "ml-2" : ""} ${open ? 'rotate-180' : ''}`}
             aria-hidden 
           />
         </div>

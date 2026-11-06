@@ -410,15 +410,11 @@ export default function OperatorPublicProfile({
     <div id="operator-public-profile">
       <style>{"#operator-public-profile, #operator-public-profile * { box-sizing: border-box; }"}</style>
 
-      {/* ── Header card ── */}
-      <div className="relative overflow-hidden rounded-2xl border border-solid border-slate-100 bg-white shadow-[0_4px_24px_rgba(2,102,94,0.10)] sm:rounded-3xl">
-        <div className="relative px-5 pb-6 pt-5 sm:px-8 sm:pb-7 sm:pt-6">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <Link
-              href="/public/tour-packages"
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold no-underline"
-              style={{ color: BRAND, background: "rgba(2,102,94,0.07)", border: "1px solid rgba(2,102,94,0.15)" }}
-            >
+      {/* ── Header: who they are, the facts a traveller checks first, and proof of verification ── */}
+      <div className="overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white">
+        <div className="px-4 pb-4 pt-3 sm:px-6 sm:pb-5 sm:pt-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <Link href="/public/tour-packages" className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-slate-500 no-underline hover:text-[#02665e]">
               <ChevronRight className="h-3.5 w-3.5 rotate-180" aria-hidden />
               All tours
             </Link>
@@ -428,96 +424,94 @@ export default function OperatorPublicProfile({
                 type="button"
                 onClick={share}
                 aria-label="Share this operator"
-                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full"
-                style={{ background: "rgba(2,102,94,0.07)", border: "1px solid rgba(2,102,94,0.15)", color: BRAND }}
+                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:text-[#02665e]"
               >
                 <Share2 className="h-4 w-4" aria-hidden />
               </button>
             </div>
           </div>
 
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
-            {/* Identity: logo, what they are, who they are, the three things a traveller checks first */}
-            <div className="flex min-w-0 items-start gap-4 sm:gap-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
+            {/* Identity */}
+            <div className="flex min-w-0 items-center gap-3.5">
               {logoUrl ? (
-                <span className="relative mt-1 h-16 w-16 flex-shrink-0 overflow-hidden rounded-2xl bg-white shadow-[0_6px_18px_-10px_rgba(2,40,36,0.45)] ring-1 ring-slate-200 sm:h-[76px] sm:w-[76px]">
-                  <Image src={logoUrl} alt={`${p.companyName} logo`} fill sizes="76px" className="object-contain p-1.5" unoptimized />
+                <span className="relative h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg bg-white ring-1 ring-slate-200">
+                  <Image src={logoUrl} alt={`${p.companyName} logo`} fill sizes="56px" className="object-contain p-1" unoptimized />
                 </span>
               ) : null}
               <div className="min-w-0">
-                <p className="m-0 mb-1.5 text-[10px] font-bold uppercase tracking-[0.20em] sm:text-xs" style={{ color: BRAND }}>
+                <p className="m-0 text-[12px] font-medium text-[#02665e]">
                   Tour operator
                   {typeof p.yearsInOperation === "number" && p.yearsInOperation > 0 ? (
-                    <span className="font-semibold text-slate-400"> · {p.yearsInOperation}+ years</span>
+                    <span className="text-slate-400"> · {p.yearsInOperation}+ years in business</span>
                   ) : null}
                 </p>
-                <h1 className="m-0 break-words text-3xl font-bold leading-[1.1] tracking-tight text-slate-900 sm:text-4xl lg:text-[2.75rem]">{p.companyName || "Tour operator"}</h1>
-                <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
+                <h1 className="m-0 mt-0.5 break-words text-[22px] font-bold leading-tight tracking-tight text-slate-900 sm:text-[28px]">{p.companyName || "Tour operator"}</h1>
+                {/* The three facts a traveller checks first, as one line */}
+                <p className="m-0 mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] text-slate-600">
                   {ratingCount > 0 ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[13px] text-amber-900 ring-1 ring-inset ring-amber-200/70">
+                    <span className="inline-flex items-center gap-1">
                       <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden />
-                      <span className="font-bold tabular-nums">{rating.toFixed(1)}</span>
-                      <span className="font-semibold">{ratingWord(rating)}</span>
-                      <span className="text-amber-800/70">· {ratingCount} rating{ratingCount === 1 ? "" : "s"}</span>
+                      <span className="font-semibold tabular-nums text-slate-900">{rating.toFixed(1)}</span>
+                      <span>{ratingWord(rating)}</span>
+                      <span className="text-slate-400">({ratingCount} rating{ratingCount === 1 ? "" : "s"})</span>
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#02665e]/[0.07] px-2.5 py-1 text-[13px] font-semibold text-[#02665e]">
+                    <span className="inline-flex items-center gap-1 font-medium text-[#02665e]">
                       <Sparkles className="h-3.5 w-3.5" aria-hidden /> New on NoLSAF
                     </span>
                   )}
                   {location ? (
-                    <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-[13px] font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
-                      <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
-                      <span className="truncate">{location}</span>
-                    </span>
+                    <>
+                      <span aria-hidden className="text-slate-300">·</span>
+                      <span className="inline-flex min-w-0 items-center gap-1">
+                        <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" aria-hidden />
+                        <span className="truncate">{location}</span>
+                      </span>
+                    </>
                   ) : null}
                   {tours.length ? (
-                    <button
-                      type="button"
-                      onClick={scrollToTours}
-                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border-0 bg-slate-50 px-2.5 py-1 text-[13px] font-medium text-slate-700 ring-1 ring-inset ring-slate-200 transition-colors hover:bg-[#02665e]/[0.07] hover:text-[#02665e]"
-                    >
-                      <Package className="h-3.5 w-3.5 text-[#02665e]" aria-hidden />
-                      {tours.length} tour{tours.length === 1 ? "" : "s"}
-                    </button>
+                    <>
+                      <span aria-hidden className="text-slate-300">·</span>
+                      <button
+                        type="button"
+                        onClick={scrollToTours}
+                        className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[13px] font-semibold text-[#02665e] [font-family:inherit] hover:underline"
+                      >
+                        <Package className="h-3.5 w-3.5" aria-hidden />
+                        {tours.length} tour{tours.length === 1 ? "" : "s"}
+                      </button>
+                    </>
                   ) : null}
-                </div>
+                </p>
               </div>
             </div>
 
-            {/* Verification: one clear statement, the certificate as proof */}
+            {/* Verification: one slim proof strip */}
             {verified ? (
-              <div className="w-full flex-none overflow-hidden rounded-2xl border border-solid border-[#02665e]/15 bg-white shadow-[0_10px_28px_-18px_rgba(2,40,36,0.45)] sm:w-auto lg:w-[320px]">
-                <div className="flex items-center gap-3 px-4 py-3.5">
-                  <span className="relative flex h-10 w-10 flex-none items-center justify-center rounded-full bg-[#02665e] text-white">
-                    <ShieldCheck className="h-5 w-5" aria-hidden />
-                    <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-400 ring-2 ring-white">
-                      <Check className="h-2.5 w-2.5 text-white" strokeWidth={3.5} aria-hidden />
-                    </span>
-                  </span>
-                  <div className="min-w-0 leading-tight">
-                    <p className="m-0 text-[14px] font-bold text-slate-900">Verified by NoLSAF</p>
-                    <p className="m-0 mt-0.5 text-[12px] text-slate-500">Company and profile checked before listing</p>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-[#02665e]/10 bg-[#02665e]/[0.04] px-4 py-2">
-                  <span className="min-w-0 truncate text-[11.5px] text-slate-500">
+              <div className="flex w-full flex-none items-center gap-3 rounded-lg border border-solid border-[#02665e]/20 bg-[#02665e]/[0.04] px-3 py-2.5 sm:w-auto lg:max-w-[340px]">
+                <span className="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-[#02665e] text-white">
+                  <ShieldCheck className="h-4 w-4" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1 leading-tight">
+                  <p className="m-0 text-[13px] font-semibold text-slate-900">Verified by NoLSAF</p>
+                  <p className="m-0 mt-0.5 truncate text-[11.5px] text-slate-500">
                     {verification?.certificateId ? (
-                      <>Certificate <span className="font-semibold tabular-nums text-slate-700">{verification.certificateId}</span></>
+                      <>Certificate <span className="font-medium tabular-nums text-slate-700">{verification.certificateId}</span></>
                     ) : (
-                      "Active NoLSAF partner"
+                      "Company and profile checked before listing"
                     )}
-                  </span>
-                  {verification?.verificationUrl ? (
-                    <a href={verification.verificationUrl} target="_blank" rel="noopener noreferrer" className="inline-flex flex-shrink-0 items-center gap-0.5 text-[12px] font-semibold text-[#02665e] no-underline hover:underline">
-                      View <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                    </a>
-                  ) : (
-                    <Link href="/verification-policy" className="inline-flex flex-shrink-0 items-center gap-0.5 text-[12px] font-semibold text-[#02665e] no-underline hover:underline">
-                      How we verify <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                    </Link>
-                  )}
+                  </p>
                 </div>
+                {verification?.verificationUrl ? (
+                  <a href={verification.verificationUrl} target="_blank" rel="noopener noreferrer" className="inline-flex flex-shrink-0 items-center gap-0.5 text-[12px] font-semibold text-[#02665e] no-underline hover:underline">
+                    View <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                  </a>
+                ) : (
+                  <Link href="/verification-policy" className="inline-flex flex-shrink-0 items-center gap-0.5 text-[12px] font-semibold text-[#02665e] no-underline hover:underline">
+                    How we verify <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                  </Link>
+                )}
               </div>
             ) : null}
           </div>

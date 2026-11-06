@@ -3,6 +3,7 @@ import { SeriesResponse, BreakdownResponse } from '../types/stats.js';
 import { moneyStageOf, MONEY_STAGES } from '../lib/invoiceMoneyStage.js';
 import { GUEST_MONEY_IN, OWED_TO_PAYEE, indexMoneyStages, loadOwnerInvoiceDisbursements } from '../lib/invoiceMoneyStageIndex.js';
 import { accommodationTake } from '../lib/platformMargin.js';
+import { summarizeRoomInventory } from './adminRoomInventory.js';
 
 const TZ_OFFSET_MS = 3 * 60 * 60 * 1000; // EAT UTC+3
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -182,9 +183,15 @@ export async function getOverview() {
     : 0;
 
   // 2. Active & approved properties (status=APPROVED)
-  const approvedPropertiesCount = await prisma.property.count({
+  const approvedProperties = await prisma.property.findMany({
     where: { status: 'APPROVED' },
+    select: { id: true, roomsSpec: true },
   });
+  const approvedPropertiesCount = approvedProperties.length;
+  // Rooms owners declared on those listings, counted the same way as the
+  // dashboard's room inventory panel.
+  const now = new Date();
+  const roomsDeclared = summarizeRoomInventory(approvedProperties, [], new Date(now.getTime() - DAY_MS), now).totals.roomsDeclared;
 
   // 3. Total Payment: accommodation revenue from all active (non-cancelled) bookings.
   //    = SUM(booking.totalAmount - transportFare) for CONFIRMED, CHECKED_IN, CHECKED_OUT.
@@ -275,6 +282,7 @@ export async function getOverview() {
   return {
     ownersCount: activeApprovedOwnersCount,
     propertiesCount: approvedPropertiesCount,
+    roomsDeclared,
     totalPayment,
     grossAmount,
     ownerPayouts,

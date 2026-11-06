@@ -1059,7 +1059,9 @@ export default function Page() {
 
         <div className="relative z-10">
           <div className="relative flex flex-col lg:flex-row lg:items-stretch gap-0">
-              <div className="flex flex-1 flex-col items-center px-5 py-9 sm:px-8 sm:py-12 lg:px-12 lg:py-14">
+              {/* From md up the header rests inside the hero's top edge (PublicHeader),
+                  so the top padding clears it. */}
+              <div className="flex flex-1 flex-col items-center px-5 py-9 sm:px-8 sm:py-12 md:pt-24 lg:px-12 lg:pb-14 lg:pt-24">
                 <motion.div
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }}
@@ -1185,22 +1187,24 @@ export default function Page() {
                     )}
                   </div>
 
-                  <div className="hidden h-[52px] w-full items-stretch overflow-visible rounded-full border border-emerald-100 bg-white p-1.5 text-slate-900 shadow-[0_12px_30px_-20px_rgba(6,78,59,0.38)] md:flex">
-                    <label className="order-1 flex min-w-0 flex-[1.2] cursor-text items-center gap-2 rounded-full px-3 text-left transition hover:bg-slate-50 focus-within:bg-slate-50">
-                      <MapPin className="h-4 w-4 flex-none text-emerald-700" aria-hidden />
-                      <span className="min-w-0 flex-1">
+                  {/* Desktop: three labelled parts and a clear Search action, squared to match the site */}
+                  <div className="hidden h-[54px] w-full items-stretch overflow-visible rounded-lg border border-solid border-white/70 bg-white p-1 text-slate-900 shadow-[0_10px_28px_-18px_rgba(0,0,0,0.5)] md:flex">
+                    <label className="order-1 flex min-w-0 flex-[1.3] cursor-text items-center gap-2.5 rounded-md px-3 text-left transition-colors hover:bg-slate-50 focus-within:bg-slate-50">
+                      <MapPin className="h-4 w-4 flex-none text-[#02665e]" aria-hidden />
+                      <span className="min-w-0 flex-1 leading-tight">
+                        <span className="block text-[10.5px] font-semibold text-slate-500">Where</span>
                         <input
                           aria-label="Search query"
                           value={q}
                           onChange={(e) => setQ(e.target.value)}
-                          placeholder="Where to?"
-                          className="w-full min-w-0 border-0 bg-transparent text-[13px] font-medium text-slate-900 shadow-none outline-none placeholder:text-slate-500 focus:border-0 focus:outline-none focus:ring-0"
+                          placeholder="Region, city or stay"
+                          className="w-full min-w-0 border-0 bg-transparent p-0 text-[13px] font-medium text-slate-900 shadow-none outline-none placeholder:font-normal placeholder:text-slate-400 focus:border-0 focus:outline-none focus:ring-0"
                         />
                       </span>
                     </label>
                     <span className="order-2 my-2 w-px flex-none bg-slate-200" aria-hidden />
                       <span className="order-4 my-2 hidden w-px flex-none bg-slate-200 md:block" aria-hidden />
-                      <div ref={guestRef} className="order-5 hidden min-w-0 flex-[0.8] items-center justify-center overflow-visible rounded-full px-3 text-left transition hover:bg-slate-50 md:inline-flex">
+                      <div ref={guestRef} className="order-5 hidden min-w-0 flex-[0.8] items-center justify-center overflow-visible rounded-md px-3 text-left transition-colors hover:bg-slate-50 md:inline-flex">
                         <div className="relative w-full">
                           <button
                             type="button"
@@ -1210,8 +1214,9 @@ export default function Page() {
                             onClick={() => { setDateOpen(false); setGuestOpen(true); }}
                             className="flex w-full min-w-0 items-center gap-2 border-0 bg-transparent p-0 text-left text-slate-900 shadow-none outline-none"
                           >
-                            <User className="h-4 w-4 flex-none text-slate-500" aria-hidden />
-                            <span className="min-w-0">
+                            <User className="h-4 w-4 flex-none text-[#02665e]" aria-hidden />
+                            <span className="min-w-0 leading-tight">
+                              <span className="block text-[10.5px] font-semibold text-slate-500">Who</span>
                               <span className="block truncate text-[13px] font-medium text-slate-800">{guestLabel}</span>
                             </span>
                           </button>
@@ -1219,7 +1224,7 @@ export default function Page() {
 
                         {guestOpen ? (
                           createPortal(
-                            <div className="nolsaf-guest-popper pointer-events-auto bg-white rounded shadow-lg z-30 text-slate-900 border border-slate-200">
+                            <div className="nolsaf-guest-popper pointer-events-auto z-30 rounded-lg border border-solid border-slate-200 bg-white text-slate-900 shadow-lg">
                               <div className="p-3">
                                 <div className="flex items-center justify-between">
                                   <div>
@@ -1246,7 +1251,7 @@ export default function Page() {
                                         onClick={() => setAdults((a) => Math.max(1, a - 1))}
                                         disabled={adults <= 1}
                                         aria-disabled={adults <= 1}
-                                        className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50 active:scale-95 transition"
+                                        className="flex h-8 w-8 items-center justify-center rounded-md border border-solid border-slate-300 bg-white transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                       >
                                         −
                                       </button>
@@ -1257,7 +1262,7 @@ export default function Page() {
                                         onClick={() => setAdults((a) => Math.min(10, a + 1))}
                                         disabled={adults >= 10}
                                         aria-disabled={adults >= 10}
-                                        className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50 active:scale-95 transition"
+                                        className="flex h-8 w-8 items-center justify-center rounded-md border border-solid border-slate-300 bg-white transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                       >
                                         +
                                       </button>
@@ -1276,7 +1281,7 @@ export default function Page() {
                                         onClick={() => setChildren((c) => Math.max(0, c - 1))}
                                         disabled={children <= 0}
                                         aria-disabled={children <= 0}
-                                        className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50 active:scale-95 transition"
+                                        className="flex h-8 w-8 items-center justify-center rounded-md border border-solid border-slate-300 bg-white transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                       >
                                         −
                                       </button>
@@ -1287,7 +1292,7 @@ export default function Page() {
                                         onClick={() => setChildren((c) => Math.min(10, c + 1))}
                                         disabled={children >= 10}
                                         aria-disabled={children >= 10}
-                                        className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50 active:scale-95 transition"
+                                        className="flex h-8 w-8 items-center justify-center rounded-md border border-solid border-slate-300 bg-white transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                       >
                                         +
                                       </button>
@@ -1306,7 +1311,7 @@ export default function Page() {
                                         onClick={() => setPets((p) => Math.max(0, p - 1))}
                                         disabled={pets <= 0}
                                         aria-disabled={pets <= 0}
-                                        className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50 active:scale-95 transition"
+                                        className="flex h-8 w-8 items-center justify-center rounded-md border border-solid border-slate-300 bg-white transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                       >
                                         −
                                       </button>
@@ -1317,7 +1322,7 @@ export default function Page() {
                                         onClick={() => setPets((p) => Math.min(5, p + 1))}
                                         disabled={pets >= 5}
                                         aria-disabled={pets >= 5}
-                                        className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50 active:scale-95 transition"
+                                        className="flex h-8 w-8 items-center justify-center rounded-md border border-solid border-slate-300 bg-white transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                                       >
                                         +
                                       </button>
@@ -1366,7 +1371,7 @@ export default function Page() {
                           )
                         ) : null}
                       </div>
-                      <div ref={dateRef} className="order-3 hidden min-w-0 flex-1 items-center justify-center rounded-full px-3 text-left transition hover:bg-slate-50 md:inline-flex">
+                      <div ref={dateRef} className="order-3 hidden min-w-0 flex-1 items-center justify-center rounded-md px-3 text-left transition-colors hover:bg-slate-50 md:inline-flex">
                         <button
                           type="button"
                           aria-label="Select dates"
@@ -1374,10 +1379,11 @@ export default function Page() {
                           onClick={() => { setGuestOpen(false); setDateOpen((v) => !v); }}
                           className="flex w-full min-w-0 items-center gap-2 border-0 bg-transparent p-0 text-left text-slate-900 shadow-none outline-none"
                         >
-                          <CalendarDays className="h-4 w-4 flex-none text-slate-500" aria-hidden />
-                          <span className="min-w-0">
-                            <span className="block w-full truncate text-[13px] font-medium text-slate-800">
-                              {checkin ? (checkout ? formatRangeShort(checkin, checkout) : formatSingleShort(checkin)) : 'Any dates'}
+                          <CalendarDays className="h-4 w-4 flex-none text-[#02665e]" aria-hidden />
+                          <span className="min-w-0 leading-tight">
+                            <span className="block text-[10.5px] font-semibold text-slate-500">When</span>
+                            <span className={`block w-full truncate text-[13px] font-medium ${checkin ? "text-slate-800" : "font-normal text-slate-400"}`}>
+                              {checkin ? (checkout ? formatRangeShort(checkin, checkout) : formatSingleShort(checkin)) : 'Add dates'}
                             </span>
                           </span>
                         </button>
@@ -1414,10 +1420,10 @@ export default function Page() {
                       <button
                         type="submit"
                         aria-label="Search stays"
-                        className="order-7 ml-1 hidden h-10 w-10 flex-none items-center justify-center rounded-full border-0 bg-emerald-700 text-white shadow-[0_8px_18px_-10px_rgba(4,120,87,0.7)] outline-none transition hover:bg-emerald-800 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/30 md:flex"
+                        className="order-7 ml-1 hidden flex-none items-center justify-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-[13px] font-semibold text-white outline-none [font-family:inherit] transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 md:flex"
                       >
-                        <Search className="h-[18px] w-[18px]" aria-hidden />
-                        <span className="sr-only">Search</span>
+                        <Search className="h-4 w-4" aria-hidden />
+                        Search
                       </button>
                     </div>
                   </form>

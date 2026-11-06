@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
-import { toPublicCard, toPublicDetail } from "../lib/publicPropertyDto.js";
+import { nightlyPriceOptions, serviceTagSet, toPublicCard, toPublicDetail } from "../lib/publicPropertyDto.js";
 import { Prisma } from "@prisma/client";
 import QRCode from "qrcode";
 import { withCache, cacheKeys, cacheTags, measureTime, publicCacheKey } from "../lib/performance.js";
@@ -438,22 +438,21 @@ const listPublicProperties: RequestHandler = async (req, res) => {
   ];
   if (serviceTags.length > 0) {
     try {
-      const clauses: Prisma.Sql[] = [
-        Prisma.sql`status = 'APPROVED'`,
-      ];
-      for (const tag of serviceTags) {
-        const needle = JSON.stringify(tag); // e.g. "\"Pool\""
-        // Guard against legacy rows or non-JSON column types.
-        clauses.push(
-          Prisma.sql`(services IS NOT NULL AND JSON_VALID(services) AND JSON_CONTAINS(CAST(services AS JSON), ${needle}))`
-        );
-      }
-
-      const servicesWhere = Prisma.join(clauses, " AND ");
-      const idsRows = (await prisma.$queryRaw(
-        Prisma.sql`SELECT id FROM \`property\` WHERE ${servicesWhere}`
-      )) as Array<{ id: number }>;
-      const ids = (idsRows || []).map((r: { id: number }) => Number(r.id)).filter((n: number) => Number.isFinite(n));
+      // Matched in code, not with JSON_CONTAINS: current listings save services
+      // as an object whose tags sit under `tags` (and older objects only carry
+      // yes/no flags), which a top-level JSON_CONTAINS never sees. Every
+      // selected tag must be present.
+      const wanted = serviceTags.map((t) => t.trim().toLowerCase());
+      const rows = await prisma.property.findMany({
+        where: { status: "APPROVED", services: { not: Prisma.DbNull } } as any,
+        select: { id: true, services: true },
+      });
+      const ids = rows
+        .filter((p) => {
+          const have = serviceTagSet(p.services);
+          return wanted.every((t) => have.has(t));
+        })
+        .map((p) => p.id);
       // If no ids match, we can return early.
       if (ids.length === 0) return res.json({ items: [], total: 0, page, pageSize });
       where.id = { in: ids };
@@ -464,11 +463,21 @@ const listPublicProperties: RequestHandler = async (req, res) => {
     }
   }
 
+  // Price filter: match the prices guests actually see and book. Many stays have
+  // no basePrice and are priced per room in roomsSpec, so filtering the column
+  // alone hid them even though their card showed a price inside the range.
   if (minPrice !== undefined || maxPrice !== undefined) {
-    where.basePrice = {
-      ...(minPrice !== undefined ? { gte: minPrice } : {}),
-      ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
-    };
+    const lo = minPrice ?? 0;
+    const hi = maxPrice ?? Number.POSITIVE_INFINITY;
+    const candidates = await prisma.property.findMany({
+      where: { status: "APPROVED", ...(where.id ? { id: where.id } : {}) },
+      select: { id: true, basePrice: true, roomsSpec: true },
+    });
+    const ids = candidates
+      .filter((p) => nightlyPriceOptions(p).some((price) => price >= lo && price <= hi))
+      .map((p) => p.id);
+    if (ids.length === 0) return res.json({ items: [], total: 0, page, pageSize });
+    where.id = { in: ids };
   }
 
   if (guests !== undefined) {

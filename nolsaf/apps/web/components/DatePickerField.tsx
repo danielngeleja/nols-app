@@ -20,6 +20,8 @@ type Props = {
   display?: "date" | "month" | "day-month";
   /** A darker outline for fields that sit on a tinted panel, where the default fades out. */
   strongBorder?: boolean;
+  /** 8px corners instead of 12px, for forms using the tighter radius. */
+  squared?: boolean;
 };
 
 function formatDisplay(iso?: string, display: "date" | "month" | "day-month" = "date") {
@@ -89,6 +91,7 @@ export default function DatePickerField({
   variant = "light",
   display = "date",
   strongBorder = false,
+  squared = false,
 }: Props) {
   const isDark = variant === "dark";
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -165,7 +168,7 @@ export default function DatePickerField({
                 (isSm ? "h-10" : "h-12") +
                 " w-full " +
                 widthClassName +
-                " relative rounded-xl border text-sm shadow-sm " +
+                " relative " + (squared ? "rounded-lg" : "rounded-xl") + " border text-sm shadow-sm " +
                 (isSm ? "px-3 pl-10" : "px-4 pl-11") +
                 " text-left focus:outline-none transition " +
                 (isDark

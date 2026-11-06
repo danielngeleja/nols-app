@@ -33,16 +33,16 @@ const BID_FLOW = [
   { Icon: CheckCircle2, title: 'You choose', text: 'A small deposit confirms it. The rest at check-in.' },
 ] as const;
 
-// Every select and text field in the builder gets the same tall, rounded field look.
+// Every select and text field in the builder gets the same field look: firm outline, 8px corners.
 const BUILDER_CSS = `
 #group-stay-builder, #group-stay-builder * { box-sizing: border-box; }
 #group-stay-builder .groupstays-select {
   height: 3rem; min-height: 3rem; margin-top: 0.375rem; padding-left: 0.875rem;
-  border: 1px solid #e2e8f0 !important; border-radius: 0.75rem !important; background: #fff !important;
+  border: 1px solid #cbd5e1 !important; border-radius: 0.5rem !important; background: #fff !important;
   font-size: 0.875rem; color: #0f172a; box-shadow: 0 1px 2px rgba(15,23,42,0.04);
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
-#group-stay-builder .groupstays-select:hover:not(:disabled) { border-color: rgba(2,102,94,0.45) !important; }
+#group-stay-builder .groupstays-select:hover:not(:disabled) { border-color: #94a3b8 !important; }
 #group-stay-builder .groupstays-select:focus { outline: none; border-color: ${BRAND} !important; box-shadow: 0 0 0 3px rgba(2,102,94,0.15); }
 #group-stay-builder .groupstays-select:disabled { background: #f8fafc !important; color: #94a3b8; cursor: not-allowed; }
 #group-stay-builder .groupstays-chevron { right: 0.875rem; margin-top: 0.1875rem; }
@@ -70,8 +70,8 @@ function BriefRail({ current, summaries, onJump }: { current: number; summaries:
             >
               <span
                 className={[
-                  'relative z-10 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-bold transition',
-                  done ? 'bg-[#02665e] text-white' : active ? 'bg-[#02665e] text-white ring-4 ring-[#02665e]/15' : 'border-2 border-solid border-slate-200 bg-white text-slate-400 group-hover:border-slate-300',
+                  'relative z-10 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-[13px] font-bold transition',
+                  done ? 'bg-[#02665e] text-white' : active ? 'bg-[#02665e] text-white ring-4 ring-[#02665e]/15' : 'border border-solid border-slate-300 bg-white text-slate-400 group-hover:border-slate-400',
                 ].join(' ')}
               >
                 {done ? <Check className="h-4 w-4" strokeWidth={3} aria-hidden /> : step}
@@ -148,7 +148,7 @@ function CountStepper({ id, label, hint, value, min = 0, max = 999, dot, onChang
 }) {
   const set = (n: number) => onChange(Math.min(max, Math.max(min, n)));
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-solid border-slate-200 bg-white px-3.5 py-2.5 transition focus-within:border-[#02665e]/50">
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-solid border-slate-300/80 bg-white px-3.5 py-2.5 transition focus-within:border-[#02665e]/50">
       <div className="min-w-0 leading-tight">
         <label htmlFor={id} className="flex items-center gap-2 text-[13.5px] font-semibold text-slate-800">
           {dot ? <span className={`h-2 w-2 flex-shrink-0 rounded-full ${dot}`} aria-hidden /> : null}
@@ -156,13 +156,13 @@ function CountStepper({ id, label, hint, value, min = 0, max = 999, dot, onChang
         </label>
         {hint ? <span className="mt-0.5 block text-[11.5px] text-slate-400">{hint}</span> : null}
       </div>
-      <div className="inline-flex flex-shrink-0 items-center rounded-full bg-slate-50 p-0.5 ring-1 ring-slate-200">
+      <div className="inline-flex flex-shrink-0 items-center rounded-md bg-slate-50 p-0.5 ring-1 ring-slate-200">
         <button
           type="button"
           onClick={() => set(value - 1)}
           suppressHydrationWarning disabled={value <= min}
           aria-label={`Fewer: ${label}`}
-          className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 bg-white text-slate-700 shadow-sm transition hover:text-[#02665e] disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300 disabled:shadow-none"
+          className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border-0 bg-white text-slate-700 shadow-sm transition hover:text-[#02665e] disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300 disabled:shadow-none"
         >
           <Minus className="h-4 w-4" aria-hidden />
         </button>
@@ -182,7 +182,7 @@ function CountStepper({ id, label, hint, value, min = 0, max = 999, dot, onChang
           onClick={() => set(value + 1)}
           suppressHydrationWarning disabled={value >= max}
           aria-label={`More: ${label}`}
-          className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 bg-white text-slate-700 shadow-sm transition hover:text-[#02665e] disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300 disabled:shadow-none"
+          className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border-0 bg-white text-slate-700 shadow-sm transition hover:text-[#02665e] disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300 disabled:shadow-none"
         >
           <Plus className="h-4 w-4" aria-hidden />
         </button>
@@ -909,7 +909,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
     return (
       <section ref={successRef} className="mt-4" aria-labelledby="group-stays-success">
         <div className="public-container">
-          <div className="bg-white rounded-2xl border border-slate-200 p-8 sm:p-12 shadow-sm">
+          <div className="bg-white rounded-xl border border-slate-200 p-8 sm:p-12 shadow-sm">
             <style dangerouslySetInnerHTML={{ __html: `
               @keyframes fadeIn {
                 from { opacity: 0; }
@@ -988,7 +988,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
         />
 
         {/* Hero: a light brief header; the three moves of a bid carry the explanation */}
-        <div className="overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white">
+        <div className="overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white">
           <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-3 sm:px-8">
             <span className="inline-flex items-center gap-2 text-[12.5px] font-bold text-[#02665e]">
               <Users className="h-4 w-4" aria-hidden />
@@ -1004,17 +1004,17 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
             </Link>
           </div>
 
-          <div className="grid gap-8 px-5 py-8 sm:px-8 sm:py-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-center">
+          <div className="grid gap-7 px-5 py-6 sm:px-8 sm:py-7 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-center">
             <div>
-              <h1 id="group-stays-heading" className="m-0 text-[30px] font-extrabold leading-[1.1] tracking-tight text-slate-950 sm:text-[40px]">
+              <h1 id="group-stays-heading" className="m-0 text-[26px] font-bold leading-[1.15] tracking-tight text-slate-950 sm:text-[32px]">
                 Request a group stay
               </h1>
-              <p className="m-0 mt-3 max-w-md text-[15px] leading-7 text-slate-600">
+              <p className="m-0 mt-2 max-w-md text-[14.5px] leading-6 text-slate-600">
                 Describe your group once. Owners in your destination send you offers, and you choose the one that fits.
               </p>
               <a
                 href="#group-stay-builder"
-                className="mt-6 inline-flex h-11 items-center gap-2 rounded-full bg-[#02665e] px-5 text-[14px] font-bold text-white no-underline transition hover:bg-[#014d47]"
+                className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-[#02665e] px-4 text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-[#014d47]"
               >
                 Start your brief
                 <ArrowDown className="h-4 w-4" aria-hidden />
@@ -1023,16 +1023,16 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
 
             <ol className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-3 sm:gap-0">
               {BID_FLOW.map(({ Icon, title, text }, i) => (
-                <li key={title} className="relative flex gap-3 rounded-2xl bg-[#f3f7f6] p-4 sm:flex-col sm:bg-transparent sm:p-0 sm:px-3 sm:text-center">
+                <li key={title} className="relative flex gap-3 rounded-lg bg-[#f3f7f6] p-3.5 sm:flex-col sm:bg-transparent sm:p-0 sm:px-3 sm:text-center">
                   {i < BID_FLOW.length - 1 ? (
                     <span className="absolute left-[calc(50%+28px)] right-[calc(-50%+28px)] top-[22px] hidden border-0 border-t-2 border-dashed border-[#02665e]/25 sm:block" aria-hidden />
                   ) : null}
-                  <span className="relative inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e]/[0.08] text-[#02665e] sm:mx-auto">
+                  <span className="relative inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/[0.08] text-[#02665e] sm:mx-auto">
                     <Icon className="h-5 w-5" aria-hidden />
-                    <span className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#02665e] text-[10.5px] font-bold text-white ring-2 ring-white">{i + 1}</span>
+                    <span className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-md bg-[#02665e] text-[10.5px] font-bold text-white ring-2 ring-white">{i + 1}</span>
                   </span>
                   <span className="min-w-0 sm:mt-3">
-                    <span className="block text-[14px] font-bold text-slate-900">{title}</span>
+                    <span className="block text-[13.5px] font-semibold text-slate-900">{title}</span>
                     <span className="mt-0.5 block text-[12.5px] leading-snug text-slate-500">{text}</span>
                   </span>
                 </li>
@@ -1053,14 +1053,14 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
             </div>
             <div className="mt-2 grid grid-cols-4 gap-1.5" aria-hidden>
               {STEPS.map((step, i) => (
-                <span key={step.label} className={`h-1.5 rounded-full ${i < currentStep ? 'bg-[#02665e]' : 'bg-slate-200'}`} />
+                <span key={step.label} className={`h-1.5 rounded-sm ${i < currentStep ? 'bg-[#02665e]' : 'bg-slate-200'}`} />
               ))}
             </div>
           </div>
 
           <div className="grid gap-8 lg:grid-cols-[250px_minmax(0,1fr)]">
             <nav aria-label="Request steps" className="hidden lg:block">
-              <div className="sticky top-24 rounded-2xl border border-solid border-slate-200 bg-white p-5">
+              <div className="sticky top-24 rounded-xl border border-solid border-slate-300/80 bg-white p-5">
                 <p className="m-0 mb-5 text-[12px] font-bold text-slate-500">Your brief</p>
                 <BriefRail current={currentStep} summaries={railSummaries} onJump={jumpTo} />
               </div>
@@ -1068,7 +1068,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
 
             <div className="min-w-0">
               <header className="mb-5">
-                <h2 className="m-0 text-[22px] font-bold leading-tight tracking-tight text-slate-950 sm:text-[26px]">{STEPS[currentStep - 1].title}</h2>
+                <h2 className="m-0 text-[20px] font-bold leading-tight tracking-tight text-slate-950 sm:text-[22px]">{STEPS[currentStep - 1].title}</h2>
                 <p className="m-0 mt-1 text-[14px] text-slate-500">{STEPS[currentStep - 1].sub}</p>
               </header>
 
@@ -1081,7 +1081,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
               <div key={currentStep} className="stepContentTransition">
               {currentStep === 1 && (
                 <div className="flex flex-col gap-5">
-                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-4 sm:p-5">
                     <p id="group-type-label" className="m-0 text-[14px] font-bold text-slate-900">What kind of group? <span className="text-rose-500">*</span></p>
                     <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">Owners tailor their offers to your group type.</p>
                     <div role="group" aria-labelledby="group-type-label" className="mt-3 flex flex-wrap gap-2">
@@ -1093,9 +1093,9 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                             type="button"
                             aria-pressed={on}
                             onClick={() => setGroupType(value)}
-                            className={`inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-solid pl-1.5 pr-4 transition ${on ? 'border-[#02665e] bg-[#02665e] text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-[#02665e]/40'}`}
+                            className={`inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-solid pl-1.5 pr-3.5 [font-family:inherit] transition-colors ${on ? 'border-[#02665e] bg-[#02665e]/[0.06] text-[#02665e] ring-1 ring-[#02665e]' : 'border-slate-300/80 bg-white text-slate-700 hover:border-slate-400'}`}
                           >
-                            <span className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full ${on ? 'bg-white/20 text-white' : 'bg-[#02665e]/[0.08] text-[#02665e]'}`}>
+                            <span className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md ${on ? 'bg-[#02665e] text-white' : 'bg-[#02665e]/[0.08] text-[#02665e]'}`}>
                               <Icon className="h-4 w-4" aria-hidden />
                             </span>
                             <span className="text-[13px] font-semibold">{label}</span>
@@ -1202,7 +1202,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                     )}
                   </div>
 
-                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-4 sm:p-5">
                     <div>
                       <p className="m-0 text-[14px] font-bold text-slate-900">Where are you going? <span className="text-rose-500">*</span></p>
                       <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">Region and district are required. Ward and street help owners nearby find you.</p>
@@ -1279,7 +1279,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
               {currentStep === 2 && (
                 <div>
                   {/* Accommodation */}
-                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                  <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-5 sm:p-6 mb-4">
                     <SectionHeader Icon={Building2} title="Where would you like to stay?" hint="Owners of this kind of place will send you offers." />
 
                     <div role="radiogroup" aria-label="Accommodation type" className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -1292,7 +1292,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                             role="radio"
                             aria-checked={on}
                             onClick={() => pickStay(value)}
-                            className={`group relative flex cursor-pointer items-start gap-3 rounded-2xl border border-solid p-3.5 text-left transition duration-200 ${on ? 'border-[#02665e] bg-[#02665e]/[0.04] shadow-[0_10px_24px_-16px_rgba(2,102,94,0.6)]' : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_10px_24px_-18px_rgba(15,23,42,0.35)]'}`}
+                            className={`group relative flex cursor-pointer items-start gap-3 rounded-xl border border-solid p-3.5 text-left transition duration-200 ${on ? 'border-[#02665e] bg-[#02665e]/[0.04] shadow-[0_10px_24px_-16px_rgba(2,102,94,0.6)]' : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_10px_24px_-18px_rgba(15,23,42,0.35)]'}`}
                           >
                             <span className={`inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl transition ${on ? 'bg-[#02665e] text-white' : 'bg-slate-50 text-slate-500 ring-1 ring-slate-200 group-hover:text-[#02665e]'}`}>
                               <Icon className="h-5 w-5" aria-hidden />
@@ -1301,7 +1301,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                               <span className={`block text-[14px] font-bold ${on ? 'text-[#02665e]' : 'text-slate-900'}`}>{label}</span>
                               <span className="mt-0.5 block text-[12px] leading-snug text-slate-500">{text}</span>
                             </span>
-                            <span className={`absolute right-3 top-3 inline-flex h-5 w-5 items-center justify-center rounded-full transition ${on ? 'bg-[#02665e] text-white' : 'border-2 border-solid border-slate-200 bg-white'}`} aria-hidden>
+                            <span className={`absolute right-3 top-3 inline-flex h-5 w-5 items-center justify-center rounded-md transition ${on ? 'bg-[#02665e] text-white' : 'border-2 border-solid border-slate-300/80 bg-white'}`} aria-hidden>
                               {on ? <Check className="h-3 w-3" strokeWidth={3.5} /> : null}
                             </span>
                           </button>
@@ -1312,7 +1312,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                     {/* The less common styles stay one tap away */}
                     <div className="mt-3">
                       {showMoreStays ? (
-                        <div className="rounded-2xl border border-dashed border-slate-200 p-3 sm:p-3.5">
+                        <div className="rounded-xl border border-dashed border-slate-200 p-3 sm:p-3.5">
                           <div className="mb-2.5 flex items-center justify-between gap-3 px-0.5">
                             <span className="text-[12.5px] font-bold text-slate-700">More stay types</span>
                             {MORE_STAYS.some((t) => t.value === accommodationType) ? null : (
@@ -1364,7 +1364,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       const idx = HOTEL_TIERS.findIndex((t) => t.value === minHotelStarLabel);
                       const tier = idx >= 0 ? HOTEL_TIERS[idx] : null;
                       return (
-                        <div className="mt-5 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:p-5">
+                        <div className="mt-5 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:p-5">
                           <div className="flex flex-wrap items-baseline justify-between gap-2">
                             <p id="hotel-rating-label" className="m-0 text-[13.5px] font-bold text-slate-900">
                               Lowest hotel standard you&apos;d accept <span className="text-rose-500">*</span>
@@ -1424,13 +1424,13 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                   </div>
 
                   {/* Headcount */}
-                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                  <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-5 sm:p-6 mb-4">
                     <SectionHeader
                       Icon={Users}
                       title="How many people?"
                       hint="Owners use the mix to plan shared rooms."
                       aside={
-                        <span className="flex-shrink-0 rounded-full bg-[#02665e]/[0.08] px-3 py-1 text-[13px] font-bold tabular-nums text-[#02665e]">
+                        <span className="flex-shrink-0 rounded-md bg-[#02665e]/[0.08] px-3 py-1 text-[13px] font-bold tabular-nums text-[#02665e]">
                           {calculatedHeadcount} {calculatedHeadcount === 1 ? 'person' : 'people'}
                         </span>
                       }
@@ -1441,7 +1441,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       <CountStepper id="other-count" label="Other" dot="bg-slate-400" value={otherCount} onChange={setOtherCount} />
                     </div>
                     {calculatedHeadcount > 0 ? (
-                      <div className="mt-4 flex h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+                      <div className="mt-4 flex h-1.5 overflow-hidden rounded-sm bg-slate-100" aria-hidden>
                         <span className="bg-sky-500 transition-all duration-300" style={{ width: `${(maleCount / calculatedHeadcount) * 100}%` }} />
                         <span className="bg-rose-400 transition-all duration-300" style={{ width: `${calculatedHeadcount ? (femaleCount / calculatedHeadcount) * 100 : 0}%` }} />
                         <span className="bg-slate-400 transition-all duration-300" style={{ width: `${(otherCount / calculatedHeadcount) * 100}%` }} />
@@ -1452,7 +1452,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                   </div>
 
                   {/* Private rooms */}
-                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                  <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-5 sm:p-6 mb-4">
                     <SectionHeader
                       Icon={Lock}
                       title="Private rooms"
@@ -1490,18 +1490,18 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                   </div>
 
                   {/* Room sharing */}
-                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                  <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-5 sm:p-6 mb-4">
                     <SectionHeader
                       Icon={BedDouble}
                       title="How many share a room?"
                       hint={`Suggested for this group: ${recommendRoomSize(groupType, headcount)} per room.`}
                       aside={
-                        <span className="flex-shrink-0 rounded-full bg-slate-100 px-3 py-1 text-[13px] font-bold tabular-nums text-slate-700">
+                        <span className="flex-shrink-0 rounded-md bg-slate-100 px-3 py-1 text-[13px] font-bold tabular-nums text-slate-700">
                           About {roomsNeeded} room{roomsNeeded === 1 ? '' : 's'}
                         </span>
                       }
                     />
-                    <div role="radiogroup" aria-label="People per room" className="mt-4 grid grid-cols-4 gap-1.5 rounded-2xl bg-slate-50 p-1.5 ring-1 ring-slate-200">
+                    <div role="radiogroup" aria-label="People per room" className="mt-4 grid grid-cols-4 gap-1.5 rounded-xl bg-slate-50 p-1.5 ring-1 ring-slate-200">
                       {[1, 2, 3, 4].map((n) => {
                         const on = roomSize === n;
                         return (
@@ -1521,12 +1521,12 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                  <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-5 sm:p-6 mb-4">
                     <SectionHeader Icon={Calendar} title="When are you staying?" hint="Nights are counted once both dates are set." />
                     <div className="mt-4">
                       {!useDates ? (
                         <div className="flex flex-col items-center gap-3 py-3">
-                          <div className="flex items-center justify-center h-11 w-11 rounded-full bg-[#02665e]/10">
+                          <div className="flex items-center justify-center h-11 w-11 rounded-lg bg-[#02665e]/10">
                             <Calendar className="w-5 h-5 text-[#02665e]" />
                           </div>
                           <p className="text-xs text-slate-500 text-center">No dates selected. Add them to help us plan your stay.</p>
@@ -1619,7 +1619,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                           {/* Summary pill + remove */}
                           <div className="mt-3 flex items-center justify-between gap-2">
                             {checkInIso && checkOutIso ? (
-                              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#02665e]/8 border border-[#02665e]/15 text-xs font-medium text-[#02665e]">
+                              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#02665e]/8 border border-[#02665e]/15 text-xs font-medium text-[#02665e]">
                                 <Calendar className="w-3.5 h-3.5" />
                                 <span>{formatDateSummary()}</span>
                               </div>
@@ -1646,7 +1646,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                   </div>
 
                     {/* Arrangements: group-level options for Step 2 */}
-                    <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                    <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-5 sm:p-6 mb-4">
                       <div className="mb-4">
                         <SectionHeader Icon={Sparkles} title="Extras" hint="Optional. Pick anything you want owners to include in their offer." />
                       </div>
@@ -1654,7 +1654,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       {[arrPickup, arrTransport, arrMeals, arrGuide, arrEquipment].filter(Boolean).length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mb-3">
                           {([['Pickup', arrPickup], ['Transport', arrTransport], ['Meals', arrMeals], ['Guide', arrGuide], ['Equipment', arrEquipment]] as [string, boolean][]).filter(s => s[1]).map((s) => (
-                            <span key={s[0]} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#02665e]/10 text-[#02665e] border border-[#02665e]/15">
+                            <span key={s[0]} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-medium bg-[#02665e]/10 text-[#02665e] border border-[#02665e]/15">
                               <Check className="w-3 h-3 stroke-[2.5]" />{s[0]}
                             </span>
                           ))}
@@ -1728,9 +1728,9 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       { n: '2', title: 'Fill in Excel',     desc: "One passenger per row. Don't rename columns" },
                       { n: '3', title: 'Upload CSV',        desc: 'Export as CSV then upload below' },
                     ].map(({ n, title, desc }) => (
-                      <div key={n} className="rounded-xl border border-solid border-slate-200 bg-white p-3 shadow-sm">
+                      <div key={n} className="rounded-xl border border-solid border-slate-300/80 bg-white p-3 shadow-sm">
                         <div className="flex items-center gap-2 mb-1.5">
-                          <div className="h-6 w-6 rounded-full bg-[#02665e] flex items-center justify-center text-xs font-bold text-white flex-shrink-0">{n}</div>
+                          <div className="h-6 w-6 rounded-md bg-[#02665e] flex items-center justify-center text-xs font-bold text-white flex-shrink-0">{n}</div>
                           <p className="text-xs font-semibold text-slate-800 leading-tight">{title}</p>
                         </div>
                         <p className="text-[10px] text-slate-500 leading-relaxed">{desc}</p>
@@ -1741,7 +1741,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                   {/* Template + Upload side by side */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {/* Template card */}
-                    <div className="rounded-xl border border-solid border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-4 shadow-sm">
                       <div className="flex items-start justify-between gap-3 mb-3 pb-3 border-b border-[#02665e]/10">
                         <div>
                           <p className="text-sm font-semibold text-slate-800">CSV Template</p>
@@ -1760,7 +1760,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Expected columns</p>
                       <div className="flex flex-wrap gap-1.5">
                         {templateColumns.map((c) => (
-                          <span key={c} className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#02665e]/5 border border-[#02665e]/15 text-[#02665e]">
+                          <span key={c} className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-[#02665e]/5 border border-[#02665e]/15 text-[#02665e]">
                             {c}
                           </span>
                         ))}
@@ -1768,7 +1768,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                     </div>
 
                     {/* Upload card */}
-                    <div className="rounded-xl border border-solid border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-4 shadow-sm">
                       <p className="text-sm font-semibold text-slate-800 mb-0.5">Upload Roster</p>
                       <p className="text-xs text-slate-500 mb-3">Select your filled-in CSV file</p>
 
@@ -1783,7 +1783,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       >
                         {rosterFileName ? (
                           <>
-                            <div className="h-9 w-9 rounded-full bg-[#02665e]/10 flex items-center justify-center">
+                            <div className="h-9 w-9 rounded-lg bg-[#02665e]/10 flex items-center justify-center">
                               <Check className="w-5 h-5 text-[#02665e]" />
                             </div>
                             <span className="text-xs font-semibold text-[#02665e] text-center px-2 truncate max-w-full">{rosterFileName}</span>
@@ -1791,7 +1791,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                           </>
                         ) : (
                           <>
-                            <div className="h-9 w-9 rounded-full bg-slate-100 flex items-center justify-center">
+                            <div className="h-9 w-9 rounded-lg bg-slate-100 flex items-center justify-center">
                               <Download className="w-4 h-4 text-slate-400 rotate-180" />
                             </div>
                             <span className="text-xs font-medium text-slate-500">Click to choose CSV file</span>
@@ -1814,10 +1814,10 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
 
                   {/* Imported roster preview */}
                   {roster.length ? (
-                    <div className="rounded-xl border border-solid border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="rounded-xl border border-solid border-slate-300/80 bg-white p-4 shadow-sm">
                       <div className="flex items-center justify-between gap-3 mb-3 pb-2.5 border-b border-[#02665e]/10">
                         <div className="flex items-center gap-2">
-                          <div className="h-6 w-6 rounded-full bg-[#02665e] flex items-center justify-center">
+                          <div className="h-6 w-6 rounded-md bg-[#02665e] flex items-center justify-center">
                             <Check className="w-3.5 h-3.5 text-white stroke-[2.5]" />
                           </div>
                           <div>
@@ -2012,7 +2012,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                           <div className="flex items-center gap-2 p-2 rounded hover:bg-slate-50">
                             <Truck className={`w-4 h-4 ${arrPickup ? 'text-emerald-600' : 'text-slate-300'}`} />
                             <span className="text-sm flex-1">Airport pick-up</span>
-                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${arrPickup ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-md ${arrPickup ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                               {arrPickup ? 'Yes' : 'No'}
                             </span>
                           </div>
@@ -2030,7 +2030,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                           <div className="flex items-center gap-2 p-2 rounded hover:bg-slate-50">
                             <Bus className={`w-4 h-4 ${arrTransport ? 'text-emerald-600' : 'text-slate-300'}`} />
                             <span className="text-sm flex-1">Transport between sites</span>
-                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${arrTransport ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-md ${arrTransport ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                               {arrTransport ? 'Yes' : 'No'}
                             </span>
                           </div>
@@ -2038,7 +2038,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                           <div className="flex items-center gap-2 p-2 rounded hover:bg-slate-50">
                             <Coffee className={`w-4 h-4 ${arrMeals ? 'text-emerald-600' : 'text-slate-300'}`} />
                             <span className="text-sm flex-1">Meals included</span>
-                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${arrMeals ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-md ${arrMeals ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                               {arrMeals ? 'Yes' : 'No'}
                             </span>
                           </div>
@@ -2048,7 +2048,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                           <div className="flex items-center gap-2 p-2 rounded hover:bg-slate-50">
                             <Users className={`w-4 h-4 ${arrGuide ? 'text-emerald-600' : 'text-slate-300'}`} />
                             <span className="text-sm flex-1">On-site guide/staff</span>
-                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${arrGuide ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-md ${arrGuide ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                               {arrGuide ? 'Yes' : 'No'}
                             </span>
                           </div>
@@ -2056,7 +2056,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                           <div className="flex items-center gap-2 p-2 rounded hover:bg-slate-50">
                             <Wrench className={`w-4 h-4 ${arrEquipment ? 'text-emerald-600' : 'text-slate-300'}`} />
                             <span className="text-sm flex-1">Special equipment</span>
-                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${arrEquipment ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-md ${arrEquipment ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                               {arrEquipment ? 'Yes' : 'No'}
                             </span>
                           </div>
@@ -2144,12 +2144,12 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
               ) : null}
 
               {/* Action bar */}
-              <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3 sm:px-5">
+              <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-solid border-slate-300/80 bg-white px-4 py-3 sm:px-5">
                 <button
                   type="button"
                   onClick={() => goToStep(Math.max(1, currentStep - 1))}
                   suppressHydrationWarning disabled={currentStep === 1}
-                  className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-30"
+                  className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   <ArrowLeft className="h-4 w-4" aria-hidden /> Back
                 </button>
@@ -2163,7 +2163,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       onClick={clearSavedDraft}
                       aria-label="Clear saved draft"
                       title="Clear saved draft"
-                      className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-slate-400 transition hover:bg-rose-50 hover:text-rose-500"
+                      className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-slate-400 transition hover:bg-rose-50 hover:text-rose-500"
                     >
                       <Trash2 className="h-3.5 w-3.5" aria-hidden />
                     </button>
@@ -2177,7 +2177,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       if (!validateUpToStep(currentStep)) return;
                       goToStep(currentStep + 1);
                     }}
-                    className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-[#02665e] px-6 text-sm font-bold text-white transition hover:bg-[#014d47]"
+                    className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-6 text-sm font-bold text-white transition hover:bg-[#014d47]"
                   >
                     {currentStep === 3 && roster.length === 0 ? 'Skip for now' : 'Continue'}
                     <ArrowRight className="h-4 w-4" aria-hidden />
@@ -2188,7 +2188,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                     onClick={() => { if (GATE_ENABLED) { setShowComingSoon(true); } else { _handleCreate(); } }}
                     suppressHydrationWarning disabled={isCreating || !isFormComplete()}
                     title={!isFormComplete() ? 'Fill in all required fields first' : ''}
-                    className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-full border-0 bg-[#02665e] px-6 text-sm font-bold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-300"
+                    className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-lg border-0 bg-[#02665e] px-6 text-sm font-bold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {isCreating ? (
                       <>
