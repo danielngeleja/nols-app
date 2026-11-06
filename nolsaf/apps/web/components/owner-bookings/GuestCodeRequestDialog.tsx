@@ -259,7 +259,7 @@ export default function GuestCodeRequestDialog({ open, onClose, preset }: { open
 
           {history.length > 0 && !result && (
             <div className="border-0 border-t border-solid border-slate-100 pt-4">
-              <p className="m-0 mb-2 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">
+              <p className="m-0 mb-2 text-[11px] font-bold text-slate-400">
                 Your recent requests{openHistory.length ? ` · ${openHistory.length} with NoLSAF` : ""}
               </p>
               <ul className="m-0 list-none space-y-1.5 p-0">

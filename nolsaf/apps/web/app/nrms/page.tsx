@@ -226,7 +226,7 @@ export default async function NrmsLandingPage() {
       <section className="relative mx-auto max-w-6xl px-5 pb-6 pt-10 sm:px-6 sm:pt-16 lg:pt-20">
         <div className="grid items-center gap-10 lg:grid-cols-[1.05fr_1fr] lg:gap-14">
           <div>
-            <span className="inline-flex items-center gap-2 rounded-full bg-[#02665e]/[0.07] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#02665e] ring-1 ring-[#02665e]/12">
+            <span className="inline-flex items-center gap-2 rounded-full bg-[#02665e]/[0.07] px-3 py-1.5 text-[11px] font-semibold text-[#02665e] ring-1 ring-[#02665e]/12">
               NoLSAF for property owners
             </span>
             <h1 className="mt-5 text-[2.05rem] font-semibold leading-[1.12] tracking-tight text-slate-900 sm:text-5xl sm:leading-[1.05]">

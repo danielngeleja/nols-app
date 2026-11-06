@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -13,12 +13,14 @@ import {
   LifeBuoy,
   Mail,
   MessageCircle,
+  PhoneCall,
   Search,
   Shield,
   Users,
   X,
 } from "lucide-react";
 import LayoutFrame from "@/components/LayoutFrame";
+import FloatingChatWidget from "@/components/FloatingChatWidget";
 import { HelpFooter, HelpHeader } from "./HelpChrome";
 
 const DEFAULT_FAQS = [
@@ -413,56 +415,138 @@ export default function HelpCenterPage() {
     );
   };
 
+  // "/" jumps to the search from anywhere on the page (not while typing in a field)
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Official support contacts, from the same settings the footer uses (with the same fallback)
+  const [supportContact, setSupportContact] = useState<{ email: string; phone: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const official = { email: "support@nolsaf.com", phone: "+255 736 766 726" };
+    fetch("/api/public/support")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled) return;
+        const email = typeof d?.supportEmail === "string" ? d.supportEmail.trim() : "";
+        const phone = typeof d?.supportPhone === "string" ? d.supportPhone.trim() : "";
+        setSupportContact({ email: email || official.email, phone: phone || official.phone });
+      })
+      .catch(() => { if (!cancelled) setSupportContact(official); });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <>
       <HelpHeader />
+      <FloatingChatWidget position="bottom-right" />
       <div className="min-h-screen bg-[#f6f8f7]">
         <LayoutFrame heightVariant="sm" topVariant="sm" colorVariant="muted" variant="solid" />
         <div className="public-container space-y-6 py-6 sm:py-8">
 
-          {/* Hero: one clear column, search first, roles underneath */}
-          <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#010f0e] via-[#011a18] to-[#022820] px-6 py-8 text-white sm:px-10 sm:py-10">
-            <div className="pointer-events-none absolute -right-20 -top-24 h-80 w-80 rounded-full opacity-20 blur-3xl" style={{ background: "radial-gradient(circle, #4dd9ac 0%, transparent 65%)" }} />
-            <div className="relative" style={{ maxWidth: 720 }}>
-              <p className="m-0 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-[#4dd9ac]">
-                <LifeBuoy className="h-3.5 w-3.5" aria-hidden /> Help Center
-              </p>
-              <h1 className="m-0 mt-3 text-3xl font-black tracking-tight sm:text-4xl">How can we help you?</h1>
-              <p className="m-0 mt-2 text-sm text-slate-300">Search the guides and questions, or start from your role.</p>
+          {/* Hero: search first with popular topics and roles; a real person or Twiga one tap away */}
+          <section className="relative overflow-hidden rounded-xl bg-[#012a26] text-white">
+            <div className="pointer-events-none absolute -right-20 -top-24 h-80 w-80 rounded-full opacity-20 blur-3xl" style={{ background: "radial-gradient(circle, #4dd9ac 0%, transparent 65%)" }} aria-hidden />
+            <div className="relative grid gap-6 px-5 py-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-center lg:gap-10">
+              <div className="min-w-0">
+                <p className="m-0 inline-flex items-center gap-2 text-[12px] font-semibold text-[#4dd9ac]">
+                  <LifeBuoy className="h-3.5 w-3.5" aria-hidden /> Help Centre
+                </p>
+                <h1 className="m-0 mt-2 text-[26px] font-bold tracking-tight sm:text-[32px]">How can we help you?</h1>
+                <p className="m-0 mt-1.5 text-[14px] text-white/65">Search the guides and questions, or start from your role.</p>
 
-              <label htmlFor="help-search" className="sr-only">Search help</label>
-              <div className="mt-5 flex h-12 items-center gap-3 rounded-2xl bg-white px-4">
-                <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-                <input
-                  id="help-search"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search refunds, payouts, check-in..."
-                  autoComplete="off"
-                  className="h-full min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                />
-                {query && (
-                  <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border-0 bg-slate-100 text-slate-500 hover:text-slate-800"><X className="h-3.5 w-3.5" aria-hidden /></button>
-                )}
+                <label htmlFor="help-search" className="sr-only">Search help</label>
+                <div className="mt-4 flex h-11 items-center gap-2.5 rounded-lg bg-white px-3.5 focus-within:shadow-[0_0_0_4px_rgba(77,217,172,0.25)]">
+                  <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                  <input
+                    ref={searchRef}
+                    id="help-search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search refunds, payouts, check-in..."
+                    autoComplete="off"
+                    className="h-full min-w-0 flex-1 border-0 bg-transparent text-[14px] text-slate-900 outline-none [font-family:inherit] placeholder:text-slate-400"
+                  />
+                  {query ? (
+                    <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="grid h-7 w-7 shrink-0 place-items-center rounded-md border-0 bg-slate-100 text-slate-500 hover:text-slate-800"><X className="h-3.5 w-3.5" aria-hidden /></button>
+                  ) : (
+                    <kbd className="hidden shrink-0 rounded border border-solid border-slate-200 px-1.5 text-[11px] font-medium text-slate-400 sm:inline" title="Press / to search">/</kbd>
+                  )}
+                </div>
+
+                {/* Popular topics: one tap runs the search */}
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <span className="mr-0.5 text-[12px] text-white/50">Popular:</span>
+                  {["Refund", "Change dates", "Check-in code", "Payouts", "Cancel a booking"].map((topic) => (
+                    <button
+                      key={topic}
+                      type="button"
+                      onClick={() => { setQuery(topic); searchRef.current?.focus(); }}
+                      className="h-7 cursor-pointer rounded-md border-0 bg-white/[0.08] px-2.5 text-[12px] font-medium text-white/85 [font-family:inherit] transition-colors hover:bg-white/[0.16] hover:text-white"
+                    >
+                      {topic}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2 border-0 border-t border-solid border-white/10 pt-4">
+                  <span className="mr-0.5 text-[12px] text-white/50">I am a:</span>
+                  {[
+                    { href: "/help/getting-started", Icon: BookOpen, label: "Guest" },
+                    { href: "/help/owner-guide", Icon: Home, label: "Property owner" },
+                    { href: "/help/driver-tools", Icon: Car, label: "Driver" },
+                    { href: "/help/become-agent", Icon: Users, label: "Agent" },
+                  ].map((role) => (
+                    <Link
+                      key={role.href}
+                      href={withHelpCtx(role.href)}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.04] px-3 text-[12.5px] font-semibold text-white no-underline transition-colors hover:border-[#4dd9ac]/50 hover:bg-white/[0.1] hover:no-underline"
+                    >
+                      <role.Icon className="h-3.5 w-3.5 text-[#4dd9ac]" aria-hidden />
+                      {role.label}
+                    </Link>
+                  ))}
+                </div>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                {[
-                  { href: "/help/getting-started", Icon: BookOpen, label: "Guests" },
-                  { href: "/help/owner-guide", Icon: Home, label: "Property owners" },
-                  { href: "/help/driver-tools", Icon: Car, label: "Drivers" },
-                  { href: "/help/become-agent", Icon: Users, label: "Agents" },
-                ].map((role) => (
-                  <Link
-                    key={role.href}
-                    href={withHelpCtx(role.href)}
-                    className="inline-flex h-9 items-center gap-2 rounded-full border border-solid border-white/15 bg-white/[0.06] px-3.5 text-xs font-semibold text-white no-underline transition hover:border-[#4dd9ac]/50 hover:bg-white/[0.1]"
-                  >
-                    <role.Icon className="h-3.5 w-3.5 text-[#4dd9ac]" aria-hidden />
-                    {role.label}
-                  </Link>
-                ))}
-              </div>
+              {/* Talk to us: Twiga now, or the team by phone, WhatsApp or email */}
+              <aside className="rounded-lg bg-white/[0.06] p-4 ring-1 ring-inset ring-white/10" aria-label="Talk to us">
+                <p className="m-0 text-[14px] font-semibold text-white">Still need help?</p>
+                <p className="m-0 mt-0.5 text-[12.5px] text-white/60">Ask Twiga now, or reach the NoLSAF team.</p>
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "/", ctrlKey: true, bubbles: true }))}
+                  className="mt-3 inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-[#4dd9ac] text-[13.5px] font-semibold text-[#012a26] [font-family:inherit] transition-colors hover:bg-[#7fe6c5]"
+                >
+                  <MessageCircle className="h-4 w-4" aria-hidden /> Ask Twiga
+                </button>
+                {supportContact ? (
+                  <ul className="m-0 mt-3 list-none space-y-1.5 p-0 text-[12.5px]">
+                    <li>
+                      <a href={`https://wa.me/${supportContact.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-white/80 no-underline hover:text-white hover:underline">
+                        <PhoneCall className="h-3.5 w-3.5 text-[#4dd9ac]" aria-hidden /> {supportContact.phone} <span className="text-white/45">· WhatsApp</span>
+                      </a>
+                    </li>
+                    <li>
+                      <a href={`mailto:${supportContact.email}`} className="inline-flex items-center gap-2 text-white/80 no-underline hover:text-white hover:underline">
+                        <Mail className="h-3.5 w-3.5 text-[#4dd9ac]" aria-hidden /> {supportContact.email}
+                      </a>
+                    </li>
+                  </ul>
+                ) : null}
+              </aside>
             </div>
           </section>
 

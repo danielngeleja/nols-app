@@ -481,7 +481,7 @@ export default function PublicHeader({
                   ? (overHero || !scrolled ? (heroTop != null ? `${Math.max(14, heroTop + 8)}px` : '40px') : 'clamp(10px, 1.5vw, 14px)')
                   : (scrolled ? '10px' : '0')),
               borderRadius: isMobile
-                ? (useOwnerLikeMobileHeader ? '30px' : '0 0 10px 10px')
+                ? (useOwnerLikeMobileHeader ? '14px' : '0 0 10px 10px')
                 : (compact ? '12px' : '14px'),
               width: isMobile && useOwnerLikeMobileHeader ? 'calc(100% - 12px)' : '100%',
               // Always constrain width so logo and icons never get clipped to screen edges.

@@ -259,85 +259,56 @@ export default async function CountryTourismPage({
     <main className="relative min-h-screen overflow-hidden bg-[#f6f8f7] text-slate-900 header-offset">
       <section className="public-container py-8 sm:py-10">
 
-        {/* Hero: solid dark card, framed photo, zones as a strip along the bottom. No gradients. */}
+        {/* ── Where you are ── */}
+        <nav aria-label="Breadcrumb" className="mb-3 flex items-center gap-1.5 text-[12.5px] text-slate-500">
+          <Link href="/public" className="inline-flex items-center gap-1 font-medium text-slate-500 no-underline hover:text-[#02665e] hover:no-underline">
+            <ChevronRight className="h-3.5 w-3.5 rotate-180" aria-hidden /> Home
+          </Link>
+          <span aria-hidden className="text-slate-300">/</span>
+          <span className="font-medium text-slate-800">{data.name}</span>
+        </nav>
+
+        {/* ── Hero: the promise and the two actions, with one photo ── */}
+        <div className="overflow-hidden rounded-xl bg-[#012a26] text-white">
+          <div className="grid gap-6 p-5 sm:p-7 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center lg:gap-10">
+            <div className="min-w-0">
+              <p className="m-0 inline-flex items-center gap-2 text-[12px] font-semibold text-[#5eead4]">
+                <span className="flex h-2.5 w-5 overflow-hidden rounded-[2px] ring-1 ring-white/30" aria-hidden>
+                  <span className="h-full flex-1" style={{ background: "#1C8B3C" }} />
+                  <span className="h-full w-[3px]" style={{ background: "#F7D100" }} />
+                  <span className="h-full w-[3px]" style={{ background: "#0b0b0b" }} />
+                  <span className="h-full w-[3px]" style={{ background: "#F7D100" }} />
+                  <span className="h-full flex-1" style={{ background: "#00A3DD" }} />
+                </span>
+                {data.name}
+              </p>
+              <h1 className="m-0 mt-3 text-[26px] font-bold leading-[1.15] tracking-tight sm:text-[34px]">
+                Plan your trip <span className="text-[#5eead4]">park by park.</span>
+              </h1>
+              <p className="m-0 mt-2.5 max-w-[56ch] text-[14.5px] leading-6 text-white/70">{data.hero.body}</p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Link href={`/public/properties?country=${encodeURIComponent(data.id)}`} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-white px-4 text-[13.5px] font-semibold text-[#02665e] no-underline transition-colors hover:bg-emerald-50 hover:no-underline">
+                  Find a stay <ChevronRight className="h-4 w-4" aria-hidden />
+                </Link>
+                <Link href="/public/nolscope" className="inline-flex h-10 items-center rounded-lg border border-solid border-white/25 px-4 text-[13.5px] font-semibold text-white no-underline transition-colors hover:bg-white/[0.06] hover:no-underline">
+                  Estimate the full trip
+                </Link>
+              </div>
+            </div>
+
+            <figure className="relative m-0 hidden aspect-[4/3] w-full overflow-hidden rounded-lg ring-1 ring-white/10 sm:block lg:aspect-[16/11]">
+              <Image src="/assets/Toursite.jpeg" alt="Mount Kilimanjaro with elephants and zebras on the plains" fill priority sizes="(min-width: 1024px) 360px, 100vw" className="object-cover" style={{ objectPosition: "50% 65%" }} />
+              <figcaption className="absolute bottom-2.5 left-2.5 rounded bg-[#012a26]/90 px-2 py-0.5 text-[11px] font-medium text-white">Kilimanjaro, Northern Zone</figcaption>
+            </figure>
+          </div>
+        </div>
+
+        {/* ── Parks by zone: one bar with the count, the zones and a quick jump ── */}
         {(() => {
           const zones = data.zones ?? [];
-          const parkCount = new Set(zones.flatMap((z) => z.items.map((i) => i.slug || i.name))).size;
-          const basePath = `/public/countries/${encodeURIComponent(data.id)}`;
-          return (
-            <div className="overflow-hidden rounded-xl bg-[#012a26] text-white">
-              <div className="flex flex-col gap-8 p-6 sm:p-8 lg:flex-row lg:items-center lg:gap-12">
-                <div style={{ flex: "1 1 0%", minWidth: 0 }}>
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <Link href="/public" className="inline-flex h-8 items-center gap-1 rounded-md border border-solid border-white/15 px-3 text-xs font-semibold text-white/80 no-underline hover:bg-white/[0.06] hover:no-underline">
-                      <ChevronRight className="h-3.5 w-3.5 rotate-180" aria-hidden /> Back
-                    </Link>
-                    <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#5eead4]">
-                      <span className="flex h-2.5 w-5 overflow-hidden rounded-[2px] ring-1 ring-white/30" aria-hidden>
-                        <span className="h-full flex-1" style={{ background: "#1C8B3C" }} />
-                        <span className="h-full w-[3px]" style={{ background: "#F7D100" }} />
-                        <span className="h-full w-[3px]" style={{ background: "#0b0b0b" }} />
-                        <span className="h-full w-[3px]" style={{ background: "#F7D100" }} />
-                        <span className="h-full flex-1" style={{ background: "#00A3DD" }} />
-                      </span>
-                      {data.name}
-                    </span>
-                  </div>
-
-                  <h1 className="m-0 mt-5 text-[32px] font-black leading-[1.05] tracking-tight sm:text-[44px]">
-                    Plan your trip <span className="text-[#5eead4]">park by park.</span>
-                  </h1>
-                  <p className="m-0 mt-3 text-[15px] leading-7 text-white/70" style={{ maxWidth: 560 }}>{data.hero.body}</p>
-
-                  <div className="mt-6 flex flex-wrap gap-2.5">
-                    <Link href={`/public/properties?country=${encodeURIComponent(data.id)}`} className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-[#5eead4] px-5 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1] hover:no-underline">
-                      Find a stay <ChevronRight className="h-4 w-4" aria-hidden />
-                    </Link>
-                    <Link href="/public/nolscope" className="inline-flex h-11 items-center rounded-lg border border-solid border-white/20 px-5 text-sm font-semibold text-white no-underline hover:bg-white/[0.06] hover:no-underline">
-                      Estimate the full trip
-                    </Link>
-                  </div>
-                </div>
-
-                <figure className="relative m-0 overflow-hidden rounded-lg ring-1 ring-white/10" style={{ width: "100%", maxWidth: 420, aspectRatio: "16 / 10", flexShrink: 0 }}>
-                  <Image src="/assets/Toursite.jpeg" alt="Mount Kilimanjaro with elephants and zebras on the plains" fill priority sizes="(min-width: 1024px) 420px, 100vw" className="object-cover" style={{ objectPosition: "50% 65%" }} />
-                  <figcaption className="absolute bottom-3 left-3 rounded bg-[#012a26] px-2.5 py-1 text-[11px] font-semibold text-white">Kilimanjaro, Northern Zone</figcaption>
-                </figure>
-              </div>
-
-              {zones.length > 0 && (
-                <nav aria-label="Parks by zone" className="grid grid-cols-2 border-0 border-t border-solid border-white/10 lg:grid-cols-5">
-                  <div className="col-span-2 border-0 border-b border-solid border-white/10 px-6 py-4 sm:px-8 lg:col-span-1 lg:border-b-0 lg:border-r">
-                    <p className="m-0 text-[28px] font-black leading-none tabular-nums">{parkCount}</p>
-                    <p className="m-0 mt-1.5 text-xs text-white/60">national parks across {zones.length} zones</p>
-                  </div>
-                  {zones.map((zone, index) => (
-                    <Link
-                      key={zone.title}
-                      href={`${basePath}?zone=${encodeURIComponent(zone.title)}`}
-                      scroll={false}
-                      className={`group block px-6 py-4 no-underline transition hover:bg-white/[0.04] hover:no-underline ${index % 2 === 0 ? "border-0 border-r border-solid border-white/10" : ""} ${index < 2 ? "border-0 border-b border-solid border-white/10 lg:border-b-0" : ""} ${index === 1 ? "lg:border-r" : ""} ${index === 2 ? "lg:border-r" : ""}`}
-                    >
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-bold text-white">{zone.title.replace(/ Zone$/, "")}</span>
-                        <span className="flex items-center gap-1 text-xs font-bold tabular-nums text-[#5eead4]">
-                          {zone.items.length}
-                          <ChevronRight className="h-3.5 w-3.5 text-white/30 transition group-hover:translate-x-0.5 group-hover:text-[#5eead4]" aria-hidden />
-                        </span>
-                      </span>
-                      <span className="mt-1 block truncate text-[11px] text-white/55">{zone.items.slice(0, 2).map((i) => i.name.replace(/ National Park$/, "")).join(", ")}</span>
-                    </Link>
-                  ))}
-                </nav>
-              )}
-            </div>
-          );
-        })()}
-
-        {(() => {
           const hasZones = Array.isArray(data.zones) && data.zones.length;
           const allSites: TourismSite[] = hasZones
-            ? (data.zones ?? []).flatMap((z) => z.items)
+            ? zones.flatMap((z) => z.items)
             : [...(data.major ?? []), ...(data.minor ?? [])];
 
           const uniqueSites = Array.from(
@@ -348,23 +319,29 @@ export default async function CountryTourismPage({
             ).values(),
           ).sort((a, b) => a.name.localeCompare(b.name));
 
+          const parkCount = new Set(zones.flatMap((z) => z.items.map((i) => i.slug || i.name))).size;
           const basePath = `/public/countries/${encodeURIComponent(data.id)}`;
 
           return (
-            <div className="mt-5">
-              <div className="rounded-xl border border-solid border-slate-200 bg-white px-4 py-3.5 sm:px-5">
-                <p className="m-0 mb-2.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Explore parks</p>
-                <CountryFiltersRow
-                  basePath={basePath}
-                  hasZones={Boolean(hasZones)}
-                  zones={(data.zones ?? []).map((z) => z.title)}
-                  zoneCounts={Object.fromEntries((data.zones ?? []).map((z) => [z.title, z.items.length]))}
-                  sites={uniqueSites.map((s) => ({ value: s.slug, label: s.name }))}
-                  zone={zoneFilter}
-                  category={categoryFilter}
-                  site={siteFilter}
-                />
+            <div className="mt-4 rounded-xl border border-solid border-slate-300/80 bg-white px-4 py-3.5 sm:px-5">
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h2 className="m-0 text-[15px] font-semibold text-slate-900">Parks by zone</h2>
+                {hasZones ? (
+                  <p className="m-0 text-[12.5px] text-slate-500">
+                    <span className="font-semibold tabular-nums text-slate-800">{parkCount}</span> national parks across {zones.length} zones
+                  </p>
+                ) : null}
               </div>
+              <CountryFiltersRow
+                basePath={basePath}
+                hasZones={Boolean(hasZones)}
+                zones={zones.map((z) => z.title)}
+                zoneCounts={Object.fromEntries(zones.map((z) => [z.title, z.items.length]))}
+                sites={uniqueSites.map((s) => ({ value: s.slug, label: s.name }))}
+                zone={zoneFilter}
+                category={categoryFilter}
+                site={siteFilter}
+              />
             </div>
           );
         })()}
@@ -410,8 +387,9 @@ export default async function CountryTourismPage({
               );
             }
 
+            // items-start: each zone card is as tall as its own list, never stretched to its neighbour
             return (
-              <div className={`mt-5 grid grid-cols-1 gap-5 ${filteredZones.length > 1 ? "xl:grid-cols-2" : ""}`}>
+              <div className={`mt-4 grid grid-cols-1 items-start gap-4 ${filteredZones.length > 1 ? "xl:grid-cols-2" : ""}`}>
                 {filteredZones.map((z) => (
                   <CountryTourismSiteList key={z.title} title={z.title} items={z.items} basePath={basePath} />
                 ))}
@@ -443,12 +421,12 @@ export default async function CountryTourismPage({
         })()}
 
         {/* Why NoLSAF: one plain card, pitch on the left, three proofs on the right */}
-        <div className="mt-8 overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
+        <div className="mt-6 overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white">
           <div className="flex flex-col lg:flex-row">
             <div className="flex flex-col justify-between gap-6 p-6 sm:p-8" style={{ flex: "1 1 0%", minWidth: 0 }}>
               <div>
-                <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#02665e]">Why book with NoLSAF</p>
-                <h2 className="m-0 mt-2 text-2xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[28px]">
+                <p className="m-0 text-[12px] font-semibold text-[#02665e]">Why book with NoLSAF</p>
+                <h2 className="m-0 mt-1.5 text-[21px] font-bold leading-tight tracking-tight text-slate-900 sm:text-[24px]">
                   One booking for the stay, the ride and the help in between.
                 </h2>
                 <p className="m-0 mt-3 text-sm leading-6 text-slate-500" style={{ maxWidth: 520 }}>
@@ -456,10 +434,10 @@ export default async function CountryTourismPage({
                 </p>
               </div>
               <div className="flex flex-wrap gap-2.5">
-                <Link href={`/public/properties?country=${encodeURIComponent(data.id)}`} className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-[#02665e] px-5 text-sm font-bold text-white no-underline hover:bg-[#014d47] hover:no-underline">
+                <Link href={`/public/properties?country=${encodeURIComponent(data.id)}`} className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#02665e] px-4 text-[13.5px] font-semibold text-white no-underline hover:bg-[#014d47] hover:no-underline">
                   Start booking <ChevronRight className="h-4 w-4" aria-hidden />
                 </Link>
-                <Link href="/public/group-stays" className="inline-flex h-11 items-center rounded-lg border border-solid border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 no-underline hover:border-slate-300 hover:bg-slate-50 hover:no-underline">
+                <Link href="/public/group-stays" className="inline-flex h-10 items-center rounded-lg border border-solid border-slate-300 bg-white px-4 text-[13.5px] font-semibold text-slate-800 no-underline hover:border-slate-400 hover:bg-slate-50 hover:no-underline">
                   Plan a group stay
                 </Link>
               </div>
@@ -472,9 +450,9 @@ export default async function CountryTourismPage({
                 { Icon: Wallet, title: "Secure payment, real support", body: "Pay with mobile money or card through trusted providers, and reach the NoLSAF team when you need help." },
               ].map((item, index) => (
                 <li key={item.title} className={`flex items-start gap-4 px-6 py-5 sm:px-8 ${index > 0 ? "border-0 border-t border-solid border-slate-100" : ""}`}>
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]"><item.Icon className="h-[18px] w-[18px]" aria-hidden /></span>
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#02665e]/[0.08] text-[#02665e]"><item.Icon className="h-[18px] w-[18px]" aria-hidden /></span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-bold text-slate-900">{item.title}</span>
+                    <span className="block text-sm font-semibold text-slate-900">{item.title}</span>
                     <span className="mt-0.5 block text-[13px] leading-6 text-slate-500">{item.body}</span>
                   </span>
                 </li>

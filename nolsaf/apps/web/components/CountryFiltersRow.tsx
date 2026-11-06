@@ -67,11 +67,11 @@ export default function CountryFiltersRow(props: {
                 role="tab"
                 aria-selected={active}
                 onClick={() => navigate({ zone: tab.value, site: "" })}
-                className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-solid px-3 text-[13px] font-semibold transition ${active ? "border-[#012a26] bg-[#012a26] text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900"}`}
+                className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-solid px-3 text-[13px] font-semibold [font-family:inherit] transition-colors ${active ? "border-[#02665e] bg-[#02665e]/[0.06] text-[#02665e] ring-1 ring-[#02665e]" : "border-slate-300/80 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-900"}`}
               >
                 {tab.label}
                 {tab.count !== null && tab.count !== undefined ? (
-                  <span className={`rounded px-1.5 text-[11px] font-bold tabular-nums ${active ? "bg-white/15 text-[#5eead4]" : "bg-slate-100 text-slate-500"}`}>{tab.count}</span>
+                  <span className={`rounded px-1.5 text-[11px] font-bold tabular-nums ${active ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-500"}`}>{tab.count}</span>
                 ) : null}
               </button>
             );

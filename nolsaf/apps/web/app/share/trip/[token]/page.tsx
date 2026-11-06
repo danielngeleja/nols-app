@@ -57,7 +57,7 @@ export default function SharedTripPage() {
       <div className="mx-auto max-w-2xl space-y-4">
         <section className="overflow-hidden rounded-[2rem] bg-white shadow-2xl shadow-emerald-950/20">
           <div className="bg-emerald-900 p-6 text-white sm:p-8">
-            <div className="flex items-center gap-3"><span className="grid h-12 w-12 place-items-center rounded-full bg-white/10"><ShieldCheck className="h-7 w-7" /></span><div><p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-200">Secure NoLSAF trip link</p><h1 className="text-2xl font-black">{data.travellerName}&apos;s active trip</h1></div></div>
+            <div className="flex items-center gap-3"><span className="grid h-12 w-12 place-items-center rounded-full bg-white/10"><ShieldCheck className="h-7 w-7" /></span><div><p className="text-xs font-black text-emerald-200">Secure NoLSAF trip link</p><h1 className="text-2xl font-black">{data.travellerName}&apos;s active trip</h1></div></div>
           </div>
           <div className="space-y-5 p-6 sm:p-8">
             <div className="flex flex-wrap items-center justify-between gap-2"><span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-black text-emerald-800">{kindLabel(trip.serviceKind)}</span><span className="flex items-center gap-1.5 text-sm font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" />{trip.status.replaceAll("_", " ")}</span></div>

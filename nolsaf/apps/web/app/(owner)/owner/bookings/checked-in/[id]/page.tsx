@@ -252,7 +252,7 @@ export default function BookingDetail() {
             aria-hidden
           >
             <p className="m-0 text-[15px] font-black uppercase leading-none tracking-[0.18em]">{tone.stamp}</p>
-            <p className="m-0 mt-1 text-[8px] font-bold uppercase tracking-[0.3em] opacity-80">NoLSAF booking</p>
+            <p className="m-0 mt-1 text-[8px] font-bold opacity-80">NoLSAF booking</p>
           </div>
 
           <div className="flex min-w-0 items-center gap-3.5 sm:pr-44">

@@ -48,7 +48,7 @@ export default function NSaTPage() {
 
           {/* ── HERO — compact ── */}
           <div className="relative px-6 pt-14 pb-8 sm:px-12 sm:pt-20 text-center">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1 text-xs font-semibold uppercase tracking-widest text-emerald-400">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1 text-xs font-semibold text-emerald-400">
               NoLSAF Initiative
             </div>
             <h1 className="text-5xl font-extrabold tracking-tight sm:text-6xl">N‑SaT</h1>

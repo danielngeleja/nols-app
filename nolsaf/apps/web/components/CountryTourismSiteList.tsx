@@ -177,12 +177,12 @@ export default function CountryTourismSiteList({
   };
 
   return (
-    <section className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
+    <section className="overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white">
       {!hideHeader ? (
-        <header className="flex items-center justify-between gap-4 border-0 border-b border-solid border-slate-100 px-5 py-4">
+        <header className="flex items-center justify-between gap-4 border-0 border-b border-solid border-slate-100 px-4 py-3 sm:px-5">
           <div className="flex items-center gap-2.5">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]"><TreePine className="h-4 w-4" aria-hidden /></span>
-            <h2 className="m-0 text-base font-bold tracking-tight text-slate-900">{title}</h2>
+            <span className="grid h-7 w-7 place-items-center rounded-md bg-[#02665e]/[0.08] text-[#02665e]"><TreePine className="h-4 w-4" aria-hidden /></span>
+            <h2 className="m-0 text-[15px] font-semibold tracking-tight text-slate-900">{title}</h2>
           </div>
           <span className="text-xs font-semibold text-slate-500"><strong className="tabular-nums text-slate-900">{items.length}</strong> park{items.length === 1 ? "" : "s"}</span>
         </header>
@@ -190,7 +190,7 @@ export default function CountryTourismSiteList({
 
       <ul
         className={[
-          "m-0 list-none grid gap-px bg-slate-100 p-0",
+          "m-0 list-none grid p-0",
           isFocusedSingle ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2",
         ].join(" ")}
       >
@@ -211,61 +211,94 @@ export default function CountryTourismSiteList({
             <li
               key={siteSlug}
               className={[
-                "group bg-white",
+                "group bg-white border-0 border-solid border-slate-100",
+                i > 0 ? "border-t" : "",
+                // Two columns from sm: the second column gets a divider, and the first row has no top line
+                !isFocusedSingle && i === 1 ? "sm:border-t-0" : "",
+                !isFocusedSingle && i % 2 === 1 ? "sm:border-l" : "",
                 !isFocusedSingle && isOpen ? "sm:col-span-2" : "",
               ].join(" ")}
             >
               {isFocusedSingle ? (
-                <div className="bg-[#012a26] px-5 py-5 text-white sm:px-6">
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!basePath) return;
-                        const qp = new URLSearchParams(sp?.toString() ?? "");
-                        qp.delete("site");
-                        const qs = qp.toString();
-                        router.push(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
-                      }}
-                      className="group/back inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-transparent px-2.5 text-xs font-semibold text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5eead4]/40"
-                      aria-label="Back to all parks"
-                    >
-                      <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover/back:-translate-x-0.5" aria-hidden />
-                      All parks
-                    </button>
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-[#5eead4]">
-                      <TreePine className="h-3.5 w-3.5" aria-hidden /> National park
-                    </span>
-                  </div>
+                (() => {
+                  // Smart header: the lowest nightly price from the stays already loaded, and
+                  // Inside / Nearby as shortcuts to those lists (greyed out when empty).
+                  const prices = (loadedProps ?? [])
+                    .map((p) => Number(p.basePrice))
+                    .filter((n) => Number.isFinite(n) && n > 0);
+                  const lowest = prices.length ? Math.min(...prices) : null;
+                  const currency = (loadedProps ?? []).find((p) => p.currency)?.currency || "TZS";
+                  const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  const stats = [
+                    { key: "inside", label: "Inside the park", value: insideProperties.length, target: `park-inside-${siteSlug}` },
+                    { key: "nearby", label: "Nearby", value: nearbyProperties.length, target: `park-nearby-${siteSlug}` },
+                  ];
+                  return (
+                    <div className="bg-[#012a26] px-5 py-5 text-white sm:px-6">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!basePath) return;
+                            const qp = new URLSearchParams(sp?.toString() ?? "");
+                            qp.delete("site");
+                            const qs = qp.toString();
+                            router.push(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
+                          }}
+                          className="group/back inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-transparent px-2.5 text-xs font-semibold text-white/80 [font-family:inherit] transition-colors hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5eead4]/40"
+                          aria-label="Back to all parks"
+                        >
+                          <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover/back:-translate-x-0.5" aria-hidden />
+                          All parks
+                        </button>
+                        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[#5eead4]">
+                          <TreePine className="h-3.5 w-3.5" aria-hidden /> National park
+                        </span>
+                      </div>
 
-                  <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                    <div className="min-w-0">
-                      <h2 className="m-0 text-2xl font-bold leading-tight tracking-tight sm:text-[28px]">{s.name}</h2>
-                      <p className="m-0 mt-1 text-sm text-white/65">
-                        {s.note
-                          ? s.note
-                          : isLoading
-                            ? "Checking which stays are open to book..."
-                            : loadedProps && loadedProps.length > 0
-                              ? `${loadedProps.length} approved propert${loadedProps.length === 1 ? "y" : "ies"} you can book for this park.`
-                              : "No stays listed for this park yet. New properties are approved regularly."}
-                      </p>
-                    </div>
-
-                    <dl className="m-0 flex shrink-0 overflow-hidden rounded-lg border border-solid border-white/10">
-                      {[
-                        { label: "Stays", value: isLoading ? "…" : loadedProps ? loadedProps.length : "-" },
-                        { label: "Inside", value: isLoading ? "…" : loadedProps ? insideProperties.length : "-" },
-                        { label: "Nearby", value: isLoading ? "…" : loadedProps ? nearbyProperties.length : "-" },
-                      ].map((stat, index) => (
-                        <div key={stat.label} className={`px-4 py-2 text-center ${index > 0 ? "border-0 border-l border-solid border-white/10" : ""}`}>
-                          <dd className="m-0 text-lg font-extrabold tabular-nums text-white">{stat.value}</dd>
-                          <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/50">{stat.label}</dt>
+                      <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="min-w-0">
+                          <h2 className="m-0 text-[22px] font-bold leading-tight tracking-tight sm:text-[26px]">{s.name}</h2>
+                          <p className="m-0 mt-1 text-[13.5px] text-white/65">
+                            {s.note
+                              ? s.note
+                              : isLoading
+                                ? "Checking which stays are open to book..."
+                                : loadedProps && loadedProps.length > 0
+                                  ? `${loadedProps.length} approved ${loadedProps.length === 1 ? "stay" : "stays"} you can book for this park.`
+                                  : "No stays listed for this park yet. New properties are approved regularly."}
+                          </p>
                         </div>
-                      ))}
-                    </dl>
-                  </div>
-                </div>
+
+                        <div className="flex shrink-0 flex-wrap items-stretch gap-2">
+                          {/* Lowest price first: the number a traveller wants */}
+                          <div className="min-w-[132px] rounded-lg bg-white/[0.07] px-3.5 py-2 ring-1 ring-inset ring-white/10">
+                            <p className="m-0 text-[11px] text-white/55">From, per night</p>
+                            <p className="m-0 mt-0.5 text-[16px] font-bold tabular-nums text-white">
+                              {isLoading ? "…" : lowest != null ? `${currency} ${Math.round(lowest).toLocaleString()}` : "No stays yet"}
+                            </p>
+                          </div>
+                          {stats.map((st) => {
+                            const empty = !isLoading && st.value === 0;
+                            return (
+                              <button
+                                key={st.key}
+                                type="button"
+                                disabled={isLoading || empty}
+                                onClick={() => jump(st.target)}
+                                className="min-w-[96px] cursor-pointer rounded-lg border-0 bg-white/[0.07] px-3.5 py-2 text-left text-white ring-1 ring-inset ring-white/10 [font-family:inherit] transition-colors hover:bg-white/[0.12] disabled:cursor-default disabled:opacity-45 disabled:hover:bg-white/[0.07]"
+                                aria-label={`${st.label}: ${isLoading ? "loading" : st.value}${empty ? "" : ", show these stays"}`}
+                              >
+                                <span className="block text-[11px] text-white/55">{st.label}</span>
+                                <span className="mt-0.5 block text-[16px] font-bold tabular-nums">{isLoading ? "…" : st.value}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
               ) : (
                 <button
                   type="button"
@@ -284,19 +317,17 @@ export default function CountryTourismSiteList({
                     toggle(i);
                   }}
                   className={[
-                    "flex w-full items-center justify-between gap-3 border-0 px-5 py-3.5 text-left",
-                    isOpen ? "bg-emerald-50/60" : "bg-white hover:bg-slate-50",
+                    "flex w-full items-center justify-between gap-3 border-0 px-4 py-3 text-left [font-family:inherit] sm:px-5",
+                    isOpen ? "bg-[#02665e]/[0.05]" : "bg-white hover:bg-slate-50",
                     "motion-safe:transition-colors",
                     "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#02665e]/30",
                   ].join(" ")}
                   aria-expanded={isOpen}
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="w-5 shrink-0 text-xs font-bold tabular-nums text-slate-400">{String(i + 1).padStart(2, "0")}</span>
-                    <span className="min-w-0">
-                      <span className={`block truncate text-sm font-semibold leading-snug ${isOpen ? "text-[#02665e]" : "text-slate-900"}`}>{s.name.replace(/ National Park$/, "")}</span>
-                      <span className="block text-[11px] text-slate-400">National park</span>
-                    </span>
+                    <span className="w-5 shrink-0 text-[11px] font-semibold tabular-nums text-slate-400">{String(i + 1).padStart(2, "0")}</span>
+                    {/* The section already says these are national parks, so no repeated label per row */}
+                    <span className={`min-w-0 truncate text-[14px] font-medium leading-snug ${isOpen ? "text-[#02665e]" : "text-slate-900"}`}>{s.name.replace(/ National Park$/, "")}</span>
                   </div>
 
                   <div className="shrink-0 flex items-center gap-3">
@@ -370,7 +401,7 @@ export default function CountryTourismSiteList({
                         <div className="space-y-4">
                           {insideProperties.length ? (
                             <div>
-                              <p className="m-0 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Inside the park <span className="rounded bg-slate-100 px-1.5 tabular-nums text-slate-600">{insideProperties.length}</span></p>
+                              <p id={`park-inside-${siteSlug}`} className="m-0 flex scroll-mt-24 items-center gap-2 text-[12px] font-semibold text-slate-600">Inside the park <span className="rounded bg-slate-100 px-1.5 tabular-nums text-slate-600">{insideProperties.length}</span></p>
                               <div
                                 className={[
                                   "mt-2 grid gap-5",
@@ -386,7 +417,7 @@ export default function CountryTourismSiteList({
 
                           {nearbyProperties.length ? (
                             <div>
-                              <p className="m-0 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Nearby <span className="rounded bg-slate-100 px-1.5 tabular-nums text-slate-600">{nearbyProperties.length}</span></p>
+                              <p id={`park-nearby-${siteSlug}`} className="m-0 flex scroll-mt-24 items-center gap-2 text-[12px] font-semibold text-slate-600">Nearby <span className="rounded bg-slate-100 px-1.5 tabular-nums text-slate-600">{nearbyProperties.length}</span></p>
                               <div
                                 className={[
                                   "mt-2 grid gap-5",
@@ -403,7 +434,7 @@ export default function CountryTourismSiteList({
                       </div>
                     ) : !isLoading && !loadError && loadedProps !== undefined ? (
                       <div className="mt-4 flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-200 px-5 py-8 text-center">
-                        <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[#012a26] text-[#5eead4]">
+                        <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[#02665e]/[0.08] text-[#02665e]">
                           <TreePine className="h-5 w-5" aria-hidden />
                         </span>
                         <div>

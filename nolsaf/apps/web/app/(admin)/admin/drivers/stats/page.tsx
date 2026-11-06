@@ -178,7 +178,7 @@ export default function AdminDriversStatsPage() {
                 </div>
               </div>
               <div style={{ background: "rgba(249,115,22,0.14)", border: "1px solid rgba(249,115,22,0.35)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 120 }}>
-                <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(253,186,116,0.88)", letterSpacing: "0.08em", textTransform: "uppercase" }}>NoLSAF</div>
+                <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(253,186,116,0.88)" }}>NoLSAF</div>
                 <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "#fdba74", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>
                   {new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(statsData.nolsafRevenue)} <span style={{ fontSize: "0.68rem", opacity: 0.7 }}>TZS</span>
                 </div>
@@ -343,7 +343,7 @@ export default function AdminDriversStatsPage() {
                 <div style={{ background: "rgba(249,115,22,0.12)", border: "1px solid rgba(249,115,22,0.26)", borderRadius: "0.85rem", padding: "1rem" }}>
                   <div className="flex items-center gap-2 mb-2">
                     <ShieldCheck className="h-5 w-5" style={{ color: "#fdba74" }} />
-                    <p className="text-xs uppercase tracking-[0.12em]" style={{ color: "rgba(253,186,116,0.82)" }}>NoLSAF Revenue</p>
+                    <p className="text-xs" style={{ color: "rgba(253,186,116,0.82)" }}>NoLSAF Revenue</p>
                   </div>
                   <p className="text-lg font-bold" style={{ color: "#fdba74" }}>{formatMoney(statsData.nolsafRevenue)}</p>
                 </div>

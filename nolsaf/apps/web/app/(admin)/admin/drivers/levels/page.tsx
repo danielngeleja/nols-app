@@ -1111,7 +1111,7 @@ export default function AdminDriversLevelsPage() {
                 <p className="text-lg font-bold text-gray-950">{formatMoney(selectedDriver.grossRevenue)}</p>
               </div>
               <div className="p-4 rounded-lg border border-orange-200 bg-orange-50">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-orange-700 mb-2">NoLSAF</p>
+                <p className="text-xs font-semibold text-orange-700 mb-2">NoLSAF</p>
                 <p className="text-lg font-bold text-orange-700">{formatMoney(selectedDriver.nolsafRevenue)}</p>
               </div>
               <div className="p-4 rounded-lg border border-slate-200 bg-slate-50">

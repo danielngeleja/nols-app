@@ -2029,7 +2029,7 @@ export default function PropertyAvailabilityPage() {
                     {/* Summary tiles */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">NoLSAF bookings</div>
+                        <div className="text-[11px] font-bold text-slate-500">NoLSAF bookings</div>
                         <div className="mt-1 flex items-baseline gap-2">
                           <div className="text-2xl font-extrabold text-slate-900">{bookingsCount}</div>
                           <div className="text-xs font-semibold text-slate-500">({bookingsPct}%)</div>
@@ -2197,7 +2197,7 @@ export default function PropertyAvailabilityPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                         <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3">
-                          <div className="text-xs font-extrabold uppercase tracking-wider text-slate-800">NoLSAF bookings</div>
+                          <div className="text-xs font-extrabold text-slate-800">NoLSAF bookings</div>
                           <span className="text-[11px] font-bold text-slate-600 rounded-full border border-slate-200 px-2 py-0.5">
                             {dayDetailsBookingStatusFilter ? `${filteredBookings.length}/${bookingsCount}` : bookingsCount}
                           </span>

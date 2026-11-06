@@ -100,22 +100,24 @@ export default function StaySafePage() {
       <PublicHeader />
       <main className="min-h-screen bg-slate-50 text-slate-900">
         <section className="public-container py-10 md:py-14">
-          <article className="mx-auto w-full max-w-none overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <header className="relative overflow-hidden rounded-3xl border border-[#02514b] bg-[#02665e] px-6 py-10 text-center md:px-10 md:py-14">
-              <div aria-hidden className="pointer-events-none absolute inset-0">
-                <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent" />
-              </div>
-              <div className="relative mx-auto max-w-3xl">
-                <p className="text-xs sm:text-sm font-semibold tracking-[0.14em] uppercase text-white/80">May 23, 2026</p>
-                <h1 className="mt-3 text-3xl sm:text-4xl md:text-5xl font-bold leading-tight tracking-tight text-white">
-                  How To Stay Safe While Managing Your Money
-                </h1>
-                <p className="mt-4 text-sm sm:text-base leading-relaxed text-white/85">
-                  Your financial safety is a core priority at NoLSAF. Scams evolve quickly,
-                  so practical awareness is one of the best protections. This guide explains
-                  common warning signs and the actions to take if something feels suspicious.
-                </p>
-              </div>
+          <article className="mx-auto w-full max-w-none overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white">
+            {/* Editorial header: what this is, when it was updated, then the title and a short intro */}
+            <header className="bg-[#02665e] px-5 py-7 text-white sm:px-8 sm:py-9 md:px-10">
+              <p className="m-0 inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-white/75">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-white">
+                  <ShieldCheck className="h-4 w-4 text-emerald-200" aria-hidden /> Safety guide
+                </span>
+                <span aria-hidden className="text-white/40">·</span>
+                <time dateTime="2026-05-23">Updated 23 May 2026</time>
+              </p>
+              <h1 className="m-0 mt-3 max-w-[24ch] text-[26px] font-bold leading-[1.15] tracking-tight sm:text-[34px]">
+                How to stay safe while managing your money
+              </h1>
+              <p className="m-0 mt-3 max-w-[62ch] text-[14.5px] leading-relaxed text-white/80 sm:text-[15px]">
+                Your financial safety is a core priority at NoLSAF. Scams evolve quickly,
+                so practical awareness is one of the best protections. This guide explains
+                common warning signs and the actions to take if something feels suspicious.
+              </p>
             </header>
 
             <div className="space-y-10 px-6 py-8 md:px-10 md:py-10">

@@ -113,7 +113,7 @@ export default function EmailVerifyClient() {
               <MailCheck className="h-5 w-5" aria-hidden />
             </span>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/70">NoLSAF account</p>
+              <p className="text-xs font-bold text-white/70">NoLSAF account</p>
               <h1 className="text-xl font-extrabold tracking-tight">Email verification</h1>
             </div>
           </div>

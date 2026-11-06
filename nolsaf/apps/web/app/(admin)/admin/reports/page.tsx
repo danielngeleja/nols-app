@@ -1177,7 +1177,7 @@ export default function AdminReportsPage() {
             </div>
 
             <div className="box-border flex min-w-0 flex-col justify-center rounded-xl bg-[#073c35] p-4 text-white">
-              <div className="text-[12.5px] font-semibold uppercase tracking-[0.1em] text-white/60">Total NoLSAF revenue</div>
+              <div className="text-[12.5px] font-semibold text-white/60">Total NoLSAF revenue</div>
               <div className="mt-1.5 text-[26px] font-bold leading-tight tabular-nums">
                 {totalNoLSAFRevenue === null ? "No data" : `TZS ${fmtMoneyTZS(Math.round(totalNoLSAFRevenue))}`}
               </div>

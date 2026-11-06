@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import Link from "next/link";
 
 import TypingStory from "./TypingStory";
 import FounderPhotoRotator from "./FounderPhotoRotator";
 
 export const metadata: Metadata = {
-  title: "Our Best Story",
+  title: "Our story and founders",
   description:
-    "The story behind NoLSAF: building a connected travel experience where accommodation, transport, payments, and planning work together.",
+    "The story behind NoLSAF and its founders, Daniel M. Ngeleja (Founder and CEO) and Rashidi Sued Rashidi (Co-Founder): building one connected travel experience where stays, transport, payments and planning work together.",
   alternates: { canonical: "https://nolsaf.com/about/story" },
 };
 
@@ -298,21 +299,19 @@ export default function AboutStoryPage() {
                   <FounderPhotoRotator
                     sources={["/assets/NoLS%20Founder.jpeg", "/assets/NoLS%20Founder%20two.jpeg"]}
                     intervalMs={30000}
-                    alt="Founder photos"
+                    alt="Daniel M. Ngeleja, Founder and CEO of NoLSAF"
                     sizes="96px"
                   />
                 </div>
 
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold uppercase tracking-wide text-[#02665e]">CEO &amp; Founder</div>
-                  <a
-                    href="https://www.linkedin.com/in/daniel-mussa-ngeleja-9898a7241"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <Link
+                    href="/founders/daniel-ngeleja"
                     className="mt-1 inline-flex text-base font-semibold text-slate-900 no-underline transition-colors hover:text-[#02665e]"
                   >
                     Daniel M. Ngeleja
-                  </a>
+                  </Link>
 
                   <div className="mt-3 grid gap-4 lg:grid-cols-3 lg:items-start">
                     <div className="lg:col-span-2">
@@ -536,7 +535,7 @@ export default function AboutStoryPage() {
                       <div className="relative h-24 w-24 flex-none overflow-hidden rounded-full border border-slate-200 bg-white ring-1 ring-brand-500/10">
                         <Image
                           src="/assets/Rashid%20Sued.png"
-                          alt="Rashid Sued Rashid"
+                          alt="Rashidi Sued Rashidi, Co-Founder of NoLSAF"
                           fill
                           sizes="96px"
                           className="object-cover"
@@ -546,14 +545,12 @@ export default function AboutStoryPage() {
 
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-semibold uppercase tracking-wide text-[#02665e]">Co-Founder</div>
-                        <a
-                          href="https://www.linkedin.com/in/rashidi-sued-rashidi-957959206"
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <Link
+                          href="/founders/rashidi-sued-rashidi"
                           className="mt-1 inline-flex text-base font-semibold text-slate-900 no-underline transition-colors hover:text-[#02665e]"
                         >
-                          Rashid Sued Rashid
-                        </a>
+                          Rashidi Sued Rashidi
+                        </Link>
                         <p className="mt-3 text-sm leading-relaxed text-slate-700">
                           Rashidi Sued Rashidi is an experienced co-founder and business strategist with a strong foundation in technology and a
                           passion for agriculture-driven impact. A graduate of the <strong>University of Dar es Salaam</strong>, Rashid and Daniel first met

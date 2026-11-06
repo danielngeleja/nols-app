@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { FOUNDERS, founderId, founderUrl } from "@/lib/founders";
 
 export const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://nolsaf.com";
 
@@ -70,6 +71,13 @@ export const publicSeoRoutes: MetadataRoute.Sitemap = [
   { url: `${SITE_URL}/updates/success-stories`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.54 },
   { url: `${SITE_URL}/updates/challenges`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.48 },
   { url: `${SITE_URL}/careers`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.45 },
+  // About NoLSAF and the people behind it: trust pages, and where a founder name search should land
+  { url: `${SITE_URL}/about/who`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.55 },
+  { url: `${SITE_URL}/about/what`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.5 },
+  { url: `${SITE_URL}/about/why`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.5 },
+  { url: `${SITE_URL}/about/story`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.6 },
+  { url: `${SITE_URL}/founders/daniel-ngeleja`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.6 },
+  { url: `${SITE_URL}/founders/rashidi-sued-rashidi`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.55 },
   { url: `${SITE_URL}/terms`, lastModified: new Date("2026-01-01"), changeFrequency: "yearly", priority: 0.4 },
   { url: `${SITE_URL}/privacy`, lastModified: new Date("2026-01-01"), changeFrequency: "yearly", priority: 0.4 },
   { url: `${SITE_URL}/account-deletion`, lastModified: new Date("2026-08-13"), changeFrequency: "yearly", priority: 0.4 },
@@ -117,6 +125,20 @@ export function buildRootJsonLd() {
       legalName: "NoLS Africa Co Ltd",
       url: SITE_URL,
       slogan: "Quality Stay for Every Wallet",
+      logo: `${SITE_URL}/assets/NoLS2025-04.png`,
+      image: `${SITE_URL}/assets/NoLS2025-04.png`,
+      foundingLocation: { "@type": "Place", name: "Dar es Salaam, Tanzania" },
+      address: { "@type": "PostalAddress", addressLocality: "Dar es Salaam", addressCountry: "TZ" },
+      // The founders, linked to their profile pages, so a search for their names connects to NoLSAF
+      founder: FOUNDERS.map((f) => ({ "@type": "Person", "@id": founderId(f), name: f.name, jobTitle: f.role, url: founderUrl(f), sameAs: f.sameAs })),
+      // Official NoLSAF profiles (same as the footer)
+      sameAs: [
+        "https://www.linkedin.com/company/nolsaf",
+        "https://www.instagram.com/nolsaf",
+        "https://www.youtube.com/@nolsaf",
+        "https://x.com/nolsaf",
+        "https://www.facebook.com/nolsaf",
+      ],
       description:
         "NoLSAF helps travelers discover verified accommodation, tour packages, transport, group stays and travel planning services across Tanzania and East Africa.",
       areaServed: [

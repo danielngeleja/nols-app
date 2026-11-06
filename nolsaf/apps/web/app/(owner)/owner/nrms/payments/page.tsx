@@ -364,7 +364,7 @@ function PaymentsHeader({
         <div className="flex min-w-0 items-start gap-3.5">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><CircleDollarSign className="h-5 w-5" /></span>
           <div className="min-w-0">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NoLSAF Payments</p>
+            <p className="m-0 text-[10px] font-bold text-emerald-700">NoLSAF Payments</p>
             <h1 className="mb-0 mt-1 text-2xl font-bold tracking-tight text-neutral-950">Property payments</h1>
             <p className="mb-0 mt-1 text-sm text-neutral-500">Direct payment setup for <span className="font-semibold text-neutral-700">{propertyName}</span></p>
           </div>
@@ -489,7 +489,7 @@ function PaymentsHome({
         <div className="flex min-w-0 items-start gap-3.5">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><CircleDollarSign className="h-5 w-5" /></span>
           <div className="min-w-0">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NoLSAF Payments</p>
+            <p className="m-0 text-[10px] font-bold text-emerald-700">NoLSAF Payments</p>
             <h1 className="mb-0 mt-1 text-2xl font-bold tracking-tight text-neutral-950">Payments</h1>
             <p className="mb-0 mt-1 text-sm text-neutral-500">Set up online payment providers across your active properties.</p>
           </div>

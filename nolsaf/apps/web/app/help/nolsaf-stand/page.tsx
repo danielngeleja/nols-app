@@ -70,7 +70,7 @@ export default function HelpNolsafStandPage() {
             <div className="relative z-10 grid lg:grid-cols-[1fr_auto] gap-10 items-start">
               {/* left */}
               <div className="max-w-xl">
-                <div className="inline-flex items-center gap-2 rounded-full border border-[#4dd9ac]/30 bg-[#4dd9ac]/10 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-widest text-[#4dd9ac] mb-5">
+                <div className="inline-flex items-center gap-2 rounded-full border border-[#4dd9ac]/30 bg-[#4dd9ac]/10 px-3.5 py-1.5 text-[11px] font-bold text-[#4dd9ac] mb-5">
                   <Compass className="h-3 w-3" /> NoLSAF Stand
                 </div>
                 <h1 className="text-4xl sm:text-5xl font-black tracking-tight leading-[1.05]">
