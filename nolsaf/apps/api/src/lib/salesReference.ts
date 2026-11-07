@@ -3,6 +3,7 @@
  * shows a database id:
  *   sl_…  a lead          sp_…  a sales partner (team member)
  *   pp_…  a property (the same kind admin pages use)
+ *   se_…  an earning (commission row)
  *
  * A reference is an HMAC of the kind and id and cannot be decoded. It is
  * resolved only among the records the caller may already see (their own leads,
@@ -16,10 +17,11 @@ import {
   type CustomerRecordKind,
 } from "./customerBookingReference.js";
 
-type SalesRefKind = Extract<CustomerRecordKind, "sales-lead" | "sales-partner" | "property">;
+type SalesRefKind = Extract<CustomerRecordKind, "sales-lead" | "sales-partner" | "sales-earning" | "property">;
 
 export const leadRef = (id: number) => customerRecordReference("sales-lead", id);
 export const partnerRef = (id: number) => customerRecordReference("sales-partner", id);
+export const earningRef = (id: number) => customerRecordReference("sales-earning", id);
 export const propertyRef = (id: number) => customerRecordReference("property", id);
 
 /** Which of the allowed ids this reference names, or null. */

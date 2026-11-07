@@ -268,7 +268,7 @@ export default function SalesOverviewDashboard() {
         <Figure icon={Wallet} label="Available to withdraw" value={money(summary.available, summary.currency)} note={canWithdraw ? undefined : "Nothing to withdraw yet"}>
           {canWithdraw ? (
             <Link href="/sales/payouts" className="mt-2 inline-flex h-8 w-fit items-center gap-1.5 rounded-md bg-[#02665e] px-3 text-[13px] font-semibold text-white no-underline hover:bg-[#014d47]">
-              Request payout <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+              Withdraw <ArrowRight className="h-3.5 w-3.5" aria-hidden />
             </Link>
           ) : null}
         </Figure>

@@ -7,7 +7,7 @@ export type CustomerRecordKind =
   | "user" | "owner" | "driver" | "agent" | "cancellation" | "tour-case" | "disbursement-batch" | "property"
   | "merchant-application" | "transport-payout" | "payment-case"
   // Sales portal page addresses: a partner's leads and the partners in a team.
-  | "sales-lead" | "sales-partner";
+  | "sales-lead" | "sales-partner" | "sales-earning";
 
 const PREFIX_BY_KIND: Record<CustomerRecordKind, string> = {
   booking: "bk",
@@ -31,8 +31,9 @@ const PREFIX_BY_KIND: Record<CustomerRecordKind, string> = {
   "payment-case": "pc",
   "sales-lead": "sl",
   "sales-partner": "sp",
+  "sales-earning": "se",
 };
-const REFERENCE_PATTERN = /^(bk|rd|tr|gs|iv|rs|ar|us|ow|dv|op|cx|tc|db|pp|ma|tp|pc|sl|sp)_[A-Za-z0-9_-]{22}$/;
+const REFERENCE_PATTERN = /^(bk|rd|tr|gs|iv|rs|ar|us|ow|dv|op|cx|tc|db|pp|ma|tp|pc|sl|sp|se)_[A-Za-z0-9_-]{22}$/;
 const LEGACY_REFERENCE_PATTERN = /^BKG-([A-F0-9]{4})-([A-F0-9]{4})-([A-F0-9]{4})$/i;
 
 function digest(kind: CustomerRecordKind, recordId: number, secret: string): Buffer {
