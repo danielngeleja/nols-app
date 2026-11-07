@@ -172,6 +172,22 @@ async function hasOwnerWithdrawalLimitColumn(): Promise<boolean> {
   }
 }
 
+let salesAutoPayoutColumnsAvailable: boolean | null = null;
+async function hasSalesAutoPayoutColumns(): Promise<boolean> {
+  // Positive result only: migration 20261108090000 may be applied while running.
+  if (salesAutoPayoutColumnsAvailable === true) return true;
+  try {
+    await prisma.systemSetting.findUnique({ where: { id: 1 }, select: { salesAutoPayoutEnabled: true, salesAutoPayoutMaxTzs: true } as any });
+    salesAutoPayoutColumnsAvailable = true;
+    return true;
+  } catch (err: any) {
+    if (err?.code === "P2022" || String(err?.message || "").includes("ColumnNotFound") ||
+      String(err?.message || "").includes("Unknown field")) return false;
+    throw err;
+  }
+}
+const SALES_AUTO_PAYOUT_MAX_DEFAULT_TZS = 500_000;
+
 const UNCLAIMED_AUTO_DAYS_MIN = 3;
 const UNCLAIMED_AUTO_DAYS_MAX = 90;
 
@@ -215,6 +231,7 @@ router.get("/", async (_req, res) => {
   const payoutCols = await hasPayoutSafeguardColumns();
   const autoCols = await hasAutoPayoutColumns();
   const ownerWithdrawalLimitCol = await hasOwnerWithdrawalLimitColumn();
+  const salesAutoCols = await hasSalesAutoPayoutColumns();
   const s =
     (await prisma.systemSetting.findUnique({
       where: { id: 1 },
@@ -258,6 +275,7 @@ router.get("/", async (_req, res) => {
         ...(payoutCols ? { payoutReviewThresholdTzs: true, payoutDailyCapPerPayeeTzs: true, payoutRecentChangeHours: true } : {}),
         ...(autoCols ? { autoPayoutEnabled: true, autoPayoutDailyCapTzs: true, payoutUnclaimedAutoDays: true } : {}),
         ...(ownerWithdrawalLimitCol ? { ownerWithdrawalDailyLimitTzs: true } : {}),
+        ...(salesAutoCols ? { salesAutoPayoutEnabled: true, salesAutoPayoutMaxTzs: true } : {}),
         ...(roleCols
           ? {
               sessionMaxMinutesAdmin: true,
@@ -303,6 +321,9 @@ router.get("/", async (_req, res) => {
     ? (out.ownerWithdrawalDailyLimitTzs ?? OWNER_WITHDRAWAL_DAILY_LIMIT_DEFAULT_TZS)
     : null;
   out.ownerWithdrawalLimitAvailable = ownerWithdrawalLimitCol;
+  out.salesAutoPayoutEnabled = Boolean(out.salesAutoPayoutEnabled);
+  out.salesAutoPayoutMaxTzs = out.salesAutoPayoutMaxTzs ?? SALES_AUTO_PAYOUT_MAX_DEFAULT_TZS;
+  out.salesAutoPayoutAvailable = salesAutoCols;
   // Ensure new commission fields always appear in the response with safe defaults.
   out.driverCommissionPercent = out.driverCommissionPercent ?? 10;
   out.agentCommissionPercent = out.agentCommissionPercent ?? 15;
@@ -361,6 +382,7 @@ router.put("/", async (req, res) => {
   const payoutCols = await hasPayoutSafeguardColumns();
   const autoCols = await hasAutoPayoutColumns();
   const ownerWithdrawalLimitCol = await hasOwnerWithdrawalLimitColumn();
+  const salesAutoCols = await hasSalesAutoPayoutColumns();
   // Fetch full record so the audit diff covers ALL changed fields, not just session ones.
   const before = await prisma.systemSetting.findUnique({ where: { id: 1 } });
 
@@ -501,6 +523,24 @@ router.put("/", async (req, res) => {
       if (parsed !== null && (previous === null || parsed < previous)) loosensPayoutSafeguards = true;
     }
   }
+  // Automatic sales withdrawals: turning on or raising the limit lets more
+  // money move without a person, so it needs the finance code too.
+  if (body.salesAutoPayoutEnabled !== undefined) {
+    const enabled = body.salesAutoPayoutEnabled === true || body.salesAutoPayoutEnabled === "true";
+    sanitizedUpdate.salesAutoPayoutEnabled = enabled;
+    if (enabled && !(before as any)?.salesAutoPayoutEnabled) loosensPayoutSafeguards = true;
+  }
+  if (body.salesAutoPayoutMaxTzs !== undefined) {
+    const raw = body.salesAutoPayoutMaxTzs;
+    const parsed = typeof raw === "number" || (typeof raw === "string" && raw.trim() !== "") ? Number(raw) : NaN;
+    if (!Number.isSafeInteger(parsed) || parsed < PAYOUT_LIMIT_MIN_TZS || parsed > PAYOUT_LIMIT_MAX_TZS) {
+      errors.push({ field: "salesAutoPayoutMaxTzs", message: `Must be a whole TZS amount from ${PAYOUT_LIMIT_MIN_TZS.toLocaleString("en-US")} to ${PAYOUT_LIMIT_MAX_TZS.toLocaleString("en-US")}.` });
+    } else {
+      sanitizedUpdate.salesAutoPayoutMaxTzs = parsed;
+      const previous = Number((before as any)?.salesAutoPayoutMaxTzs ?? SALES_AUTO_PAYOUT_MAX_DEFAULT_TZS);
+      if (parsed > previous) loosensPayoutSafeguards = true;
+    }
+  }
 
   // Operator tier ladder: validate (thresholds non-negative + monotonic across tiers).
   if (body.agentTierLadder !== undefined) {
@@ -617,6 +657,10 @@ router.put("/", async (req, res) => {
     delete (sanitizedUpdate as any).autoPayoutEnabled;
     delete (sanitizedUpdate as any).autoPayoutDailyCapTzs;
     delete (sanitizedUpdate as any).payoutUnclaimedAutoDays;
+  }
+  if (!salesAutoCols) {
+    delete (sanitizedUpdate as any).salesAutoPayoutEnabled;
+    delete (sanitizedUpdate as any).salesAutoPayoutMaxTzs;
   }
 
   // If the DB isn't migrated yet, drop per-role TTL keys so the update doesn't fail.

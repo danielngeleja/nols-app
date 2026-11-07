@@ -19,6 +19,9 @@ export function notificationDestination(meta: Record<string, unknown>): Destinat
   if (propertyId && ["property_submitted", "property_approved", "property_rejected", "property_suspended", "property_unsuspended"].includes(kind)) {
     return { href: `/owner/properties/${propertyId}`, label: "View property" };
   }
+  if (kind === "sales_owner_confirmation_requested" || kind === "sales_owner_confirmation_reminder") {
+    return { href: "/owner/partner-confirmations", label: "Answer now" };
+  }
   // Only known, record-specific URLs are accepted from notification metadata.
   // A section landing page is not a reliable destination for an individual update.
   const actionUrl = typeof meta.actionUrl === "string" ? meta.actionUrl.trim() : "";

@@ -11,6 +11,7 @@
 import { prisma } from "@nolsaf/prisma";
 import { notifyUser } from "../lib/notifications.js";
 import { CLOSED_LEAD_STATUSES } from "../lib/salesPartner.js";
+import { leadRef } from "../lib/salesReference.js";
 
 const db = prisma as any;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -138,7 +139,7 @@ export async function runSalesLeadReminders(now = new Date()): Promise<{ followU
     await notifyUser(reminder.userId, reminder.template, {
       ...reminder.data,
       dedupeKey: reminder.dedupeKey,
-      actionPath: `/sales/leads/${reminder.data.leadId}`,
+      actionPath: `/sales/leads/${leadRef(Number(reminder.data.leadId))}`,
     });
     if (reminder.template === "sales_partner_lead_followup") followUps += 1;
     else protection += 1;

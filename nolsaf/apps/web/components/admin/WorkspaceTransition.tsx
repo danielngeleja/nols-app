@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 
 /**
  * Feedback while moving between the admin panel and a self-contained
- * workspace (Expenses, Disbursements). Those routes swap the whole shell, so
+ * workspace (Expenses, Disbursements, Sales). Those routes swap the whole shell, so
  * without this the click looks like nothing happened until the new layout
  * arrives. A click on any link that changes workspace shows a covering
  * loader; it clears as soon as the pathname changes (or after 15 seconds).
@@ -15,6 +15,7 @@ import { usePathname } from "next/navigation";
 const WORKSPACES = [
   { prefix: "/admin/expenses", label: "Expenses", hint: "Running costs, payroll and statutory payments" },
   { prefix: "/admin/disbursements", label: "Disbursements", hint: "Batches, authorisation and payouts" },
+  { prefix: "/admin/sales", label: "Sales", hint: "Partners, teams and their payouts" },
 ];
 
 const workspaceOf = (path: string) => WORKSPACES.find((w) => path === w.prefix || path.startsWith(`${w.prefix}/`)) ?? null;

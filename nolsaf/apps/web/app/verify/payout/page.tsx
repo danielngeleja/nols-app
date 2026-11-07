@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { BadgeCheck, Loader2, LockKeyhole, ShieldAlert } from "lucide-react";
 
 type VerifiedReceipt = {
+  /** OWNER (property payout) or SALES (sales partner payout). */
+  kind?: "OWNER" | "SALES";
   issuer: string;
   documentType: string;
   receiptNumber: string;
@@ -133,8 +135,8 @@ function VerifiedView({ receipt }: { receipt: VerifiedReceipt }) {
 
         <dl className="mt-6 grid gap-4 sm:grid-cols-2">
           <Row label="Receipt" value={receipt.receiptNumber} mono />
-          <Row label="Invoice" value={receipt.invoiceNumber} mono />
-          <Row label="Property" value={receipt.propertyName} />
+          <Row label={receipt.kind === "SALES" ? "Withdrawal" : "Invoice"} value={receipt.invoiceNumber} mono />
+          <Row label={receipt.kind === "SALES" ? "Paid to (sales partner)" : "Property"} value={receipt.propertyName} />
           <Row label="Settled" value={formatSettlement(receipt.settledAt, receipt.timeZone)} />
           <Row label="Provider" value={receipt.provider} />
           <Row label="Destination" value={receipt.maskedDestination} mono />

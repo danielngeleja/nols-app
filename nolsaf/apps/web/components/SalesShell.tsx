@@ -27,16 +27,27 @@ import {
   FileSignature,
   FileText,
   Headphones,
+  IdCard,
+  Trophy,
+  Users,
   LayoutDashboard,
   LifeBuoy,
   Loader2,
   Menu,
   Send,
+  Star,
   UsersRound,
   WalletCards,
   X,
 } from "lucide-react";
 import { useSalesWorkspace } from "@/components/sales/SalesWorkspaceContext";
+
+/** "2026-10" as "Oct 2026". */
+function monthLabel(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  if (!y || !m) return key;
+  return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+}
 import apiClient from "@/lib/apiClient";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import SystemHealthPopover from "@/components/SystemHealthPopover";
@@ -46,19 +57,22 @@ const NAV = [
   { href: "/sales", label: "Overview", Icon: LayoutDashboard },
   { href: "/sales/leads", label: "Leads", Icon: UsersRound },
   { href: "/sales/properties", label: "Properties", Icon: Building2 },
+  { href: "/sales/leaderboard", label: "Leaderboard", Icon: Trophy },
+  { href: "/sales/team", label: "My team", Icon: Users, teamLeadOnly: true },
   { href: "/sales/earnings", label: "Earnings", Icon: WalletCards },
   { href: "/sales/payouts", label: "Payouts", Icon: Send },
   { href: "/sales/statements", label: "Statements", Icon: FileText },
   { href: "/sales/contract", label: "Contract", Icon: FileSignature },
+  { href: "/sales/id-card", label: "My ID card", Icon: IdCard },
   { href: "/sales/materials", label: "Marketing materials", Icon: BookOpen },
   { href: "/sales/notifications", label: "Notifications", Icon: Bell },
   { href: "/sales/support", label: "Support", Icon: LifeBuoy },
 ];
 
 const NAV_GROUPS = [
-  { label: "Workspace", items: NAV.slice(0, 3) },
-  { label: "Finance", items: NAV.slice(3, 6) },
-  { label: "Resources", items: NAV.slice(6) },
+  { label: "Workspace", items: NAV.slice(0, 5) },
+  { label: "Finance", items: NAV.slice(5, 8) },
+  { label: "Resources", items: NAV.slice(8) },
 ];
 
 /** Status pill colours, per doc section 9.7. */
@@ -166,6 +180,24 @@ export default function SalesShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  // "My team" appears only for team leads; the server enforces it on every request.
+  const [isTeamLead, setIsTeamLead] = useState(false);
+  // Last month's winning team, when it is this partner's team.
+  const [topTeamMonth, setTopTeamMonth] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    apiClient
+      .get("/api/sales/team/status")
+      .then(({ data }) => {
+        if (!alive) return;
+        setIsTeamLead(Boolean(data?.isTeamLead));
+        setTopTeamMonth(data?.topTeam?.mine ? String(data.topTeam.month) : null);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Unread count for the Notifications badges: refreshed on every page change,
   // once a minute, and at once when the notifications page marks one read.
@@ -284,42 +316,43 @@ export default function SalesShell({ children }: { children: ReactNode }) {
   const contract = me.contract;
   const renderSidebar = (sidebarCollapsed: boolean) => (
     <aside
-      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${
-        sidebarCollapsed ? "w-[4.5rem]" : "w-[17rem]"
+      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-solid border-[#12342f] bg-[#0b2420] text-white transition-[width] duration-200 ${
+        sidebarCollapsed ? "w-[4.25rem]" : "w-[15.5rem]"
       }`}
     >
-      <div className={`flex min-h-[5rem] shrink-0 items-center border-b border-white/10 ${sidebarCollapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/15 bg-white shadow-sm">
+      <div className={`flex min-h-[4rem] shrink-0 items-center border-0 border-b border-solid border-white/10 ${sidebarCollapsed ? "justify-center px-2" : "gap-3 px-3.5"}`}>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white">
           <Image
             src="/assets/NoLS2025-04.png"
             alt="NoLSAF"
             width={40}
             height={40}
-            className="h-9 w-9 scale-[1.9] object-contain"
+            className="h-8 w-8 scale-[1.9] object-contain"
             priority
           />
         </span>
         {!sidebarCollapsed ? (
           <>
-            <span className="h-8 w-px shrink-0 bg-white/10" aria-hidden />
             <div className="min-w-0">
-              <h1 className="m-0 truncate text-base font-bold tracking-[-0.01em]">Sales Workspace</h1>
-              <p className="mb-0 mt-1 text-[10px] text-emerald-100/50">Partner growth and earnings</p>
+              <h1 className="m-0 truncate text-[14px] font-bold leading-tight">Sales workspace</h1>
+              <p className="m-0 mt-0.5 truncate text-[11px] text-white/45">Partner growth and earnings</p>
             </div>
           </>
         ) : null}
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3" aria-label="Sales workspace navigation">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label} className="mb-3.5 last:mb-0">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3" aria-label="Sales workspace navigation">
+        {NAV_GROUPS.map((group, groupIndex) => (
+          <div key={group.label} className="mb-3 last:mb-0">
             {!sidebarCollapsed ? (
-              <p className="mb-1.5 px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">
+              <p className="mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
                 {group.label}
               </p>
+            ) : groupIndex > 0 ? (
+              <div className="mx-auto mb-2 h-px w-6 bg-white/10" aria-hidden />
             ) : null}
             <div className="space-y-0.5">
-              {group.items.map((item) => {
+              {group.items.filter((item) => !("teamLeadOnly" in item) || isTeamLead).map((item) => {
                 const active = item.href === "/sales" ? pathname === "/sales" : pathname?.startsWith(item.href);
                 const pending = navigation
                   ? item.href === "/sales"
@@ -334,32 +367,31 @@ export default function SalesShell({ children }: { children: ReactNode }) {
                     title={sidebarCollapsed ? (badge ? `${item.label} (${badge} unread)` : item.label) : undefined}
                     aria-label={badge ? `${item.label}, ${badge} unread` : undefined}
                     aria-current={active ? "page" : undefined}
-                    className={`group relative flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${
+                    className={`group relative flex h-9 items-center rounded-md text-[13px] font-medium no-underline transition-colors hover:no-underline ${
                       sidebarCollapsed ? "justify-center px-2" : "gap-2.5 px-2.5"
                     } ${
                       active
-                        ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
-                        : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"
+                        ? "bg-white/[0.09] text-white"
+                        : "text-white/60 hover:bg-white/[0.05] hover:text-white"
                     }`}
                   >
-                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
+                    {active ? <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r bg-emerald-400" aria-hidden /> : null}
+                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center ${active ? "text-emerald-300" : "text-white/55 group-hover:text-white/85"}`}>
                       {pending ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        <item.Icon className="h-3.5 w-3.5" />
+                        <item.Icon className="h-4 w-4" />
                       )}
                     </span>
                     {!sidebarCollapsed ? <span className="flex-1 truncate">{item.label}</span> : null}
                     {badge ? (
                       sidebarCollapsed ? (
-                        <span className="absolute right-1.5 top-1 grid min-w-[1.05rem] place-items-center rounded-full bg-amber-400 px-1 text-[10px] font-bold leading-[1.05rem] text-emerald-950 ring-2 ring-[#082f2a]" aria-hidden>
+                        <span className="absolute right-1.5 top-1 grid min-w-[1.05rem] place-items-center rounded bg-amber-400 px-1 text-[10px] font-bold leading-[1.05rem] text-emerald-950 ring-2 ring-[#0b2420]" aria-hidden>
                           {badge}
                         </span>
                       ) : (
                         <span
-                          className={`grid min-w-[1.35rem] shrink-0 place-items-center rounded-full px-1.5 text-[11px] font-bold leading-5 ${
-                            active ? "bg-emerald-950 text-emerald-100" : "bg-amber-400 text-emerald-950"
-                          }`}
+                          className="grid min-w-[1.35rem] shrink-0 place-items-center rounded bg-amber-400 px-1.5 text-[11px] font-bold leading-5 text-emerald-950"
                           aria-hidden
                         >
                           {badge}
@@ -374,7 +406,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
         ))}
       </nav>
 
-      <div className="shrink-0 border-t border-white/10 bg-black/5 p-2.5">
+      <div className="shrink-0 border-0 border-t border-solid border-white/10 p-2">
         <WorkspaceSwitcher
           currentWorkspace="SALES"
           variant="sales-sidebar"
@@ -385,7 +417,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
         <button
           type="button"
           onClick={toggleCollapsed}
-          className={`mt-1.5 hidden min-h-8 w-full appearance-none items-center rounded-lg border border-white/[0.06] bg-white/[0.05] text-[11px] font-semibold text-emerald-100/60 hover:bg-white/10 hover:text-white lg:flex ${
+          className={`mt-1 hidden h-8 w-full appearance-none items-center rounded-md border-0 bg-transparent text-[12px] font-medium text-white/50 [font-family:inherit] hover:bg-white/[0.05] hover:text-white lg:flex ${
             sidebarCollapsed ? "justify-center" : "justify-between px-2.5"
           }`}
           aria-label={sidebarCollapsed ? "Expand Sales sidebar" : "Collapse Sales sidebar"}
@@ -463,12 +495,12 @@ export default function SalesShell({ children }: { children: ReactNode }) {
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="mx-3 mt-3 shrink-0 overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-          <div className="mx-auto flex min-h-[4.75rem] max-w-[1600px] items-center gap-3 px-3 sm:px-5">
+        <header className="mx-3 mt-3 shrink-0 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+          <div className="mx-auto flex min-h-[4rem] max-w-[1600px] items-center gap-3 px-3 sm:px-4">
             <button
               type="button"
               onClick={() => setMobileOpen(true)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-700 lg:hidden"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-solid border-neutral-200 bg-white text-neutral-700 lg:hidden"
               aria-label="Open Sales navigation"
             >
               <Menu className="h-5 w-5" />
@@ -476,9 +508,9 @@ export default function SalesShell({ children }: { children: ReactNode }) {
 
             {me.partner.avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={me.partner.avatarUrl} alt="" className="h-10 w-10 shrink-0 rounded-xl object-cover ring-1 ring-neutral-200" />
+              <img src={me.partner.avatarUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-neutral-200" />
             ) : (
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-xs font-black text-emerald-800 ring-1 ring-emerald-100">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#02665e] text-xs font-bold text-white">
                 {initialsOf(me.partner.name)}
               </span>
             )}
@@ -486,30 +518,56 @@ export default function SalesShell({ children }: { children: ReactNode }) {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <p className="m-0 truncate text-sm font-bold text-neutral-950">{me.partner.name || "Sales partner"}</p>
-                <span className="hidden rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 sm:inline">
+                <span className="hidden rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800 sm:inline">
                   {me.level.benefits.badge}
                 </span>
-                <span className={`hidden rounded-full px-2 py-0.5 text-[9px] font-bold uppercase md:inline ${statusTone(me.partner.status)}`}>
-                  {me.partner.status}
+                {isTeamLead ? (
+                  <span className="hidden items-center gap-1 rounded-md bg-[#f5c451] px-1.5 py-0.5 text-[11px] font-bold text-[#4a3205] sm:inline-flex">
+                    <Star className="h-3 w-3" aria-hidden /> Team lead
+                  </span>
+                ) : null}
+                {topTeamMonth ? (
+                  <span
+                    className="hidden items-center gap-1 rounded-md border border-solid border-[#f5c451] bg-[#fffbeb] px-1.5 py-0.5 text-[11px] font-bold text-[#4a3205] md:inline-flex"
+                    title={`Your team finished first in ${monthLabel(topTeamMonth)}`}
+                  >
+                    <Trophy className="h-3 w-3" aria-hidden /> Top team · {monthLabel(topTeamMonth)}
+                  </span>
+                ) : null}
+                <span className={`hidden items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold md:inline-flex ${statusTone(me.partner.status)}`}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+                  {codeLabel(me.partner.status)}
                 </span>
               </div>
-              <p className="mb-0 mt-0.5 truncate text-[10px] text-neutral-400">
-                Partner ID {me.partner.agentCode}{me.partner.region ? ` · ${me.partner.region}` : ""}
+              <p className="mb-0 mt-0.5 truncate text-[12px] text-neutral-500">
+                <span className="font-mono">{me.partner.agentCode}</span>{me.partner.region ? ` · ${me.partner.region}` : ""}
               </p>
             </div>
 
             {contract ? (
-              <div className="hidden border-l border-neutral-200 pl-4 text-right md:block">
-                <p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Agreement</p>
-                <p className="mb-0 mt-1 text-xs font-bold text-neutral-800">
-                  {contract.daysRemaining > 0 ? `${contract.daysRemaining} days remaining` : "Expired"}
-                </p>
+              <div className="hidden w-44 border-0 border-l border-solid border-neutral-200 pl-4 md:block">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="m-0 text-[11px] text-neutral-500">Agreement</p>
+                  <p className={`m-0 text-[12px] font-semibold ${contract.daysRemaining > 30 ? "text-neutral-800" : contract.daysRemaining > 0 ? "text-amber-700" : "text-rose-700"}`}>
+                    {contract.daysRemaining > 0 ? `${contract.daysRemaining} days left` : "Expired"}
+                  </p>
+                </div>
+                {(() => {
+                  const start = new Date(contract.startsAt).getTime();
+                  const end = new Date(contract.expiresAt).getTime();
+                  const left = end > start ? Math.max(0, Math.min(100, ((end - Date.now()) / (end - start)) * 100)) : 0;
+                  return (
+                    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-neutral-100" aria-hidden>
+                      <div className={`h-full rounded-full ${contract.daysRemaining > 30 ? "bg-[#02665e]" : "bg-amber-500"}`} style={{ width: `${left}%` }} />
+                    </div>
+                  );
+                })()}
               </div>
             ) : null}
 
             <Link
               href="/sales/notifications"
-              className="relative grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-neutral-200 bg-white text-neutral-600 no-underline hover:bg-neutral-50 hover:text-neutral-900 hover:no-underline"
+              className="relative grid h-9 w-9 shrink-0 place-items-center rounded-md border border-solid border-neutral-200 bg-white text-neutral-600 no-underline hover:bg-neutral-50 hover:text-neutral-900 hover:no-underline"
               aria-label={unreadCount > 0 ? `Sales notifications, ${unreadLabel} unread` : "Sales notifications"}
             >
               <Bell className="h-4 w-4" />

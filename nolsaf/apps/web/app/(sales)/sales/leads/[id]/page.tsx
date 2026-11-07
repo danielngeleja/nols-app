@@ -30,6 +30,7 @@ import SalesShell, { statusTone } from "@/components/SalesShell";
 import SalesLeadForm, { toSalesLeadPayload, type SalesLeadFormValue } from "@/components/sales/SalesLeadForm";
 import SalesDateTimeField from "@/components/sales/SalesDateTimeField";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
+import VisitCheckIn from "@/components/sales/VisitCheckIn";
 
 type ActivityRecord = {
   id: number;
@@ -96,6 +97,7 @@ function activityIcon(type: string) {
   if (type === "CALL") return Phone;
   if (type === "EMAIL") return Mail;
   if (type === "MEETING") return UserRound;
+  if (type === "VISIT") return MapPin;
   if (type === "FOLLOW_UP") return CalendarClock;
   if (type === "DOCUMENT_RECEIVED") return FileText;
   if (type === "PROPOSAL_SENT") return Send;
@@ -133,7 +135,8 @@ function LeadDetailSkeleton() {
 
 export default function SalesLeadDetailPage() {
   const params = useParams<{ id: string }>();
-  const id = Number(params.id);
+  // An opaque lead reference (sl_…), never a row id.
+  const id = String(params.id || "");
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -166,7 +169,8 @@ export default function SalesLeadDetailPage() {
   }, [id]);
 
   useEffect(() => {
-    if (Number.isInteger(id) && id > 0) void load();
+    if (/^sl_[A-Za-z0-9_-]{22}$/.test(id)) void load();
+    else setLoading(false);
   }, [id, load]);
 
   const save = async (value: SalesLeadFormValue) => {
@@ -466,6 +470,12 @@ export default function SalesLeadDetailPage() {
                 </dl>
               </section>
             )}
+
+            <VisitCheckIn
+              leadRef={id}
+              closed={["CONVERTED", "LOST", "CANCELLED"].includes(lead.status)}
+              onRecorded={() => void load()}
+            />
 
             <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_360px]">
               <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">

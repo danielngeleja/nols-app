@@ -79,7 +79,7 @@ export default function SalesDateTimeField({
             onChange={(event) => setTime(event.target.value)}
             disabled={!current.date}
             step={300}
-            className="h-10 w-full rounded-xl border border-solid border-slate-300 bg-slate-50/80 pl-9 pr-2 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-400 hover:bg-white focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+            className="h-10 w-full rounded-md border border-solid border-slate-300 bg-white pl-9 pr-2 text-sm text-slate-900 outline-none transition hover:border-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
           />
         </label>
       </div>

@@ -1,12 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRightLeft,
   BadgeCheck,
-  BookOpen,
   Building2,
   CheckCircle2,
   ChevronRight,
@@ -19,16 +17,17 @@ import {
   Mail,
   MapPin,
   Phone,
-  RefreshCw,
   Search,
   ShieldCheck,
+  ShieldQuestion,
   UserRound,
-  Users,
-  Wallet,
   X,
   XCircle,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import SalesAdminHeader from "@/components/admin/sales/SalesAdminHeader";
+import LeadVisitEvidence from "@/components/admin/sales/LeadVisitEvidence";
+import SalesPartnerPicker, { type PickedPartner } from "@/components/admin/sales/SalesPartnerPicker";
 
 type Lead = {
   id: number;
@@ -43,6 +42,7 @@ type Lead = {
   proposedProduct: string;
   duplicateReviewStatus: string;
   conversionRequestedAt: string;
+  visitSummary?: { verified: number; flagged: number };
   salesPartner: {
     id: number;
     agentCode: string;
@@ -80,7 +80,27 @@ type Attribution = {
     user: { name: string | null; email: string | null };
   };
   contract: { id: number; contractNumber: string; status: string; expiresAt: string } | null;
+  ownerConfirmation: { status: string; expiresAt: string; respondedAt: string | null; responseNote: string | null } | null;
 };
+
+// What the property owner said about this partner. Classes spelled out for Tailwind.
+function ownerAnswer(confirmation: Attribution["ownerConfirmation"]) {
+  const status = confirmation?.status ?? "NONE";
+  switch (status) {
+    case "CONFIRMED":
+      return { status, label: "Owner confirmed", detail: confirmation?.respondedAt ? `on ${day(confirmation.respondedAt)}` : "", tone: "text-emerald-700 bg-emerald-50" };
+    case "PENDING":
+      return { status, label: "Waiting for the owner", detail: confirmation?.expiresAt ? `until ${day(confirmation.expiresAt)}` : "", tone: "text-amber-700 bg-amber-50" };
+    case "DENIED":
+      return { status, label: "Owner denied this partner", detail: confirmation?.respondedAt ? `on ${day(confirmation.respondedAt)}` : "", tone: "text-rose-700 bg-rose-50" };
+    case "UNKNOWN_PARTNER":
+      return { status, label: "Owner does not know this partner", detail: confirmation?.respondedAt ? `on ${day(confirmation.respondedAt)}` : "", tone: "text-rose-700 bg-rose-50" };
+    case "EXPIRED":
+      return { status, label: "Owner did not answer", detail: "request expired", tone: "text-neutral-700 bg-neutral-100" };
+    default:
+      return { status, label: "Owner not asked", detail: "created before owner confirmation", tone: "text-neutral-700 bg-neutral-100" };
+  }
+}
 
 const fieldClass =
   "min-h-10 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 hover:border-neutral-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
@@ -88,13 +108,11 @@ const primaryButton =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-solid border-emerald-700 bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45";
 const secondaryButton =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-4 text-sm font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-45";
-// Ghost buttons sitting on the dark sales header (same language as Sales partners).
-const heroButton =
-  "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white hover:no-underline disabled:opacity-60";
 
 // Attribution stages. Classes spelled out for Tailwind.
 const ATTRIBUTION_STAGE: Record<string, { label: string; hint: string; text: string; dot: string; soft: string; ring: string }> = {
   VERIFIED: { label: "Verified", hint: "Ready to activate", text: "text-amber-700", dot: "bg-amber-500", soft: "bg-amber-50", ring: "ring-amber-400" },
+  DISPUTED: { label: "On hold", hint: "Owner did not confirm", text: "text-rose-700", dot: "bg-rose-500", soft: "bg-rose-50", ring: "ring-rose-400" },
   ACTIVE: { label: "Earning", hint: "Commission running", text: "text-emerald-700", dot: "bg-emerald-500", soft: "bg-emerald-50", ring: "ring-emerald-500" },
   REVOKED: { label: "Revoked", hint: "No longer earning", text: "text-rose-600", dot: "bg-rose-500", soft: "bg-rose-50", ring: "ring-rose-400" },
 };
@@ -167,8 +185,9 @@ export default function SalesReviewPage() {
   const [propertyQuery, setPropertyQuery] = useState<Record<number, string>>({});
   const [propertyHits, setPropertyHits] = useState<Record<number, PropertyHit[]>>({});
   const [selectedProperty, setSelectedProperty] = useState<Record<number, PropertyHit | undefined>>({});
-  const [targetPartner, setTargetPartner] = useState<Record<number, string>>({});
+  const [targetPartner, setTargetPartner] = useState<Record<number, PickedPartner | null>>({});
   const [reassignOpen, setReassignOpen] = useState<Record<number, boolean>>({});
+  const [ownerOverride, setOwnerOverride] = useState<Record<number, boolean>>({});
 
   const stats = useMemo(() => ({
     waiting: leads.length,
@@ -279,15 +298,15 @@ export default function SalesReviewPage() {
     }
   };
 
-  const attributionAction = async (item: Attribution, action: "activate" | "revoke" | "reassign") => {
+  const attributionAction = async (item: Attribution, action: "activate" | "revoke" | "reassign" | "owner-confirmation") => {
     const note = (reason[item.id] || "").trim();
     if (note.length < 5) {
       setError("Enter an action reason of at least 5 characters.");
       return;
     }
-    const partnerId = Number(targetPartner[item.id]);
-    if (action === "reassign" && (!Number.isInteger(partnerId) || partnerId <= 0)) {
-      setError("Enter the target sales partner profile ID.");
+    const partnerId = targetPartner[item.id]?.id ?? 0;
+    if (action === "reassign" && !partnerId) {
+      setError("Choose the sales partner to move this property to.");
       return;
     }
     setBusy(`${action}-${item.id}`);
@@ -296,14 +315,18 @@ export default function SalesReviewPage() {
       await apiClient.post(`/api/admin/sales/attributions/${item.id}/${action}`, {
         reason: note,
         ...(action === "reassign" ? { salesPartnerId: partnerId } : {}),
+        ...(action === "activate" && ownerOverride[item.id] ? { ownerOverride: true } : {}),
       });
       setNotice(
         action === "activate"
           ? `${item.property.title} is now earning for ${productLabel(item.productType)}.`
           : action === "revoke"
             ? `${item.property.title} attribution was revoked.`
-            : `${item.property.title} was reassigned in VERIFIED state; activate it separately.`,
+            : action === "owner-confirmation"
+              ? `The owner of ${item.property.title} was asked to confirm this partner.`
+              : `${item.property.title} was reassigned and the owner was asked to confirm the new partner.`,
       );
+      setOwnerOverride((current) => ({ ...current, [item.id]: false }));
       setReassignOpen((current) => ({ ...current, [item.id]: false }));
       await load();
     } catch (cause: any) {
@@ -324,62 +347,26 @@ export default function SalesReviewPage() {
 
   return (
     <div className="space-y-5 w-full min-w-0">
-      {/* Sales header */}
-      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
-        <div className="relative px-5 pt-5 sm:px-6 sm:pt-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
-                Sales <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white/70"><Lock className="h-3 w-3" /> Protected workflow</span>
-              </p>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Conversion and attribution review</h1>
-              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Bind partner claims to existing properties, verify ownership, then activate earning.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Link href="/admin/sales/partners" className={heroButton}><Users className="h-3.5 w-3.5" /> Partners</Link>
-              <Link href="/admin/sales/finance" className={heroButton}><Wallet className="h-3.5 w-3.5" /> Finance</Link>
-              <Link href="/admin/sales/materials" className={heroButton}><BookOpen className="h-3.5 w-3.5" /> Materials</Link>
-              <button type="button" onClick={() => void load()} disabled={loading} className={`${heroButton} w-9 px-0`} aria-label="Refresh sales administration data" title="Refresh">
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              </button>
-            </div>
-          </div>
-
-          {/* Headline numbers */}
-          <div className="mt-5 flex flex-wrap items-end gap-x-8 gap-y-3">
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{stats.waiting}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">Waiting for review</p>
-            </div>
-            <div>
-              <p className={`m-0 text-3xl font-bold tabular-nums leading-none ${stats.flagged ? "text-amber-300" : "text-white/40"}`}>{stats.flagged}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">Duplicate flags</p>
-            </div>
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-emerald-300">{stats.active}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">Earning now</p>
-            </div>
-          </div>
-
-          <div className="mt-5 flex gap-1" role="tablist" aria-label="Sales review views">
-            {([["queue", "Review queue", Inbox, leads.length], ["attributions", "Attributions", Layers3, attributions.length]] as const).map(([key, label, Icon, count]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={tab === key}
-                onClick={() => { setTab(key); if (key === "queue") setStageFilter(""); }}
-                className={`relative inline-flex h-11 items-center gap-2 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${tab === key ? "text-white" : "text-white/50 hover:text-white/80"}`}
-              >
-                <Icon className="h-4 w-4" /> {label}
-                <span className={`rounded-full px-1.5 text-[11px] tabular-nums ${tab === key ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-white/60"}`}>{count}</span>
-                {tab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-emerald-400" aria-hidden />}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* Sales header (navigation between Sales pages is in the admin sidebar) */}
+      <SalesAdminHeader
+        title="Conversion and attribution review"
+        description="Bind partner claims to existing properties, verify ownership, then activate earning."
+        badge="Protected workflow"
+        metrics={[
+          { label: "Waiting", value: stats.waiting },
+          { label: "Duplicate flags", value: stats.flagged, tone: stats.flagged ? "warn" : "muted" },
+          { label: "Earning now", value: stats.active, tone: "good" },
+        ]}
+        onRefresh={() => void load()}
+        loading={loading}
+        refreshLabel="Refresh sales administration data"
+        tabs={[
+          { key: "queue", label: "Review queue", Icon: Inbox, count: leads.length },
+          { key: "attributions", label: "Attributions", Icon: Layers3, count: attributions.length },
+        ]}
+        activeTab={tab}
+        onTab={(key) => { setTab(key); if (key === "queue") setStageFilter(""); }}
+      />
 
       {error && (
         <div role="alert" className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
@@ -520,8 +507,6 @@ export default function SalesReviewPage() {
                           <div className="min-w-0 flex-1">
                             <h3 className="m-0 truncate text-base font-bold text-neutral-900">{lead.propertyName}</h3>
                             <p className="m-0 mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-neutral-400">
-                              <span className="font-mono">Lead #{lead.id}</span>
-                              <span>·</span>
                               <span title={new Date(lead.conversionRequestedAt).toLocaleString("en-GB")}>Requested {ago(lead.conversionRequestedAt)}</span>
                             </p>
                           </div>
@@ -548,6 +533,7 @@ export default function SalesReviewPage() {
                             );
                           })}
                         </dl>
+                        <LeadVisitEvidence leadId={lead.id} summary={lead.visitSummary} />
                       </div>
 
                       {/* Decision panel */}
@@ -579,7 +565,7 @@ export default function SalesReviewPage() {
                           {selected ? (
                             <div className="mt-2 flex items-center gap-2 rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-3 py-2">
                               <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
-                              <span className="min-w-0 flex-1 truncate text-sm text-emerald-900"><span className="font-mono text-xs">#{selected.id}</span> {selected.title}</span>
+                              <span className="min-w-0 flex-1 truncate text-sm text-emerald-900">{selected.title}</span>
                               <button type="button" onClick={() => setSelectedProperty((current) => ({ ...current, [lead.id]: undefined }))} className="border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline">Change</button>
                             </div>
                           ) : (
@@ -590,7 +576,7 @@ export default function SalesReviewPage() {
                                   onChange={(event) => setPropertyQuery((current) => ({ ...current, [lead.id]: event.target.value }))}
                                   onKeyDown={(event) => { if (event.key === "Enter") void searchProperties(lead.id); }}
                                   className={fieldClass}
-                                  placeholder="Property ID, name, city or owner email"
+                                  placeholder="Property name, city or owner email"
                                   aria-label={`Find property for ${lead.propertyName}`}
                                 />
                                 <button type="button" className={`${secondaryButton} shrink-0 px-3`} onClick={() => void searchProperties(lead.id)} disabled={busy === `property-${lead.id}`} aria-label={`Search property for ${lead.propertyName}`}>
@@ -598,7 +584,7 @@ export default function SalesReviewPage() {
                                 </button>
                               </div>
                               {propertyHits[lead.id] && propertyHits[lead.id].length === 0 && (
-                                <p className="m-0 mt-2 text-xs text-neutral-500">No properties found. Try the property ID or owner email.</p>
+                                <p className="m-0 mt-2 text-xs text-neutral-500">No properties found. Try the owner email or another spelling.</p>
                               )}
                               {(propertyHits[lead.id] || []).length > 0 && (
                                 <ul className="m-0 mt-2 max-h-48 list-none space-y-1.5 overflow-y-auto p-0 pr-1">
@@ -612,7 +598,6 @@ export default function SalesReviewPage() {
                                           className="block w-full rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-left transition hover:border-emerald-300 hover:bg-emerald-50/40"
                                         >
                                           <span className="flex items-center gap-2">
-                                            <span className="font-mono text-[11px] text-neutral-400">#{property.id}</span>
                                             <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900">{property.title}</span>
                                             <span className="flex-shrink-0 text-[11px] text-neutral-500">{humanize(property.status)}</span>
                                           </span>
@@ -681,6 +666,9 @@ export default function SalesReviewPage() {
               const daysLeft = end ? Math.max(Math.ceil((end - Date.now()) / 86400000), 0) : null;
               const note = (reason[item.id] || "").trim();
               const reassigning = Boolean(reassignOpen[item.id]);
+              const owner = ownerAnswer(item.ownerConfirmation);
+              const ownerBlocks = ["PENDING", "DENIED", "UNKNOWN_PARTNER"].includes(owner.status);
+              const needsOverride = owner.status === "EXPIRED" || owner.status === "NONE";
               return (
                 <li key={item.id} className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
                   <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_minmax(340px,0.9fr)]">
@@ -689,7 +677,7 @@ export default function SalesReviewPage() {
                         <span className={`inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-white ring-2 ring-offset-2 ${stage.ring}`}><Building2 className="h-4 w-4" /></span>
                         <div className="min-w-0 flex-1">
                           <h3 className="m-0 truncate text-base font-bold text-neutral-900">{item.property.title}</h3>
-                          <p className="m-0 mt-0.5 text-xs text-neutral-400"><span className="font-mono">Property #{item.property.id}</span> · Attribution #{item.id}</p>
+                          <p className="m-0 mt-0.5 text-xs text-neutral-400">{humanize(item.property.status)} property</p>
                         </div>
                         <span className="flex-shrink-0 rounded-md border border-dashed border-neutral-300 px-2 py-0.5 text-[11px] font-medium text-neutral-700">{productLabel(item.productType)}</span>
                       </div>
@@ -699,12 +687,17 @@ export default function SalesReviewPage() {
                         <span className="font-semibold">{stage.label}</span>
                         {stage.hint && <span className="opacity-80">· {stage.hint}</span>}
                       </div>
+                      <div className={`mt-1.5 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs ${owner.tone}`}>
+                        <ShieldQuestion className="h-3.5 w-3.5 flex-shrink-0" />
+                        <span className="font-semibold">{owner.label}</span>
+                        {owner.detail && <span className="opacity-80">· {owner.detail}</span>}
+                      </div>
 
                       <dl className="m-0 mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-solid border-neutral-100 bg-neutral-100 sm:grid-cols-2">
                         <div className="min-w-0 bg-white px-3 py-2.5">
                           <dt className="text-[11px] text-neutral-400">Sales partner</dt>
                           <dd className="m-0 truncate text-sm text-neutral-800">{partnerName}</dd>
-                          <dd className="m-0 font-mono text-[11px] text-neutral-500">{item.salesPartner.agentCode} · profile #{item.salesPartner.id}</dd>
+                          <dd className="m-0 font-mono text-[11px] text-neutral-500">{item.salesPartner.agentCode}</dd>
                         </div>
                         <div className="min-w-0 bg-white px-3 py-2.5">
                           <dt className="flex items-center gap-1 text-[11px] text-neutral-400"><FileSignature className="h-3 w-3" /> Contract</dt>
@@ -744,14 +737,12 @@ export default function SalesReviewPage() {
 
                       {reassigning && (
                         <div className="rounded-lg border border-solid border-neutral-200 bg-white p-3">
-                          <label className="text-xs font-semibold text-neutral-800" htmlFor={`partner-${item.id}`}>Move to sales partner profile ID</label>
-                          <input
-                            id={`partner-${item.id}`}
-                            value={targetPartner[item.id] || ""}
-                            onChange={(event) => setTargetPartner((current) => ({ ...current, [item.id]: event.target.value }))}
-                            className={`${fieldClass} mt-1.5`}
-                            inputMode="numeric"
-                            placeholder="e.g. 12"
+                          <p className="m-0 text-xs font-semibold text-neutral-800">Move to sales partner</p>
+                          <SalesPartnerPicker
+                            className="mt-1.5"
+                            value={targetPartner[item.id] ?? null}
+                            onChange={(partner) => setTargetPartner((current) => ({ ...current, [item.id]: partner }))}
+                            excludeIds={[item.salesPartner.id]}
                           />
                           <p className="m-0 mt-1.5 text-[11px] text-neutral-500">It returns to Verified and must be activated again.</p>
                           <div className="mt-2 flex gap-2">
@@ -763,10 +754,22 @@ export default function SalesReviewPage() {
                         </div>
                       )}
 
+                      {!reassigning && item.status === "VERIFIED" && needsOverride && (
+                        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-solid border-amber-200 bg-amber-50 p-2.5 text-[12px] text-amber-900">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={Boolean(ownerOverride[item.id])}
+                            onChange={(event) => setOwnerOverride((current) => ({ ...current, [item.id]: event.target.checked }))}
+                          />
+                          <span>Activate without the owner&apos;s answer. Use only with other proof, and say what it is in the reason. This is recorded.</span>
+                        </label>
+                      )}
+
                       {!reassigning && (
                         <div className="flex flex-wrap gap-2">
                           {item.status === "VERIFIED" && (
-                            <button type="button" className={`${primaryButton} flex-1`} onClick={() => void attributionAction(item, "activate")} disabled={Boolean(busy) || note.length < 5}>
+                            <button type="button" className={`${primaryButton} flex-1`} onClick={() => void attributionAction(item, "activate")} disabled={Boolean(busy) || note.length < 5 || ownerBlocks || (needsOverride && !ownerOverride[item.id])}>
                               {busy === `activate-${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Activate earning
                             </button>
                           )}
@@ -778,11 +781,16 @@ export default function SalesReviewPage() {
                           <button type="button" className={secondaryButton} onClick={() => setReassignOpen((current) => ({ ...current, [item.id]: true }))} disabled={Boolean(busy)}>
                             <ArrowRightLeft className="h-4 w-4" /> Reassign
                           </button>
+                          {["VERIFIED", "DISPUTED", "ACTIVE"].includes(item.status) && owner.status !== "PENDING" && owner.status !== "CONFIRMED" && (
+                            <button type="button" className={secondaryButton} onClick={() => void attributionAction(item, "owner-confirmation")} disabled={Boolean(busy) || note.length < 5}>
+                              {busy === `owner-confirmation-${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldQuestion className="h-4 w-4" />} Ask the owner
+                            </button>
+                          )}
                         </div>
                       )}
 
                       <p className="m-0 flex items-center gap-1.5 text-[11px] text-neutral-400">
-                        <Lock className="h-3 w-3" /> Finance OTP is required for activation, revocation and reassignment.
+                        <Lock className="h-3 w-3" /> Finance OTP is required for activation, revocation and reassignment. Activation waits for the owner&apos;s answer.
                       </p>
                     </div>
                   </div>

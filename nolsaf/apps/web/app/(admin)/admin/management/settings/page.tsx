@@ -490,6 +490,13 @@ export default function SystemSettingsPage(){
   ...((s as any).ownerWithdrawalLimitAvailable
     ? { ownerWithdrawalDailyLimitTzs: (s as any).ownerWithdrawalDailyLimitTzs }
     : {}),
+  // Automatic sales withdrawals: only sent once migration 20261108090000 is applied.
+  ...((s as any).salesAutoPayoutAvailable
+    ? {
+        salesAutoPayoutEnabled: Boolean((s as any).salesAutoPayoutEnabled),
+        salesAutoPayoutMaxTzs: (s as any).salesAutoPayoutMaxTzs ?? 500000,
+      }
+    : {}),
   supportEmail: supportEmail || s.supportEmail,
   supportPhone: supportPhone || s.supportPhone,
   // Only once the column exists (migration 20261015100000); empty clears it back to the head office default.
@@ -1180,6 +1187,69 @@ export default function SystemSettingsPage(){
                   <div className="border-0 border-t border-solid border-neutral-200 sm:border-l sm:border-t-0">
                     {numberField("payoutUnclaimedAutoDays", "Send unclaimed payouts after", "days", "Never", "3 to 90. A ready payout the owner has not withdrawn is sent to their verified, unchanged account.")}
                   </div>
+                </div>
+              </section>
+            );
+          })()}
+
+          {/* Automatic sales withdrawals: the shared AUTO lane after a partner's code-confirmed withdrawal */}
+          {(() => {
+            const available = Boolean((s as any)?.salesAutoPayoutAvailable);
+            const on = Boolean((s as any)?.salesAutoPayoutEnabled);
+            const ownerLaneOn = Boolean((s as any)?.autoPayoutEnabled) && (s as any)?.autoPayoutDailyCapTzs != null;
+            const max = (s as any)?.salesAutoPayoutMaxTzs;
+            return (
+              <section id="salesautopayouts" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <ShieldCheck className="h-4 w-4" />,
+                  "Automatic sales withdrawals",
+                  "After a sales partner confirms a withdrawal with their code, it is checked against the payout policy. Clean withdrawals are sent without an admin; a fraud signal pauses the partner.",
+                  available ? (
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 text-[11px] font-semibold text-neutral-600"><KeyRound className="h-3 w-3" /> Turning on or raising asks for your finance code</span>
+                  ) : (
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-700"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Needs the database update</span>
+                  ),
+                )}
+                <div className="flex min-w-0 items-center gap-4 px-4 py-3.5 sm:px-5">
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">Send clean sales withdrawals automatically</p>
+                    <p className="m-0 mt-0.5 text-xs text-neutral-400">
+                      {on
+                        ? ownerLaneOn
+                          ? "On. A partner's first withdrawal, anything above the limit and any broken rule still go to an admin."
+                          : "On, but waiting: the shared automatic lane above is off or has no daily limit, so nothing is sent yet."
+                        : "Off. Every confirmed withdrawal waits for an admin to approve and send it."}
+                    </p>
+                  </div>
+                  <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
+                    <input
+                      id="salesAutoPayoutEnabled"
+                      type="checkbox"
+                      aria-label="Send clean sales withdrawals automatically"
+                      checked={on}
+                      disabled={!available}
+                      className="peer sr-only"
+                      onChange={(e) => setS((prev: any) => ({ ...(prev || {}), salesAutoPayoutEnabled: e.target.checked }))}
+                    />
+                    <div className={toggleTrackClass} />
+                  </label>
+                </div>
+                <div className="min-w-0 border-0 border-t border-solid border-neutral-200 px-4 py-3.5 sm:px-5">
+                  <label htmlFor="salesAutoPayoutMaxTzs" className={sectionLabel}>Largest automatic withdrawal</label>
+                  <div className="relative mt-1.5 max-w-xs">
+                    <input
+                      id="salesAutoPayoutMaxTzs"
+                      type="number" min={1000} step={1000} inputMode="numeric"
+                      disabled={!available}
+                      value={max === null || max === undefined ? "" : String(max)}
+                      onChange={(e) => setS((prev: any) => ({ ...(prev || {}), salesAutoPayoutMaxTzs: e.target.value === "" ? null : Number(e.target.value) }))}
+                      className={`${fieldClass} pr-14 disabled:cursor-not-allowed disabled:bg-neutral-50 ${validationErrors.salesAutoPayoutMaxTzs ? "border-rose-300" : ""}`}
+                    />
+                    <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-neutral-400">TZS</span>
+                  </div>
+                  <p className={`m-0 mt-1 text-[11px] ${validationErrors.salesAutoPayoutMaxTzs ? "font-medium text-rose-600" : "text-neutral-400"}`}>
+                    {validationErrors.salesAutoPayoutMaxTzs || "Default TZS 500,000. Larger withdrawals go to an admin. All automatic payouts share the daily limit above."}
+                  </p>
                 </div>
               </section>
             );

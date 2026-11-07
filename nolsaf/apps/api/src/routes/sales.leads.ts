@@ -32,13 +32,41 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { audit } from "../lib/audit.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { limitSalesLeadRead, limitSalesLeadWrite } from "../middleware/rateLimit.js";
+import { leadRef, resolvePartnerLead } from "../lib/salesReference.js";
 
 const router = Router();
 const db = prisma as any;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CLOSED_FOR_EDIT = ["CONVERTED"] as const;
+/** A lead in one of these needs no more follow-up. */
+const CLOSED_LEAD_STATUSES = ["CONVERTED", "LOST", "CANCELLED"];
+const STALE_AFTER_DAYS = 14;
+const PROTECTION_WARNING_DAYS = 7;
+const EAT_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+/** Start and end (UTC instants) of today in EAT. */
+function eatToday(now: Date) {
+  const eat = new Date(now.getTime() + EAT_OFFSET_MS);
+  const start = new Date(Date.UTC(eat.getUTCFullYear(), eat.getUTCMonth(), eat.getUTCDate()) - EAT_OFFSET_MS);
+  return { start, end: new Date(start.getTime() + DAY_MS) };
+}
+
+/** The "needs attention" filters, shared by the list and the pulse so their counts always agree. */
+function focusWhere(focus: string, now: Date): any {
+  const open = { status: { notIn: CLOSED_LEAD_STATUSES } };
+  const today = eatToday(now);
+  switch (focus) {
+    case "OVERDUE": return { ...open, nextFollowUpAt: { lt: today.start } };
+    case "TODAY": return { ...open, nextFollowUpAt: { gte: today.start, lt: today.end } };
+    case "UPCOMING": return { ...open, nextFollowUpAt: { gte: today.end } };
+    case "NONE": return { ...open, nextFollowUpAt: null };
+    case "PROTECTION": return { ...open, protectionExpiresAt: { gte: now, lt: new Date(now.getTime() + PROTECTION_WARNING_DAYS * DAY_MS) } };
+    case "STALE": return { ...open, updatedAt: { lt: new Date(now.getTime() - STALE_AFTER_DAYS * DAY_MS) } };
+    default: return {};
+  }
+}
 const PARTNER_ACTIVITY_TYPES = LEAD_ACTIVITY_TYPES.filter(
-  (type) => !["ADMIN_COMMENT", "STATUS_CHANGED"].includes(type),
+  (type) => !["ADMIN_COMMENT", "STATUS_CHANGED", "VISIT"].includes(type),
 );
 
 router.use(
@@ -46,6 +74,24 @@ router.use(
   requireWorkspaceAccess("SALES"),
   requireActivePartnerContract,
 );
+
+// Page addresses carry an opaque lead reference (sl_…), never a row id. It is
+// resolved within this partner's own leads before any handler runs.
+router.param("id", (async (req: SalesAuthedRequest, res: Response, next: (err?: any) => void, value: string) => {
+  try {
+    // A support session's write is refused by blockImpersonated on the route
+    // itself; let it get there before any lookup.
+    if ((req as any).user?.imp && !["GET", "HEAD"].includes(req.method)) return next();
+    const scoped = partnerIdFor(req);
+    if (!scoped) return res.status(403).json({ error: "Sales partner context required" });
+    const id = await resolvePartnerLead(db, value, scoped);
+    if (!id) return res.status(404).json({ error: "Lead not found" });
+    req.params.id = String(id);
+    next();
+  } catch (error) {
+    next(error);
+  }
+}) as any);
 
 function optionalText(max: number) {
   return z
@@ -112,7 +158,7 @@ const listSchema = z.object({
   status: z.enum(LEAD_STATUSES).optional(),
   product: z.enum(PROPOSED_PRODUCTS).optional(),
   q: z.string().trim().max(120).optional(),
-  followUp: z.enum(["OVERDUE", "UPCOMING", "NONE"]).optional(),
+  followUp: z.enum(["OVERDUE", "TODAY", "UPCOMING", "NONE", "PROTECTION", "STALE"]).optional(),
   sort: z.enum(["createdAt", "updatedAt", "nextFollowUpAt", "propertyName"]).default("updatedAt"),
   direction: z.enum(["asc", "desc"]).default("desc"),
 });
@@ -135,7 +181,7 @@ function partnerId(req: SalesAuthedRequest, res: Response): number | null {
 
 function publicLead(lead: any) {
   const { duplicateEvidence: _duplicateEvidence, ...safe } = lead;
-  return safe;
+  return { ...safe, ref: leadRef(lead.id) };
 }
 
 function duplicateWarning(matches: SalesLeadDuplicateMatch[], currentPartnerId: number) {
@@ -277,9 +323,12 @@ router.get("/leads", limitSalesLeadRead as any, asyncHandler(async (req: SalesAu
       { ward: { contains: q } },
     ];
   }
-  if (followUp === "OVERDUE") where.nextFollowUpAt = { lt: now };
-  if (followUp === "UPCOMING") where.nextFollowUpAt = { gte: now };
-  if (followUp === "NONE") where.nextFollowUpAt = null;
+  if (followUp) {
+    const focus = focusWhere(followUp, now);
+    // A stage chosen alongside a focus wins over the focus's own "still open" rule.
+    if (status) delete focus.status;
+    Object.assign(where, focus);
+  }
 
   const [total, leads] = await Promise.all([
     db.salesLead.count({ where }),
@@ -295,6 +344,63 @@ router.get("/leads", limitSalesLeadRead as any, asyncHandler(async (req: SalesAu
     }),
   ]);
   return res.json({ total, page, pageSize, leads: leads.map(publicLead) });
+}));
+
+/**
+ * GET /api/sales/leads/pulse
+ * Where the pipeline stands and what to do next: counts per stage, the
+ * attention buckets (same rules as the list filters) and a short worklist.
+ */
+router.get("/leads/pulse", limitSalesLeadRead as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
+  const scopedPartnerId = partnerId(req, res);
+  if (!scopedPartnerId) return;
+  const now = new Date();
+  const mine = { salesPartnerId: scopedPartnerId };
+  const since90 = new Date(now.getTime() - 90 * DAY_MS);
+  const focusKeys = ["OVERDUE", "TODAY", "NONE", "PROTECTION", "STALE"] as const;
+  const select = { id: true, propertyName: true, location: true, status: true, nextFollowUpAt: true, protectionExpiresAt: true, updatedAt: true };
+  const [stages, focusCounts, converted90, closed90, overdue, protection, stale] = await Promise.all([
+    db.salesLead.groupBy({ by: ["status"], where: mine, _count: { id: true } }),
+    Promise.all(focusKeys.map((key) => db.salesLead.count({ where: { ...mine, ...focusWhere(key, now) } }))),
+    db.salesLead.count({ where: { ...mine, status: "CONVERTED", convertedAt: { gte: since90 } } }),
+    db.salesLead.count({ where: { ...mine, status: { in: CLOSED_LEAD_STATUSES }, updatedAt: { gte: since90 } } }),
+    db.salesLead.findMany({ where: { ...mine, ...focusWhere("OVERDUE", now) }, orderBy: { nextFollowUpAt: "asc" }, take: 5, select }),
+    db.salesLead.findMany({ where: { ...mine, ...focusWhere("PROTECTION", now) }, orderBy: { protectionExpiresAt: "asc" }, take: 5, select }),
+    db.salesLead.findMany({ where: { ...mine, ...focusWhere("STALE", now) }, orderBy: { updatedAt: "asc" }, take: 5, select }),
+  ]);
+  const byStage: Record<string, number> = {};
+  let total = 0;
+  for (const row of stages) {
+    byStage[row.status] = row._count.id;
+    total += row._count.id;
+  }
+  const open = total - CLOSED_LEAD_STATUSES.reduce((sum, key) => sum + (byStage[key] || 0), 0);
+
+  // One worklist, most urgent first, each lead once.
+  const seen = new Set<number>();
+  const next: Array<{ ref: string; propertyName: string; location: string | null; status: string; reason: "OVERDUE" | "PROTECTION" | "STALE"; at: string | null }> = [];
+  const push = (rows: any[], reason: "OVERDUE" | "PROTECTION" | "STALE", at: (row: any) => Date | null) => {
+    for (const row of rows) {
+      if (seen.has(row.id) || next.length >= 6) continue;
+      seen.add(row.id);
+      next.push({ ref: leadRef(row.id), propertyName: row.propertyName, location: row.location, status: row.status, reason, at: at(row)?.toISOString() ?? null });
+    }
+  };
+  push(protection.filter((row: any) => row.protectionExpiresAt.getTime() - now.getTime() < 3 * DAY_MS), "PROTECTION", (row) => row.protectionExpiresAt);
+  push(overdue, "OVERDUE", (row) => row.nextFollowUpAt);
+  push(protection, "PROTECTION", (row) => row.protectionExpiresAt);
+  push(stale, "STALE", (row) => row.updatedAt);
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    total,
+    open,
+    byStage,
+    focus: Object.fromEntries(focusKeys.map((key, index) => [key, focusCounts[index]])),
+    conversion90d: { converted: converted90, closed: closed90, percent: closed90 >= 3 ? Math.round((converted90 / closed90) * 100) : null },
+    rules: { staleAfterDays: STALE_AFTER_DAYS, protectionWarningDays: PROTECTION_WARNING_DAYS, protectionDays: LEAD_PROTECTION_DAYS },
+    next,
+  });
 }));
 
 /** POST /api/sales/leads */

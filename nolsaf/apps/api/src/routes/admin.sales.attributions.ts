@@ -13,6 +13,14 @@ import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { limitSalesAdminRead, limitSalesAdminWrite } from "../middleware/rateLimit.js";
 import { notifyUser } from "../lib/notifications.js";
 import { sanitizeText } from "../lib/sanitize.js";
+import { loadPartnerIdentity, partnerOwnsPropertyReason } from "../lib/salesSelfDealing.js";
+import { serializeVisit, visitSelect } from "../lib/salesVisitView.js";
+import {
+  deliverOwnerConfirmationNotices,
+  latestOwnerConfirmation,
+  requestOwnerConfirmations,
+  type OwnerConfirmationNotice,
+} from "../lib/salesOwnerConfirmation.js";
 import {
   attributionCommissionStart,
   canActivateAttribution,
@@ -81,6 +89,12 @@ const attributionListSchema = z.object({
   q: z.string().trim().max(120).optional(),
 });
 const actionSchema = z.object({ reason }).strict();
+/**
+ * Activation normally needs the owner's "yes". When the owner never answered
+ * (expired) or the attribution predates owner confirmation, an administrator
+ * may override with the finance grant and a written reason, recorded in audit.
+ */
+const activateSchema = z.object({ reason, ownerOverride: z.boolean().optional() }).strict();
 const reassignSchema = z.object({
   salesPartnerId: z.coerce.number().int().positive(),
   leadId: z.coerce.number().int().positive().nullable().optional(),
@@ -185,7 +199,24 @@ router.get("/leads/conversion-requests", limitSalesAdminRead, asyncHandler(async
       },
     }),
   ]);
-  res.json({ total, page, pageSize, leads });
+  // Visit evidence for each request: how many check-ins, how many need review.
+  const leadIds = leads.map((lead: any) => lead.id);
+  const visitRows = leadIds.length
+    ? await db.salesLeadVisit.groupBy({ by: ["leadId", "status"], where: { leadId: { in: leadIds } }, _count: { _all: true } })
+    : [];
+  const visitsByLead = new Map<number, { verified: number; flagged: number }>();
+  for (const row of visitRows) {
+    const entry = visitsByLead.get(row.leadId) ?? { verified: 0, flagged: 0 };
+    if (row.status === "VERIFIED") entry.verified += row._count._all;
+    else entry.flagged += row._count._all;
+    visitsByLead.set(row.leadId, entry);
+  }
+  res.json({
+    total,
+    page,
+    pageSize,
+    leads: leads.map((lead: any) => ({ ...lead, visitSummary: visitsByLead.get(lead.id) ?? { verified: 0, flagged: 0 } })),
+  });
 }));
 
 /** Narrow existing-property lookup used while binding a conversion. */
@@ -283,6 +314,10 @@ router.post("/leads/:id/approve-conversion", limitSalesAdminWrite, asyncHandler(
         select: { id: true, title: true, status: true },
       });
       if (!property) throw new AttributionNotFoundError("Property not found");
+      // A partner cannot be credited for their own property.
+      const identity = await loadPartnerIdentity(tx, lead.salesPartnerId);
+      const ownsReason = identity ? await partnerOwnsPropertyReason(tx, identity, property.id) : null;
+      if (ownsReason) throw new AttributionConflictError(`${ownsReason} A partner cannot earn from their own property.`);
       const products = requestedAttributionProducts(lead.proposedProduct);
       const existing = await tx.propertySalesAttribution.findMany({
         where: { propertyId: property.id, productType: { in: products } },
@@ -360,9 +395,11 @@ router.post("/leads/:id/approve-conversion", limitSalesAdminWrite, asyncHandler(
             reason: input.reason,
           }),
       });
-      return { lead, property, contract, attributions };
+      const ownerNotices = await requestOwnerConfirmations(tx, attributions.map((item: any) => item.id), now);
+      return { lead, property, contract, attributions, ownerNotices };
     });
 
+    await deliverOwnerConfirmationNotices(result.ownerNotices);
     await notifyUser(result.lead.salesPartner.userId, "sales_partner_attribution_verified", {
       propertyName: result.property.title,
       productType: result.attributions.map((item: any) => item.productType).join(" and "),
@@ -450,6 +487,41 @@ router.post("/leads/:id/reject-conversion", limitSalesAdminWrite, asyncHandler(a
   return res.json({ ok: true, lead: { id, status: input.returnStatus } });
 }));
 
+/** GET /api/admin/sales/leads/:id/visits: the partner's check-ins on a lead, with evidence. */
+router.get("/leads/:id/visits", limitSalesAdminRead, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const params = idParams.safeParse(req.params);
+  if (invalid(res, params)) return;
+  const visits = await db.salesLeadVisit.findMany({
+    where: { leadId: params.data!.id },
+    orderBy: { receivedAt: "desc" },
+    take: 100,
+    select: visitSelect,
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ visits: visits.map(serializeVisit) });
+}));
+
+/** POST /api/admin/sales/visits/:id/review: record that a flagged visit was looked at, and what was decided. */
+router.post("/visits/:id/review", limitSalesAdminWrite, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const params = idParams.safeParse(req.params);
+  const parsed = actionSchema.safeParse(req.body);
+  if (invalid(res, params) || invalid(res, parsed)) return;
+  const id = params.data!.id;
+  const now = new Date();
+  const changed = await db.salesLeadVisit.updateMany({
+    where: { id, reviewedAt: null },
+    data: { reviewedAt: now, reviewedById: req.user!.id, reviewNote: parsed.data!.reason },
+  });
+  if (changed.count !== 1) {
+    const exists = await db.salesLeadVisit.findUnique({ where: { id }, select: { id: true } });
+    return res.status(exists ? 409 : 404).json({ error: exists ? "This visit was already reviewed" : "Visit not found" });
+  }
+  await db.auditLog.create({
+    data: auditData(req, "SALES_LEAD_VISIT_REVIEW", "SALES_LEAD_VISIT", id, null, { reviewedAt: now, note: parsed.data!.reason }),
+  });
+  res.json({ ok: true, visit: { id, reviewedAt: now } });
+}));
+
 /** GET /api/admin/sales/attributions */
 router.get("/attributions", limitSalesAdminRead, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const parsed = attributionListSchema.safeParse(req.query);
@@ -487,16 +559,29 @@ router.get("/attributions", limitSalesAdminRead, asyncHandler(async (req: Authed
           select: { id: true, agentCode: true, status: true, user: { select: { name: true, email: true } } },
         },
         contract: { select: { id: true, contractNumber: true, status: true, expiresAt: true } },
+        ownerConfirmations: {
+          orderBy: { id: "desc" },
+          take: 1,
+          select: { status: true, expiresAt: true, respondedAt: true, responseNote: true },
+        },
       },
     }),
   ]);
-  res.json({ total, page, pageSize, attributions });
+  res.json({
+    total,
+    page,
+    pageSize,
+    attributions: attributions.map(({ ownerConfirmations, ...item }: any) => ({
+      ...item,
+      ownerConfirmation: ownerConfirmations?.[0] ?? null,
+    })),
+  });
 }));
 
 /** POST /api/admin/sales/attributions/:id/activate */
 router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFinanceGrant, asyncHandler(async (req: AuthedRequest, res: Response) => {
   const params = idParams.safeParse(req.params);
-  const parsed = actionSchema.safeParse(req.body);
+  const parsed = activateSchema.safeParse(req.body);
   if (invalid(res, params) || invalid(res, parsed)) return;
   const id = params.data!.id;
   const input = parsed.data!;
@@ -533,6 +618,23 @@ router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFina
     if (attribution.salesPartner.status !== "ACTIVE") {
       throw new AttributionConflictError("The attributed sales partner is not active");
     }
+    // Ownership can change between verification and activation: check again.
+    const identity = await loadPartnerIdentity(tx, attribution.salesPartnerId);
+    const ownsReason = identity ? await partnerOwnsPropertyReason(tx, identity, attribution.propertyId) : null;
+    if (ownsReason) throw new AttributionConflictError(`${ownsReason} A partner cannot earn from their own property.`);
+    // The owner's own answer decides. Only "no answer" can be overridden.
+    const ownerConfirmation = await latestOwnerConfirmation(tx, id);
+    const ownerStatus: string = ownerConfirmation?.status ?? "NONE";
+    if (ownerStatus === "PENDING") {
+      throw new AttributionConflictError("Waiting for the owner to confirm this partner. Activate after they answer or the request expires.");
+    }
+    if (ownerStatus === "DENIED" || ownerStatus === "UNKNOWN_PARTNER") {
+      throw new AttributionConflictError("The owner did not confirm this partner. Revoke or reassign the attribution, or ask the owner again.");
+    }
+    const ownerOverride = ownerStatus !== "CONFIRMED";
+    if (ownerOverride && input.ownerOverride !== true) {
+      throw new AttributionConflictError("The owner has not confirmed this partner. Ask the owner, or tick the override and give a reason.");
+    }
     const contract = currentAttributionContract(attribution.salesPartner.contracts, now);
     if (!contract) throw new AttributionConflictError("The sales partner has no active earning contract");
     const commissionStartsAt = attributionCommissionStart(contract, now);
@@ -557,6 +659,8 @@ router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFina
           contractId: contract.id,
           commissionStartsAt,
           commissionEndsAt: contract.expiresAt,
+          ownerConfirmation: ownerStatus,
+          ownerOverride,
           reason: input.reason,
         }),
     });
@@ -576,6 +680,44 @@ router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFina
       commissionEndsAt: result.contract.expiresAt,
     },
   });
+}));
+
+/**
+ * POST /api/admin/sales/attributions/:id/owner-confirmation
+ * Ask the owner again: for attributions created before owner confirmation,
+ * expired requests, or a "no" the owner wants to correct.
+ */
+router.post("/attributions/:id/owner-confirmation", limitSalesAdminWrite, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const params = idParams.safeParse(req.params);
+  const parsed = actionSchema.safeParse(req.body);
+  if (invalid(res, params) || invalid(res, parsed)) return;
+  const id = params.data!.id;
+  const now = new Date();
+  let notices: OwnerConfirmationNotice[];
+  try {
+    notices = await runSalesAdminTx(async (tx: any) => {
+      const attribution = await tx.propertySalesAttribution.findUnique({ where: { id }, select: { id: true, status: true } });
+      if (!attribution) throw new AttributionNotFoundError("Attribution not found");
+      if (!["VERIFIED", "DISPUTED", "ACTIVE"].includes(attribution.status)) {
+        throw new AttributionConflictError("The owner can only be asked about a current attribution");
+      }
+      const created = await requestOwnerConfirmations(tx, [id], now);
+      if (!created.length) throw new AttributionConflictError("This property has no owner account to ask");
+      await tx.auditLog.create({
+        data: auditData(req, "SALES_OWNER_CONFIRMATION_REQUEST", "PROPERTY_SALES_ATTRIBUTION", id, null, {
+          confirmationIds: created.flatMap((notice) => notice.confirmationIds),
+          reason: parsed.data!.reason,
+        }),
+      });
+      return created;
+    });
+  } catch (error: any) {
+    if (error instanceof AttributionNotFoundError) return res.status(404).json({ error: error.message });
+    if (error instanceof AttributionConflictError) return res.status(409).json({ error: error.message });
+    throw error;
+  }
+  await deliverOwnerConfirmationNotices(notices);
+  return res.json({ ok: true, expiresAt: notices[0]?.expiresAt ?? null });
 }));
 
 /** POST /api/admin/sales/attributions/:id/revoke */
@@ -675,6 +817,9 @@ router.post("/attributions/:id/reassign", limitSalesAdminWrite, requireAdminFina
     if (target.status !== "ACTIVE") throw new AttributionConflictError("Target sales partner is not active");
     const contract = currentAttributionContract(target.contracts, now);
     if (!contract) throw new AttributionConflictError("Target sales partner has no active earning contract");
+    const targetIdentity = await loadPartnerIdentity(tx, target.id);
+    const ownsReason = targetIdentity ? await partnerOwnsPropertyReason(tx, targetIdentity, attribution.propertyId) : null;
+    if (ownsReason) throw new AttributionConflictError(`${ownsReason} A partner cannot earn from their own property.`);
     if (input.leadId) {
       const targetLead = await tx.salesLead.findFirst({
         where: { id: input.leadId, salesPartnerId: target.id },
@@ -717,8 +862,10 @@ router.post("/attributions/:id/reassign", limitSalesAdminWrite, requireAdminFina
           reason: input.reason,
         }),
     });
-    return { attribution, target };
+    const ownerNotices = await requestOwnerConfirmations(tx, [id], now);
+    return { attribution, target, ownerNotices };
   });
+  await deliverOwnerConfirmationNotices(result.ownerNotices);
   await Promise.all([
     notifyUser(result.attribution.salesPartner.userId, "sales_partner_attribution_reassigned_away", {
       propertyName: result.attribution.property.title,

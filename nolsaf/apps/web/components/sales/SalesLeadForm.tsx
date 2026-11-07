@@ -1,13 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+/**
+ * Register or edit a lead. One card with three section rows (what it is,
+ * where it is, what we are selling) and a live "Lead check" beside it that
+ * says what is missing, catches a bad phone or email before saving, and
+ * explains duplicate checks and lead protection.
+ */
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Building2,
+  Check,
+  CircleAlert,
   ClipboardCheck,
+  Hotel,
+  LayoutGrid,
+  Loader2,
   MapPinned,
+  MonitorSmartphone,
   Save,
-  Send,
-  UserRound,
+  ShieldCheck,
 } from "lucide-react";
 import SalesDateTimeField from "@/components/sales/SalesDateTimeField";
 import { REGIONS_FULL_DATA } from "@/lib/tzRegionsFull";
@@ -63,9 +74,16 @@ const PROPERTY_TYPES = [
   "Other",
 ] as const;
 
-const inputClass =
-  "mt-1.5 block min-h-11 w-full min-w-0 rounded-xl border border-solid border-slate-300 bg-slate-50/80 px-3.5 py-2.5 text-sm font-medium text-slate-900 shadow-sm outline-none transition placeholder:font-normal placeholder:text-slate-400 hover:border-slate-400 hover:bg-white focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400";
-const labelClass = "block min-w-0 text-xs font-semibold text-slate-700";
+const PRODUCTS: Array<{ value: SalesLeadFormValue["proposedProduct"]; title: string; hint: string; Icon: typeof Hotel }> = [
+  { value: "NRMS", title: "NRMS", hint: "Run the property", Icon: MonitorSmartphone },
+  { value: "MARKETPLACE", title: "Marketplace", hint: "Get bookings", Icon: Hotel },
+  { value: "NRMS_AND_MARKETPLACE", title: "Both", hint: "Run it and fill it", Icon: LayoutGrid },
+];
+
+const field =
+  "mt-1.5 block h-10 w-full min-w-0 rounded-md border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400";
+const fieldBad = "border-rose-400 hover:border-rose-500 focus:border-rose-500 focus:ring-rose-100";
+const labelText = "block min-w-0 text-[12px] font-semibold text-slate-700";
 
 function locationKey(value: string) {
   return value.toLocaleUpperCase("en").replace(/[^A-Z0-9]/g, "");
@@ -84,6 +102,26 @@ function locationLabel(value: string) {
         : `${part.charAt(0).toUpperCase()}${part.slice(1)}`
     ))
     .join(" ");
+}
+
+/** A Tanzanian mobile or landline in any common shape (07XX, 7XX, 255 7XX, +255 22...), or any other +country number. */
+function phoneProblem(raw: string): string | null {
+  const compact = raw.replace(/[\s().-]/g, "");
+  if (!compact) return null;
+  if (!/^\+?\d+$/.test(compact)) return "Use digits only, for example +255 712 345 678.";
+  if (compact.startsWith("+") && !compact.startsWith("+255")) {
+    return compact.length >= 9 && compact.length <= 16 ? null : "That international number looks too short or too long.";
+  }
+  const national = compact.replace(/^\+?255/, "").replace(/^0/, "");
+  if (national.length !== 9) return "A Tanzanian number has 9 digits after +255.";
+  if (!/^[2-7]/.test(national)) return "That does not look like a Tanzanian number.";
+  return null;
+}
+
+function emailProblem(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value) ? null : "That email address looks incomplete.";
 }
 
 export function toSalesLeadPayload(value: SalesLeadFormValue) {
@@ -107,22 +145,46 @@ export function toSalesLeadPayload(value: SalesLeadFormValue) {
   };
 }
 
+function Section({ step, icon: Icon, title, hint, children }: { step: number; icon: typeof Building2; title: string; hint: string; children: ReactNode }) {
+  return (
+    <section className="grid gap-4 border-0 border-t border-solid border-slate-200 px-4 py-5 first:border-t-0 sm:px-5 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-6">
+      <div className="flex items-start gap-3 lg:block">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#02665e]/10 text-[#02665e]"><Icon className="h-4 w-4" aria-hidden /></span>
+        <div className="min-w-0 lg:mt-2.5">
+          <p className="m-0 text-[11px] font-semibold text-slate-400">Step {step} of 3</p>
+          <h2 className="m-0 text-sm font-semibold text-slate-900">{title}</h2>
+          <p className="m-0 mt-0.5 text-[12px] leading-5 text-slate-500">{hint}</p>
+        </div>
+      </div>
+      <div className="grid min-w-0 content-start gap-4 sm:grid-cols-2">{children}</div>
+    </section>
+  );
+}
+
+function Problem({ text }: { text: string | null }) {
+  if (!text) return null;
+  return <span className="mt-1 flex items-center gap-1 text-[11px] font-medium text-rose-700"><CircleAlert className="h-3 w-3 shrink-0" aria-hidden />{text}</span>;
+}
+
 export default function SalesLeadForm({
   initial,
   submitLabel,
-  showTopSubmit = false,
   submitting,
   onSubmit,
 }: {
   initial?: Partial<SalesLeadFormValue>;
   submitLabel: string;
+  /** Kept for callers; the Lead check panel now always holds the save button. */
   showTopSubmit?: boolean;
   submitting: boolean;
   onSubmit: (value: SalesLeadFormValue) => Promise<void> | void;
 }) {
   const [value, setValue] = useState<SalesLeadFormValue>({ ...EMPTY, ...initial });
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [tried, setTried] = useState(false);
   const set = <K extends keyof SalesLeadFormValue>(key: K, next: SalesLeadFormValue[K]) =>
     setValue((current) => ({ ...current, [key]: next }));
+  const touch = (key: string) => () => setTouched((t) => ({ ...t, [key]: true }));
 
   const selectedRegion = useMemo(
     () => REGIONS_FULL_DATA.find((region) => locationKey(region.name) === locationKey(value.region)),
@@ -131,290 +193,251 @@ export default function SalesLeadForm({
   const districts = selectedRegion?.districts || [];
   const selectedDistrict = districts.find((district) => locationKey(district.name) === locationKey(value.district));
   const wards = selectedDistrict?.wards || [];
-  const submitDisabled = submitting || value.propertyName.trim().length < 2;
+
+  const nameOk = value.propertyName.trim().length >= 2;
+  const phoneErr = phoneProblem(value.contactPhone);
+  const emailErr = emailProblem(value.contactEmail);
+  const reachable = (!!value.contactPhone.trim() && !phoneErr) || (!!value.contactEmail.trim() && !emailErr);
+  const roomsErr = value.estimatedRooms && (!/^\d+$/.test(value.estimatedRooms) || Number(value.estimatedRooms) < 1) ? "Enter a whole number of rooms." : null;
+
+  // What makes a lead worth chasing, in the order it matters.
+  const checks = [
+    { ok: nameOk, label: "Property name", need: true },
+    { ok: reachable, label: "A phone or email to reach them" },
+    { ok: !!value.contactPerson.trim(), label: "Who you spoke to" },
+    { ok: !!value.region, label: "Region" },
+    { ok: !!value.district, label: "District" },
+    { ok: !!value.nextFollowUpAt, label: "Next follow-up" },
+    { ok: !!(value.registrationNumber.trim() || value.taxNumber.trim()), label: "Registration or tax number" },
+  ];
+  const done = checks.filter((c) => c.ok).length;
+  const percent = Math.round((done / checks.length) * 100);
+  const blocked = !nameOk || !!phoneErr || !!emailErr || !!roomsErr;
+  const showErr = (key: string) => tried || touched[key];
 
   return (
     <form
+      noValidate
       onSubmit={(event) => {
         event.preventDefault();
+        setTried(true);
+        if (blocked || submitting) return;
         void onSubmit(value);
       }}
-      className="space-y-4"
+      className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]"
     >
-      {showTopSubmit ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            {initial ? "Update this lead" : "New prospect record"}
-            <span className="font-normal text-slate-400">· Property name required</span>
-          </div>
-          <button
-            type="submit"
-            disabled={submitDisabled}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border-0 px-4 text-sm font-bold shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed"
-            style={{ backgroundColor: submitDisabled ? "#e2e8f0" : "#073c35", color: submitDisabled ? "#475569" : "#ffffff" }}
-          >
-            <Save className="h-4 w-4" />
-            {submitting ? "Saving..." : submitLabel}
-          </button>
-        </div>
-      ) : null}
-      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center gap-3 border-b border-solid border-slate-200 bg-slate-50 px-4 py-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-800">
-            <Building2 className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-widest text-emerald-700">01 · Prospect</p>
-            <h2 className="m-0 text-sm font-bold text-slate-900">Property and contact</h2>
-          </div>
-        </div>
-
-        <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
-          <label className={`${labelClass} sm:col-span-2`}>
-            Property name <span className="text-red-500">*</span>
+      <div className="min-w-0 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+        <Section step={1} icon={Building2} title="Property and contact" hint="The name the owner uses, and the person you are talking to.">
+          <label className={`${labelText} sm:col-span-2`}>
+            Property name <span className="text-rose-600">*</span>
             <input
               required
               minLength={2}
               maxLength={200}
               value={value.propertyName}
               onChange={(event) => set("propertyName", event.target.value)}
-              className={inputClass}
-              placeholder="Enter the official or trading name"
+              onBlur={touch("propertyName")}
+              className={`${field} ${showErr("propertyName") && !nameOk ? fieldBad : ""}`}
+              placeholder="Official or trading name"
+              aria-invalid={showErr("propertyName") && !nameOk}
             />
+            <Problem text={showErr("propertyName") && !nameOk ? "Enter at least 2 characters." : null} />
           </label>
 
-          <label className={labelClass}>
+          <label className={labelText}>
             Property type
-            <select
-              value={value.propertyType}
-              onChange={(event) => set("propertyType", event.target.value)}
-              className={inputClass}
-            >
-              <option value="">Select property type</option>
-              {PROPERTY_TYPES.map((type) => (
-                <option key={type} value={type}>{type}</option>
-              ))}
+            <select value={value.propertyType} onChange={(event) => set("propertyType", event.target.value)} className={field}>
+              <option value="">Choose a type</option>
+              {PROPERTY_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
             </select>
           </label>
 
-          <label className={labelClass}>
+          <label className={labelText}>
             Contact person
-            <input
-              value={value.contactPerson}
-              onChange={(event) => set("contactPerson", event.target.value)}
-              className={inputClass}
-              placeholder="Full name"
-            />
+            <input value={value.contactPerson} onChange={(event) => set("contactPerson", event.target.value)} className={field} placeholder="Full name" autoComplete="off" />
           </label>
 
-          <label className={labelClass}>
+          <label className={labelText}>
             Phone
             <input
               value={value.contactPhone}
               onChange={(event) => set("contactPhone", event.target.value)}
-              className={inputClass}
+              onBlur={touch("contactPhone")}
+              className={`${field} ${showErr("contactPhone") && phoneErr ? fieldBad : ""}`}
               inputMode="tel"
-              placeholder="+255 ..."
+              placeholder="+255 712 345 678"
+              aria-invalid={showErr("contactPhone") && !!phoneErr}
             />
+            <Problem text={showErr("contactPhone") ? phoneErr : null} />
           </label>
 
-          <label className={labelClass}>
+          <label className={labelText}>
             Email
             <input
               value={value.contactEmail}
               onChange={(event) => set("contactEmail", event.target.value)}
-              className={inputClass}
+              onBlur={touch("contactEmail")}
+              className={`${field} ${showErr("contactEmail") && emailErr ? fieldBad : ""}`}
               type="email"
-              placeholder="name@example.com"
+              placeholder="owner@lodge.co.tz"
+              aria-invalid={showErr("contactEmail") && !!emailErr}
             />
+            <Problem text={showErr("contactEmail") ? emailErr : null} />
           </label>
-        </div>
-      </section>
+        </Section>
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
-      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center gap-3 border-b border-solid border-slate-200 bg-slate-50 px-4 py-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-sky-100 text-sky-800">
-            <MapPinned className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-widest text-sky-700">02 · Location</p>
-            <h2 className="m-0 text-sm font-bold text-slate-900">Property location</h2>
-          </div>
-        </div>
-
-        <div className="grid gap-4 p-4 sm:grid-cols-2">
-          <label className={`${labelClass} sm:col-span-2`}>
+        <Section step={2} icon={MapPinned} title="Location" hint="Region, district and ward come from the official list, so leads in the same place match.">
+          <label className={`${labelText} sm:col-span-2`}>
             Region
             <select
               value={value.region}
-              onChange={(event) => {
-                setValue((current) => ({
-                  ...current,
-                  region: event.target.value,
-                  district: "",
-                  ward: "",
-                }));
-              }}
-              className={inputClass}
+              onChange={(event) => setValue((current) => ({ ...current, region: event.target.value, district: "", ward: "" }))}
+              className={field}
             >
-              <option value="">Select region</option>
+              <option value="">Choose a region</option>
               {REGIONS_FULL_DATA.map((region) => (
-                <option key={`${region.code || ""}-${region.name}`} value={region.name}>
-                  {locationLabel(region.name)}
-                </option>
+                <option key={`${region.code || ""}-${region.name}`} value={region.name}>{locationLabel(region.name)}</option>
               ))}
             </select>
           </label>
 
-          <label className={labelClass}>
+          <label className={labelText}>
             District
             <select
               value={value.district}
-              onChange={(event) => {
-                setValue((current) => ({
-                  ...current,
-                  district: event.target.value,
-                  ward: "",
-                }));
-              }}
-              className={inputClass}
+              onChange={(event) => setValue((current) => ({ ...current, district: event.target.value, ward: "" }))}
+              className={field}
               disabled={!selectedRegion}
             >
-              <option value="">{selectedRegion ? "Select district" : "Select region first"}</option>
+              <option value="">{selectedRegion ? "Choose a district" : "Choose a region first"}</option>
               {districts.map((district) => (
-                <option key={`${district.code || ""}-${district.name}`} value={district.name}>
-                  {locationLabel(district.name)}
-                </option>
+                <option key={`${district.code || ""}-${district.name}`} value={district.name}>{locationLabel(district.name)}</option>
               ))}
             </select>
           </label>
 
-          <label className={labelClass}>
+          <label className={labelText}>
             Ward
-            <select
-              value={value.ward}
-              onChange={(event) => set("ward", event.target.value)}
-              className={inputClass}
-              disabled={!selectedDistrict}
-            >
-              <option value="">{selectedDistrict ? "Select ward" : "Select district first"}</option>
+            <select value={value.ward} onChange={(event) => set("ward", event.target.value)} className={field} disabled={!selectedDistrict}>
+              <option value="">{selectedDistrict ? "Choose a ward" : "Choose a district first"}</option>
               {wards.map((ward) => (
-                <option key={`${ward.code || ""}-${ward.name}`} value={ward.name}>
-                  {locationLabel(ward.name)}
-                </option>
+                <option key={`${ward.code || ""}-${ward.name}`} value={ward.name}>{locationLabel(ward.name)}</option>
               ))}
             </select>
           </label>
 
-          <label className={`${labelClass} sm:col-span-2`}>
-            Street, area or nearby landmark
-            <input
-              value={value.location}
-              onChange={(event) => set("location", event.target.value)}
-              className={inputClass}
-              placeholder="For example: Mikocheni, near the main road"
-            />
+          <label className={`${labelText} sm:col-span-2`}>
+            Street, area or landmark
+            <input value={value.location} onChange={(event) => set("location", event.target.value)} className={field} placeholder="Mikocheni, near the main road" />
           </label>
-        </div>
-      </section>
+        </Section>
 
-      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center gap-3 border-b border-solid border-slate-200 bg-slate-50 px-4 py-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-800">
-            <ClipboardCheck className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-widest text-violet-700">03 · Opportunity</p>
-            <h2 className="m-0 text-sm font-bold text-slate-900">Opportunity details</h2>
-          </div>
-        </div>
+        <Section step={3} icon={ClipboardCheck} title="Opportunity" hint="What you are proposing and when you will speak to them next.">
+          <fieldset className="m-0 min-w-0 border-0 p-0 sm:col-span-2">
+            <legend className={`${labelText} p-0`}>Proposed product</legend>
+            <div className="mt-1.5 grid grid-cols-3 gap-2" role="radiogroup">
+              {PRODUCTS.map(({ value: product, title, hint, Icon }) => {
+                const on = value.proposedProduct === product;
+                return (
+                  <button
+                    key={product}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => set("proposedProduct", product)}
+                    className={`flex min-w-0 items-start gap-2 rounded-md border border-solid px-3 py-2.5 text-left transition ${on ? "border-[#02665e] bg-[#02665e]/[0.06] ring-1 ring-[#02665e]" : "border-slate-300 bg-white hover:border-slate-400"}`}
+                  >
+                    <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${on ? "text-[#02665e]" : "text-slate-400"}`} aria-hidden />
+                    <span className="min-w-0">
+                      <span className={`block truncate text-[13px] font-semibold ${on ? "text-[#02665e]" : "text-slate-800"}`}>{title}</span>
+                      <span className="block truncate text-[11px] text-slate-500">{hint}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
 
-        <div className="grid gap-4 p-4 sm:grid-cols-2">
-          <label className={labelClass}>
+          <label className={labelText}>
             Estimated rooms
             <input
               value={value.estimatedRooms}
-              onChange={(event) => set("estimatedRooms", event.target.value)}
-              className={inputClass}
-              type="number"
-              min={1}
-              max={100000}
-              placeholder="Number of rooms"
+              onChange={(event) => set("estimatedRooms", event.target.value.replace(/[^\d]/g, "").slice(0, 6))}
+              onBlur={touch("estimatedRooms")}
+              className={`${field} ${showErr("estimatedRooms") && roomsErr ? fieldBad : ""}`}
+              inputMode="numeric"
+              placeholder="12"
             />
+            <Problem text={showErr("estimatedRooms") ? roomsErr : null} />
           </label>
 
-          <label className={labelClass}>
-            Proposed product
-            <select
-              value={value.proposedProduct}
-              onChange={(event) => set("proposedProduct", event.target.value as SalesLeadFormValue["proposedProduct"])}
-              className={inputClass}
-            >
-              <option value="NRMS">NRMS</option>
-              <option value="MARKETPLACE">Marketplace</option>
-              <option value="NRMS_AND_MARKETPLACE">NRMS and marketplace</option>
-            </select>
-          </label>
-
-          <div className="sm:col-span-2">
-            <SalesDateTimeField
-              label="Next follow-up"
-              value={value.nextFollowUpAt}
-              onChangeAction={(next) => set("nextFollowUpAt", next)}
-            />
+          <div className="min-w-0 sm:col-span-2">
+            <SalesDateTimeField label="Next follow-up" value={value.nextFollowUpAt} onChangeAction={(next) => set("nextFollowUpAt", next)} />
           </div>
 
-          <label className={labelClass}>
+          <label className={labelText}>
             Registration number
-            <input
-              value={value.registrationNumber}
-              onChange={(event) => set("registrationNumber", event.target.value)}
-              className={inputClass}
-              placeholder="Optional"
-            />
+            <input value={value.registrationNumber} onChange={(event) => set("registrationNumber", event.target.value)} className={field} placeholder="BRELA or licence number" />
           </label>
 
-          <label className={labelClass}>
+          <label className={labelText}>
             Tax number
-            <input
-              value={value.taxNumber}
-              onChange={(event) => set("taxNumber", event.target.value)}
-              className={inputClass}
-              placeholder="Optional"
-            />
+            <input value={value.taxNumber} onChange={(event) => set("taxNumber", event.target.value)} className={field} placeholder="TIN" />
           </label>
 
-          <label className={`${labelClass} sm:col-span-2`}>
+          <label className={`${labelText} sm:col-span-2`}>
             Notes
             <textarea
               value={value.notes}
               onChange={(event) => set("notes", event.target.value)}
-              className={`${inputClass} min-h-28 resize-y`}
+              className={`${field} h-auto min-h-24 resize-y py-2 leading-5`}
               maxLength={5000}
-              placeholder="Add useful context, requirements or agreed next steps"
+              placeholder="What they need, what they use today, and what you agreed"
             />
+            <span className="mt-1 block text-right text-[11px] tabular-nums text-slate-400">{value.notes.length} / 5000</span>
           </label>
-        </div>
-      </section>
+        </Section>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-xs text-emerald-900/80">
-          <UserRound className="h-4 w-4 shrink-0 text-emerald-700" />
-          {initial ? "Save changes to update this lead record." : "After registration, record calls and meetings in the activity timeline."}
+      {/* Lead check */}
+      <aside className="min-w-0 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white lg:sticky lg:top-4">
+        <div className="border-0 border-b border-solid border-slate-100 px-4 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="m-0 text-sm font-semibold text-slate-900">Lead check</h2>
+            <span className={`text-[12px] font-semibold tabular-nums ${percent >= 70 ? "text-[#02665e]" : "text-slate-500"}`}>{percent}% complete</span>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-[#02665e] transition-[width] duration-300" style={{ width: `${percent}%` }} />
+          </div>
         </div>
-        <button
-          type="submit"
-          disabled={submitDisabled}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border-0 px-5 text-sm font-bold transition hover:opacity-90 disabled:cursor-not-allowed"
-          style={{ backgroundColor: submitDisabled ? "#e2e8f0" : "#073c35", color: submitDisabled ? "#475569" : "#ffffff" }}
-        >
-          <Send className="h-4 w-4" />
-          {submitting ? "Saving..." : submitLabel}
-        </button>
-      </div>
+        <ul className="m-0 list-none space-y-1.5 px-4 py-3">
+          {checks.map((c) => (
+            <li key={c.label} className="flex items-center gap-2 text-[12px]">
+              <span className={`grid h-4 w-4 shrink-0 place-items-center rounded-full ${c.ok ? "bg-[#02665e] text-white" : "border border-solid border-slate-300 bg-white"}`}>
+                {c.ok ? <Check className="h-2.5 w-2.5" aria-hidden /> : null}
+              </span>
+              <span className={c.ok ? "text-slate-700" : "text-slate-500"}>{c.label}</span>
+              {c.need && !c.ok ? <span className="ml-auto text-[11px] font-semibold text-rose-600">Required</span> : null}
+            </li>
+          ))}
+        </ul>
+        <div className="space-y-2 border-0 border-t border-solid border-slate-100 px-4 py-3 text-[12px] leading-5 text-slate-600">
+          <p className="m-0 flex gap-2"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />{initial ? "Logging progress keeps this lead protected for you." : "Once saved, this lead is protected for you for 60 days. Logging calls, meetings and proposals extends it."}</p>
+          <p className="m-0 flex gap-2"><CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />Phone, email, registration and tax numbers are checked against every lead. A match is saved and flagged for review, not refused.</p>
+        </div>
+        <div className="border-0 border-t border-solid border-slate-100 p-4">
+          {tried && blocked ? <p className="m-0 mb-2 text-[12px] font-medium text-rose-700" role="alert">Fix the fields marked in red first.</p> : null}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60"
+          >
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
+            {submitting ? "Saving" : submitLabel}
+          </button>
+          {!initial ? <p className="m-0 mt-2 text-center text-[11px] text-slate-400">Calls and meetings go in the lead&apos;s activity timeline after this.</p> : null}
+        </div>
+      </aside>
     </form>
   );
 }

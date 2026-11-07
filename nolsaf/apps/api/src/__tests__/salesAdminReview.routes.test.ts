@@ -15,6 +15,10 @@ const h = vi.hoisted(() => {
     propertySalesAttribution: { findMany: fn(), create: fn(), findUnique: fn(), updateMany: fn() },
     salesPayoutRequest: { findUnique: fn(), updateMany: fn() },
     salesPayoutItem: { deleteMany: fn() },
+    salesPartnerProfile: { findUnique: fn() },
+    salesCommission: { findMany: fn() },
+    booking: { findFirst: fn() },
+    salesOwnerConfirmation: { findFirst: fn(), updateMany: fn(), create: fn() },
     auditLog: { create: fn() },
   };
   db.$transaction = vi.fn(async (operation: (tx: any) => unknown) => operation(db));
@@ -80,6 +84,12 @@ function pendingLead(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   h.db.$transaction.mockImplementation(async (operation: (tx: any) => unknown) => operation(h.db));
+  // Defaults: the partner is a different person from the owner, and no payout
+  // item comes from a cancelled booking.
+  h.db.salesPartnerProfile.findUnique.mockResolvedValue({ userId: 101, phone: "+255 700 000 101", user: { email: "partner@example.com", phone: null } });
+  h.db.salesCommission.findMany.mockResolvedValue([]);
+  h.db.booking.findFirst.mockResolvedValue(null);
+  h.db.salesOwnerConfirmation.findFirst.mockResolvedValue({ id: 1, status: "CONFIRMED" });
 });
 
 describe("POST /leads/:id/approve-conversion", () => {
@@ -113,6 +123,14 @@ describe("POST /leads/:id/approve-conversion", () => {
   it("runs inside a transaction with the extended timeout", async () => {
     await request(app).post("/api/admin/sales/leads/2/approve-conversion").set(admin).send({ propertyId: 4, reason: REASON });
     expect(h.db.$transaction).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ timeout: 15000 }));
+  });
+
+  it("refuses to credit a partner for a property they own", async () => {
+    h.db.property.findUnique.mockResolvedValue({ id: 4, title: "JAMIREX HOTEL", status: "APPROVED", owner: { id: 202, email: "other@example.com", phone: "0700000101" } });
+    const res = await request(app).post("/api/admin/sales/leads/2/approve-conversion").set(admin).send({ propertyId: 4, reason: REASON });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/property owner \(same phone\)/);
+    expect(h.db.propertySalesAttribution.create).not.toHaveBeenCalled();
   });
 
   it("refuses a lead that is not awaiting conversion", async () => {
@@ -229,6 +247,37 @@ describe("POST /attributions/:id/activate", () => {
     expect(h.notifyUser).toHaveBeenCalledWith(101, "sales_partner_attribution_approved", expect.any(Object));
   });
 
+  it("waits while the owner has not answered", async () => {
+    h.db.propertySalesAttribution.findUnique.mockResolvedValue(verified());
+    h.db.salesOwnerConfirmation.findFirst.mockResolvedValue({ id: 1, status: "PENDING" });
+    const res = await request(app).post("/api/admin/sales/attributions/90/activate").set(withGrant).send({ reason: REASON, ownerOverride: true });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Waiting for the owner/);
+    expect(h.db.propertySalesAttribution.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the owner denied the partner, even with an override", async () => {
+    h.db.propertySalesAttribution.findUnique.mockResolvedValue(verified());
+    h.db.salesOwnerConfirmation.findFirst.mockResolvedValue({ id: 1, status: "DENIED" });
+    const res = await request(app).post("/api/admin/sales/attributions/90/activate").set(withGrant).send({ reason: REASON, ownerOverride: true });
+    expect(res.status).toBe(409);
+    expect(h.db.propertySalesAttribution.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("needs an explicit override when the owner never answered", async () => {
+    h.db.propertySalesAttribution.findUnique.mockResolvedValue(verified());
+    h.db.salesOwnerConfirmation.findFirst.mockResolvedValue({ id: 1, status: "EXPIRED" });
+    const refused = await request(app).post("/api/admin/sales/attributions/90/activate").set(withGrant).send({ reason: REASON });
+    expect(refused.status).toBe(409);
+
+    h.db.propertySalesAttribution.updateMany.mockResolvedValue({ count: 1 });
+    const res = await request(app).post("/api/admin/sales/attributions/90/activate").set(withGrant).send({ reason: REASON, ownerOverride: true });
+    expect(res.status).toBe(200);
+    expect(h.db.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ afterJson: expect.objectContaining({ ownerConfirmation: "EXPIRED", ownerOverride: true }) }),
+    }));
+  });
+
   it("refuses an attribution that is not VERIFIED", async () => {
     h.db.propertySalesAttribution.findUnique.mockResolvedValue({ ...verified(), status: "ACTIVE" });
     const res = await request(app).post("/api/admin/sales/attributions/90/activate").set(withGrant).send({ reason: REASON });
@@ -279,6 +328,16 @@ describe("payout review", () => {
     h.db.salesPayoutRequest.findUnique.mockResolvedValue(requested());
     const res = await request(app).post("/api/admin/sales/payouts/70/approve").set(withGrant).send({ reason: REASON, deductionAmount: 100000 });
     expect(res.status).toBe(409);
+    expect(h.db.salesPayoutRequest.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a payout that holds commission from a cancelled booking", async () => {
+    h.db.salesPayoutRequest.findUnique.mockResolvedValue(requested());
+    h.db.salesCommission.findMany.mockResolvedValue([{ id: 501, sourceBookingId: 77 }]);
+    h.db.booking.findFirst.mockResolvedValue({ id: 77 });
+    const res = await request(app).post("/api/admin/sales/payouts/70/approve").set(withGrant).send({ reason: REASON });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Booking #77/);
     expect(h.db.salesPayoutRequest.updateMany).not.toHaveBeenCalled();
   });
 

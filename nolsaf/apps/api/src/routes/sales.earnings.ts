@@ -13,12 +13,37 @@ import {
 import {
   COMMISSION_STATUSES,
   COMMISSION_TYPES,
+  MIN_PAYOUT_AMOUNT,
   PENDING_BALANCE_STATUSES,
 } from "../lib/salesPartner.js";
+import { earningRef } from "../lib/salesReference.js";
 
 const router = Router();
 const db = prisma as any;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const EAT_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+/** "YYYY-MM" of a date in EAT. */
+function eatMonth(date: Date) {
+  return new Date(date.getTime() + EAT_OFFSET_MS).toISOString().slice(0, 7);
+}
+
+/** The UTC instant at which an EAT month starts, `back` months before now. */
+function eatMonthStart(now: Date, back = 0) {
+  const eat = new Date(now.getTime() + EAT_OFFSET_MS);
+  return new Date(Date.UTC(eat.getUTCFullYear(), eat.getUTCMonth() - back, 1) - EAT_OFFSET_MS);
+}
+
+/** Where an earning came from, in words. The idempotency key carries row ids, so it never leaves the server. */
+function sourceLabel(sourceKey: string, type: string) {
+  const key = String(sourceKey || "");
+  if (key.startsWith("NRMS_STATEMENT:")) return "NRMS monthly statement";
+  if (key.startsWith("INVOICE:")) return type === "MARKETPLACE_BOOKING" ? "Marketplace booking invoice" : "Invoice";
+  if (key.startsWith("BONUS:")) return "Performance bonus";
+  if (key.startsWith("ADJUSTMENT:REVERSAL-")) return "Reversal of an earlier earning";
+  if (key.startsWith("ADJUSTMENT:")) return "Adjustment by NoLSAF";
+  return type === "MANUAL_ADJUSTMENT" ? "Adjustment by NoLSAF" : "Programme earning";
+}
 
 router.use(
   requireAuth as RequestHandler,
@@ -64,8 +89,13 @@ function number(value: unknown) {
 }
 
 function publicCommission(row: any) {
+  const { id, sourceKey, property, contract, ...rest } = row;
   return {
-    ...row,
+    ...rest,
+    ref: earningRef(id),
+    source: sourceLabel(sourceKey, row.type),
+    property: property ? { title: property.title } : null,
+    contract: contract ? { contractNumber: contract.contractNumber, nrmsCommissionRate: contract.nrmsCommissionRate, marketplaceRevenueRate: contract.marketplaceRevenueRate } : null,
     grossAmount: number(row.grossAmount),
     taxAmount: number(row.taxAmount),
     processingFeeAmount: number(row.processingFeeAmount),
@@ -89,10 +119,10 @@ function dateWhere(from?: Date, to?: Date) {
 router.get("/earnings/summary", asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
   const scopedPartnerId = partnerId(req, res);
   if (!scopedPartnerId) return;
-  const monthStart = new Date();
-  monthStart.setUTCDate(1);
-  monthStart.setUTCHours(0, 0, 0, 0);
-  const [rows, thisMonth, withdrawable] = await Promise.all([
+  const now = new Date();
+  const monthStart = eatMonthStart(now);
+  const trendStart = eatMonthStart(now, 5);
+  const [rows, thisMonth, withdrawable, recent, pendingRows] = await Promise.all([
     db.salesCommission.groupBy({
       by: ["status", "type", "currency"],
       where: { salesPartnerId: scopedPartnerId },
@@ -111,7 +141,39 @@ router.get("/earnings/summary", asyncHandler(async (req: SalesAuthedRequest, res
       where: { salesPartnerId: scopedPartnerId, status: "AVAILABLE", payoutItem: null },
       _sum: { commissionAmount: true },
     }),
+    // Six EAT months, for the trend and last month's comparison.
+    db.salesCommission.findMany({
+      where: { salesPartnerId: scopedPartnerId, earnedAt: { gte: trendStart }, status: { notIn: ["CANCELLED", "REVERSED"] } },
+      select: { earnedAt: true, commissionAmount: true },
+      take: 5_000,
+    }),
+    // Pending money and when its validation window ends.
+    db.salesCommission.findMany({
+      where: { salesPartnerId: scopedPartnerId, status: { in: [...PENDING_BALANCE_STATUSES] } },
+      select: { eligibleAt: true, commissionAmount: true },
+      orderBy: { eligibleAt: "asc" },
+      take: 5_000,
+    }),
   ]);
+  const trend = Array.from({ length: 6 }, (_, index) => ({ month: eatMonth(eatMonthStart(now, 5 - index)), amount: 0 }));
+  const byMonth = new Map(trend.map((point) => [point.month, point]));
+  for (const row of recent) {
+    const point = byMonth.get(eatMonth(row.earnedAt));
+    if (point) point.amount += number(row.commissionAmount);
+  }
+  const unlocks = { within7Days: 0, within30Days: 0, later: 0, next: null as null | { at: string; amount: number } };
+  for (const row of pendingRows) {
+    const amount = number(row.commissionAmount);
+    const at = row.eligibleAt ? new Date(row.eligibleAt) : null;
+    const days = at ? (at.getTime() - now.getTime()) / DAY_MS : Infinity;
+    if (days <= 7) unlocks.within7Days += amount;
+    else if (days <= 30) unlocks.within30Days += amount;
+    else unlocks.later += amount;
+    if (at && at.getTime() > now.getTime()) {
+      if (!unlocks.next) unlocks.next = { at: at.toISOString(), amount };
+      else if (at.toISOString().slice(0, 10) === unlocks.next.at.slice(0, 10)) unlocks.next.amount += amount;
+    }
+  }
   const summary = {
     pending: 0,
     available: number(withdrawable._sum.commissionAmount),
@@ -129,12 +191,19 @@ router.get("/earnings/summary", asyncHandler(async (req: SalesAuthedRequest, res
       MANUAL_ADJUSTMENT: 0,
     } as Record<string, number>,
     byStatus: {} as Record<string, number>,
+    statusCounts: {} as Record<string, number>,
+    lastMonth: trend[4].amount,
+    inWithdrawal: 0,
+    minimum: MIN_PAYOUT_AMOUNT,
+    trend,
+    unlocks,
   };
   for (const row of rows) {
     const amount = number(row._sum.commissionAmount);
     summary.count += row._count.id;
     summary.eligibleNetRevenue += number(row._sum.eligibleNetRevenue);
     summary.byStatus[row.status] = (summary.byStatus[row.status] || 0) + amount;
+    summary.statusCounts[row.status] = (summary.statusCounts[row.status] || 0) + row._count.id;
     summary.byStream[row.type] = (summary.byStream[row.type] || 0) + amount;
     if (PENDING_BALANCE_STATUSES.includes(row.status)) summary.pending += amount;
     // AVAILABLE rows already locked to a payout are excluded by the separate
@@ -143,6 +212,8 @@ router.get("/earnings/summary", asyncHandler(async (req: SalesAuthedRequest, res
     if (row.status === "REVERSED") summary.reversed += Math.abs(amount);
     if (!["CANCELLED", "REVERSED"].includes(row.status)) summary.totalEarned += amount;
   }
+  // AVAILABLE earnings already inside an open withdrawal.
+  summary.inWithdrawal = Math.max(0, (summary.byStatus.AVAILABLE || 0) - summary.available);
   res.json({ summary });
 }));
 

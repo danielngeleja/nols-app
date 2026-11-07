@@ -368,7 +368,16 @@ model User {
   salesContractsCreated         SalesPartnerContract[]     @relation("SalesContractCreatedBy")
   salesLeadsConverted           SalesLead[]                @relation("SalesLeadConvertedBy")
   salesLeadActivities           SalesLeadActivity[]        @relation("SalesLeadActivityAuthor")
+  salesLeadVisits               SalesLeadVisit[]           @relation("SalesLeadVisitAuthor")
+  salesLeadVisitsReviewed       SalesLeadVisit[]           @relation("SalesLeadVisitReviewer")
+  salesPartnerCardsRevoked      SalesPartnerCard[]         @relation("SalesPartnerCardRevokedBy")
+  salesTeamsCreated             SalesTeam[]                @relation("SalesTeamCreatedBy")
+  salesTeamMembersAdded         SalesTeamMember[]          @relation("SalesTeamMemberAddedBy")
+  salesPartnerMonthsSet         SalesPartnerMonth[]        @relation("SalesPartnerMonthTargetSetBy")
+  salesPartnerMonthsExcluded    SalesPartnerMonth[]        @relation("SalesPartnerMonthExcludedBy")
   salesAttributionsVerified     PropertySalesAttribution[] @relation("SalesAttributionVerifiedBy")
+  salesOwnerConfirmationsOwned  SalesOwnerConfirmation[]   @relation("SalesOwnerConfirmationOwner")
+  salesOwnerConfirmationsGiven  SalesOwnerConfirmation[]   @relation("SalesOwnerConfirmationResponder")
   salesCommissionsApproved      SalesCommission[]          @relation("SalesCommissionApprovedBy")
   salesPayoutsReviewed          SalesPayoutRequest[]       @relation("SalesPayoutReviewedBy")
   salesMaterialsCreated         SalesMaterial[]            @relation("SalesMaterialCreatedBy")
@@ -588,6 +597,7 @@ model Property {
   salesLeadConversions SalesLead[]                @relation("SalesLeadConvertedProperty")
   salesAttributions    PropertySalesAttribution[]
   salesCommissions     SalesCommission[]
+  salesOwnerConfirmations SalesOwnerConfirmation[]
 
   // Payment orchestration (see PAYMENT ORCHESTRATION CORE below)
   merchantLinks  MerchantPropertyLink[]
@@ -2315,6 +2325,14 @@ model SystemSetting {
   /// verified, unchanged account without an OTP (owner policy section 5.2.2).
   /// Null means never.
   payoutUnclaimedAutoDays Int?
+
+  /// Sales partner withdrawals (docs/SALES_PAYOUT_WITHDRAWAL_POLICY.md). Off by
+  /// default: every confirmed withdrawal then waits for an admin. Sales payouts
+  /// that pass every rule share the owner AUTO lane, its kill switch and its
+  /// daily cap, so autoPayoutEnabled and autoPayoutDailyCapTzs must be set too.
+  salesAutoPayoutEnabled Boolean @default(false)
+  /// Largest single sales withdrawal (net, TZS) the system may approve itself.
+  salesAutoPayoutMaxTzs Int @default(500000)
 
   // ==================== Platform Margin ====================
   /// Payment gateway fee as a percent of guest money collected, used to
@@ -8396,6 +8414,17 @@ model SalesPartnerProfile {
   /// Set by the level recalculation job so promotions stay traceable.
   levelUpdatedAt DateTime?
 
+  /// Withdrawal freeze. Set by the payout policy when a withdrawal shows a
+  /// fraud signal (or by an admin), cleared only by an admin with a reason.
+  /// While set, no withdrawal code can be requested.
+  payoutHoldAt     DateTime?
+  payoutHoldReason String?   @db.VarChar(300)
+  payoutHoldFlags  Json?
+  /// Wrong withdrawal codes in a row. The third locks withdrawals until support
+  /// verifies the partner and an admin clears it.
+  withdrawalOtpFailures Int       @default(0)
+  withdrawalOtpLockedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -8404,7 +8433,14 @@ model SalesPartnerProfile {
   leads          SalesLead[]
   attributions   PropertySalesAttribution[]
   commissions    SalesCommission[]
+  ownerConfirmations SalesOwnerConfirmation[]
+  leadVisits     SalesLeadVisit[]
+  idCards        SalesPartnerCard[]
+  ledTeam        SalesTeam?
+  teamMemberships SalesTeamMember[]
+  months         SalesPartnerMonth[]
   payoutRequests SalesPayoutRequest[]
+  payoutChallenges SalesPayoutChallenge[]
 
   @@index([status])
   @@index([level])
@@ -8552,6 +8588,7 @@ model SalesLead {
   convertedProperty Property?                  @relation("SalesLeadConvertedProperty", fields: [convertedPropertyId], references: [id], onDelete: SetNull)
   convertedBy       User?                      @relation("SalesLeadConvertedBy", fields: [convertedById], references: [id], onDelete: SetNull)
   activities        SalesLeadActivity[]
+  visits            SalesLeadVisit[]
   attributions      PropertySalesAttribution[]
 
   @@index([salesPartnerId, status])
@@ -8583,6 +8620,263 @@ model SalesLeadActivity {
 
   @@index([leadId, createdAt])
   @@map("sales_lead_activity")
+}
+
+/// A sales team: one team lead (an ordinary sales partner with this extra
+/// role) and the partners an administrator assigns to them. Same login and
+/// portal; the lead only gets a "My team" section. Leads never see money and
+/// never approve anything: they coach, reassign stuck leads within the team
+/// and set member targets within the limits NoLSAF sets.
+/// status: ACTIVE or DISBANDED (lead removed; members become solo partners)
+model SalesTeam {
+  id            Int     @id @default(autoincrement())
+  leadPartnerId Int     @unique
+  name          String  @db.VarChar(120)
+  region        String? @db.VarChar(120)
+  status        String  @default("ACTIVE") @db.VarChar(20)
+
+  createdById Int?
+  disbandedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  lead      SalesPartnerProfile @relation(fields: [leadPartnerId], references: [id], onDelete: Cascade)
+  createdBy User?               @relation("SalesTeamCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  members   SalesTeamMember[]
+  invites   SalesTeamInvite[]
+
+  @@index([status])
+  @@index([createdById])
+  @@map("sales_team")
+}
+
+/// A team lead's personal invitation for one person to join their team.
+///
+/// Not a public gate: the link only tags a normal NoLSAF partner application
+/// with "proposed for this team". The recruit must sign in, the system checks
+/// them against the lead, and only an administrator can approve. They join
+/// the team when their agreement is activated. The link token is stored as a
+/// SHA-256 hash; `reference` (ti_...) is the opaque handle shown in the UI.
+///
+/// status: SENT, ACCEPTED, APPROVED, JOINED, REJECTED, WITHDRAWN
+/// (an unaccepted SENT invite past expiresAt is shown as expired).
+model SalesTeamInvite {
+  id            Int    @id @default(autoincrement())
+  reference     String @unique @db.VarChar(32)
+  teamId        Int
+  leadPartnerId Int
+  tokenHash     String @unique @db.Char(64)
+
+  inviteeName  String @db.VarChar(120)
+  inviteePhone String @db.VarChar(40)
+
+  status    String   @default("SENT") @db.VarChar(20)
+  expiresAt DateTime
+  /// First time the current link was opened, so the lead knows whether to follow up.
+  openedAt  DateTime?
+
+  acceptedUserId Int?
+  acceptedAt     DateTime?
+  /// Checks run when the recruit accepted: [{ code, severity, message }].
+  flags          Json?
+
+  decidedAt    DateTime?
+  decidedById  Int?
+  decisionNote String?   @db.VarChar(300)
+  /// The partner profile created when an admin approved the application.
+  partnerId    Int?
+  joinedAt     DateTime?
+  withdrawnAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  team SalesTeam @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, status])
+  @@index([leadPartnerId, status])
+  @@index([acceptedUserId])
+  @@index([partnerId])
+  @@index([status, createdAt])
+  @@map("sales_team_invite")
+}
+
+/// A partner's membership of a team, kept as history. activeKey holds the
+/// partner id while the membership is current and is cleared when it ends, so
+/// the unique index allows one team at a time per partner.
+model SalesTeamMember {
+  id             Int       @id @default(autoincrement())
+  teamId         Int
+  salesPartnerId Int
+  activeKey      Int?      @unique
+  joinedAt       DateTime  @default(now())
+  leftAt         DateTime?
+  addedById      Int?
+
+  team         SalesTeam           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  salesPartner SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Cascade)
+  addedBy      User?               @relation("SalesTeamMemberAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@index([teamId, leftAt])
+  @@index([salesPartnerId])
+  @@index([addedById])
+  @@map("sales_team_member")
+}
+
+/// One row per partner per month (month = "YYYY-MM" in EAT): the target, an
+/// administrator's exclusion from the leaderboard, live rank bookkeeping for
+/// notifications, and the final result frozen when the month closes.
+model SalesPartnerMonth {
+  id             Int    @id @default(autoincrement())
+  salesPartnerId Int
+  month          String @db.Char(7)
+
+  target          Int?
+  targetSetById   Int?
+  targetSetByRole String? @db.VarChar(20)
+
+  excludedAt     DateTime?
+  excludedById   Int?
+  excludedReason String?   @db.VarChar(300)
+
+  liveRank           Int?
+  liveRankAt         DateTime?
+  topThreeNotifiedAt DateTime?
+  nudgedAt           DateTime?
+
+  finalRank      Int?
+  finalPoints    Int?
+  finalBreakdown Json?
+  badges         Json?
+  closedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesPartner SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Cascade)
+  targetSetBy  User?               @relation("SalesPartnerMonthTargetSetBy", fields: [targetSetById], references: [id], onDelete: SetNull)
+  excludedBy   User?               @relation("SalesPartnerMonthExcludedBy", fields: [excludedById], references: [id], onDelete: SetNull)
+
+  @@unique([salesPartnerId, month])
+  @@index([month, finalRank])
+  @@index([targetSetById])
+  @@index([excludedById])
+  @@map("sales_partner_month")
+}
+
+/// A sales partner's digital ID card. A property owner scans its QR code (or
+/// types its card code) and NoLSAF confirms, live, that this is a current
+/// NoLSAF sales partner, with their photo and name.
+///
+/// The QR link carries a token derived from the card id and a per-card salt
+/// with the server secret: the database alone cannot produce a valid link, and
+/// only its SHA-256 hash is stored. Validity is decided at every check: card
+/// ACTIVE, not past expiresAt, partner ACTIVE, contract current. Revoking or
+/// replacing a card kills its link immediately.
+///
+/// status: ACTIVE, REPLACED (a new card was issued), REVOKED (by NoLSAF)
+/// activeKey holds salesPartnerId while ACTIVE and is cleared otherwise, so
+/// the unique index allows one active card per partner.
+/// photoUrl is a snapshot taken at issue: changing the profile photo later
+/// does not change the photo an owner sees until a new card is issued.
+model SalesPartnerCard {
+  id             Int @id @default(autoincrement())
+  salesPartnerId Int
+
+  cardNumber String @unique @db.VarChar(40)
+  salt       String @db.Char(32)
+  tokenHash  String @unique @db.Char(64)
+  photoUrl   String @db.VarChar(500)
+
+  status    String @default("ACTIVE") @db.VarChar(20)
+  activeKey Int?   @unique
+
+  issuedAt     DateTime  @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  revokedById  Int?
+  revokeReason String?   @db.VarChar(300)
+
+  /// How often owners have checked this card, and when last.
+  verifyCount    Int       @default(0)
+  lastVerifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesPartner SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Cascade)
+  revokedBy    User?               @relation("SalesPartnerCardRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([salesPartnerId, status])
+  @@index([revokedById])
+  @@map("sales_partner_card")
+}
+
+/// A sales partner's on-site check-in at a lead's property: proof they were
+/// physically there, recorded when they tapped "Check in", not typed later.
+///
+/// receivedAt is the server clock (the partner cannot backdate it);
+/// capturedAt is the device moment of the tap, kept for check-ins saved
+/// offline and sent later. The photo is stored privately (authenticated
+/// Cloudinary asset) and only its hash is compared, so a reused photo is
+/// caught. The answering IP is a keyed hash, never the address.
+///
+/// status: VERIFIED (no warning signs) or FLAGGED (see flags)
+/// referenceSource: PROPERTY (converted property pin), FIRST_VISIT (the
+/// lead's first check-in), NONE (this is the first check-in)
+/// metWith: OWNER, MANAGER, STAFF, NOBODY
+model SalesLeadVisit {
+  id             Int @id @default(autoincrement())
+  leadId         Int
+  salesPartnerId Int
+  createdById    Int
+
+  status String @default("VERIFIED") @db.VarChar(20)
+
+  latitude       Decimal   @db.Decimal(10, 6)
+  longitude      Decimal   @db.Decimal(10, 6)
+  accuracyMeters Int
+  positionAt     DateTime?
+  capturedAt     DateTime
+  receivedAt     DateTime  @default(now())
+
+  metWith String  @db.VarChar(20)
+  note    String? @db.VarChar(500)
+
+  photoPublicId String  @db.VarChar(255)
+  photoHash     String  @db.Char(64)
+  photoBytes    Int
+  photoMime     String  @db.VarChar(40)
+
+  referenceSource    String   @db.VarChar(20)
+  referenceLatitude  Decimal? @db.Decimal(10, 6)
+  referenceLongitude Decimal? @db.Decimal(10, 6)
+  distanceMeters     Int?
+
+  /// Warning signs found when the visit was recorded, e.g. FAR_FROM_PROPERTY.
+  flags Json?
+
+  userAgent String? @db.VarChar(255)
+  ipHash    String? @db.Char(64)
+
+  reviewedAt   DateTime?
+  reviewedById Int?
+  reviewNote   String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+
+  lead         SalesLead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  salesPartner SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Cascade)
+  createdBy    User                @relation("SalesLeadVisitAuthor", fields: [createdById], references: [id], onDelete: Cascade)
+  reviewedBy   User?               @relation("SalesLeadVisitReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([leadId, receivedAt])
+  @@index([salesPartnerId, receivedAt])
+  @@index([createdById])
+  @@index([photoHash])
+  @@index([status, receivedAt])
+  @@index([reviewedById])
+  @@map("sales_lead_visit")
 }
 
 /// Binds a property and one product line to the partner who onboarded it.
@@ -8628,11 +8922,69 @@ model PropertySalesAttribution {
   contract     SalesPartnerContract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
   verifiedBy   User?                 @relation("SalesAttributionVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
   commissions  SalesCommission[]
+  ownerConfirmations SalesOwnerConfirmation[]
 
   @@unique([propertyId, productType])
   @@index([salesPartnerId, status])
   @@index([status, productType])
   @@map("property_sales_attribution")
+}
+
+/// The property owner's own answer to "Did this sales partner bring you to
+/// NoLSAF?". It is the one piece of attribution evidence the partner cannot
+/// produce themselves.
+///
+/// Not a public gate: an answer is accepted only from the signed-in owner of
+/// the property (session user = ownerUserId = property.ownerId at answer
+/// time), never during an impersonated session. SMS and email only carry an
+/// opaque reference that opens the owner portal after sign-in; the reference
+/// alone confirms nothing, and only its SHA-256 hash is stored.
+///
+/// status: PENDING, CONFIRMED, DENIED, UNKNOWN_PARTNER, EXPIRED, CANCELLED
+/// activeKey holds the attribution id while PENDING and is cleared on any
+/// answer, so the unique index allows one open request per attribution.
+model SalesOwnerConfirmation {
+  id             Int @id @default(autoincrement())
+  attributionId  Int
+  propertyId     Int
+  salesPartnerId Int
+  /// Owner at the moment of the request. An answer from anyone else is refused,
+  /// and a change of owner cancels the request.
+  ownerUserId    Int
+
+  status        String  @default("PENDING") @db.VarChar(20)
+  activeKey     Int?    @unique
+  referenceHash String  @unique @db.Char(64)
+
+  requestedAt DateTime  @default(now())
+  notifiedAt  DateTime?
+  remindedAt  DateTime?
+  expiresAt   DateTime
+
+  /// Evidence of the answer. The IP is stored as a keyed hash, not in clear.
+  respondedAt       DateTime?
+  respondedById     Int?
+  responseNote      String?   @db.VarChar(300)
+  responseIpHash    String?   @db.Char(64)
+  responseUserAgent String?   @db.VarChar(255)
+  responseSessionId String?   @db.VarChar(64)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attribution  PropertySalesAttribution @relation(fields: [attributionId], references: [id], onDelete: Cascade)
+  property     Property                 @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  salesPartner SalesPartnerProfile      @relation(fields: [salesPartnerId], references: [id], onDelete: Restrict)
+  owner        User                     @relation("SalesOwnerConfirmationOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  respondedBy  User?                    @relation("SalesOwnerConfirmationResponder", fields: [respondedById], references: [id], onDelete: SetNull)
+
+  @@index([attributionId, status])
+  @@index([propertyId])
+  @@index([salesPartnerId, status])
+  @@index([ownerUserId, status])
+  @@index([respondedById])
+  @@index([status, expiresAt])
+  @@map("sales_owner_confirmation")
 }
 
 /// Immutable earnings ledger. One row per revenue event, written only when
@@ -8758,6 +9110,18 @@ model SalesPayoutRequest {
   receiptUrl       String? @db.VarChar(500)
   adminNotes       String? @db.Text
 
+  /// Code-confirmed withdrawals: AUTO (system approves and sends) or REVIEW
+  /// (a person decides). Null on requests made before withdrawals existed.
+  lane            String?  @db.VarChar(10)
+  /// Every rule the withdrawal broke: [{ code, severity, message }].
+  reviewFlags     Json?
+  /// Verified PayoutAccount the partner confirmed with the code.
+  payoutAccountId Int?
+  challengeId     Int?
+  /// AUTO handoff progress, so the worker can resume after a crash.
+  handoffAttempts Int      @default(0)
+  handoffError    String?  @db.VarChar(500)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -8767,7 +9131,40 @@ model SalesPayoutRequest {
 
   @@index([salesPartnerId, status])
   @@index([status, requestedAt])
+  @@index([lane, status])
   @@map("sales_payout_request")
+}
+
+/// One withdrawal code. Bound to the exact earnings, the total and the live
+/// payout account (fingerprint), so it cannot confirm a different withdrawal
+/// and any change in between invalidates it. Single use, 5 minutes, 3 tries.
+/// Only the code's hash is stored.
+model SalesPayoutChallenge {
+  id             Int    @id @default(autoincrement())
+  reference      String @unique @db.VarChar(40)
+  salesPartnerId Int
+  userId         Int
+
+  commissionIds   Json
+  totalAmount     Decimal @db.Decimal(14, 2)
+  currency        String  @default("TZS") @db.VarChar(3)
+  payoutAccountId Int
+  fingerprint     String  @db.VarChar(64)
+
+  codeHash          String @db.VarChar(128)
+  channel           String @db.VarChar(10)
+  destinationMasked String @db.VarChar(40)
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  salesPartner SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Cascade)
+
+  @@index([salesPartnerId, createdAt])
+  @@index([expiresAt])
+  @@map("sales_payout_challenge")
 }
 
 /// Locks one commission to one payout request. The unique constraint on

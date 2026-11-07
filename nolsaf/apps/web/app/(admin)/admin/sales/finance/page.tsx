@@ -6,24 +6,22 @@ import {
   AlertTriangle,
   Ban,
   BadgeCheck,
-  BookOpen,
   Building2,
   CheckCircle2,
   ChevronRight,
   CircleDollarSign,
-  LayoutDashboard,
   Loader2,
   Lock,
   Plus,
-  RefreshCw,
   RotateCcw,
   Search,
   Send,
-  Users,
   Wallet,
   X,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import SalesAdminHeader from "@/components/admin/sales/SalesAdminHeader";
+import SalesPartnerPicker, { type PickedPartner } from "@/components/admin/sales/SalesPartnerPicker";
 
 type Commission = {
   id: number;
@@ -58,12 +56,28 @@ type Payout = {
   payoutAccount: string | null;
   requestedAt: string;
   paymentReference: string | null;
+  lane?: "AUTO" | "REVIEW" | null;
+  reviewFlags?: Array<{ code: string; severity: "SUSPICIOUS" | "REVIEW" | "INFO"; message: string }> | null;
   salesPartner: {
     id: number;
     agentCode: string;
+    payoutHoldAt?: string | null;
+    payoutHoldReason?: string | null;
+    withdrawalOtpLockedAt?: string | null;
     user: { name: string | null; email: string | null };
   };
   _count: { items: number };
+};
+
+type HeldPartner = {
+  id: number;
+  agentCode: string;
+  region: string | null;
+  payoutHoldAt: string | null;
+  payoutHoldReason: string | null;
+  payoutHoldFlags: Array<{ code: string; message: string }> | null;
+  withdrawalOtpLockedAt: string | null;
+  user: { name: string | null };
 };
 
 const fieldClass =
@@ -72,9 +86,6 @@ const primaryButton =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-solid border-emerald-700 bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45";
 const secondaryButton =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-4 text-sm font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-45";
-// Ghost buttons on the dark sales header (shared Sales look).
-const heroButton =
-  "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white hover:no-underline disabled:opacity-60";
 
 type Stage = { key: string; label: string; hint: string; text: string; dot: string; soft: string };
 
@@ -126,6 +137,22 @@ function money(value: number | null | undefined, currency: string) {
   return `${currency || "TZS"} ${Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
+/**
+ * Header figures stay short at any size: TZS 950,000 / TZS 12.5M / TZS 1.25B.
+ * The exact amount is kept for the tooltip and screen readers.
+ */
+function compactMoney(value: number, currency: string) {
+  const abs = Math.abs(value);
+  const units: Array<[number, string]> = [[1e12, "T"], [1e9, "B"], [1e6, "M"]];
+  for (const [size, suffix] of units) {
+    if (abs >= size) {
+      const n = value / size;
+      return `${currency || "TZS"} ${n.toLocaleString("en-US", { maximumFractionDigits: Math.abs(n) >= 100 ? 0 : Math.abs(n) >= 10 ? 1 : 2 })}${suffix}`;
+    }
+  }
+  return `${currency || "TZS"} ${Math.round(value).toLocaleString("en-US")}`;
+}
+
 function when(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Not set";
 }
@@ -149,7 +176,9 @@ export default function AdminSalesFinancePage() {
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [whtRate, setWhtRate] = useState(0);
   const [commissionStatus, setCommissionStatus] = useState("ELIGIBLE");
-  const [payoutStatus, setPayoutStatus] = useState("REQUESTED");
+  // Code-confirmed withdrawals that need a person land in UNDER_REVIEW.
+  const [payoutStatus, setPayoutStatus] = useState("UNDER_REVIEW");
+  const [held, setHeld] = useState<HeldPartner[]>([]);
   const [query, setQuery] = useState("");
   const [reason, setReason] = useState<Record<string, string>>({});
   const [deduction, setDeduction] = useState<Record<number, string>>({});
@@ -158,6 +187,20 @@ export default function AdminSalesFinancePage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjustPartner, setAdjustPartner] = useState<PickedPartner | null>(null);
+  const [partnerProperties, setPartnerProperties] = useState<Array<{ id: number; title: string }>>([]);
+  useEffect(() => {
+    setPartnerProperties([]);
+    if (!adjustPartner) return;
+    apiClient
+      .get("/api/admin/sales/attributions", { params: { q: adjustPartner.agentCode, pageSize: 100 } })
+      .then(({ data }) => {
+        const seen = new Map<number, string>();
+        for (const a of data.attributions ?? []) if (a.salesPartner?.id === adjustPartner.id) seen.set(a.property.id, a.property.title);
+        setPartnerProperties([...seen.entries()].map(([id, title]) => ({ id, title })));
+      })
+      .catch(() => setPartnerProperties([]));
+  }, [adjustPartner]);
   const [adjustment, setAdjustment] = useState({
     salesPartnerId: "",
     propertyId: "",
@@ -181,6 +224,8 @@ export default function AdminSalesFinancePage() {
       setCommissions(commissionResponse.data?.commissions || []);
       setPayouts(payoutResponse.data?.payouts || []);
       setWhtRate(Number(payoutResponse.data?.withholdingTaxRate || 0));
+      // Optional: absent until the withdrawal migration is applied.
+      apiClient.get("/api/admin/sales/payout-holds").then(({ data }) => setHeld(data?.partners || [])).catch(() => setHeld([]));
     } catch (cause: any) {
       setError(errorMessage(cause, "Could not load sales finance data."));
     } finally {
@@ -196,6 +241,7 @@ export default function AdminSalesFinancePage() {
   const commissionTotals = useMemo(() => totals(commissions.map((c) => ({ amount: c.commissionAmount, currency: c.currency }))), [commissions]);
   const payoutTotals = useMemo(() => totals(payouts.map((p) => ({ amount: p.netPaidAmount ?? p.requestedAmount, currency: p.currency }))), [payouts]);
   const showTotal = (list: Array<[string, number]>) => (list.length === 0 ? "TZS 0" : list.length === 1 ? money(list[0][1], list[0][0]) : "Mixed currencies");
+  const headerTotal = (list: Array<[string, number]>) => (list.length === 1 ? compactMoney(list[0][1], list[0][0]) : showTotal(list));
 
   const commissionAction = async (item: Commission, action: "approve" | "reverse") => {
     const note = (reason[`commission-${item.id}`] || "").trim();
@@ -205,7 +251,7 @@ export default function AdminSalesFinancePage() {
     setNotice("");
     try {
       await apiClient.post(`/api/admin/sales/commissions/${item.id}/${action}`, { reason: note });
-      setNotice(action === "approve" ? `Commission #${item.id} is available to withdraw.` : `Commission #${item.id} was reversed with ledger history retained.`);
+      setNotice(action === "approve" ? `The commission${item.property?.title ? ` on ${item.property.title}` : ""} is available to withdraw.` : `The commission${item.property?.title ? ` on ${item.property.title}` : ""} was reversed with ledger history retained.`);
       await load();
     } catch (cause: any) {
       setError(errorMessage(cause, `Commission ${action} failed.`));
@@ -240,12 +286,29 @@ export default function AdminSalesFinancePage() {
     }
   };
 
+  const clearHold = async (partner: HeldPartner) => {
+    const note = (reason[`hold-${partner.id}`] || "").trim();
+    if (note.length < 5) return setError("Enter an audit reason of at least 5 characters.");
+    setBusy(`hold-${partner.id}`);
+    setError("");
+    setNotice("");
+    try {
+      await apiClient.post(`/api/admin/sales/payout-holds/${partner.id}/clear`, { reason: note });
+      setNotice(`${tidyName(partner.user.name) || partner.agentCode} can withdraw again.`);
+      await load();
+    } catch (cause: any) {
+      setError(errorMessage(cause, "Could not clear the pause."));
+    } finally {
+      setBusy("");
+    }
+  };
+
   const createAdjustment = async () => {
-    const partnerId = Number(adjustment.salesPartnerId);
+    const partnerId = adjustPartner?.id ?? 0;
     const propertyId = adjustment.propertyId ? Number(adjustment.propertyId) : null;
     const amount = Number(adjustment.amount);
     if (!Number.isInteger(partnerId) || partnerId <= 0 || !Number.isFinite(amount) || amount === 0 || adjustment.reason.trim().length < 5) {
-      setError("Enter a valid partner ID, non-zero amount, and audit reason of at least 5 characters.");
+      setError("Choose a partner, enter a non-zero amount, and give an audit reason of at least 5 characters.");
       return;
     }
     setBusy("adjustment");
@@ -260,6 +323,7 @@ export default function AdminSalesFinancePage() {
         reason: adjustment.reason.trim(),
       });
       setAdjustment({ salesPartnerId: "", propertyId: "", amount: "", currency: "TZS", reason: "" });
+      setAdjustPartner(null);
       setAdjustOpen(false);
       setNotice("Manual ledger adjustment created and made available.");
       await load();
@@ -279,57 +343,36 @@ export default function AdminSalesFinancePage() {
 
   return (
     <div className="space-y-5 w-full min-w-0">
-      {/* Sales header */}
-      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
-        <div className="relative px-5 pt-5 sm:px-6 sm:pt-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
-                Sales <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white/70"><Lock className="h-3 w-3" /> Finance OTP protected</span>
-              </p>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Sales finance</h1>
-              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Approve ledger earnings and move partner payouts through auditable steps.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Link href="/admin/sales" className={heroButton}><LayoutDashboard className="h-3.5 w-3.5" /> Sales review</Link>
-              <Link href="/admin/sales/partners" className={heroButton}><Users className="h-3.5 w-3.5" /> Partners</Link>
-              <Link href="/admin/sales/materials" className={heroButton}><BookOpen className="h-3.5 w-3.5" /> Materials</Link>
-              <button type="button" onClick={() => void load()} disabled={loading} className={`${heroButton} w-9 px-0`} aria-label="Refresh sales finance data" title="Refresh">
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-5 flex flex-wrap items-end gap-x-8 gap-y-3">
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{showTotal(commissionTotals)}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">{commissions.length} {commissionStatus ? stageFor([...COMMISSION_FLOW, ...COMMISSION_OFF], commissionStatus).label.toLowerCase() : "all"} {commissions.length === 1 ? "commission" : "commissions"}</p>
-            </div>
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-emerald-300">{showTotal(payoutTotals)}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">{payouts.length} {payoutStatus ? stageFor([...PAYOUT_FLOW, ...PAYOUT_OFF], payoutStatus).label.toLowerCase() : "all"} {payouts.length === 1 ? "payout" : "payouts"}</p>
-            </div>
-          </div>
-
-          <div className="mt-5 flex gap-1" role="tablist" aria-label="Sales finance views">
-            {([["commissions", "Commissions", CircleDollarSign, commissions.length], ["payouts", "Payouts", Send, payouts.length]] as const).map(([key, label, Icon, count]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={tab === key}
-                onClick={() => setTab(key)}
-                className={`relative inline-flex h-11 items-center gap-2 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${tab === key ? "text-white" : "text-white/50 hover:text-white/80"}`}
-              >
-                <Icon className="h-4 w-4" /> {label}
-                <span className={`rounded-full px-1.5 text-[11px] tabular-nums ${tab === key ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-white/60"}`}>{count}</span>
-                {tab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-emerald-400" aria-hidden />}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* Sales header (navigation between Sales pages is in the admin sidebar) */}
+      <SalesAdminHeader
+        title="Sales finance"
+        description="Approve ledger earnings and move partner payouts through auditable steps."
+        badge="Finance OTP protected"
+        metrics={[
+          {
+            label: "Commissions",
+            value: headerTotal(commissionTotals),
+            title: showTotal(commissionTotals),
+            sub: `${commissions.length} ${commissionStatus ? stageFor([...COMMISSION_FLOW, ...COMMISSION_OFF], commissionStatus).label.toLowerCase() : "in total"}`,
+          },
+          {
+            label: "Payouts",
+            value: headerTotal(payoutTotals),
+            title: showTotal(payoutTotals),
+            sub: `${payouts.length} ${payoutStatus ? stageFor([...PAYOUT_FLOW, ...PAYOUT_OFF], payoutStatus).label.toLowerCase() : "in total"}`,
+            tone: "good",
+          },
+        ]}
+        onRefresh={() => void load()}
+        loading={loading}
+        refreshLabel="Refresh sales finance data"
+        tabs={[
+          { key: "commissions", label: "Commissions", Icon: CircleDollarSign, count: commissions.length },
+          { key: "payouts", label: "Payouts", Icon: Send, count: payouts.length },
+        ]}
+        activeTab={tab}
+        onTab={setTab}
+      />
 
       {error && (
         <div role="alert" className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
@@ -344,6 +387,47 @@ export default function AdminSalesFinancePage() {
           <span className="flex-1">{notice}</span>
           <button type="button" onClick={() => setNotice("")} className="border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline">Dismiss</button>
         </div>
+      )}
+
+      {/* Partners whose withdrawals are frozen by a fraud signal, a wrong-code lock or an admin */}
+      {tab === "payouts" && held.length > 0 && (
+        <section className="overflow-hidden rounded-lg border border-solid border-rose-200 bg-white">
+          <div className="flex items-center gap-2 border-0 border-b border-solid border-rose-100 bg-rose-50/60 px-4 py-2.5">
+            <Lock className="h-4 w-4 text-rose-600" />
+            <h2 className="m-0 text-sm font-semibold text-rose-900">Withdrawals paused</h2>
+            <span className="rounded bg-rose-100 px-1.5 text-[11px] font-semibold text-rose-700">{held.length}</span>
+            <span className="ml-auto text-[11px] text-rose-700/80">Clearing needs an audit reason and Finance OTP</span>
+          </div>
+          <ul className="m-0 list-none p-0">
+            {held.map((p) => {
+              const key = `hold-${p.id}`;
+              const note = (reason[key] || "").trim();
+              return (
+                <li key={p.id} className="grid gap-3 border-0 border-t border-solid border-neutral-100 px-4 py-3 first:border-t-0 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] lg:items-center">
+                  <div className="min-w-0">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">
+                      {tidyName(p.user.name) || "Partner"} <span className="font-mono text-xs font-normal text-neutral-400">{p.agentCode}</span>
+                    </p>
+                    <p className="m-0 mt-0.5 text-[11px] text-neutral-500">
+                      Paused {when(p.payoutHoldAt || p.withdrawalOtpLockedAt)}{p.withdrawalOtpLockedAt ? " · locked after three wrong codes" : ""}
+                    </p>
+                    <ul className="m-0 mt-1.5 list-none space-y-0.5 p-0">
+                      {(p.payoutHoldFlags?.length ? p.payoutHoldFlags : [{ code: "HOLD", message: p.payoutHoldReason || "Paused" }]).map((f) => (
+                        <li key={f.code} className="text-xs text-rose-800">• {f.message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="flex min-w-0 gap-2">
+                    <input className={fieldClass} value={reason[key] || ""} onChange={(e) => setReason({ ...reason, [key]: e.target.value })} placeholder="Why it is safe to resume (required)" aria-label={`Reason to resume withdrawals for ${p.agentCode}`} />
+                    <button type="button" disabled={!!busy || note.length < 5} onClick={() => void clearHold(p)} className={secondaryButton}>
+                      {busy === key ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Resume
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
       {/* Lifecycle track: pick a stage to work on */}
@@ -440,8 +524,13 @@ export default function AdminSalesFinancePage() {
               </div>
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(2,minmax(0,1fr))_minmax(0,1.1fr)_6rem_minmax(0,1.6fr)]">
-              <label className="text-[11px] font-semibold text-neutral-600">Partner profile ID *<input className={`${fieldClass} mt-1`} inputMode="numeric" value={adjustment.salesPartnerId} onChange={(e) => setAdjustment({ ...adjustment, salesPartnerId: e.target.value })} placeholder="e.g. 12" /></label>
-              <label className="text-[11px] font-semibold text-neutral-600">Property ID<input className={`${fieldClass} mt-1`} inputMode="numeric" value={adjustment.propertyId} onChange={(e) => setAdjustment({ ...adjustment, propertyId: e.target.value })} placeholder="Optional" /></label>
+              <div className="text-[11px] font-semibold text-neutral-600">Partner *<SalesPartnerPicker className="mt-1" value={adjustPartner} onChange={(p) => { setAdjustPartner(p); setAdjustment({ ...adjustment, propertyId: "" }); }} /></div>
+              <label className="text-[11px] font-semibold text-neutral-600">Property
+                <select className={`${fieldClass} mt-1`} value={adjustment.propertyId} onChange={(e) => setAdjustment({ ...adjustment, propertyId: e.target.value })} disabled={!adjustPartner}>
+                  <option value="">{adjustPartner ? (partnerProperties.length ? "Optional" : "No attributed properties") : "Choose a partner first"}</option>
+                  {partnerProperties.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                </select>
+              </label>
               <label className="text-[11px] font-semibold text-neutral-600">Amount *<input className={`${fieldClass} mt-1`} type="number" value={adjustment.amount} onChange={(e) => setAdjustment({ ...adjustment, amount: e.target.value })} placeholder="50000 or -50000" /></label>
               <label className="text-[11px] font-semibold text-neutral-600">Currency<input className={`${fieldClass} mt-1`} maxLength={3} value={adjustment.currency} onChange={(e) => setAdjustment({ ...adjustment, currency: e.target.value.toUpperCase() })} placeholder="TZS" /></label>
               <label className="text-[11px] font-semibold text-neutral-600 sm:col-span-2 lg:col-span-1">Audit reason *<input className={`${fieldClass} mt-1`} value={adjustment.reason} onChange={(e) => setAdjustment({ ...adjustment, reason: e.target.value })} placeholder="Why this adjustment is needed" /></label>
@@ -449,7 +538,7 @@ export default function AdminSalesFinancePage() {
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
               <p className="m-0 text-xs text-neutral-500">
                 {Number.isFinite(adjustAmount) && adjustAmount !== 0
-                  ? <>This will <span className={adjustAmount > 0 ? "font-semibold text-emerald-700" : "font-semibold text-rose-600"}>{adjustAmount > 0 ? "credit" : "recover"} {money(Math.abs(adjustAmount), adjustment.currency)}</span>{adjustment.salesPartnerId ? ` for partner #${adjustment.salesPartnerId}` : ""}.</>
+                  ? <>This will <span className={adjustAmount > 0 ? "font-semibold text-emerald-700" : "font-semibold text-rose-600"}>{adjustAmount > 0 ? "credit" : "recover"} {money(Math.abs(adjustAmount), adjustment.currency)}</span>{adjustPartner ? ` for ${adjustPartner.name}` : ""}.</>
                   : "Enter an amount to preview the effect."}
               </p>
               <button type="button" disabled={busy === "adjustment"} onClick={() => void createAdjustment()} className={primaryButton}>
@@ -498,7 +587,7 @@ export default function AdminSalesFinancePage() {
                       </p>
                       <p className="m-0 mt-1 flex items-center gap-2 text-[11px]">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${stage.soft} ${stage.text}`}><span className={`h-1.5 w-1.5 rounded-full ${stage.dot}`} />{stage.label}</span>
-                        <span className="truncate font-mono text-neutral-400" title={item.sourceKey}>#{item.id} · {item.sourceKey}</span>
+                        <span className="truncate text-neutral-400">{String(item.sourceKey || "").startsWith("ADJUSTMENT") ? "Manual adjustment" : String(item.sourceKey || "").startsWith("INVOICE") ? "From a paid booking" : String(item.sourceKey || "").startsWith("NRMS") ? "From an NRMS statement" : "Ledger entry"}</span>
                       </p>
                     </div>
                   </div>
@@ -506,7 +595,7 @@ export default function AdminSalesFinancePage() {
                   <div className="lg:text-right">
                     <p className={`m-0 text-lg font-bold tabular-nums ${negative ? "text-rose-600" : "text-neutral-900"}`}>{money(item.commissionAmount, item.currency)}</p>
                     <p className="m-0 text-xs text-neutral-400">Earned {when(item.earnedAt)}</p>
-                    {item.payoutItem && <p className="m-0 text-[11px] text-neutral-500">In payout #{item.payoutItem.payoutId}</p>}
+                    {item.payoutItem && <p className="m-0 text-[11px] text-neutral-500">In a payout request</p>}
                   </div>
 
                   {canApprove || canReverse ? (
@@ -565,6 +654,23 @@ export default function AdminSalesFinancePage() {
                         {humanize(item.payoutMethod)} ending {item.payoutAccount || "unknown"} · {item._count.items} ledger {item._count.items === 1 ? "item" : "items"}
                       </p>
                       <p className="m-0 mt-0.5 text-[11px] text-neutral-400">Requested {when(item.requestedAt)}{item.paymentReference ? ` · Ref ${item.paymentReference}` : ""}</p>
+                      {item.lane ? (
+                        <p className="m-0 mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${item.lane === "AUTO" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+                            {item.lane === "AUTO" ? "Automatic" : "Needs review"}
+                          </span>
+                          {item.salesPartner.payoutHoldAt ? <span className="inline-flex items-center gap-1 rounded bg-rose-50 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700"><Lock className="h-3 w-3" /> Partner paused</span> : null}
+                        </p>
+                      ) : null}
+                      {item.reviewFlags?.length ? (
+                        <ul className="m-0 mt-1.5 list-none space-y-0.5 p-0">
+                          {item.reviewFlags.map((f) => (
+                            <li key={f.code} className={`text-xs ${f.severity === "SUSPICIOUS" ? "text-rose-700" : f.severity === "REVIEW" ? "text-amber-800" : "text-neutral-500"}`}>
+                              • {f.message}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </div>
                   </div>
 

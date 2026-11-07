@@ -140,7 +140,7 @@ export default function WorkspaceSwitcher({
         onClick={switchWorkspace}
         disabled={switching}
         title={collapsed ? label : undefined}
-        className={`flex min-h-9 w-full items-center rounded-lg border border-amber-200/10 bg-amber-100/[0.04] text-[12px] font-semibold text-amber-100 transition hover:border-amber-200/20 hover:bg-amber-300/10 hover:text-amber-50 disabled:opacity-60 ${
+        className={`flex h-9 w-full items-center rounded-md border border-solid border-white/10 bg-white/[0.04] text-[12px] font-semibold text-white/80 [font-family:inherit] transition hover:bg-white/[0.08] hover:text-white disabled:opacity-60 ${
           collapsed ? "justify-center" : "gap-2.5 px-2.5"
         }`}
       >

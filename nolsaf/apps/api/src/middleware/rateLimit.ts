@@ -797,6 +797,34 @@ export const limitDisbursementAdminWrite = rateLimit({
   },
 });
 
+/** Owner answers to sales partner confirmations: few per owner, so guessing is pointless. */
+/** Leaderboard and team reads. The boards are cached server-side; this caps scripted polling per account. */
+export const limitSalesLeaderboard = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please wait a moment and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId) ? `sales-leaderboard:${userId}` : `sales-leaderboard:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
+export const limitOwnerSalesConfirmation = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many attempts. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `owner-sales-confirmation:${userId}`
+      : `owner-sales-confirmation:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
 export const limitOwnerPayoutRead = rateLimit({
   windowMs: 60_000,
   limit: 120,

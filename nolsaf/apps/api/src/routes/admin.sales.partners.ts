@@ -25,6 +25,8 @@ import {
   sha256,
 } from "../lib/salesPartnerContract.js";
 import { storeSalesContractPdf } from "../lib/salesContractStorage.js";
+import { approveInviteInPromotion, joinTeamOnActivation } from "../lib/salesTeamInvites.js";
+import { clearBoardCache } from "../lib/salesLeaderboard.js";
 import {
   CONTRACT_TERM_DAYS,
   FALLBACK_MARKETPLACE_REVENUE_PERCENT,
@@ -92,6 +94,8 @@ const promoteSchema = z.object({
   marketplaceRevenueRate: rate.optional(),
   startsAt: z.coerce.date().optional(),
   termDays: z.coerce.number().int().min(30).max(1095).default(CONTRACT_TERM_DAYS),
+  /** A team lead's invite this person accepted (ti_...). They join that team at activation. */
+  teamInvite: z.string().trim().regex(/^ti_[A-Za-z0-9_-]{10,29}$/).optional(),
   reason,
 });
 
@@ -283,6 +287,14 @@ router.post("/partners/promote", asyncHandler(async (req: AuthedRequest, res: Re
         select: { id: true, agentCode: true, status: true, region: true },
       });
 
+      if (input.teamInvite) {
+        try {
+          await approveInviteInPromotion(tx, { reference: input.teamInvite, userId: input.userId, partnerId: profile.id, adminId: admin.id, now: new Date() });
+        } catch (error: any) {
+          throw new PromotionConflictError(error?.message || "The team invite could not be approved");
+        }
+      }
+
       // Entitlement exists but is PENDING: it grants nothing until the contract
       // is signed and an admin activates it.
       await tx.userWorkspaceAccess.upsert({
@@ -351,10 +363,21 @@ router.post("/partners/promote", asyncHandler(async (req: AuthedRequest, res: Re
         contractNumber: result.contract.contractNumber,
         nrmsCommissionRate: nrmsRate,
         marketplaceRevenueRate: marketplaceRate,
+        teamInvite: input.teamInvite || null,
         reason: input.reason,
       },
       result.profile.id,
     );
+
+    if (input.teamInvite) {
+      const invite = await db.salesTeamInvite.findUnique({
+        where: { reference: input.teamInvite },
+        select: { inviteeName: true, team: { select: { name: true, lead: { select: { userId: true } } } } },
+      });
+      if (invite) {
+        await notifyUser(invite.team.lead.userId, "sales_partner_team_invite_approved", { inviteeName: invite.inviteeName, teamName: invite.team.name }).catch(() => {});
+      }
+    }
 
     await notifyUser(input.userId, "sales_partner_contract_sent", {
       agentCode: result.profile.agentCode,
@@ -471,7 +494,11 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
       suspendedAt: true,
       terminatedAt: true,
       createdAt: true,
-      user: { select: { id: true, name: true, email: true, phone: true } },
+      payoutHoldAt: true,
+      payoutHoldReason: true,
+      payoutHoldFlags: true,
+      withdrawalOtpLockedAt: true,
+      user: { select: { id: true, name: true, fullName: true, email: true, phone: true } },
       contracts: {
         orderBy: { id: "desc" },
         select: {
@@ -490,14 +517,26 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
         },
       },
       _count: { select: { attributions: true, leads: true, commissions: true, payoutRequests: true } },
+      idCards: {
+        orderBy: { id: "desc" },
+        take: 5,
+        select: { id: true, cardNumber: true, status: true, issuedAt: true, expiresAt: true, revokedAt: true, revokeReason: true, verifyCount: true, lastVerifiedAt: true },
+      },
     },
   });
   if (!partner) return res.status(404).json({ error: "Partner not found" });
 
-  const access = await db.userWorkspaceAccess.findUnique({
-    where: { userId_workspace: { userId: partner.user.id, workspace: "SALES" } },
-    select: { status: true, grantedAt: true, expiresAt: true, suspendedAt: true, revokedAt: true },
-  });
+  const [access, payoutsUnderReview, flaggedVisits, disputedProperties, ledTeam] = await Promise.all([
+    db.userWorkspaceAccess.findUnique({
+      where: { userId_workspace: { userId: partner.user.id, workspace: "SALES" } },
+      select: { status: true, grantedAt: true, expiresAt: true, suspendedAt: true, revokedAt: true },
+    }),
+    // What is waiting on an admin for this partner, so the record can lead with it.
+    db.salesPayoutRequest.count({ where: { salesPartnerId: id, status: "UNDER_REVIEW" } }),
+    db.salesLeadVisit.count({ where: { salesPartnerId: id, status: "FLAGGED", reviewedAt: null } }),
+    db.propertySalesAttribution.count({ where: { salesPartnerId: id, status: "DISPUTED" } }),
+    db.salesTeam.findUnique({ where: { leadPartnerId: id }, select: { name: true, status: true } }),
+  ]);
 
   res.json({
     partner: {
@@ -507,7 +546,47 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
       payoutAccount: maskPayoutAccount(partner.payoutAccount),
     },
     workspaceAccess: access,
+    attention: {
+      payoutsUnderReview,
+      flaggedVisits,
+      disputedProperties,
+      leadsTeam: ledTeam?.status === "ACTIVE" ? ledTeam.name : null,
+    },
   });
+}) as RequestHandler);
+
+/**
+ * POST /admin/sales/partners/:id/card/revoke
+ * Cancel the partner's active ID card at once: its QR link and code then tell
+ * owners not to deal with this person on NoLSAF's behalf.
+ */
+router.post("/partners/:id/card/revoke", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid partner id" });
+  const parsed = z.object({ reason }).strict().safeParse(req.body);
+  if (fail(res, parsed)) return;
+  const now = new Date();
+  const card = await db.salesPartnerCard.findFirst({
+    where: { salesPartnerId: id, status: "ACTIVE" },
+    select: { id: true, cardNumber: true, salesPartner: { select: { userId: true } } },
+  });
+  if (!card) return res.status(404).json({ error: "This partner has no active ID card" });
+  const changed = await db.salesPartnerCard.updateMany({
+    where: { id: card.id, status: "ACTIVE" },
+    data: { status: "REVOKED", activeKey: null, revokedAt: now, revokedById: req.user!.id, revokeReason: parsed.data!.reason },
+  });
+  if (changed.count !== 1) return res.status(409).json({ error: "The card was changed by another request" });
+  await audit(req, "SALES_PARTNER_CARD_REVOKE", "SALES_PARTNER_CARD", { status: "ACTIVE" }, {
+    status: "REVOKED",
+    cardNumber: card.cardNumber,
+    reason: parsed.data!.reason,
+  }, card.id);
+  await notifyUser(card.salesPartner.userId, "sales_partner_card_revoked", {
+    cardNumber: card.cardNumber,
+    reason: parsed.data!.reason,
+    actionPath: "/sales/id-card",
+  }).catch(() => {});
+  return res.json({ ok: true, card: { cardNumber: card.cardNumber, status: "REVOKED", revokedAt: now } });
 }) as RequestHandler);
 
 /**
@@ -686,6 +765,7 @@ router.post("/contracts/:id/activate", asyncHandler(async (req: AuthedRequest, r
     return res.status(503).json({ error: "The signed PDF could not be stored; activation was not applied" });
   }
 
+  let joined: { teamName: string; leadUserId: number } | null = null;
   try {
     await db.$transaction(async (tx: any) => {
       const activated = await tx.salesPartnerContract.updateMany({
@@ -747,6 +827,8 @@ router.post("/contracts/:id/activate", asyncHandler(async (req: AuthedRequest, r
           statusReason: input.reason,
         },
       });
+      // A recruit approved through a team invite joins that team now.
+      joined = await joinTeamOnActivation(tx, { partnerId: contract.salesPartnerId, adminId: req.user!.id, now });
     });
   } catch (error: any) {
     if (error instanceof PromotionConflictError) {
@@ -772,6 +854,12 @@ router.post("/contracts/:id/activate", asyncHandler(async (req: AuthedRequest, r
     expiresAt: contract.expiresAt,
     actionPath: "/sales",
   }).catch(() => {});
+  if (joined) {
+    const team = joined as { teamName: string; leadUserId: number };
+    clearBoardCache();
+    await notifyUser(contract.salesPartner.userId, "sales_partner_team_joined", { teamName: team.teamName }).catch(() => {});
+    await notifyUser(team.leadUserId, "sales_partner_team_invite_joined", { teamName: team.teamName, agentCode: contract.salesPartner.agentCode, actionPath: "/sales/team" }).catch(() => {});
+  }
 
   return res.json({
     ok: true,

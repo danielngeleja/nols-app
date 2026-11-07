@@ -1017,7 +1017,7 @@ async function writeBackSourcePaid(
           paymentReference: externalReferenceId,
           receiptUrl: `/api/sales/payouts/${sourceId}/receipt`,
         },
-        include: { items: { select: { commissionId: true } } },
+        include: { items: { select: { commissionId: true } }, salesPartner: { select: { userId: true } } },
       });
       const commissionIds = request.items.map((item) => item.commissionId);
       if (commissionIds.length) {
@@ -1026,6 +1026,12 @@ async function writeBackSourcePaid(
           data: { status: "PAID", paidAt: now },
         });
       }
+      void notifyUser(request.salesPartner.userId, "sales_partner_payout_paid", {
+        referenceNumber: request.referenceNumber,
+        amount: Number(amount),
+        currency: "TSh",
+        paymentReference: externalReferenceId,
+      }).catch(() => {});
       return;
     }
   } catch (err) {

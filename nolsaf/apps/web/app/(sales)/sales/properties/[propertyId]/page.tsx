@@ -43,6 +43,7 @@ type Attribution = {
   revokedAt: string | null;
   lead: {
     id: number;
+    ref: string;
     propertyName: string;
     contactPerson: string | null;
     contactPhone: string | null;
@@ -216,7 +217,8 @@ function earningWindow(item: Attribution) {
 
 export default function SalesPropertyDetailPage() {
   const params = useParams<{ propertyId: string }>();
-  const propertyId = Number(params.propertyId);
+  // An opaque property reference (pp_…), never a row id.
+  const propertyId = String(params.propertyId || "");
   const [property, setProperty] = useState<PropertyDetail | null>(null);
   const [totals, setTotals] = useState({ commissionAmount: 0, eligibleNetRevenue: 0, commissionCount: 0, currency: "TZS" });
   const [onboarding, setOnboarding] = useState<Onboarding | null>(null);
@@ -228,7 +230,7 @@ export default function SalesPropertyDetailPage() {
   const [activityExpanded, setActivityExpanded] = useState(false);
 
   const load = useCallback(async () => {
-    if (!Number.isInteger(propertyId) || propertyId <= 0) {
+    if (!/^pp_[A-Za-z0-9_-]{22}$/.test(propertyId)) {
       setError("Invalid property.");
       setLoading(false);
       return;
@@ -443,7 +445,7 @@ export default function SalesPropertyDetailPage() {
 
                         {item.lead ? (
                           <Link
-                            href={`/sales/leads/${item.lead.id}`}
+                            href={`/sales/leads/${item.lead.ref}`}
                             className="group mt-4 flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3.5 py-2.5 text-sm no-underline transition hover:bg-emerald-50"
                           >
                             <span className="min-w-0 truncate text-slate-600">

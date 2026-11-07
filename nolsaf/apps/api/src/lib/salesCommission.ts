@@ -3,8 +3,48 @@ import {
   VALIDATION_WINDOW_DAYS,
   commissionSourceKey,
 } from "./salesPartner.js";
+import { loadPartnerIdentity, partnerBookedStayReason, partnerOwnsPropertyReason } from "./salesSelfDealing.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A marketplace commission is only earned once the stay has happened: the guest
+ * has checked out and a short complaint window has passed. Paying earlier lets a
+ * partner withdraw on a future booking and then cancel it for a refund.
+ */
+export const POST_STAY_BUFFER_DAYS = 3;
+/** Booking states that mean the stay did not happen. */
+export const CANCELLED_BOOKING_STATUSES = ["CANCELED", "CANCELLED", "REFUNDED"];
+/** Cancellation requests that ended in a cancellation or refund. */
+export const SETTLED_CANCELLATION_STATUSES = ["APPROVED", "REFUND_PENDING", "REFUNDED"];
+/** Cancellation requests still being decided: the commission waits. */
+export const OPEN_CANCELLATION_STATUSES = ["SUBMITTED", "REVIEWING", "NEED_INFO"];
+
+type BookingFacts = {
+  status?: string | null;
+  checkOut?: Date | string | null;
+  cancellationRequests?: Array<{ status: string }> | null;
+};
+
+/** The stay was cancelled or refunded, so no commission is owed on it. */
+export function bookingWasCancelled(booking: BookingFacts | null | undefined): boolean {
+  if (!booking) return false;
+  if (CANCELLED_BOOKING_STATUSES.includes(String(booking.status || "").toUpperCase())) return true;
+  return (booking.cancellationRequests ?? []).some((r) => SETTLED_CANCELLATION_STATUSES.includes(String(r.status).toUpperCase()));
+}
+
+/** A cancellation request is still open on this booking. */
+export function bookingHasOpenCancellation(booking: BookingFacts | null | undefined): boolean {
+  return (booking?.cancellationRequests ?? []).some((r) => OPEN_CANCELLATION_STATUSES.includes(String(r.status).toUpperCase()));
+}
+
+/** The earliest moment a marketplace commission may become eligible: the later of the payment window and the end of the stay plus the complaint window. */
+export function marketplaceEligibleAt(paidAt: Date, checkOut: Date | string | null | undefined): Date {
+  const byPayment = paidAt.getTime() + VALIDATION_WINDOW_DAYS.MARKETPLACE_BOOKING * DAY_MS;
+  const out = checkOut ? new Date(checkOut).getTime() : NaN;
+  const byStay = Number.isFinite(out) ? out + POST_STAY_BUFFER_DAYS * DAY_MS : 0;
+  return new Date(Math.max(byPayment, byStay));
+}
 
 export type CommissionCalculation = {
   grossAmount: number;
@@ -156,13 +196,19 @@ export async function accrueNrmsSalesCommission(tx: any, statementId: number): P
     commissionRate: Number(attribution.contract.nrmsCommissionRate),
   });
   if (calculation.commissionAmount <= 0) return { created: false, skippedReason: "NO_ELIGIBLE_REVENUE" };
+  // A partner never earns on the subscription of a property they own. The row
+  // is still recorded (reversed) so the source is settled and admins can see why.
+  const identity = await loadPartnerIdentity(tx, attribution.salesPartnerId);
+  const blockedReason = identity ? await partnerOwnsPropertyReason(tx, identity, statement.account.propertyId) : null;
+  const blockedAt = new Date();
   const result = await createIdempotently(tx, {
     salesPartnerId: attribution.salesPartnerId,
     propertyId: statement.account.propertyId,
     attributionId: attribution.id,
     contractId: attribution.contractId,
     type: "NRMS_USAGE",
-    status: "VALIDATING",
+    status: blockedReason ? "REVERSED" : "VALIDATING",
+    ...(blockedReason ? { reversedAt: blockedAt, reversalReason: blockedReason } : {}),
     sourceKey,
     sourceStatementId: statement.id,
     ...calculation,
@@ -178,6 +224,7 @@ export async function accrueNrmsSalesCommission(tx: any, statementId: number): P
       salesPartnerId: attribution.salesPartnerId,
       propertyId: statement.account.propertyId,
       calculation,
+      ...(blockedReason ? { blockedReason } : {}),
     });
   }
   return { ...result, partnerUserId: attribution.salesPartner.userId, propertyTitle: statement.account.property.title };
@@ -200,6 +247,12 @@ export async function accrueMarketplaceSalesCommission(tx: any, invoiceId: numbe
       booking: {
         select: {
           propertyId: true,
+          status: true,
+          checkOut: true,
+          userId: true,
+          guestPhone: true,
+          user: { select: { email: true, phone: true } },
+          cancellationRequests: { select: { status: true } },
           property: { select: { title: true, currency: true } },
         },
       },
@@ -227,13 +280,23 @@ export async function accrueMarketplaceSalesCommission(tx: any, invoiceId: numbe
     commissionRate: Number(attribution.contract.marketplaceRevenueRate),
   });
   if (calculation.commissionAmount <= 0) return { created: false, skippedReason: "NO_ELIGIBLE_REVENUE" };
+  // No commission on the partner's own property, on stays they book themselves,
+  // or on a booking already cancelled. The row is recorded reversed so the
+  // source is settled once and admins can see the reason.
+  const identity = await loadPartnerIdentity(tx, attribution.salesPartnerId);
+  const blockedReason =
+    (identity ? await partnerOwnsPropertyReason(tx, identity, invoice.booking.propertyId) : null) ??
+    (identity ? partnerBookedStayReason(identity, invoice.booking) : null) ??
+    (bookingWasCancelled(invoice.booking) ? "The booking was cancelled or refunded." : null);
+  const blockedAt = new Date();
   const result = await createIdempotently(tx, {
     salesPartnerId: attribution.salesPartnerId,
     propertyId: invoice.booking.propertyId,
     attributionId: attribution.id,
     contractId: attribution.contractId,
     type: "MARKETPLACE_BOOKING",
-    status: "VALIDATING",
+    status: blockedReason ? "REVERSED" : "VALIDATING",
+    ...(blockedReason ? { reversedAt: blockedAt, reversalReason: blockedReason } : {}),
     sourceKey,
     sourceInvoiceId: invoice.id,
     sourceBookingId: invoice.bookingId,
@@ -241,7 +304,7 @@ export async function accrueMarketplaceSalesCommission(tx: any, invoiceId: numbe
     currency: invoice.booking.property.currency || "TZS",
     description: `Marketplace revenue share from paid invoice #${invoice.id}`,
     earnedAt: invoice.paidAt,
-    eligibleAt: validationEndsAt(invoice.paidAt, "MARKETPLACE_BOOKING"),
+    eligibleAt: marketplaceEligibleAt(invoice.paidAt, invoice.booking.checkOut),
   });
   if (result.created) {
     await recordAccrualAudit(tx, result.commission, {
@@ -250,7 +313,79 @@ export async function accrueMarketplaceSalesCommission(tx: any, invoiceId: numbe
       salesPartnerId: attribution.salesPartnerId,
       propertyId: invoice.booking.propertyId,
       calculation,
+      ...(blockedReason ? { blockedReason } : {}),
     });
   }
   return { ...result, partnerUserId: attribution.salesPartner.userId, propertyTitle: invoice.booking.property.title };
+}
+
+export type AutoReverseOutcome = "REVERSED" | "OFFSET" | "LOCKED" | "UNCHANGED";
+
+/**
+ * Reverse a commission because its source no longer stands (for example the
+ * booking was cancelled and refunded). Mirrors the admin reversal:
+ * - not yet paid and not inside a payout request: marked REVERSED;
+ * - already paid: marked REVERSED and a negative offset is added, so the amount
+ *   comes out of the partner's next payout (same source key as the admin path,
+ *   so the two can never both create an offset);
+ * - inside a payout request that is still being processed: left alone and
+ *   reported LOCKED, for finance to resolve when reviewing that payout.
+ */
+export async function autoReverseSalesCommission(tx: any, commissionId: number, reason: string, now = new Date()): Promise<AutoReverseOutcome> {
+  const current = await tx.salesCommission.findUnique({
+    where: { id: commissionId },
+    include: { payoutItem: { include: { payout: { select: { status: true } } } } },
+  });
+  if (!current || current.status === "REVERSED" || current.status === "CANCELLED") return "UNCHANGED";
+  const payoutStatus = current.payoutItem?.payout?.status ?? null;
+  if (payoutStatus && payoutStatus !== "PAID") return "LOCKED";
+
+  const changed = await tx.salesCommission.updateMany({
+    where: { id: current.id, status: current.status, ...(current.status === "PAID" ? {} : { payoutItem: null }) },
+    data: { status: "REVERSED", reversedAt: now, reversalReason: reason },
+  });
+  if (changed.count !== 1) return "UNCHANGED";
+
+  let adjustmentId: number | null = null;
+  if (current.status === "PAID") {
+    const amount = Math.abs(Number(current.commissionAmount));
+    const offset = await createIdempotently(tx, {
+      salesPartnerId: current.salesPartnerId,
+      propertyId: current.propertyId,
+      attributionId: current.attributionId,
+      contractId: current.contractId,
+      type: "MANUAL_ADJUSTMENT",
+      status: "AVAILABLE",
+      sourceKey: `ADJUSTMENT:REVERSAL-${current.id}`,
+      grossAmount: 0,
+      taxAmount: 0,
+      processingFeeAmount: 0,
+      refundAmount: 0,
+      discountAmount: 0,
+      eligibleNetRevenue: -Math.abs(Number(current.eligibleNetRevenue)),
+      commissionRate: current.commissionRate,
+      commissionAmount: -amount,
+      currency: current.currency,
+      description: `Reversal offset for paid commission #${current.id}`,
+      earnedAt: now,
+      eligibleAt: now,
+      approvedAt: now,
+      availableAt: now,
+      reversalOfId: current.id,
+      adjustmentReason: reason,
+    });
+    adjustmentId = offset.commission?.id ?? null;
+  }
+  await tx.auditLog.create({
+    data: {
+      actorId: null,
+      actorRole: "SYSTEM",
+      action: "SALES_COMMISSION_AUTO_REVERSE",
+      entity: "SALES_COMMISSION",
+      entityId: current.id,
+      beforeJson: { status: current.status, commissionAmount: current.commissionAmount },
+      afterJson: { status: "REVERSED", reversedAt: now, adjustmentId, reason },
+    },
+  });
+  return current.status === "PAID" ? "OFFSET" : "REVERSED";
 }

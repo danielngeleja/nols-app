@@ -298,6 +298,8 @@ const nrmsDetails: Item[] = [
 const salesDetails: Item[] = [
   { href: "/admin/sales/partners", label: "Sales partners", Icon: Users },
   { href: "/admin/sales", label: "Conversion review", Icon: ShieldCheck },
+  { href: "/admin/sales/teams", label: "Team health", Icon: Trophy },
+  { href: "/admin/sales/leaderboard", label: "Leaderboard", Icon: Trophy },
   { href: "/admin/sales/finance", label: "Finance", Icon: Wallet },
   { href: "/admin/sales/materials", label: "Learning materials", Icon: FileText },
 ];
@@ -379,7 +381,6 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   };
   const [cancellationsOpen, setCancellationsOpen] = useState(false);
   const [nrmsOpen, setNrmsOpen] = useState(false);
-  const [salesOpen, setSalesOpen] = useState(false);
 
   const activeSection = (() => {
     if (!path) return null;
@@ -469,7 +470,6 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     const isAgents = path.startsWith("/admin/agents");
     const isCancellations = path.startsWith("/admin/cancellations");
     const isNrms = path.startsWith("/admin/nrms");
-    const isSales = path.startsWith("/admin/sales");
     // Owner (admin) mini-sidebar: open when on /admin (owners dashboard) or admin child routes
     // but NOT on /admin/home (which is the admin , not owners)
     const isAdminChildRoute = (path === "/admin" ||
@@ -498,7 +498,6 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     // NRMS mini-sidebar
     if (isNrms) setNrmsOpen(true);
     else setNrmsOpen(false);
-    setSalesOpen(isSales);
     // Visual chevrons for Users
     setUsersOpen(isUsers);
   }, [path]);
@@ -686,6 +685,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {/* NoLSAF's own costs; turns All Revenue into a contribution and net margin. */}
         <Item href="/admin/expenses" label="Expenses" Icon={Receipt} collapsed={collapsed} path={path} variant={variant} />
 
+        {/* Sales partners, teams and their payouts: a self-contained workspace like Expenses. */}
+        <Item href="/admin/sales/partners" label="Sales partners" Icon={Briefcase} collapsed={collapsed} path={path} variant={variant} />
+
         {/* Unified business operations queue; specialist workflows remain in their existing sections. */}
         <Item href="/admin/action-center" label="Action Center" Icon={AlertTriangle} collapsed={collapsed} path={path} variant={variant} />
 
@@ -808,23 +810,6 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
           </div>
         )}
 
-        {/* Sales partners */}
-        {collapsed ? (
-          <Item href="/admin/sales" label="Sales partners" Icon={Briefcase} collapsed={collapsed} path={path} variant={variant} />
-        ) : (
-          <div className={dark && salesOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
-            <CollapsibleButton
-              label="Sales partners"
-              Icon={Briefcase}
-              isOpen={salesOpen}
-              onClick={() => setSalesOpen((value) => !value)}
-              collapsed={collapsed}
-              active={activeSection === "Sales"}
-              pages={salesDetails.length}
-            />
-            <NestedGroup open={salesOpen} title="Sales partners" active={activeSection === "Sales"} items={salesDetails} />
-          </div>
-        )}
 
         <GroupHeader title="ADMIN" />
 

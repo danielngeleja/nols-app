@@ -116,6 +116,22 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Sales partner payout awaiting review",
           body: `Payout ${data.referenceNumber || ""} for ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} is ready for finance review.`
         },
+        sales_team_at_risk: {
+          title: "Sales team at risk",
+          body: `${data.teamName || "A sales team"} (lead ${data.leadName || "unknown"}) is at risk: ${data.reason || "warning signs found"} Review it in Sales, Teams.`
+        },
+        sales_team_invite_review: {
+          title: "Team invite waiting for review",
+          body: `${data.inviteeName || "A recruit"} accepted an invite to ${data.teamName || "a sales team"}.${Number(data.warnings) > 0 ? ` ${data.warnings} warning sign${Number(data.warnings) === 1 ? "" : "s"} found: check before approving.` : ""} Review it in Sales partners, Team invites.`
+        },
+        sales_partner_payout_review: {
+          title: "Sales withdrawal needs a review",
+          body: `${data.agentCode || "A sales partner"} confirmed withdrawal ${data.referenceNumber || ""} for ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")}. It was not sent automatically. ${data.reasons || ""}`.trim()
+        },
+        sales_partner_payout_hold: {
+          title: "Sales partner withdrawals frozen",
+          body: `${data.agentCode || "A sales partner"}'s withdrawals are paused after a warning sign. ${data.reason || ""} Review the partner and clear the pause with a reason when settled.`.trim()
+        },
         payment_amount_mismatch: {
           title: "Payment amount mismatch held for review",
           body: `${data.target || "A payment"} expected ${Number(data.expected || 0).toLocaleString("en-US")} TZS but the provider reported ${Number(data.received || 0).toLocaleString("en-US")} TZS. It was NOT settled. Reconcile it in Payments.`
@@ -629,6 +645,94 @@ export async function notifyUser(userId: number, template: string, data: any) {
         title: "Property attribution verified",
         body: `${data.propertyName || "A property"} has been verified for ${data.productType || "the agreed product"}. Earnings begin only after the attribution is activated.`
       },
+      sales_owner_confirmation_requested: {
+        title: "Confirm your sales partner",
+        body: `${data.partnerName || "A NoLSAF sales partner"}${data.agentCode ? ` (${data.agentCode})` : ""} says they helped you list ${data.propertyName || "your property"}. Tell us if that is true in Partner confirmations.`
+      },
+      sales_owner_confirmation_reminder: {
+        title: "Your answer is still needed",
+        body: `Did ${data.partnerName || "this sales partner"} help you list ${data.propertyName || "your property"}? The request closes soon. Answer in Partner confirmations.`
+      },
+      sales_partner_owner_confirmed: {
+        title: "Owner confirmed you",
+        body: `The owner of ${data.propertyName || "the property"} confirmed you brought them to NoLSAF. NoLSAF can now activate the attribution.`
+      },
+      sales_partner_owner_disputed: {
+        title: "Owner did not confirm you",
+        body: `The owner of ${data.propertyName || "the property"} did not confirm your claim. The attribution is on hold while NoLSAF reviews it.`
+      },
+      sales_partner_card_revoked: {
+        title: "Your ID card was cancelled",
+        body: `NoLSAF cancelled ID card ${data.cardNumber || ""}. It no longer verifies.${data.reason ? ` Reason: ${data.reason}` : ""} Contact NoLSAF support for details.`
+      },
+      sales_partner_team_lead_appointed: {
+        title: "You are now a team lead",
+        body: `NoLSAF appointed you to lead ${data.teamName || "a sales team"}. Open My team to see your representatives, their leads and targets.`
+      },
+      sales_partner_team_lead_removed: {
+        title: "Team lead role ended",
+        body: `You no longer lead ${data.teamName || "your team"}.${data.reason ? ` Reason: ${data.reason}` : ""} Your own leads and earnings are unchanged.`
+      },
+      sales_partner_team_joined: {
+        title: "You joined a team",
+        body: `You are now part of ${data.teamName || "a sales team"}. Your team lead can help with your leads and targets.`
+      },
+      sales_partner_team_health_tip: {
+        title: "This week for your team",
+        body: `${data.tip || "Check in with your team this week."}${data.reason ? ` Why: ${data.reason}` : ""}`
+      },
+      sales_partner_team_invite_accepted: {
+        title: "Your invite was accepted",
+        body: `${data.inviteeName || "The person you invited"} accepted your invite to ${data.teamName || "your team"}. NoLSAF will review the application and let you know.`
+      },
+      sales_partner_team_invite_approved: {
+        title: "Invite approved",
+        body: `NoLSAF approved ${data.inviteeName || "your recruit"} for ${data.teamName || "your team"}. They join your team once they sign their agreement and it is activated.`
+      },
+      sales_partner_team_invite_joined: {
+        title: "New team member",
+        body: `${data.agentCode || "Your recruit"} has joined ${data.teamName || "your team"}. Welcome them and help with their first leads.`
+      },
+      sales_partner_team_invite_rejected: {
+        title: "Invite not approved",
+        body: `NoLSAF did not approve ${data.inviteeName || "the person you invited"} for ${data.teamName || "your team"}. Contact support if you need more detail.`
+      },
+      sales_team_invite_declined: {
+        title: "Team application not approved",
+        body: `Your application to join ${data.teamName || "a NoLSAF sales team"} was not approved. Contact NoLSAF support if you have questions.`
+      },
+      sales_partner_team_left: {
+        title: "Team change",
+        body: `You are no longer part of ${data.teamName || "your team"}. Your leads and earnings are unchanged.`
+      },
+      sales_partner_lead_reassigned_to: {
+        title: "A lead was moved to you",
+        body: `Your team lead moved ${data.propertyName || "a lead"} to you.${data.reason ? ` Reason: ${data.reason}` : ""}`
+      },
+      sales_partner_lead_reassigned_away: {
+        title: "A lead was moved",
+        body: `Your team lead moved ${data.propertyName || "a lead"} to another representative.${data.reason ? ` Reason: ${data.reason}` : ""}`
+      },
+      sales_partner_target_set: {
+        title: "Your target was set",
+        body: `Your target for ${data.month || "this month"} is ${data.target ?? ""} confirmed properties.`
+      },
+      sales_partner_top_three: {
+        title: "You are in the top 3",
+        body: `You are number ${data.rank ?? ""} on the leaderboard this month with ${data.points ?? 0} points. Keep going.`
+      },
+      sales_partner_rank_nudge: {
+        title: "Close to the next place",
+        body: `You are ${data.gap ?? ""} points from number ${data.nextRank ?? ""} this month. One owner-confirmed property is worth 50.`
+      },
+      sales_partner_month_results: {
+        title: "Your month on the leaderboard",
+        body: `${data.month || "Last month"}: number ${data.rank ?? ""} of ${data.total ?? ""} with ${data.points ?? 0} points.${Array.isArray(data.badges) && data.badges.length ? " You earned a badge." : ""}`
+      },
+      sales_team_visit_flagged: {
+        title: "A team visit needs attention",
+        body: `${data.memberName || "A team member"} recorded a visit with warning signs at ${data.propertyName || "a property"}. Check in with them.`
+      },
       sales_partner_conversion_returned: {
         title: "Conversion needs more work",
         body: `Your conversion request was returned to ${String(data.status || "the pipeline").replace(/_/g, " ").toLowerCase()}. ${data.reason ? `Reason: ${data.reason}` : "Review the lead before submitting it again."}`
@@ -656,6 +760,18 @@ export async function notifyUser(userId: number, template: string, data: any) {
       sales_partner_payout_paid: {
         title: "Payout sent",
         body: `Your payout ${data.referenceNumber || ""} of ${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} has been sent${data.paymentReference ? ` (ref: ${data.paymentReference})` : ""}.`
+      },
+      sales_partner_payout_auto: {
+        title: "Withdrawal approved",
+        body: `Withdrawal ${data.referenceNumber || ""} of ${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} was approved and is on its way to your payout account.`
+      },
+      sales_partner_payout_review: {
+        title: "Withdrawal being checked",
+        body: `Withdrawal ${data.referenceNumber || ""} of ${data.currency || "TSh"} ${Number(data.amount || 0).toLocaleString("en-US")} is with our team. ${data.message || "We will notify you when it is sent."}`
+      },
+      sales_partner_payout_hold_cleared: {
+        title: "Withdrawals open again",
+        body: "Our review is complete and you can withdraw your available earnings again."
       },
       sales_partner_payout_rejected: {
         title: "Payout request rejected",

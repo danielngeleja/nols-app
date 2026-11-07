@@ -16,6 +16,7 @@ import {
 } from "../middleware/salesWorkspace.js";
 import { ATTRIBUTION_STATUSES, COMMISSION_STATUSES, PRODUCT_TYPES } from "../lib/salesPartner.js";
 import { loadOnboarding } from "../lib/salesOnboarding.js";
+import { leadRef, propertyRef, resolvePartnerProperty } from "../lib/salesReference.js";
 
 const router = Router();
 const db = prisma as any;
@@ -28,6 +29,21 @@ router.use(
 );
 
 const idSchema = z.object({ propertyId: z.coerce.number().int().positive() });
+
+// Page addresses carry an opaque property reference (pp_…), never a row id,
+// resolved within the properties attributed to this partner.
+router.param("propertyId", (async (req: SalesAuthedRequest, res: Response, next: (err?: any) => void, value: string) => {
+  try {
+    const scoped = partnerIdFor(req);
+    if (!scoped) return res.status(403).json({ error: "Sales partner context required" });
+    const id = await resolvePartnerProperty(db, value, scoped);
+    if (!id) return res.status(404).json({ error: "Attributed property not found" });
+    req.params.propertyId = String(id);
+    next();
+  } catch (error) {
+    next(error);
+  }
+}) as any);
 const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
@@ -185,6 +201,7 @@ router.get("/properties", asyncHandler(async (req: SalesAuthedRequest, res: Resp
       const progress = onboarding.get(property.id);
       return {
         ...property,
+        ref: propertyRef(property.id),
         totalEarnings: earningsByProperty.get(property.id) || 0,
         currency: "TZS",
         onboarding: progress
@@ -219,7 +236,11 @@ router.get("/properties/:propertyId", asyncHandler(async (req: SalesAuthedReques
     loadOnboarding(db, partnerId, [property]),
   ]);
   res.json({
-    property,
+    property: {
+      ...property,
+      ref: propertyRef(property.id),
+      salesAttributions: (property.salesAttributions ?? []).map((a: any) => (a.lead ? { ...a, lead: { ...a.lead, ref: leadRef(a.lead.id) } } : a)),
+    },
     onboarding: onboarding.get(property.id) ?? null,
     totals: {
       commissionAmount: Number(totals._sum.commissionAmount || 0),
