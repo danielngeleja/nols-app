@@ -17,23 +17,16 @@ export default function SalesPageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="relative overflow-hidden rounded-[26px] border border-emerald-100/80 bg-gradient-to-r from-white via-white to-emerald-50/80 px-5 py-5 shadow-[0_16px_45px_-40px_rgba(3,73,61,0.55)] sm:px-6">
-      <div className="pointer-events-none absolute -right-8 -top-16 h-40 w-40 rounded-full bg-emerald-100/45 blur-2xl" />
-      <div className="relative flex flex-col items-stretch gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3.5">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#087f68] text-white shadow-[0_12px_28px_-18px_rgba(8,127,104,0.9)]">
+    <header className="rounded-lg border border-solid border-slate-200 bg-white px-4 py-4 sm:px-5">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#02665e]/10 text-[#02665e]">
             <Icon className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <p className="m-0 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">
-              {eyebrow}
-            </p>
-            <h1 className="mb-0 mt-1 text-[clamp(1.35rem,2vw,1.8rem)] font-black leading-tight tracking-[-0.025em] text-slate-950">
-              {title}
-            </h1>
-            <p className="mb-0 mt-1.5 max-w-3xl text-sm leading-6 text-slate-600">
-              {description}
-            </p>
+            <p className="m-0 text-[11px] font-semibold text-[#02665e]">{eyebrow}</p>
+            <h1 className="m-0 mt-0.5 text-xl font-bold leading-tight tracking-tight text-slate-900">{title}</h1>
+            <p className="mb-0 mt-1 max-w-3xl text-[13px] leading-5 text-slate-600">{description}</p>
           </div>
         </div>
         {actions ? <div className="w-full min-w-0 max-w-full sm:w-auto">{actions}</div> : null}

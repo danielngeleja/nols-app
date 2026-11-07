@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
   BookOpen,
@@ -11,7 +10,6 @@ import {
   EyeOff,
   FileQuestion,
   GraduationCap,
-  LayoutDashboard,
   Layers3,
   Link2,
   Loader2,
@@ -19,16 +17,14 @@ import {
   Pencil,
   Plus,
   Presentation,
-  RefreshCw,
   Save,
   Scale,
   Search,
   Trophy,
-  Users,
-  Wallet,
   X,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import SalesAdminHeader from "@/components/admin/sales/SalesAdminHeader";
 
 type Material = {
   id: number;
@@ -61,8 +57,6 @@ const primaryButton =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-solid border-emerald-700 bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45";
 const secondaryButton =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-4 text-sm font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-45";
-const heroButton =
-  "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white hover:no-underline disabled:opacity-60";
 
 function hostOf(url: string | null | undefined) {
   try {
@@ -228,73 +222,40 @@ export default function AdminSalesMaterialsPage() {
 
   return (
     <div className="space-y-5 w-full min-w-0">
-      {/* Sales header */}
-      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
-        <div className="relative px-5 pt-5 sm:px-6 sm:pt-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
-                Sales <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white/70">Partner enablement</span>
-              </p>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Learning materials</h1>
-              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Draft, order and publish resources. Only published materials reach the partner workspace.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Link href="/admin/sales" className={heroButton}><LayoutDashboard className="h-3.5 w-3.5" /> Sales review</Link>
-              <Link href="/admin/sales/partners" className={heroButton}><Users className="h-3.5 w-3.5" /> Partners</Link>
-              <Link href="/admin/sales/finance" className={heroButton}><Wallet className="h-3.5 w-3.5" /> Finance</Link>
-              <button type="button" onClick={() => void load()} disabled={loading} className={`${heroButton} w-9 px-0`} aria-label="Refresh sales learning materials" title="Refresh">
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-5 flex flex-wrap items-end gap-x-8 gap-y-3">
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-emerald-300">{stats.published}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">Visible to partners</p>
-            </div>
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{stats.drafts}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">{stats.drafts === 1 ? "Draft" : "Drafts"} still hidden</p>
-            </div>
-            <div className="min-w-[10rem] flex-1 sm:max-w-xs">
-              <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                <div className="h-full bg-emerald-400" style={{ width: `${stats.total ? (stats.published / stats.total) * 100 : 0}%` }} />
-              </div>
-              <p className="m-0 mt-1 text-xs text-white/55">{stats.total ? Math.round((stats.published / stats.total) * 100) : 0}% of {stats.total} published</p>
-            </div>
-          </div>
-
-          <div className="mt-5 flex gap-1" role="tablist" aria-label="Material visibility">
-            {([["all", "Library", Layers3, stats.total], ["published", "Published", Eye, stats.published], ["drafts", "Drafts", EyeOff, stats.drafts]] as const).map(([key, label, Icon, count]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={visibility === key}
-                onClick={() => { setVisibility(key); setCategory(""); }}
-                className={`relative inline-flex h-11 items-center gap-2 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${visibility === key ? "text-white" : "text-white/50 hover:text-white/80"}`}
-              >
-                <Icon className="h-4 w-4" /> {label}
-                <span className={`rounded-full px-1.5 text-[11px] tabular-nums ${visibility === key ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-white/60"}`}>{count}</span>
-                {visibility === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-emerald-400" aria-hidden />}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
+      <SalesAdminHeader
+        title="Learning materials"
+        description="Draft, order and publish resources. Only published materials reach the partner workspace."
+        badge="Partner enablement"
+        metrics={[
+          { label: "Visible to partners", value: stats.published, tone: "good" },
+          { label: stats.drafts === 1 ? "Draft hidden" : "Drafts hidden", value: stats.drafts, tone: stats.drafts ? "warn" : "muted" },
+          {
+            label: "Published",
+            value: `${stats.total ? Math.round((stats.published / stats.total) * 100) : 0}%`,
+            sub: `of ${stats.total} ${stats.total === 1 ? "material" : "materials"}`,
+          },
+        ]}
+        onRefresh={() => void load()}
+        loading={loading}
+        refreshLabel="Refresh sales learning materials"
+        tabs={[
+          { key: "all", label: "Library", Icon: Layers3, count: stats.total },
+          { key: "published", label: "Published", Icon: Eye, count: stats.published },
+          { key: "drafts", label: "Drafts", Icon: EyeOff, count: stats.drafts },
+        ]}
+        activeTab={visibility}
+        onTab={(key) => { setVisibility(key); setCategory(""); }}
+      />
 
       {error && !editorOpen && (
-        <div role="alert" className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
           <span className="flex-1">{error}</span>
           <button type="button" onClick={() => setError("")} className="border-0 bg-transparent p-0 text-xs font-semibold text-rose-700 hover:underline">Dismiss</button>
         </div>
       )}
       {notice && (
-        <div role="status" className="flex items-start gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
+        <div role="status" className="flex items-start gap-2 rounded-lg border border-solid border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
           <span className="flex-1">{notice}</span>
           <button type="button" onClick={() => setNotice("")} className="border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline">Dismiss</button>
@@ -302,7 +263,7 @@ export default function AdminSalesMaterialsPage() {
       )}
 
       {/* Library */}
-      <section className="rounded-2xl border border-solid border-neutral-200 bg-white">
+      <section className="rounded-lg border border-solid border-neutral-200 bg-white">
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
           <div className="min-w-0">
             <h2 className="m-0 text-sm font-bold text-neutral-900">{category ? categoryOf(category).label : visibility === "published" ? "Published materials" : visibility === "drafts" ? "Drafts" : "Resource library"}</h2>
@@ -470,7 +431,7 @@ export default function AdminSalesMaterialsPage() {
                   <h2 id="material-editor-title" className="m-0 truncate text-base font-bold text-neutral-900">
                     {editingId ? form.title.trim() || "Edit material" : "New learning material"}
                   </h2>
-                  <p className="m-0 text-xs text-neutral-500">{editingId ? `Material #${editingId}` : "Add a resource for sales partners"}</p>
+                  <p className="m-0 text-xs text-neutral-500">{editingId ? "Edit this resource" : "Add a resource for sales partners"}</p>
                 </div>
                 <ul className="m-0 hidden list-none items-center gap-3 p-0 md:flex" aria-label="Checklist">
                   {checks.map((c) => (

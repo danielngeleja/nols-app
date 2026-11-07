@@ -171,6 +171,16 @@ export function middleware(req: NextRequest) {
       return NextResponse.redirect(url);
     }
   } else if (path.startsWith("/owner")) {
+    if (path === "/owner/partner-confirmations" && role !== "OWNER" && role !== "ADMIN") {
+      // An owner arriving from the SMS or email link signs in, then returns to
+      // the question. The link reference only highlights their own request.
+      const next = path + (req.nextUrl.search || "");
+      url.pathname = "/login";
+      url.search = "";
+      url.searchParams.set("next", next);
+      url.searchParams.set("role", "owner");
+      return NextResponse.redirect(url);
+    }
     if (role !== "OWNER" && role !== "ADMIN") {
       url.pathname = "/login";
       return NextResponse.redirect(url);

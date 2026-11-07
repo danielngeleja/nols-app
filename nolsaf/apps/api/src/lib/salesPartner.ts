@@ -111,6 +111,8 @@ export const LEAD_ACTIVITY_TYPES = [
   "PROPOSAL_SENT",
   "STATUS_CHANGED",
   "ADMIN_COMMENT",
+  /** Written only by a visit-mode check-in, never typed by hand. */
+  "VISIT",
 ] as const;
 export type LeadActivityType = (typeof LEAD_ACTIVITY_TYPES)[number];
 
@@ -119,6 +121,7 @@ export type LeadActivityType = (typeof LEAD_ACTIVITY_TYPES)[number];
  * protection window. A note to self does not hold a claim open; a meeting does.
  */
 export const PROTECTION_EXTENDING_ACTIVITIES: readonly LeadActivityType[] = [
+  "VISIT",
   "CALL",
   "EMAIL",
   "MEETING",

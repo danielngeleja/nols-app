@@ -8,6 +8,7 @@ import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { limitSalesAdminRead, limitSalesAdminWrite } from "../middleware/rateLimit.js";
 import { COMMISSION_STATUSES, COMMISSION_TYPES, PAYOUT_STATUSES, maskPayoutAccount } from "../lib/salesPartner.js";
 import { notifyUser } from "../lib/notifications.js";
+import { CANCELLED_BOOKING_STATUSES, SETTLED_CANCELLATION_STATUSES } from "../lib/salesCommission.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import {
   calculateSalesPayoutApproval,
@@ -16,6 +17,7 @@ import {
   canTransitionSalesPayout,
   salesWithholdingTaxRate,
 } from "../lib/salesFinance.js";
+import { SalesWithdrawalError, clearSalesPayoutHold, placeSalesPayoutHold } from "../services/payouts/salesWithdrawal.js";
 
 const router = Router();
 const db = prisma as any;
@@ -331,7 +333,12 @@ router.get("/payouts", limitSalesAdminRead, asyncHandler(async (req: AuthedReque
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {
-        salesPartner: { select: { id: true, agentCode: true, userId: true, user: { select: { name: true, email: true } } } },
+        salesPartner: {
+          select: {
+            id: true, agentCode: true, userId: true, payoutHoldAt: true, payoutHoldReason: true, withdrawalOtpLockedAt: true,
+            user: { select: { name: true, email: true } },
+          },
+        },
         _count: { select: { items: true } },
       },
     }),
@@ -339,6 +346,48 @@ router.get("/payouts", limitSalesAdminRead, asyncHandler(async (req: AuthedReque
   // The rate the next approval will apply, so the review screen previews the
   // same net figure the server will record.
   res.json({ total, page, pageSize, payouts: payouts.map(publicPayout), withholdingTaxRate: salesWithholdingTaxRate() });
+}));
+
+/** Partners whose withdrawals are frozen, newest first. */
+router.get("/payout-holds", limitSalesAdminRead, asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const partners = await db.salesPartnerProfile.findMany({
+    where: { OR: [{ payoutHoldAt: { not: null } }, { withdrawalOtpLockedAt: { not: null } }] },
+    orderBy: { payoutHoldAt: "desc" },
+    take: 100,
+    select: {
+      id: true, agentCode: true, region: true, payoutHoldAt: true, payoutHoldReason: true, payoutHoldFlags: true, withdrawalOtpLockedAt: true,
+      user: { select: { name: true } },
+    },
+  });
+  res.json({ partners });
+}));
+
+/** Freeze a partner's withdrawals by hand. */
+router.post("/payout-holds/:id", limitSalesAdminWrite, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const params = idSchema.safeParse(req.params);
+  const parsed = actionSchema.safeParse(req.body);
+  if (invalid(res, params) || invalid(res, parsed)) return;
+  try {
+    await placeSalesPayoutHold(params.data!.id, req.user!.id, parsed.data!.reason);
+  } catch (error) {
+    if (error instanceof SalesWithdrawalError) return res.status(error.httpStatus).json({ error: error.message, code: error.code });
+    throw error;
+  }
+  res.json({ ok: true });
+}));
+
+/** Lift a freeze (and a wrong-code lock). Loosens a payout control, so it needs the finance code. */
+router.post("/payout-holds/:id/clear", limitSalesAdminWrite, requireAdminFinanceGrant, asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const params = idSchema.safeParse(req.params);
+  const parsed = actionSchema.safeParse(req.body);
+  if (invalid(res, params) || invalid(res, parsed)) return;
+  try {
+    await clearSalesPayoutHold(params.data!.id, req.user!.id, parsed.data!.reason);
+  } catch (error) {
+    if (error instanceof SalesWithdrawalError) return res.status(error.httpStatus).json({ error: error.message, code: error.code });
+    throw error;
+  }
+  res.json({ ok: true });
 }));
 
 router.post("/payouts/:id/approve", limitSalesAdminWrite, requireAdminFinanceGrant, asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -356,6 +405,31 @@ router.post("/payouts/:id/approve", limitSalesAdminWrite, requireAdminFinanceGra
     if (!current) throw new FinanceNotFoundError("Payout request not found");
     if (!canTransitionSalesPayout(current.status, "APPROVED")) throw new FinanceConflictError("Payout cannot be approved in its current state");
     if (!current.items.length) throw new FinanceConflictError("Payout has no locked earnings");
+    // Never pay out commission on a stay that was cancelled or refunded after the
+    // partner requested this payout. Finance rejects it and the partner requests again.
+    const lockedBookingCommissions = await tx.salesCommission.findMany({
+      where: {
+        id: { in: current.items.map((item: any) => item.commissionId) },
+        type: "MARKETPLACE_BOOKING",
+        sourceBookingId: { not: null },
+      },
+      select: { id: true, sourceBookingId: true },
+    });
+    if (lockedBookingCommissions.length) {
+      const cancelled = await tx.booking.findFirst({
+        where: {
+          id: { in: lockedBookingCommissions.map((c: any) => c.sourceBookingId) },
+          OR: [
+            { status: { in: CANCELLED_BOOKING_STATUSES } },
+            { cancellationRequests: { some: { status: { in: SETTLED_CANCELLATION_STATUSES } } } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (cancelled) {
+        throw new FinanceConflictError(`Booking #${cancelled.id} in this payout was cancelled or refunded. Reject this payout so the partner can request again without it.`);
+      }
+    }
     let amounts;
     try {
       amounts = calculateSalesPayoutApproval(number(current.requestedAmount), input.deductionAmount, salesWithholdingTaxRate());

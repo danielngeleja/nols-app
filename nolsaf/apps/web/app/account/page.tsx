@@ -103,6 +103,20 @@ export default function AccountIndex() {
     return () => { mounted = false; };
   }, [user]);
 
+  // Deep links such as /account#profile-nin open on that field (used by the
+  // sales team invite checklist).
+  useEffect(() => {
+    if (loading || typeof window === "undefined") return;
+    const id = window.location.hash.slice(1);
+    if (!/^profile-[a-z]+$/.test(id)) return;
+    const timer = window.setTimeout(() => {
+      const el = document.getElementById(id);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.setTimeout(() => el?.focus(), 250);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
+
   // referral link best-effort
   useEffect(() => {
     if (!user) return;

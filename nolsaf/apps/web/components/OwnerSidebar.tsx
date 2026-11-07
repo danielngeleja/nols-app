@@ -6,7 +6,7 @@ import {
   Calendar, Wallet, FileText, PlusSquare, LayoutDashboard,
   ChevronDown, ChevronLeft, ChevronRight, Users, HandHeart, CalendarDays,
   CheckCircle2, Building2, BadgeCheck, LogIn, LogOut, BarChart3, BedDouble,
-  LayoutGrid, Clock, Receipt, Archive, Bell,
+  LayoutGrid, Clock, Receipt, Archive, Bell, ShieldCheck,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -265,8 +265,39 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
     };
   }, []);
 
+  // Partner confirmations: shown once an owner has ever been asked, with the
+  // number still waiting for their answer.
+  const [partnerConfirmations, setPartnerConfirmations] = useState<{ pending: number; answered: number }>({ pending: 0, answered: 0 });
+  useEffect(() => {
+    let mounted = true;
+    let stopped = false;
+    const fetchConfirmations = async () => {
+      if (!mounted || stopped) return;
+      try {
+        const { data } = await api.get("/api/owner/sales-confirmations/count", { timeout: 10000 });
+        if (mounted) setPartnerConfirmations({ pending: Number(data?.pending ?? 0), answered: Number(data?.answered ?? 0) });
+      } catch (err: any) {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) stopped = true;
+      }
+    };
+    void fetchConfirmations();
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === "visible") void fetchConfirmations();
+    }, 5 * 60_000);
+    const onChanged = () => void fetchConfirmations();
+    window.addEventListener("nols:partner-confirmations-changed", onChanged);
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+      window.removeEventListener("nols:partner-confirmations-changed", onChanged);
+    };
+  }, []);
+
   const path = usePathname() || "";
   const frontDesk = isFrontDeskPath(path);
+  const onPartnerConfirmations = path === "/owner/partner-confirmations";
+  const showPartnerConfirmations = onPartnerConfirmations || partnerConfirmations.pending > 0 || partnerConfirmations.answered > 0;
   const sectionActive = {
     properties: !frontDesk && (path === "/owner/properties" || path.startsWith("/owner/properties/")),
     bookings: frontDesk,
@@ -286,6 +317,9 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
       >
         <CollapseBtn href="/owner" label="Dashboard" Icon={LayoutDashboard} active={path === "/owner"} />
         <CollapseBtn href="/owner/notifications" label="Inbox" Icon={Bell} active={path.startsWith("/owner/notifications")} count={unreadCount} />
+        {showPartnerConfirmations && (
+          <CollapseBtn href="/owner/partner-confirmations" label="Partner confirmations" Icon={ShieldCheck} active={onPartnerConfirmations} count={partnerConfirmations.pending || undefined} />
+        )}
         <CollapseBtn href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
         <div className="w-6 h-px my-0.5" style={{ background: "rgba(255,255,255,0.09)" }} />
         <CollapseBtn href="/owner/bookings/checked-in" label="Front desk" Icon={Calendar} active={sectionActive.bookings} count={checkoutDueCount || undefined} />
@@ -331,6 +365,9 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
 
         <TopItem href="/owner" label="Dashboard" Icon={LayoutDashboard} />
         <TopItem href="/owner/notifications" label="Inbox" Icon={Bell} count={unreadCount} />
+        {showPartnerConfirmations && (
+          <TopItem href="/owner/partner-confirmations" label="Partner confirmations" Icon={ShieldCheck} count={partnerConfirmations.pending} />
+        )}
         <TopItem href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} />
         <Divider />
 

@@ -11,20 +11,34 @@ import adminSalesAttributionsRouter from "./admin.sales.attributions.js";
 import adminSalesFinanceRouter from "./admin.sales.finance.js";
 import salesContractsRouter from "./sales.contracts.js";
 import salesLeadsRouter from "./sales.leads.js";
+import salesVisitsRouter from "./sales.visits.js";
+import salesCardRouter from "./sales.card.js";
+import salesLeaderboardRouter from "./sales.leaderboard.js";
+import salesTeamRouter from "./sales.team.js";
+import adminSalesTeamsRouter from "./admin.sales.teams.js";
 import salesPropertiesRouter from "./sales.properties.js";
 import { adminSalesMaterialsRouter, salesMaterialsRouter } from "./sales.materials.js";
 import salesEarningsRouter from "./sales.earnings.js";
 import salesPayoutsRouter from "./sales.payouts.js";
 import salesWorkspaceRouter from "./sales.workspace.js";
 import salesStatementsRouter from "./sales.statements.js";
+import salesJoinRouter from "./sales.join.js";
 
 export function registerSalesRoutes(app: Express): void {
   // Workspace discovery and selection live under /api/me/* because they are
   // account-level concerns, not sales-specific ones: a user with no sales
   // access still calls /api/me/workspaces and simply gets one workspace back.
   app.use("/api", salesWorkspaceRouter as RequestHandler);
+  // A team invite's recruit is not a partner yet, so this sits outside /api/sales.
+  app.use("/api/sales-join", salesJoinRouter as RequestHandler);
   app.use("/api/sales", salesContractsRouter as RequestHandler);
   app.use("/api/sales", salesLeadsRouter as RequestHandler);
+  app.use("/api/sales", salesVisitsRouter as RequestHandler);
+  app.use("/api/sales", salesCardRouter as RequestHandler);
+  // Leaderboard first: it answers /team/status for every partner, before the
+  // team router, which admits team leads only.
+  app.use("/api/sales", salesLeaderboardRouter as RequestHandler);
+  app.use("/api/sales", salesTeamRouter as RequestHandler);
   app.use("/api/sales", salesPropertiesRouter as RequestHandler);
   app.use("/api/sales", salesMaterialsRouter as RequestHandler);
   app.use("/api/sales", salesEarningsRouter as RequestHandler);
@@ -39,4 +53,5 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/admin/sales", adminSalesAttributionsRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesMaterialsRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesFinanceRouter as RequestHandler);
+  app.use("/api/admin/sales", adminSalesTeamsRouter as RequestHandler);
 }

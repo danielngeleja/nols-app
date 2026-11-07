@@ -29,6 +29,7 @@ type Attribution = {
 
 type PropertyRow = {
   id: number;
+  ref: string;
   title: string;
   status: string;
   type: string;
@@ -359,7 +360,7 @@ export default function SalesPropertiesPage() {
                         </dl>
 
                         <Link
-                          href={`/sales/properties/${property.id}`}
+                          href={`/sales/properties/${property.ref}`}
                           className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#073c35] px-4 text-xs font-black text-white no-underline shadow-[0_12px_24px_-18px_rgba(7,60,53,0.9)] transition hover:bg-emerald-800 hover:text-white hover:no-underline"
                         >
                           View property
@@ -391,7 +392,7 @@ export default function SalesPropertiesPage() {
                       <tr key={property.id} className="group text-sm transition hover:bg-emerald-50/30">
                         <td className="px-5 py-4">
                           <Link
-                            href={`/sales/properties/${property.id}`}
+                            href={`/sales/properties/${property.ref}`}
                             className="block max-w-xs truncate font-bold text-slate-900 no-underline transition hover:text-emerald-800 hover:no-underline"
                           >
                             {property.title}
@@ -435,7 +436,7 @@ export default function SalesPropertiesPage() {
                         </td>
                         <td className="px-4 py-4 text-center">
                           <Link
-                            href={`/sales/properties/${property.id}`}
+                            href={`/sales/properties/${property.ref}`}
                             aria-label={`View ${property.title}`}
                             className="inline-grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 hover:no-underline"
                           >

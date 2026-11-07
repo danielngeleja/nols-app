@@ -1066,6 +1066,145 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
   }, { size: "A5", margin });
 }
 
+// ─── 3a. Sales partner payout receipt ─────────────────────────────────────────
+
+export interface SalesPayoutReceiptData {
+  receiptNumber: string;
+  withdrawalReference: string;
+  partnerName: string;
+  agentCode: string;
+  earningsCount: number;
+  grossAmount: number;
+  deductionAmount: number;
+  withholdingTaxRate: number | null;
+  withholdingTaxAmount: number;
+  netPaid: number;
+  currency?: string;
+  paymentMethod?: string | null;
+  providerReference?: string | null;
+  nolsafReference?: string | null;
+  maskedDestination?: string | null;
+  paidAt: Date | string | null;
+  timeZone?: string;
+  disclaimer?: string;
+  /** Verification QR PNG bytes */
+  qrPng?: Buffer | null;
+}
+
+/**
+ * Sales partner payout receipt, in the same A5 family as the owner payout
+ * receipt (generateOwnerDisbursementPdf): masthead, teal rule, amount card with
+ * the verification QR, labelled fact cards, watermark and the footer zone with
+ * the statement line, barcode, reference and contact line.
+ */
+export async function generateSalesPayoutReceiptPdf(data: SalesPayoutReceiptData): Promise<Buffer> {
+  const pageWidth = 419.53;
+  const pageHeight = 595.28;
+  const margin = 34;
+  const width = pageWidth - margin * 2;
+  const cur = data.currency || "TZS";
+  const timeZone = data.timeZone || "Africa/Dar_es_Salaam";
+  const money = (value: number) => `${cur} ${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    let y = margin;
+
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text("NoLSAF", margin, y, { width: 150, lineBreak: false });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN).text("NoLS Africa Co LTD", margin, y + 22, { lineBreak: false });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED).text("Quality Stay For Every Wallet", margin, y + 35, { lineBreak: false });
+    doc.font(fonts.bold).fontSize(16).fillColor(TEAL).text("PAYOUT RECEIPT", margin, y, { width, align: "right", lineBreak: false });
+    doc.font("Courier-Bold").fontSize(8).fillColor(TEXT_MAIN).text(data.receiptNumber, margin, y + 24, { width, align: "right", lineBreak: false });
+    y += 58;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(margin, y).lineTo(margin + width, y).stroke();
+    y += 14;
+
+    const cardH = 76;
+    const hasQr = Boolean(data.qrPng && data.qrPng.length > 0);
+    doc.roundedRect(margin, y, width, cardH, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("SALES PARTNER PAYOUT", margin + 12, y + 11, { characterSpacing: 0.8, lineBreak: false });
+    doc.font(fonts.bold).fontSize(22).fillColor(TEXT_MAIN).text(money(data.netPaid), margin + 12, y + 27, { width: width - 100, lineBreak: false });
+    doc.roundedRect(margin + 12, y + 54, 40, 15, 4).fill("#dcfce7");
+    doc.font(fonts.bold).fontSize(7.5).fillColor("#166534").text("PAID", margin + 12, y + 58, { width: 40, align: "center", lineBreak: false });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED).text(fmtDateTime(data.paidAt, timeZone), margin + 58, y + 58, { width: width - 160, lineBreak: false });
+    if (hasQr) {
+      try {
+        doc.image(data.qrPng as Buffer, margin + width - 70, y + 6, { fit: [56, 56] });
+        doc.font(fonts.bold).fontSize(5.5).fillColor(TEXT_MUTED).text("SCAN TO VERIFY", margin + width - 76, y + 64, { width: 68, align: "center", lineBreak: false });
+      } catch { /* QR is decorative */ }
+    }
+    y += cardH + 16;
+
+    const section = (title: string) => {
+      doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text(title, margin, y, { characterSpacing: 0.8, lineBreak: false });
+      y += 16;
+    };
+    type Fact = { label: string; value: string | null | undefined; mono?: boolean };
+    const ROW_H = 34;
+    const PAD = 12;
+    const factCard = (rows: Array<[Fact, Fact?]>) => {
+      const cardHeight = rows.length * ROW_H;
+      const half = width / 2;
+      doc.roundedRect(margin, y, width, cardHeight, 6).fillAndStroke(RCPT_BG, BORDER);
+      rows.forEach(([leftFact, rightFact], index) => {
+        const rowY = y + index * ROW_H;
+        if (index > 0) doc.strokeColor(RCPT_BORDER).lineWidth(0.6).moveTo(margin + PAD, rowY).lineTo(margin + width - PAD, rowY).stroke();
+        if (rightFact) doc.strokeColor(RCPT_BORDER).lineWidth(0.6).moveTo(margin + half, rowY + 7).lineTo(margin + half, rowY + ROW_H - 7).stroke();
+        const draw = (fact: Fact, x: number, cellW: number) => {
+          doc.font(fonts.bold).fontSize(6.2).fillColor(RCPT_LABEL).text(fact.label.toUpperCase(), x, rowY + 8, { width: cellW, characterSpacing: 0.8, lineBreak: false });
+          if (!fact.value || fact.value === "Not recorded") {
+            doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MUTED).text("Not recorded", x, rowY + 18, { width: cellW, lineBreak: false });
+          } else {
+            doc.font(fact.mono ? "Courier" : fonts.bold).fontSize(fact.mono ? 8 : 9).fillColor(RCPT_VALUE)
+              .text(String(fact.value), x, rowY + 18, { width: cellW, height: 12, ellipsis: true });
+          }
+        };
+        draw(leftFact, margin + PAD, rightFact ? half - PAD * 2 : width - PAD * 2);
+        if (rightFact) draw(rightFact, margin + half + PAD, half - PAD * 2);
+      });
+      y += cardHeight;
+    };
+
+    section("PAYOUT INFORMATION");
+    factCard([
+      [{ label: "Paid to", value: data.partnerName }, { label: "Account", value: data.maskedDestination }],
+      [{ label: "Method", value: data.paymentMethod }, { label: "Provider reference", value: data.providerReference, mono: true }],
+      [{ label: "NoLSAF reference", value: data.nolsafReference || data.receiptNumber, mono: true }],
+    ]);
+    y += 14;
+    section("EARNINGS");
+    factCard([
+      [{ label: "Withdrawal", value: data.withdrawalReference, mono: true }, { label: "Partner ID", value: data.agentCode, mono: true }],
+      [{ label: "Earnings", value: `${data.earningsCount} commission entr${data.earningsCount === 1 ? "y" : "ies"}` }, { label: "Gross", value: money(data.grossAmount) }],
+      [
+        { label: data.withholdingTaxRate ? `Withholding tax (${data.withholdingTaxRate}%)` : "Withholding tax", value: data.withholdingTaxAmount ? `- ${money(data.withholdingTaxAmount)}` : "None" },
+        { label: "Deductions", value: data.deductionAmount ? `- ${money(data.deductionAmount)}` : "None" },
+      ],
+    ]);
+
+    doc.save();
+    doc.opacity(0.04).fillColor(TEAL).font(fonts.bold).fontSize(54);
+    doc.rotate(-32, { origin: [pageWidth / 2, pageHeight / 2] });
+    doc.text("NoLSAF", 40, pageHeight / 2 - 40, { width: pageWidth - 80, align: "center", lineBreak: false });
+    doc.fontSize(13).text("SALES PAYOUT", 40, pageHeight / 2 + 18, { width: pageWidth - 80, align: "center", characterSpacing: 2.4, lineBreak: false });
+    doc.restore();
+
+    doc.page.margins.bottom = 0;
+    const noteY = Math.max(y + 14, pageHeight - 112);
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN).text(
+      data.disclaimer ||
+        "Confirms NoLSAF sent this sales partner payout to the account shown. Not an AzamPay, bank or mobile network receipt, and not a fiscal tax receipt.",
+      margin, noteY, { width, align: "center" },
+    );
+    const barcodeY = pageHeight - 71;
+    drawCode128Barcode(doc, data.receiptNumber, margin + 91, barcodeY, width - 182, 23);
+    doc.font("Courier-Bold").fontSize(7).fillColor(TEXT_MAIN).text(data.receiptNumber, margin, barcodeY + 27, { width, align: "center", lineBreak: false });
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(margin, pageHeight - 31).lineTo(margin + width, pageHeight - 31).stroke();
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED).text("NoLSAF  |  payments@nolsaf.com  |  nolsaf.com", margin, pageHeight - 24, { width, align: "center", lineBreak: false });
+    doc.page.margins.bottom = margin;
+  }, { size: "A5", margin });
+}
+
 // ─── 3b. Owner accommodation invoice (claim) ───────────────────────────────────
 
 export interface OwnerClaimInvoiceData {

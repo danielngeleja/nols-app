@@ -6,7 +6,7 @@
 // token is required to confirm. The API then sets the verified default payout
 // account that disbursements pay into and syncs the sales withdrawal profile.
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Pencil, ShieldCheck, Smartphone } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Lock, ShieldCheck, Smartphone } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type Current = { name: string | null; method: string | null; accountMasked: string | null } | null | undefined;
@@ -116,17 +116,17 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
     }
   };
 
-  const input = "block min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+  const input = "block min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="m-0 flex items-center gap-2 text-sm font-semibold text-slate-800">
-          <Smartphone className="h-4 w-4 text-emerald-700" aria-hidden />
+          <Smartphone className="h-4 w-4 text-[#02665e]" aria-hidden />
           Payout destination
         </p>
         {!loading && mode === "view" ? (
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+          <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ${ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
             {ready ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> : <AlertTriangle className="h-3.5 w-3.5" aria-hidden />}
             {ready ? "Verified" : "Not set"}
           </span>
@@ -142,26 +142,22 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
         <>
           {ready ? (
             <div className="mt-4 flex items-center gap-3">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700">
                 <ShieldCheck className="h-5 w-5" aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="m-0 truncate text-sm font-semibold text-slate-900">{current!.name}</p>
                 <p className="m-0 mt-0.5 text-xs text-slate-500">{current!.method} · ending {String(current!.accountMasked).replace(/\*/g, "").slice(-4)}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => { setMode("edit"); setError(""); setSaved(""); }}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-emerald-300 hover:text-emerald-800"
-              >
-                <Pencil className="h-3.5 w-3.5" aria-hidden />
-                Change
-              </button>
+              {/* Locked once set: a payout destination is not changed from the sales portal. */}
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600" title="Contact NoLSAF support if this account must change">
+                <Lock className="h-3 w-3" aria-hidden /> Locked
+              </span>
             </div>
           ) : (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4">
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-4">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-slate-400 shadow-sm">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-white text-slate-400 shadow-sm">
                   <Smartphone className="h-5 w-5" aria-hidden />
                 </span>
                 <div className="min-w-0">
@@ -172,7 +168,7 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
               <button
                 type="button"
                 onClick={() => { setMode("edit"); setError(""); }}
-                className="inline-flex min-h-9 items-center rounded-lg bg-[#087f68] px-3.5 text-sm font-semibold text-white transition hover:bg-[#066b59]"
+                className="inline-flex min-h-9 items-center rounded-lg bg-[#02665e] px-3.5 text-sm font-semibold text-white transition hover:bg-[#014d47]"
               >
                 Add destination
               </button>
@@ -209,7 +205,7 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
             <button
               type="submit"
               disabled={busy || !number.trim()}
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#087f68] px-4 text-sm font-semibold text-white transition hover:bg-[#066b59] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#02665e] px-4 text-sm font-semibold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
               {busy ? "Looking up" : "Look up name"}
@@ -224,7 +220,7 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
           </div>
         </form>
       ) : preview ? (
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
           <p className="m-0 text-xs font-medium text-emerald-800">Registered to</p>
           <p className="m-0 mt-0.5 text-lg font-bold tracking-tight text-slate-900">{preview.destination.accountName}</p>
           <p className="m-0 mt-0.5 text-sm text-slate-600">
@@ -239,7 +235,7 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
               type="button"
               onClick={() => void confirm()}
               disabled={busy || secondsLeft === 0}
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#087f68] px-4 text-sm font-semibold text-white transition hover:bg-[#066b59] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#02665e] px-4 text-sm font-semibold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <CheckCircle2 className="h-4 w-4" aria-hidden />}
               {busy ? "Saving" : "Yes, save this destination"}
@@ -262,7 +258,11 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
         </p>
       ) : null}
 
-      <p className="m-0 mt-3 text-xs text-slate-400">Each payout request keeps a copy of the destination it was made with.</p>
+      <p className="m-0 mt-3 text-xs text-slate-400">
+        {ready
+          ? "Your payout account is locked. If it must change, contact NoLSAF support."
+          : "Choose carefully: once saved, your payout account cannot be changed here."}
+      </p>
     </div>
   );
 }

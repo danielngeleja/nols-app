@@ -32,13 +32,14 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { audit } from "../lib/audit.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { limitSalesLeadRead, limitSalesLeadWrite } from "../middleware/rateLimit.js";
+import { leadRef, resolvePartnerLead } from "../lib/salesReference.js";
 
 const router = Router();
 const db = prisma as any;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CLOSED_FOR_EDIT = ["CONVERTED"] as const;
 const PARTNER_ACTIVITY_TYPES = LEAD_ACTIVITY_TYPES.filter(
-  (type) => !["ADMIN_COMMENT", "STATUS_CHANGED"].includes(type),
+  (type) => !["ADMIN_COMMENT", "STATUS_CHANGED", "VISIT"].includes(type),
 );
 
 router.use(
@@ -46,6 +47,24 @@ router.use(
   requireWorkspaceAccess("SALES"),
   requireActivePartnerContract,
 );
+
+// Page addresses carry an opaque lead reference (sl_…), never a row id. It is
+// resolved within this partner's own leads before any handler runs.
+router.param("id", (async (req: SalesAuthedRequest, res: Response, next: (err?: any) => void, value: string) => {
+  try {
+    // A support session's write is refused by blockImpersonated on the route
+    // itself; let it get there before any lookup.
+    if ((req as any).user?.imp && !["GET", "HEAD"].includes(req.method)) return next();
+    const scoped = partnerIdFor(req);
+    if (!scoped) return res.status(403).json({ error: "Sales partner context required" });
+    const id = await resolvePartnerLead(db, value, scoped);
+    if (!id) return res.status(404).json({ error: "Lead not found" });
+    req.params.id = String(id);
+    next();
+  } catch (error) {
+    next(error);
+  }
+}) as any);
 
 function optionalText(max: number) {
   return z
@@ -135,7 +154,7 @@ function partnerId(req: SalesAuthedRequest, res: Response): number | null {
 
 function publicLead(lead: any) {
   const { duplicateEvidence: _duplicateEvidence, ...safe } = lead;
-  return safe;
+  return { ...safe, ref: leadRef(lead.id) };
 }
 
 function duplicateWarning(matches: SalesLeadDuplicateMatch[], currentPartnerId: number) {

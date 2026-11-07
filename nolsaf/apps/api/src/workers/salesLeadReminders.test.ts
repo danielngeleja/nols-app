@@ -47,7 +47,7 @@ describe("sales lead reminders", () => {
       leadId: 7,
       propertyName: "Jamirex Hotel",
       dedupeKey: followUpKey(7, due),
-      actionPath: "/sales/leads/7",
+      actionPath: expect.stringMatching(/^\/sales\/leads\/sl_[A-Za-z0-9_-]{22}$/),
     }));
   });
 

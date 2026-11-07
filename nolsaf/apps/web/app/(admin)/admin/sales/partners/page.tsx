@@ -1,15 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   BadgeCheck,
-  BookOpen,
   CheckCircle2,
   ChevronRight,
   Clock3,
   FileSignature,
-  LayoutDashboard,
   LayoutGrid,
   List,
   Loader2,
@@ -17,14 +14,17 @@ import {
   PauseCircle,
   RefreshCw,
   Search,
-  ShieldCheck,
+  UserCheck,
   UserPlus,
   Users,
-  Wallet,
   X,
   XCircle,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import TeamInvitesAdmin from "@/components/admin/sales/TeamInvitesAdmin";
+import RegionSelect from "@/components/admin/sales/RegionSelect";
+import { type AdminIdCard } from "@/components/admin/sales/PartnerIdCardAdmin";
+import PartnerRecord, { type RecordAttention } from "@/components/admin/sales/PartnerRecord";
 import DatePickerField from "@/components/DatePickerField";
 import TablePagination from "@/components/TablePagination";
 
@@ -76,22 +76,13 @@ type PartnerDetail = PartnerRow & {
     invitationUsedAt: string | null;
   }>;
   _count: PartnerRow["_count"] & { commissions: number; payoutRequests: number };
+  idCards?: AdminIdCard[];
 };
 
 const partnerPageSize = 20;
 const fieldClass = "min-h-10 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 hover:border-neutral-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
 const actionClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-4 text-sm font-bold text-neutral-700 shadow-sm no-underline transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-45";
 const primaryClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-solid border-emerald-700 bg-emerald-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45";
-// Ghost buttons sitting on the dark sales header.
-const heroButton = "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white hover:no-underline disabled:opacity-60";
-
-function statusTone(status: string) {
-  if (status === "ACTIVE") return "border-emerald-100 bg-emerald-50 text-emerald-700";
-  if (status === "PENDING" || status === "SIGNED") return "border-amber-100 bg-amber-50 text-amber-700";
-  if (status === "SUSPENDED") return "border-orange-100 bg-orange-50 text-orange-700";
-  if (status === "TERMINATED") return "border-red-100 bg-red-50 text-red-700";
-  return "border-neutral-200 bg-neutral-100 text-neutral-600";
-}
 
 // Partner lifecycle: one definition drives the track, cards and list. Classes spelled out for Tailwind.
 const LIFECYCLE = [
@@ -145,7 +136,7 @@ function LevelSignal({ level }: { level: string }) {
 }
 
 export default function AdminSalesPartnersPage() {
-  const [tab, setTab] = useState<"directory" | "promote">("directory");
+  const [tab, setTab] = useState<"directory" | "invites" | "promote">("directory");
   const [view, setView] = useState<"cards" | "list">("cards");
   const [partners, setPartners] = useState<PartnerRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -155,6 +146,8 @@ export default function AdminSalesPartnersPage() {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [selectedPartner, setSelectedPartner] = useState<PartnerDetail | null>(null);
+  const [attention, setAttention] = useState<RecordAttention | null>(null);
+  const [access, setAccess] = useState<{ status: string; expiresAt: string | null } | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [userQuery, setUserQuery] = useState("");
@@ -174,8 +167,6 @@ export default function AdminSalesPartnersPage() {
     termDays: "365",
     reason: "",
   });
-  const [activation, setActivation] = useState({ signatoryName: "", signatoryTitle: "", reason: "" });
-  const [invitationReason, setInvitationReason] = useState("");
 
   // Remember the preferred directory view for this admin.
   useEffect(() => {
@@ -228,32 +219,12 @@ export default function AdminSalesPartnersPage() {
     try {
       const response = await apiClient.get(`/api/admin/sales/partners/${id}`);
       setSelectedPartner(response.data?.partner || null);
-      setActivation({ signatoryName: "", signatoryTitle: "", reason: "" });
-      setInvitationReason("");
+      setAttention(response.data?.attention || null);
+      setAccess(response.data?.workspaceAccess || null);
     } catch (cause: any) {
       setError(message(cause, "Could not load this partner."));
     } finally {
       setDetailLoading(false);
-    }
-  };
-
-  const resendInvitation = async (contractId: number) => {
-    if (invitationReason.trim().length < 5) {
-      return setError("Enter an administrative reason of at least 5 characters before resending.");
-    }
-    setBusy(`resend-${contractId}`);
-    setError("");
-    setNotice("");
-    try {
-      await apiClient.post(`/api/admin/sales/contracts/${contractId}/resend-invitation`, {
-        reason: invitationReason.trim(),
-      });
-      setNotice("A new secure agreement invitation was sent. The previous link is no longer valid.");
-      setInvitationReason("");
-    } catch (cause: any) {
-      setError(message(cause, "Could not resend the agreement invitation."));
-    } finally {
-      setBusy("");
     }
   };
 
@@ -329,29 +300,6 @@ export default function AdminSalesPartnersPage() {
     }
   };
 
-  const activateContract = async (contractId: number) => {
-    if (activation.signatoryName.trim().length < 3 || activation.signatoryTitle.trim().length < 2 || activation.reason.trim().length < 5) {
-      return setError("Enter the countersignatory name, title, and activation reason.");
-    }
-    if (!selectedPartner) return;
-    setBusy(`activate-${contractId}`);
-    setError("");
-    setNotice("");
-    try {
-      await apiClient.post(`/api/admin/sales/contracts/${contractId}/activate`, {
-        signatoryName: activation.signatoryName.trim(),
-        signatoryTitle: activation.signatoryTitle.trim(),
-        reason: activation.reason.trim(),
-      });
-      setNotice(`Contract activated. ${selectedPartner.agentCode} can now enter the Sales Partner Workspace.`);
-      await Promise.all([loadPartners(), openPartner(selectedPartner.id)]);
-    } catch (cause: any) {
-      setError(message(cause, "Contract activation failed."));
-    } finally {
-      setBusy("");
-    }
-  };
-
   const pickStatus = (next: string) => {
     setTab("directory");
     setStatus((current) => (current === next ? "" : next));
@@ -363,55 +311,51 @@ export default function AdminSalesPartnersPage() {
 
   return (
     <div className="space-y-5 w-full min-w-0">
-      {/* Sales header: dark brand band with the page's two views as tabs */}
-      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
-        <div className="relative px-5 pt-5 sm:px-6 sm:pt-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Sales</p>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Sales partners</h1>
-              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Promote existing users, track their agreements and activate workspace access.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Link href="/admin/sales" className={heroButton}><LayoutDashboard className="h-3.5 w-3.5" /> Sales review</Link>
-              <Link href="/admin/sales/finance" className={heroButton}><Wallet className="h-3.5 w-3.5" /> Finance</Link>
-              <Link href="/admin/sales/materials" className={heroButton}><BookOpen className="h-3.5 w-3.5" /> Materials</Link>
-              <button type="button" onClick={() => void loadPartners()} disabled={loading} className={`${heroButton} w-9 px-0`} aria-label="Refresh sales partners" title="Refresh">
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              </button>
-            </div>
+      {/* Sales header: compact dark band; the admin sidebar handles navigation */}
+      <header className="rounded-lg border border-solid border-[#12342f] bg-[#0b2420] text-white">
+        <div className="flex flex-col gap-4 px-5 pt-4 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300/80">Sales</p>
+            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white">Sales partners</h1>
+            <p className="m-0 mt-0.5 max-w-2xl text-[13px] text-white/60">Promote existing users, track their agreements and activate workspace access.</p>
           </div>
 
-          {/* Headline numbers */}
-          <div className="mt-5 flex flex-wrap items-end gap-x-8 gap-y-3">
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{allCount.toLocaleString()}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">{allCount === 1 ? "Partner" : "Partners"} in the network</p>
-            </div>
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-emerald-300">{activeShare}%</p>
-              <p className="m-0 mt-1 text-xs text-white/55">Active with workspace access</p>
-            </div>
-          </div>
-
-          <div className="mt-5 flex gap-1" role="tablist" aria-label="Sales partner views">
-            {([["directory", "Directory", Users], ["promote", "Promote user", UserPlus]] as const).map(([key, label, Icon]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={tab === key}
-                onClick={() => setTab(key)}
-                className={`relative inline-flex h-11 items-center gap-2 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${tab === key ? "text-white" : "text-white/50 hover:text-white/80"}`}
-              >
-                <Icon className="h-4 w-4" /> {label}
-                {tab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-emerald-400" aria-hidden />}
-              </button>
-            ))}
+          <div className="flex items-stretch gap-2">
+            <dl className="m-0 flex items-stretch overflow-hidden rounded-md border border-solid border-white/15 bg-white/[0.04]">
+              <div className="px-4 py-2">
+                <dt className="text-[11px] text-white/55">Partners</dt>
+                <dd className="m-0 text-lg font-bold tabular-nums leading-tight text-white">{allCount.toLocaleString()}</dd>
+              </div>
+              <div className="border-0 border-l border-solid border-white/10 px-4 py-2">
+                <dt className="text-[11px] text-white/55">Active</dt>
+                <dd className="m-0 text-lg font-bold tabular-nums leading-tight text-white">
+                  {activeCount.toLocaleString()}
+                  <span className="ml-1.5 text-xs font-semibold text-emerald-300">{activeShare}%</span>
+                </dd>
+              </div>
+            </dl>
+            <button type="button" onClick={() => void loadPartners()} disabled={loading} className="grid w-10 place-items-center rounded-md border border-solid border-white/15 bg-white/[0.04] text-white/80 [font-family:inherit] hover:bg-white/10 hover:text-white disabled:opacity-60" aria-label="Refresh sales partners" title="Refresh">
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
           </div>
         </div>
-      </section>
+
+        <div className="mt-3 flex gap-1 border-0 border-t border-solid border-white/10 px-3" role="tablist" aria-label="Sales partner views">
+          {([["directory", "Directory", Users], ["invites", "Team invites", UserCheck], ["promote", "Promote user", UserPlus]] as const).map(([key, label, Icon]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              className={`relative inline-flex h-10 items-center gap-2 border-0 bg-transparent px-3 text-[13px] font-semibold [font-family:inherit] transition-colors ${tab === key ? "text-white" : "text-white/50 hover:text-white/80"}`}
+            >
+              <Icon className="h-4 w-4" /> {label}
+              {tab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 bg-emerald-400" aria-hidden />}
+            </button>
+          ))}
+        </div>
+      </header>
 
       {error && (
         <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
@@ -428,7 +372,9 @@ export default function AdminSalesPartnersPage() {
         </div>
       )}
 
-      {tab === "directory" ? (
+      {tab === "invites" ? (
+        <TeamInvitesAdmin onPromoted={() => void loadPartners()} />
+      ) : tab === "directory" ? (
         <>
           {/* Lifecycle track: where every partner sits, and a one-click filter */}
           <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-2">
@@ -553,7 +499,7 @@ export default function AdminSalesPartnersPage() {
                       <tbody>
                         {partners.map((partner) => {
                           const stage = lifecycleOf(partner.status);
-                          const name = tidyName(partner.user.name) || partner.user.email || `User #${partner.user.id}`;
+                          const name = tidyName(partner.user.name) || partner.user.email || "Partner";
                           return (
                             <tr key={partner.id} onClick={() => void openPartner(partner.id)} className="cursor-pointer border-0 border-t border-solid border-neutral-100 transition-colors hover:bg-neutral-50/70">
                               <td className="px-4 py-3 sm:pl-5">
@@ -589,7 +535,7 @@ export default function AdminSalesPartnersPage() {
                 <div className={`grid grid-cols-1 gap-3 border-0 border-t border-solid border-neutral-100 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3 2xl:grid-cols-4 ${view === "list" ? "md:hidden" : ""}`}>
                   {partners.map((partner) => {
                     const stage = lifecycleOf(partner.status);
-                    const name = tidyName(partner.user.name) || partner.user.email || `User #${partner.user.id}`;
+                    const name = tidyName(partner.user.name) || partner.user.email || "Partner";
                     const since = partner.status === "ACTIVE" && partner.activatedAt ? `Active since ${date(partner.activatedAt)}` : stage?.hint || humanize(partner.status);
                     return (
                       <button
@@ -660,7 +606,7 @@ export default function AdminSalesPartnersPage() {
             <div className="mt-3 space-y-2">
               {userResults.map((user) => (
                 <button key={user.id} type="button" disabled={user.alreadyPartner} onClick={() => { setSelectedUser(user); setPromotion((current) => ({ ...current, phone: user.phone || "" })); }} className={`block w-full rounded-xl border border-solid p-3 text-left transition ${selectedUser?.id === user.id ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-100" : "border-neutral-200 bg-white hover:border-emerald-200"} disabled:cursor-not-allowed disabled:opacity-60`}>
-                  <span className="flex items-center justify-between gap-2"><b className="truncate text-sm text-neutral-900">{user.name || user.email || `User #${user.id}`}</b><span className="text-[10px] font-bold text-neutral-400">#{user.id} / {user.role}</span></span>
+                  <span className="flex items-center justify-between gap-2"><b className="truncate text-sm text-neutral-900">{user.name || user.email || "User"}</b><span className="text-[10px] font-bold text-neutral-400">{user.role}</span></span>
                   <span className="mt-1 block truncate text-xs text-neutral-500">{user.email || "No email"} / {user.phone || "No phone"}</span>
                   {user.alreadyPartner && <span className="mt-2 inline-flex rounded-full border border-solid border-amber-100 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">Already {user.partner?.agentCode}</span>}
                   {!user.alreadyPartner && !user.salesProfileReady && <span className="mt-2 block text-[10px] font-semibold text-red-600">Profile missing: {user.missingSalesFields.join(", ")}</span>}
@@ -680,14 +626,14 @@ export default function AdminSalesPartnersPage() {
             </div>
             {!selectedUser ? <div className="grid min-h-72 place-items-center text-center"><div><FileSignature className="mx-auto h-8 w-8 text-neutral-300" /><p className="mb-0 mt-3 text-sm font-bold text-neutral-700">Select an eligible user</p><p className="mb-0 mt-1 text-xs text-neutral-500">Their sales profile and contract details will be configured here.</p></div></div> : (
               <>
-                <div className="mt-4 border-0 border-l-2 border-solid border-emerald-600 px-3 py-1"><p className="m-0 text-xs font-bold text-neutral-900">{selectedUser.name || selectedUser.email}</p><p className="m-0 mt-0.5 text-[11px] text-neutral-500">{selectedUser.email} / user #{selectedUser.id}</p></div>
+                <div className="mt-4 border-0 border-l-2 border-solid border-emerald-600 px-3 py-1"><p className="m-0 text-xs font-bold text-neutral-900">{selectedUser.name || selectedUser.email}</p><p className="m-0 mt-0.5 text-[11px] text-neutral-500">{selectedUser.email}</p></div>
                 {!selectedUser.salesProfileReady && (
                   <div className="mt-3 border-0 border-l-2 border-solid border-amber-500 px-3 py-1 text-[11px] leading-5 text-amber-800">
                     Ask this user to complete their {selectedUser.missingSalesFields.join(", ")} in Account → Personal Information before promotion.
                   </div>
                 )}
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label className="text-[11px] font-bold text-neutral-600">Region *<input value={promotion.region} onChange={(e) => setPromotion({ ...promotion, region: e.target.value })} className={`${fieldClass} mt-1.5`} placeholder="Dar es Salaam" /></label>
+                  <label className="text-[11px] font-bold text-neutral-600">Region *<RegionSelect value={promotion.region} onChange={(region) => setPromotion({ ...promotion, region })} className={`${fieldClass} mt-1.5`} /></label>
                   <label className="text-[11px] font-bold text-neutral-600">Territory<input value={promotion.territory} onChange={(e) => setPromotion({ ...promotion, territory: e.target.value })} className={`${fieldClass} mt-1.5`} placeholder="Assigned territory" /></label>
                   <label className="text-[11px] font-bold text-neutral-600">Phone<input value={promotion.phone} onChange={(e) => setPromotion({ ...promotion, phone: e.target.value })} className={`${fieldClass} mt-1.5`} placeholder="+255..." /></label>
                   <div className="text-[11px] font-bold text-neutral-600">
@@ -715,127 +661,15 @@ export default function AdminSalesPartnersPage() {
       )}
 
       {detailOpen && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-neutral-950/45 p-3 backdrop-blur-sm sm:p-6" onMouseDown={() => setDetailOpen(false)}>
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="sales-partner-detail-title"
-            className="max-h-[calc(100dvh-24px)] w-full max-w-5xl overflow-y-auto rounded-xl border border-solid border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-48px)]"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-0 border-b border-solid border-neutral-200 bg-white px-5 py-4">
-              <div className="min-w-0">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">Sales partner record</p>
-                <h2 id="sales-partner-detail-title" className="mb-0 mt-1 truncate text-lg font-bold text-neutral-950">
-                  {selectedPartner?.user.name || selectedPartner?.user.email || "Partner details"}
-                </h2>
-              </div>
-              <button type="button" onClick={() => setDetailOpen(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-900" aria-label="Close partner details"><X className="h-4 w-4" /></button>
-            </div>
-
-            {detailLoading ? (
-              <div className="grid min-h-80 place-items-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
-            ) : !selectedPartner ? (
-              <div className="grid min-h-80 place-items-center p-8 text-center"><div><ShieldCheck className="mx-auto h-9 w-9 text-neutral-300" /><p className="mb-0 mt-3 text-sm font-bold text-neutral-700">Partner information is unavailable</p><p className="mb-0 mt-1 text-xs text-neutral-500">Close this window and try opening the record again.</p></div></div>
-            ) : (
-              <div className="space-y-5 p-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-emerald-700">{selectedPartner.agentCode}</span>
-                      <span className={`rounded-full border border-solid px-2.5 py-1 text-[10px] font-bold ${statusTone(selectedPartner.status)}`}>{selectedPartner.status}</span>
-                      <span className="rounded-full border border-solid border-sky-100 bg-sky-50 px-2.5 py-1 text-[10px] font-bold text-sky-700">{selectedPartner.level}</span>
-                    </div>
-                    <p className="mb-0 mt-2 text-sm font-semibold text-neutral-800">{selectedPartner.user.email}</p>
-                    <p className="mb-0 mt-1 text-xs text-neutral-500">{selectedPartner.phone || selectedPartner.user.phone || "No phone number"}</p>
-                  </div>
-                  <div className="text-right text-[11px] text-neutral-500">
-                    <p className="m-0">Joined {date(selectedPartner.createdAt)}</p>
-                    <p className="mb-0 mt-1">Activated {date(selectedPartner.activatedAt)}</p>
-                  </div>
-                </div>
-
-                <dl className="grid grid-cols-2 border-0 border-y border-solid border-neutral-200 md:grid-cols-6">
-                  {[
-                    ["Region", selectedPartner.region || "Not set"],
-                    ["Territory", selectedPartner.territory || "Not set"],
-                    ["Leads", selectedPartner._count.leads],
-                    ["Attributions", selectedPartner._count.attributions],
-                    ["Commissions", selectedPartner._count.commissions],
-                    ["Payouts", selectedPartner._count.payoutRequests],
-                  ].map(([label, value], index) => (
-                    <div key={String(label)} className={`min-w-0 px-3 py-3 ${index % 2 ? "border-0 border-l border-solid border-neutral-200" : ""} md:border-0 md:border-l md:border-solid md:border-neutral-200 ${index === 0 ? "md:border-l-0" : ""}`}>
-                      <dt className="text-[9px] font-bold uppercase tracking-wide text-neutral-400">{label}</dt>
-                      <dd className="mb-0 mt-1 truncate text-xs font-semibold text-neutral-700">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-
-                <div>
-                  <h3 className="m-0 text-xs font-bold uppercase tracking-wide text-neutral-500">Agreements</h3>
-                  <div className="mt-2 border-0 border-y border-solid border-neutral-200">
-                    <table className="w-full table-fixed border-collapse text-left">
-                      <thead className="bg-neutral-50 text-[9px] font-bold uppercase tracking-wide text-neutral-500">
-                        <tr>
-                          <th className="w-[25%] px-3 py-2.5">Agreement</th>
-                          <th className="w-[35%] px-3 py-2.5">Period</th>
-                          <th className="w-[25%] px-3 py-2.5">Rates</th>
-                          <th className="w-[15%] px-3 py-2.5">Status</th>
-                        </tr>
-                      </thead>
-                      {selectedPartner.contracts.map((contract) => (
-                        <tbody key={contract.id} className="border-0 border-t border-solid border-neutral-100">
-                          <tr className="align-top">
-                            <td className="break-words px-3 py-3 text-[11px] font-bold text-neutral-900">
-                              {contract.contractNumber}
-                              {contract.invitationSentAt && <span className="mt-1 block text-[9px] font-normal text-neutral-400">Invite {contract.invitationUsedAt ? "used" : `expires ${date(contract.invitationExpiresAt)}`}</span>}
-                            </td>
-                            <td className="px-3 py-3 text-[10px] leading-5 text-neutral-500">{date(contract.startsAt)} to {date(contract.expiresAt)}</td>
-                            <td className="px-3 py-3 text-[10px] leading-5 text-neutral-500">NRMS {Number(contract.nrmsCommissionRate)}%<br />Marketplace {Number(contract.marketplaceRevenueRate)}%</td>
-                            <td className="px-3 py-3"><span className={`inline-flex max-w-full rounded-full border border-solid px-2 py-0.5 text-[9px] font-bold ${statusTone(contract.status)}`}>{contract.status}</span></td>
-                          </tr>
-                          {["SENT", "VIEWED"].includes(contract.status) && (
-                            <tr className="bg-sky-50/60">
-                              <td colSpan={4} className="px-3 py-3">
-                                <p className="m-0 text-xs font-bold text-sky-900">Send a new invitation</p>
-                                <p className="mb-0 mt-1 text-[10px] text-sky-700">The previous email link will stop working immediately.</p>
-                                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                                  <input value={invitationReason} onChange={(event) => setInvitationReason(event.target.value)} className={fieldClass} placeholder="Administrative reason for resending" />
-                                  <button type="button" onClick={() => void resendInvitation(contract.id)} disabled={busy === `resend-${contract.id}`} className={`${actionClass} shrink-0`}>
-                                    {busy === `resend-${contract.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />}Resend invitation
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                          {contract.status === "SIGNED" && (
-                            <tr className="bg-amber-50/60">
-                              <td colSpan={4} className="px-3 py-3">
-                                <p className="m-0 text-xs font-bold text-amber-900">Countersign and activate workspace</p>
-                                <div className="mt-2 grid gap-2 sm:grid-cols-2"><input value={activation.signatoryName} onChange={(e) => setActivation({ ...activation, signatoryName: e.target.value })} className={fieldClass} placeholder="Signatory name" /><input value={activation.signatoryTitle} onChange={(e) => setActivation({ ...activation, signatoryTitle: e.target.value })} className={fieldClass} placeholder="Signatory title" /><input value={activation.reason} onChange={(e) => setActivation({ ...activation, reason: e.target.value })} className={`${fieldClass} sm:col-span-2`} placeholder="Activation reason" /></div>
-                                <button type="button" onClick={() => void activateContract(contract.id)} disabled={busy === `activate-${contract.id}`} className={`${primaryClass} mt-2`}>{busy === `activate-${contract.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}Activate sales workspace</button>
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      ))}
-                    </table>
-                    {selectedPartner.contracts.length === 0 && <p className="m-0 px-3 py-6 text-center text-xs text-neutral-500">No agreements found.</p>}
-                  </div>
-                </div>
-
-                <div className="border-0 border-t border-solid border-neutral-200 pt-4">
-                  <h3 className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Payout destination</h3>
-                  <p className="mb-0 mt-1 text-xs font-semibold text-neutral-700">
-                    {selectedPartner.payoutMethod
-                      ? `${selectedPartner.payoutName || "Account holder"} / ${selectedPartner.payoutMethod} / ending ${selectedPartner.payoutAccount || "not set"}`
-                      : "Not configured"}
-                  </p>
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
+        <PartnerRecord
+          partner={selectedPartner as any}
+          attention={attention}
+          access={access}
+          loading={detailLoading}
+          onClose={() => setDetailOpen(false)}
+          onReload={() => { if (selectedPartner) void openPartner(selectedPartner.id); }}
+          onChanged={() => void loadPartners()}
+        />
       )}
     </div>
   );

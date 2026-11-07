@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import { Router, type ErrorRequestHandler, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
@@ -11,10 +10,21 @@ import {
   requireWorkspaceAccess,
   type SalesAuthedRequest,
 } from "../middleware/salesWorkspace.js";
-import { MIN_PAYOUT_AMOUNT, PAYOUT_STATUSES, maskPayoutAccount } from "../lib/salesPartner.js";
-import { notifyAdmins } from "../lib/notifications.js";
+import { PAYOUT_STATUSES, maskPayoutAccount } from "../lib/salesPartner.js";
 import { sanitizeText } from "../lib/sanitize.js";
-import { generateSalesPayoutReceiptPdf } from "../lib/salesPayoutReceipt.js";
+import QRCode from "qrcode";
+import { generateSalesPayoutReceiptPdf } from "../lib/pdfDocuments.js";
+import {
+  buildSalesPayoutReceiptSnapshot,
+  buildSalesPayoutReceiptVerificationUrl,
+  signSalesPayoutReceipt,
+} from "../lib/salesPayoutReceiptSeal.js";
+import {
+  SalesWithdrawalError,
+  confirmSalesWithdrawal,
+  salesWithdrawalStatus,
+  startSalesWithdrawal,
+} from "../services/payouts/salesWithdrawal.js";
 
 const router = Router();
 const db = prisma as any;
@@ -32,9 +42,6 @@ const listSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
   status: z.enum(PAYOUT_STATUSES).optional(),
 });
-const requestSchema = z.object({
-  commissionIds: z.array(z.coerce.number().int().positive()).min(1).max(500).optional(),
-}).strict();
 const cancelSchema = z.object({
   reason: z.string().trim().min(5).max(300).transform(sanitizeText),
 }).strict();
@@ -53,15 +60,13 @@ function partnerId(req: SalesAuthedRequest, res: Response): number | null {
   return id;
 }
 
-function referenceNumber(partnerId: number) {
-  return `SP-${new Date().getUTCFullYear()}-${partnerId}-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
-}
-
 function number(value: unknown) {
   return Number(value || 0);
 }
 
-function publicPayout(row: any) {
+function publicPayout(input: any) {
+  // Which withdrawal rules fired, and handoff internals, are for finance only.
+  const { reviewFlags: _flags, handoffError: _error, handoffAttempts: _attempts, challengeId: _challenge, payoutAccountId: _account, ...row } = input;
   return {
     ...row,
     requestedAmount: number(row.requestedAmount),
@@ -121,6 +126,8 @@ router.get("/payouts", limitSalesPropertyRead, asyncHandler(async (req: SalesAut
         rejectionReason: true,
         paymentReference: true,
         receiptUrl: true,
+        // AUTO or REVIEW only. The rules a withdrawal broke stay with finance.
+        lane: true,
         _count: { select: { items: true } },
       },
     }),
@@ -128,104 +135,60 @@ router.get("/payouts", limitSalesPropertyRead, asyncHandler(async (req: SalesAut
   res.json({ total, page, pageSize, payouts: payouts.map(publicPayout) });
 }));
 
-/** POST /api/sales/payouts */
-router.post("/payouts", limitSalesAdminWrite, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
-  const parsed = requestSchema.safeParse(req.body || {});
+const confirmSchema = z.object({
+  challengeRef: z.string().trim().min(10).max(40),
+  code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code"),
+}).strict();
+
+function sendWithdrawalError(res: Response, error: unknown): boolean {
+  if (!(error instanceof SalesWithdrawalError)) return false;
+  res.status(error.httpStatus).json({ error: error.message, code: error.code, ...error.extra });
+  return true;
+}
+
+/** GET /api/sales/payouts/withdrawal: what the Withdraw panel shows. */
+router.get("/payouts/withdrawal", limitSalesPropertyRead, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const scopedPartnerId = partnerId(req, res);
+  if (!scopedPartnerId) return;
+  try {
+    res.json(await salesWithdrawalStatus(scopedPartnerId));
+  } catch (error) {
+    if (!sendWithdrawalError(res, error)) throw error;
+  }
+}));
+
+/** POST /api/sales/payouts/withdrawal/code: sends a one-time code bound to this withdrawal. */
+router.post("/payouts/withdrawal/code", limitSalesAdminWrite, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const scopedPartnerId = partnerId(req, res);
+  if (!scopedPartnerId) return;
+  try {
+    res.status(201).json(await startSalesWithdrawal(scopedPartnerId));
+  } catch (error) {
+    if (!sendWithdrawalError(res, error)) throw error;
+  }
+}));
+
+/** POST /api/sales/payouts/withdrawal/confirm: the code creates the payout and runs every rule. */
+router.post("/payouts/withdrawal/confirm", limitSalesAdminWrite, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const parsed = confirmSchema.safeParse(req.body || {});
   if (invalid(res, parsed)) return;
   const scopedPartnerId = partnerId(req, res);
   if (!scopedPartnerId) return;
-  const inputIds = parsed.data!.commissionIds;
-  const result = await db.$transaction(async (tx: any) => {
-    const profile = await tx.salesPartnerProfile.findUnique({
-      where: { id: scopedPartnerId },
-      select: {
-        id: true,
-        status: true,
-        payoutMethod: true,
-        payoutName: true,
-        payoutAccount: true,
-      },
-    });
-    if (!profile || profile.status !== "ACTIVE") throw new PayoutConflictError("Sales partner is not active");
-    if (!profile.payoutMethod || !profile.payoutName || !profile.payoutAccount) {
-      throw new PayoutConflictError("Complete your payout destination before requesting withdrawal");
-    }
-    const commissions = await tx.salesCommission.findMany({
-      where: {
-        salesPartnerId: scopedPartnerId,
-        status: "AVAILABLE",
-        payoutItem: null,
-        ...(inputIds ? { id: { in: [...new Set(inputIds)] } } : {}),
-      },
-      orderBy: [{ availableAt: "asc" }, { id: "asc" }],
-      take: 500,
-      select: { id: true, commissionAmount: true, currency: true },
-    });
-    if (!commissions.length) throw new PayoutConflictError("No available earnings can be withdrawn");
-    if (inputIds && commissions.length !== new Set(inputIds).size) {
-      throw new PayoutConflictError("One or more selected earnings are unavailable or already locked");
-    }
-    const currencies = [...new Set(commissions.map((item: any) => item.currency))];
-    if (currencies.length !== 1) throw new PayoutConflictError("Create separate payouts for each currency");
-    const requestedAmount = commissions.reduce((sum: number, item: any) => sum + number(item.commissionAmount), 0);
-    if (requestedAmount <= 0) {
-      throw new PayoutConflictError("Available credits must exceed recovery adjustments before withdrawal");
-    }
-    if (currencies[0] === "TZS" && requestedAmount < MIN_PAYOUT_AMOUNT) {
-      throw new PayoutConflictError(`Minimum withdrawal is TSh ${MIN_PAYOUT_AMOUNT.toLocaleString("en-US")}`);
-    }
-    const payout = await tx.salesPayoutRequest.create({
-      data: {
-        salesPartnerId: scopedPartnerId,
-        referenceNumber: referenceNumber(scopedPartnerId),
-        requestedAmount,
-        currency: currencies[0],
-        status: "REQUESTED",
-        payoutMethod: profile.payoutMethod,
-        payoutName: profile.payoutName,
-        payoutAccount: profile.payoutAccount,
-      },
-      select: { id: true, referenceNumber: true, requestedAmount: true, currency: true, status: true, requestedAt: true },
-    });
-    await tx.salesPayoutItem.createMany({
-      data: commissions.map((item: any) => ({
-        payoutId: payout.id,
-        commissionId: item.id,
-        amount: item.commissionAmount,
-      })),
-    });
-    await tx.auditLog.create({
-      data: {
-        actorId: req.user!.id,
-        actorRole: req.user!.role || "USER",
-        action: "SALES_PAYOUT_REQUEST",
-        entity: "SALES_PAYOUT_REQUEST",
-        entityId: payout.id,
-        beforeJson: null,
-        afterJson: {
-          referenceNumber: payout.referenceNumber,
-          requestedAmount,
-          currency: currencies[0],
-          commissionIds: commissions.map((item: any) => item.id),
-          payoutMethod: profile.payoutMethod,
-          payoutAccountLast4: maskPayoutAccount(profile.payoutAccount),
-        },
-      },
-    });
-    return { payout, itemCount: commissions.length };
-  }).catch((error: any) => {
-    if (error instanceof PayoutConflictError) throw error;
-    if (error?.code === "P2002") throw new PayoutConflictError("An earning was claimed by another payout; reload and try again");
-    throw error;
-  });
-  await notifyAdmins("sales_partner_payout_requested", {
-    payoutId: result.payout.id,
-    referenceNumber: result.payout.referenceNumber,
-    amount: number(result.payout.requestedAmount),
-    currency: result.payout.currency,
-  });
-  res.status(201).json({ payout: publicPayout(result.payout), itemCount: result.itemCount });
+  try {
+    res.json(await confirmSalesWithdrawal(scopedPartnerId, parsed.data!.challengeRef, parsed.data!.code));
+  } catch (error) {
+    if (!sendWithdrawalError(res, error)) throw error;
+  }
 }));
+
+/**
+ * POST /api/sales/payouts (retired). Withdrawals are confirmed with a one-time
+ * code and checked against every rule; a request without a code is refused.
+ */
+router.post("/payouts", limitSalesAdminWrite, asyncHandler(async (_req: SalesAuthedRequest, res: Response) => {
+  res.status(409).json({ code: "USE_WITHDRAW", error: "Use Withdraw: withdrawals are now confirmed with a one-time code." });
+}));
+
 
 /** GET /api/sales/payouts/:id */
 router.get("/payouts/:id", limitSalesPropertyRead, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
@@ -275,31 +238,42 @@ router.get("/payouts/:id/receipt", limitSalesPropertyRead, asyncHandler(async (r
       salesPartner: {
         select: {
           agentCode: true,
-          user: { select: { name: true } },
+          user: { select: { name: true, fullName: true } },
         },
       },
       _count: { select: { items: true } },
     },
   });
   if (!payout) return res.status(404).json({ error: "Paid payout receipt not found" });
-  const pdf = await generateSalesPayoutReceiptPdf({
+  // The provider's own reference, as on owner payout receipts.
+  const disbursement = await db.disbursement.findFirst({
+    where: { sourceType: "SALES_PAYOUT", sourceId: payout.id, status: "PAID" },
+    orderBy: { paidAt: "desc" },
+    select: { fspReferenceId: true, pgReferenceId: true, externalReferenceId: true, bankName: true },
+  });
+  const snapshot = buildSalesPayoutReceiptSnapshot({
     referenceNumber: payout.referenceNumber,
+    partnerName: payout.salesPartner.user.fullName || payout.salesPartner.user.name || payout.payoutName,
     agentCode: payout.salesPartner.agentCode,
-    partnerName: payout.salesPartner.user.name || payout.payoutName,
-    requestedAmount: payout.requestedAmount,
+    earningsCount: payout._count.items,
     approvedAmount: payout.approvedAmount,
+    requestedAmount: payout.requestedAmount,
     deductionAmount: payout.deductionAmount,
+    withholdingTaxRate: payout.withholdingTaxRate,
+    withholdingTaxAmount: payout.withholdingTaxAmount,
     netPaidAmount: payout.netPaidAmount,
     currency: payout.currency,
-    payoutMethod: payout.payoutMethod,
-    payoutAccountMasked: maskPayoutAccount(payout.payoutAccount) || "unknown",
-    paymentReference: payout.paymentReference,
+    payoutMethod: payout.payoutMethod || disbursement?.bankName,
+    payoutAccount: payout.payoutAccount,
+    paymentReference: disbursement?.externalReferenceId || payout.paymentReference,
+    providerReference: disbursement?.fspReferenceId || disbursement?.pgReferenceId || null,
     paidAt: payout.paidAt,
-    itemCount: payout._count.items,
   });
-  const safeReference = payout.referenceNumber.replace(/[^A-Za-z0-9_-]/g, "_");
+  const verificationUrl = buildSalesPayoutReceiptVerificationUrl(signSalesPayoutReceipt(snapshot));
+  const qrPng = await QRCode.toBuffer(verificationUrl, { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
+  const pdf = await generateSalesPayoutReceiptPdf({ ...snapshot, paidAt: snapshot.settledAt, qrPng });
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="${safeReference}-receipt.pdf"`);
+  res.setHeader("Content-Disposition", `inline; filename="${snapshot.receiptNumber}.pdf"`);
   res.setHeader("Cache-Control", "private, no-store");
   res.end(pdf);
 }));

@@ -8,6 +8,7 @@ import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
 
 type Lead = {
   id: number;
+  ref: string;
   propertyName: string;
   contactPerson: string | null;
   location: string | null;
@@ -219,7 +220,7 @@ export default function SalesLeadsPage() {
                       return (
                         <tr key={lead.id} className="transition-colors hover:bg-emerald-50/30">
                           <td className="px-5 py-3 align-middle">
-                            <Link href={`/sales/leads/${lead.id}`} className="block truncate text-[13px] font-bold text-slate-900 no-underline hover:text-emerald-800 hover:underline">{lead.propertyName}</Link>
+                            <Link href={`/sales/leads/${lead.ref}`} className="block truncate text-[13px] font-bold text-slate-900 no-underline hover:text-emerald-800 hover:underline">{lead.propertyName}</Link>
                             <p className="mb-0 mt-0.5 truncate text-xs text-slate-500">{lead.location || lead.contactPerson || "No location recorded"}</p>
                             {lead.duplicateReviewStatus === "POSSIBLE_DUPLICATE" ? (
                               <span className="mt-1.5 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
@@ -239,7 +240,7 @@ export default function SalesLeadsPage() {
                           <td className="px-4 py-3 text-center align-middle text-xs font-semibold tabular-nums text-slate-700">{lead._count.activities}</td>
                           <td className="px-4 py-3 text-center align-middle">
                             <Link
-                              href={`/sales/leads/${lead.id}`}
+                              href={`/sales/leads/${lead.ref}`}
                               aria-label={`Open ${lead.propertyName}`}
                               className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border border-solid border-slate-200 bg-white px-2.5 text-xs font-semibold text-emerald-800 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-900 hover:no-underline focus:outline-none focus:ring-2 focus:ring-emerald-200"
                             >
@@ -257,7 +258,7 @@ export default function SalesLeadsPage() {
                 {leads.map((lead) => (
                   <Link
                     key={lead.id}
-                    href={`/sales/leads/${lead.id}`}
+                    href={`/sales/leads/${lead.ref}`}
                     className="group block p-4 no-underline transition hover:bg-emerald-50/40 hover:no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400"
                   >
                     <div className="flex items-start justify-between gap-3">

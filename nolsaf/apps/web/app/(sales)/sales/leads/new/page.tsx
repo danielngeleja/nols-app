@@ -13,19 +13,19 @@ export default function NewSalesLeadPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState<any>(null);
-  const [createdId, setCreatedId] = useState<number | null>(null);
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const submit = async (value: SalesLeadFormValue) => {
     setSubmitting(true);
     setError("");
     try {
       const response = await apiClient.post("/api/sales/leads", toSalesLeadPayload(value));
-      const id = Number(response.data?.lead?.id);
+      const ref = String(response.data?.lead?.ref || "");
       if (response.data?.warning) {
         setWarning(response.data.warning);
-        setCreatedId(id);
+        setCreatedId(ref);
       } else {
-        router.push(`/sales/leads/${id}`);
+        router.push(`/sales/leads/${ref}`);
       }
     } catch (requestError: any) {
       setError(requestError?.response?.data?.error || "Could not register the lead.");
