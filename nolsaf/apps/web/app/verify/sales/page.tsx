@@ -9,10 +9,10 @@ export default function SalesCardCodePage() {
   const [submitted, setSubmitted] = useState<string | null>(null);
 
   return (
-    <VerifyShell>
-      <section className="rounded-xl border border-solid border-slate-200 bg-white p-5">
-        <h1 className="m-0 text-xl font-bold text-slate-900">Verify a NoLSAF representative</h1>
-        <p className="m-0 mt-1 text-sm text-slate-600">Type the card code printed at the bottom of their NoLSAF ID card, or scan the QR code with your camera.</p>
+    <VerifyShell title="Verify a NoLSAF representative">
+      <section className="rounded-lg border border-solid border-slate-200 bg-white p-5 shadow-sm">
+        <h1 className="m-0 text-[16px] font-bold text-slate-900">Type the card code</h1>
+        <p className="m-0 mt-1 text-sm text-slate-600">It is printed at the bottom of their NoLSAF ID card. Or scan the QR code with your phone camera.</p>
         <form
           className="mt-4 flex gap-2"
           onSubmit={(event) => {
@@ -27,10 +27,10 @@ export default function SalesCardCodePage() {
             placeholder="e.g. NSA-DAR-0001-C1-K7P2M9QX"
             autoCapitalize="characters"
             spellCheck={false}
-            className="h-11 min-w-0 flex-1 rounded-lg border border-solid border-slate-300 px-3 font-mono text-sm text-slate-900 outline-none focus:border-[#02665e]"
+            className="h-11 min-w-0 flex-1 rounded-md border border-solid border-slate-300 bg-slate-50 px-3 font-mono text-sm text-slate-900 outline-none focus:border-[#02665e] focus:bg-white focus:ring-2 focus:ring-[#02665e]/15"
             aria-label="Card code"
           />
-          <button type="submit" className="inline-flex h-11 items-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-sm font-semibold text-white [font-family:inherit]">
+          <button type="submit" className="inline-flex h-11 items-center gap-2 rounded-md border-0 bg-[#02665e] px-4 text-sm font-semibold text-white [font-family:inherit] hover:bg-[#014d47]">
             <Search className="h-4 w-4" /> Check
           </button>
         </form>

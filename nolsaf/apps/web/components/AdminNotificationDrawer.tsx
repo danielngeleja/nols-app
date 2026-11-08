@@ -36,6 +36,8 @@ const SOUND_KEY = "nolsaf:admin-notification-sound";
 
 function notificationHref(item: NotificationItem, recordHref: ReturnType<typeof useAdminHref>) {
   const meta = item.meta ?? {};
+  // Server-built deep link: accepted only as an internal admin path.
+  if (typeof meta.href === "string" && /^\/admin\/[A-Za-z0-9_\-/%.]*(\?[A-Za-z0-9_\-%.=&]*)?$/.test(meta.href) && !meta.href.includes("..")) return meta.href;
   if (meta.conversationId && String(item.type) === "chatbot") return `/admin/agents/ai?conversation=${encodeURIComponent(String(meta.conversationId))}`;
   if (meta.propertyId) return `/admin/properties/previews?previewId=${encodeURIComponent(adminRefOrId("property", meta.propertyId))}`;
   if (meta.invoiceId) return recordHref("owner-invoice", meta.invoiceId);

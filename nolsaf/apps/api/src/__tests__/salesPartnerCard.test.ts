@@ -11,12 +11,13 @@ const h = vi.hoisted(() => {
     salesPartnerProfile: { findUnique: fn() },
   };
   db.$transaction = vi.fn(async (operation: (tx: any) => unknown) => operation(db));
-  return { db, audit: vi.fn(async () => undefined) };
+  return { db, audit: vi.fn(async () => undefined), notifyAdmins: vi.fn(async () => undefined) };
 });
 
 vi.mock("@nolsaf/prisma", () => ({ prisma: h.db, typedPrisma: h.db }));
 vi.mock("../lib/publicLinkSecrets.js", () => ({ publicLinkSigningSecret: () => "test-secret" }));
 vi.mock("../lib/audit.js", () => ({ audit: h.audit }));
+vi.mock("../lib/notifications.js", () => ({ notifyAdmins: h.notifyAdmins }));
 vi.mock("../lib/redisRateLimitStore.js", () => ({ rateLimitWithRedis: () => (_req: any, _res: any, next: any) => next() }));
 vi.mock("../middleware/auth.js", () => ({
   requireAuth: (req: any, res: any, next: any) => {
@@ -74,7 +75,11 @@ const card = (overrides: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   h.db.$transaction.mockImplementation(async (operation: (tx: any) => unknown) => operation(h.db));
-  h.db.salesPartnerCard.update.mockImplementation(async ({ data }: any) => ({ ...card(), ...data }));
+  // An update returns the row it changed: the card just created, if any.
+  h.db.salesPartnerCard.update.mockImplementation(async ({ data }: any) => {
+    const created = h.db.salesPartnerCard.create.mock.results.at(-1)?.value;
+    return { ...card(), ...(created ? await created : {}), ...data };
+  });
 });
 
 describe("card security", () => {
@@ -99,6 +104,8 @@ describe("card security", () => {
     expect(cardValidity(base)).toBe("VALID");
     expect(cardValidity({ ...base, card: { ...base.card, status: "REVOKED" } })).toBe("REVOKED");
     expect(cardValidity({ ...base, card: { ...base.card, expiresAt: new Date(Date.now() - 1) } })).toBe("EXPIRED");
+    expect(cardValidity({ ...base, card: { ...base.card, status: "PENDING_REVIEW" } })).toBe("PHOTO_REVIEW");
+    expect(cardValidity({ ...base, card: { ...base.card, status: "PHOTO_REJECTED" } })).toBe("PHOTO_REJECTED");
     expect(cardValidity({ ...base, partnerStatus: "SUSPENDED" })).toBe("PARTNER_INACTIVE");
     expect(cardValidity({ ...base, contracts: [] })).toBe("NO_CONTRACT");
   });
@@ -122,6 +129,15 @@ describe("public check", () => {
     const res = await request(app).get(`/api/public/sales-cards/${cardToken(card())}`);
     expect(res.body.card).toMatchObject({ valid: false, validity: "REVOKED", name: "Asha Juma" });
     expect(h.db.salesPartnerCard.update).not.toHaveBeenCalled();
+  });
+
+  it("a suspended or disabled NoLSAF account never verifies, even with an active card", async () => {
+    const base = card();
+    for (const blocked of [{ suspendedAt: new Date() }, { isDisabled: true }]) {
+      h.db.salesPartnerCard.findUnique.mockResolvedValue({ ...base, salesPartner: { ...base.salesPartner, user: { name: "Asha Juma", ...blocked } } });
+      const res = await request(app).get(`/api/public/sales-cards/${cardToken(card())}`);
+      expect(res.body.card).toMatchObject({ valid: false, validity: "PARTNER_INACTIVE" });
+    }
   });
 
   it("unknown tokens and wrong codes get the same not-found answer", async () => {
@@ -158,19 +174,33 @@ describe("issuing", () => {
     expect(h.db.salesPartnerCard.create).not.toHaveBeenCalled();
   });
 
-  it("replaces the old card and stores only the token hash", async () => {
+  it("sends a new card to photo review, keeping the old card working, and stores only the token hash", async () => {
     h.db.salesPartnerProfile.findUnique.mockResolvedValue(partner());
-    h.db.salesPartnerCard.updateMany.mockResolvedValue({ count: 1 });
+    h.db.salesPartnerCard.findFirst.mockResolvedValue(null);
+    h.db.salesPartnerCard.updateMany.mockResolvedValue({ count: 0 });
     h.db.salesPartnerCard.count.mockResolvedValue(1);
     h.db.salesPartnerCard.create.mockImplementation(async ({ data }: any) => ({ id: 9, ...data, verifyCount: 0, lastVerifiedAt: null }));
     const res = await request(app).post("/api/sales/id-card").set(as);
     expect(res.status).toBe(201);
-    expect(h.db.salesPartnerCard.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "REPLACED", activeKey: null }) }));
+    // Only an older request in review is withdrawn; the active card is untouched.
+    expect(h.db.salesPartnerCard.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "PENDING_REVIEW" }) }));
+    expect(h.db.salesPartnerCard.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "ACTIVE" }) }));
     const created = h.db.salesPartnerCard.create.mock.calls[0][0].data;
-    expect(created).toMatchObject({ cardNumber: "NSA-DAR-0001-C2", activeKey: 11, photoUrl: "https://res.cloudinary.com/x/face.jpg" });
+    expect(created).toMatchObject({ cardNumber: "NSA-DAR-0001-C2", status: "PENDING_REVIEW", activeKey: null, photoUrl: "https://res.cloudinary.com/x/face.jpg" });
     const finalHash = h.db.salesPartnerCard.update.mock.calls[0][0].data.tokenHash;
     expect(finalHash).toBe(hashCardToken(cardToken({ id: 9, salt: created.salt })));
-    expect(res.body.card.verifyUrl).toContain("/verify/sales/");
+    expect(res.body.review).toMatchObject({ status: "PENDING", cardNumber: "NSA-DAR-0001-C2" });
+    expect(res.body.replacing).toBe(true);
+    expect(JSON.stringify(res.body)).not.toContain("/verify/sales/");
+    expect(h.notifyAdmins).toHaveBeenCalledWith("sales_partner_card_photo_review", expect.objectContaining({ agentCode: "NSA-DAR-0001", replacing: true }));
+  });
+
+  it("does not resend the same photo while it is already waiting", async () => {
+    h.db.salesPartnerProfile.findUnique.mockResolvedValue(partner());
+    h.db.salesPartnerCard.findFirst.mockResolvedValue(card({ status: "PENDING_REVIEW" }));
+    const res = await request(app).post("/api/sales/id-card").set(as);
+    expect(res.status).toBe(409);
+    expect(h.db.salesPartnerCard.create).not.toHaveBeenCalled();
   });
 
   it("refuses support sessions", async () => {
@@ -178,7 +208,7 @@ describe("issuing", () => {
     expect(res.status).toBe(403);
   });
 
-  it("issues the first card automatically when the partner opens the page ready", async () => {
+  it("sends the first card to photo review automatically when the partner opens the page ready", async () => {
     h.db.salesPartnerProfile.findUnique.mockResolvedValue(partner());
     h.db.salesPartnerCard.findFirst.mockResolvedValue(null);
     h.db.salesPartnerCard.count.mockResolvedValue(0);
@@ -186,9 +216,11 @@ describe("issuing", () => {
     h.db.salesPartnerCard.create.mockImplementation(async ({ data }: any) => ({ id: 12, ...data, verifyCount: 0, lastVerifiedAt: null }));
     const res = await request(app).get("/api/sales/id-card").set(as);
     expect(res.status).toBe(200);
-    expect(h.db.salesPartnerCard.create.mock.calls[0][0].data).toMatchObject({ cardNumber: "NSA-DAR-0001-C1", activeKey: 11 });
-    expect(res.body.card.verifyUrl).toContain("/verify/sales/");
-    expect(h.audit).toHaveBeenCalledWith(expect.anything(), "SALES_PARTNER_CARD_ISSUE", "SALES_PARTNER_CARD", null, expect.objectContaining({ automatic: true }), expect.any(Number));
+    expect(h.db.salesPartnerCard.create.mock.calls[0][0].data).toMatchObject({ cardNumber: "NSA-DAR-0001-C1", status: "PENDING_REVIEW", activeKey: null });
+    expect(res.body.card).toBeNull();
+    expect(res.body.review).toMatchObject({ status: "PENDING", cardNumber: "NSA-DAR-0001-C1" });
+    expect(h.audit).toHaveBeenCalledWith(expect.anything(), "SALES_PARTNER_CARD_REQUEST", "SALES_PARTNER_CARD", null, expect.objectContaining({ automatic: true }), expect.any(Number));
+    expect(h.notifyAdmins).toHaveBeenCalledWith("sales_partner_card_photo_review", expect.objectContaining({ replacing: false }));
   });
 
   it("never issues automatically without a photo, during support sessions, or after an earlier card", async () => {
@@ -208,6 +240,24 @@ describe("issuing", () => {
     const revoked = await request(app).get("/api/sales/id-card").set(as);
     expect(revoked.body.card).toBeNull();
 
+    expect(h.db.salesPartnerCard.create).not.toHaveBeenCalled();
+  });
+
+  it("a card NoLSAF cancelled can only be replaced by NoLSAF, and the reason is never shown", async () => {
+    h.db.salesPartnerProfile.findUnique.mockResolvedValue(partner());
+    const revoked = card({ status: "REVOKED", revokedAt: new Date("2026-11-08T05:00:00Z"), revokeReason: "Internal: misconduct report" });
+    // No active card; the latest card is the cancelled one.
+    h.db.salesPartnerCard.findFirst.mockImplementation(async ({ where }: any) => (where?.status === "ACTIVE" ? null : revoked));
+    h.db.salesPartnerCard.count.mockResolvedValue(0);
+
+    const page = await request(app).get("/api/sales/id-card").set(as);
+    expect(page.body.card).toBeNull();
+    expect(page.body.review).toBeNull();
+    expect(page.body.cancelled).toMatchObject({ cardNumber: "NSA-DAR-0001-C1" });
+    expect(JSON.stringify(page.body)).not.toContain("misconduct");
+
+    const ask = await request(app).post("/api/sales/id-card").set(as);
+    expect(ask.status).toBe(409);
     expect(h.db.salesPartnerCard.create).not.toHaveBeenCalled();
   });
 });

@@ -27,7 +27,9 @@ import {
 import { storeSalesContractPdf } from "../lib/salesContractStorage.js";
 import { approveInviteInPromotion, joinTeamOnActivation } from "../lib/salesTeamInvites.js";
 import { clearBoardCache } from "../lib/salesLeaderboard.js";
+import { CARD_PENDING_REVIEW, CARD_PHOTO_REJECTED, cardExpiry, cardToken, hashCardToken, newCardSalt } from "../lib/salesPartnerCard.js";
 import {
+  CONTRACT_EARNING_STATUSES,
   CONTRACT_TERM_DAYS,
   FALLBACK_MARKETPLACE_REVENUE_PERCENT,
   FALLBACK_NRMS_COMMISSION_PERCENT,
@@ -520,7 +522,7 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
       idCards: {
         orderBy: { id: "desc" },
         take: 5,
-        select: { id: true, cardNumber: true, status: true, issuedAt: true, expiresAt: true, revokedAt: true, revokeReason: true, verifyCount: true, lastVerifiedAt: true },
+        select: { id: true, cardNumber: true, status: true, photoUrl: true, issuedAt: true, expiresAt: true, revokedAt: true, revokeReason: true, verifyCount: true, lastVerifiedAt: true },
       },
     },
   });
@@ -539,6 +541,18 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
     db.user.findUnique({ where: { id: partner.user.id }, select: { avatarUrl: true } }),
   ]);
 
+  // Why the partner is suspended: admin-only, read from the audit trail.
+  const suspendAudit = partner.status === "SUSPENDED"
+    ? await db.auditLog.findFirst({
+        where: { action: "SALES_PARTNER_SUSPEND", entity: "SALES_PARTNER", entityId: id },
+        orderBy: { id: "desc" },
+        select: { afterJson: true, createdAt: true },
+      }).catch(() => null)
+    : null;
+  const suspension = partner.status === "SUSPENDED"
+    ? { at: partner.suspendedAt ?? suspendAudit?.createdAt ?? null, reason: (suspendAudit?.afterJson as any)?.reason ?? null }
+    : null;
+
   // Why there is (or is not) a card, checked live with the same rules the
   // partner's ID card page uses, so admin never has to guess.
   const nowForCard = new Date();
@@ -547,6 +561,11 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
     activeContract: partner.contracts.some((c: any) => ["ACTIVE", "EXPIRING"].includes(c.status) && c.startsAt && c.expiresAt && new Date(c.startsAt) <= nowForCard && new Date(c.expiresAt) > nowForCard),
     profilePhoto: Boolean(photo?.avatarUrl),
     everIssued: partner.idCards.length > 0,
+    photoPending: partner.idCards.some((c: any) => c.status === CARD_PENDING_REVIEW),
+    // Latest card cancelled by NoLSAF: only an admin can issue the next one.
+    cancelledByAdmin: partner.idCards[0]?.status === "REVOKED",
+    // What a new card would carry, so admin checks the photo before issuing.
+    currentPhotoUrl: photo?.avatarUrl || null,
   };
 
   res.json({
@@ -563,6 +582,7 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
       flaggedVisits,
       disputedProperties,
       leadsTeam: ledTeam?.status === "ACTIVE" ? ledTeam.name : null,
+      suspension,
     },
   });
 }) as RequestHandler);
@@ -593,12 +613,237 @@ router.post("/partners/:id/card/revoke", asyncHandler(async (req: AuthedRequest,
     cardNumber: card.cardNumber,
     reason: parsed.data!.reason,
   }, card.id);
+  // The reason stays on the admin record and audit log; the partner is only told.
   await notifyUser(card.salesPartner.userId, "sales_partner_card_revoked", {
+    cardNumber: card.cardNumber,
+    actionPath: "/sales/id-card",
+  }).catch(() => {});
+  return res.json({ ok: true, card: { cardNumber: card.cardNumber, status: "REVOKED", revokedAt: now } });
+}) as RequestHandler);
+
+/** The card waiting for a photo decision, newest first. */
+async function pendingCardFor(partnerId: number) {
+  return db.salesPartnerCard.findFirst({
+    where: { salesPartnerId: partnerId, status: CARD_PENDING_REVIEW },
+    orderBy: { id: "desc" },
+    select: { id: true, cardNumber: true, salesPartner: { select: { userId: true } } },
+  });
+}
+
+/**
+ * POST /admin/sales/partners/:id/card/approve
+ * The photo is a clear face of this person: the card starts verifying now and
+ * any older active card is replaced at the same moment.
+ */
+router.post("/partners/:id/card/approve", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid partner id" });
+  const now = new Date();
+  const card = await pendingCardFor(id);
+  if (!card) return res.status(404).json({ error: "No card is waiting for a photo check" });
+  const result = await db.$transaction(async (tx: any) => {
+    const replaced = await tx.salesPartnerCard.updateMany({
+      where: { salesPartnerId: id, status: "ACTIVE" },
+      data: { status: "REPLACED", activeKey: null, revokedAt: now, revokeReason: "Replaced by a new card" },
+    });
+    const approved = await tx.salesPartnerCard.updateMany({
+      where: { id: card.id, status: CARD_PENDING_REVIEW },
+      data: { status: "ACTIVE", activeKey: id },
+    });
+    if (approved.count !== 1) throw Object.assign(new Error("changed"), { code: "CARD_CHANGED" });
+    return { replaced: replaced.count };
+  }).catch((error: any) => {
+    if (error?.code === "CARD_CHANGED" || error?.code === "P2002") return null;
+    throw error;
+  });
+  if (!result) return res.status(409).json({ error: "The card was changed by another request" });
+  await audit(req, "SALES_PARTNER_CARD_APPROVE", "SALES_PARTNER_CARD", { status: CARD_PENDING_REVIEW }, {
+    status: "ACTIVE",
+    cardNumber: card.cardNumber,
+    replacedCards: result.replaced,
+  }, card.id);
+  await notifyUser(card.salesPartner.userId, "sales_partner_card_approved", {
+    cardNumber: card.cardNumber,
+    actionPath: "/sales/id-card",
+  }).catch(() => {});
+  return res.json({ ok: true, card: { cardNumber: card.cardNumber, status: "ACTIVE" } });
+}) as RequestHandler);
+
+/**
+ * POST /admin/sales/partners/:id/card/reject
+ * The photo is not a clear face of this person. The request ends; any older
+ * active card keeps working, and the partner is told what to fix.
+ */
+router.post("/partners/:id/card/reject", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid partner id" });
+  const parsed = z.object({ reason }).strict().safeParse(req.body);
+  if (fail(res, parsed)) return;
+  const now = new Date();
+  const card = await pendingCardFor(id);
+  if (!card) return res.status(404).json({ error: "No card is waiting for a photo check" });
+  const changed = await db.salesPartnerCard.updateMany({
+    where: { id: card.id, status: CARD_PENDING_REVIEW },
+    data: { status: CARD_PHOTO_REJECTED, revokedAt: now, revokedById: req.user!.id, revokeReason: parsed.data!.reason },
+  });
+  if (changed.count !== 1) return res.status(409).json({ error: "The card was changed by another request" });
+  await audit(req, "SALES_PARTNER_CARD_PHOTO_REJECT", "SALES_PARTNER_CARD", { status: CARD_PENDING_REVIEW }, {
+    status: CARD_PHOTO_REJECTED,
+    cardNumber: card.cardNumber,
+    reason: parsed.data!.reason,
+  }, card.id);
+  await notifyUser(card.salesPartner.userId, "sales_partner_card_photo_rejected", {
     cardNumber: card.cardNumber,
     reason: parsed.data!.reason,
     actionPath: "/sales/id-card",
   }).catch(() => {});
-  return res.json({ ok: true, card: { cardNumber: card.cardNumber, status: "REVOKED", revokedAt: now } });
+  return res.json({ ok: true, card: { cardNumber: card.cardNumber, status: CARD_PHOTO_REJECTED } });
+}) as RequestHandler);
+
+/**
+ * POST /admin/sales/partners/:id/suspend
+ * Pause a sales partner without touching the rest of their NoLSAF account:
+ * the sales portal closes on the next request, the ID card stops verifying on
+ * the next scan (it checks partner status live), any card waiting for a photo
+ * check is withdrawn, and payouts stop (sending requires an ACTIVE partner).
+ * Earnings already recorded stay on the ledger. The reason stays private.
+ */
+router.post("/partners/:id/suspend", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid partner id" });
+  const parsed = z.object({ reason }).strict().safeParse(req.body);
+  if (fail(res, parsed)) return;
+  const now = new Date();
+  const partner = await db.salesPartnerProfile.findUnique({ where: { id }, select: { id: true, userId: true, status: true, agentCode: true } });
+  if (!partner) return res.status(404).json({ error: "Partner not found" });
+  if (partner.status !== "ACTIVE") return res.status(409).json({ error: "Only an active partner can be suspended" });
+
+  const result = await db.$transaction(async (tx: any) => {
+    const moved = await tx.salesPartnerProfile.updateMany({ where: { id, status: "ACTIVE" }, data: { status: "SUSPENDED", suspendedAt: now } });
+    if (moved.count !== 1) return null;
+    const access = await tx.userWorkspaceAccess.updateMany({
+      where: { userId: partner.userId, workspace: "SALES", status: "ACTIVE" },
+      data: { status: "SUSPENDED", suspendedAt: now },
+    });
+    const withdrawn = await tx.salesPartnerCard.updateMany({
+      where: { salesPartnerId: id, status: CARD_PENDING_REVIEW },
+      data: { status: "REPLACED", revokedAt: now, revokeReason: "Withdrawn: partner suspended" },
+    });
+    return { accessClosed: access.count, cardRequestsWithdrawn: withdrawn.count };
+  });
+  if (!result) return res.status(409).json({ error: "The partner was changed by another request" });
+
+  clearBoardCache();
+  await audit(req, "SALES_PARTNER_SUSPEND", "SALES_PARTNER", { status: "ACTIVE" }, {
+    status: "SUSPENDED",
+    agentCode: partner.agentCode,
+    reason: parsed.data!.reason,
+    ...result,
+  }, id);
+  // The partner is told it happened, never why.
+  await notifyUser(partner.userId, "sales_partner_workspace_suspended", { actionPath: "/sales" }).catch(() => {});
+  return res.json({ ok: true, partner: { status: "SUSPENDED", suspendedAt: now }, ...result });
+}) as RequestHandler);
+
+/**
+ * POST /admin/sales/partners/:id/reinstate
+ * Undo a suspension: the portal reopens and the current card verifies again
+ * (if it has not expired and the agreement is still current).
+ */
+router.post("/partners/:id/reinstate", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid partner id" });
+  const parsed = z.object({ reason }).strict().safeParse(req.body);
+  if (fail(res, parsed)) return;
+  const partner = await db.salesPartnerProfile.findUnique({ where: { id }, select: { id: true, userId: true, status: true, agentCode: true } });
+  if (!partner) return res.status(404).json({ error: "Partner not found" });
+  if (partner.status !== "SUSPENDED") return res.status(409).json({ error: "This partner is not suspended" });
+
+  const result = await db.$transaction(async (tx: any) => {
+    const moved = await tx.salesPartnerProfile.updateMany({ where: { id, status: "SUSPENDED" }, data: { status: "ACTIVE", suspendedAt: null } });
+    if (moved.count !== 1) return null;
+    const access = await tx.userWorkspaceAccess.updateMany({
+      where: { userId: partner.userId, workspace: "SALES", status: "SUSPENDED" },
+      data: { status: "ACTIVE", suspendedAt: null },
+    });
+    return { accessReopened: access.count };
+  });
+  if (!result) return res.status(409).json({ error: "The partner was changed by another request" });
+
+  clearBoardCache();
+  await audit(req, "SALES_PARTNER_REINSTATE", "SALES_PARTNER", { status: "SUSPENDED" }, {
+    status: "ACTIVE",
+    agentCode: partner.agentCode,
+    reason: parsed.data!.reason,
+    ...result,
+  }, id);
+  await notifyUser(partner.userId, "sales_partner_workspace_reinstated", { actionPath: "/sales" }).catch(() => {});
+  return res.json({ ok: true, partner: { status: "ACTIVE" }, ...result });
+}) as RequestHandler);
+
+/**
+ * POST /admin/sales/partners/:id/card/issue
+ * Issue a new card after NoLSAF cancelled the last one. The admin sees the
+ * partner's current photo before confirming, so issuing is the photo check and
+ * the card is live at once.
+ */
+router.post("/partners/:id/card/issue", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid partner id" });
+  const parsed = z.object({ photoChecked: z.literal(true) }).strict().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Confirm you checked the photo first" });
+  const now = new Date();
+  const partner = await db.salesPartnerProfile.findUnique({
+    where: { id },
+    select: {
+      id: true, agentCode: true, status: true, userId: true,
+      user: { select: { avatarUrl: true, suspendedAt: true, isDisabled: true } },
+      contracts: { select: { status: true, startsAt: true, expiresAt: true }, orderBy: { expiresAt: "desc" }, take: 5 },
+    },
+  });
+  if (!partner) return res.status(404).json({ error: "Partner not found" });
+  if (partner.status !== "ACTIVE" || partner.user?.suspendedAt || partner.user?.isDisabled) return res.status(409).json({ error: "The partner must be active to get a card" });
+  if (!partner.user?.avatarUrl) return res.status(409).json({ error: "The partner has no profile photo" });
+  const contract = partner.contracts.find((c: any) => (CONTRACT_EARNING_STATUSES as readonly string[]).includes(c.status) && c.startsAt <= now && c.expiresAt > now);
+  if (!contract) return res.status(409).json({ error: "The partner has no active agreement" });
+  const open = await db.salesPartnerCard.count({ where: { salesPartnerId: id, status: { in: ["ACTIVE", CARD_PENDING_REVIEW] } } });
+  if (open) return res.status(409).json({ error: "The partner already has an active card or one waiting for a photo check" });
+
+  let issued: any;
+  try {
+    issued = await db.$transaction(async (tx: any) => {
+      const before = await tx.salesPartnerCard.count({ where: { salesPartnerId: id } });
+      const salt = newCardSalt();
+      const created = await tx.salesPartnerCard.create({
+        data: {
+          salesPartnerId: id,
+          cardNumber: `${partner.agentCode}-C${before + 1}`,
+          salt,
+          tokenHash: hashCardToken(`pending:${salt}`),
+          photoUrl: partner.user.avatarUrl,
+          status: "ACTIVE",
+          activeKey: id,
+          issuedAt: now,
+          expiresAt: cardExpiry(contract.expiresAt, now),
+        },
+      });
+      return tx.salesPartnerCard.update({ where: { id: created.id }, data: { tokenHash: hashCardToken(cardToken(created)) } });
+    });
+  } catch (error: any) {
+    if (error?.code === "P2002") return res.status(409).json({ error: "The card was changed by another request" });
+    throw error;
+  }
+  await audit(req, "SALES_PARTNER_CARD_ISSUE", "SALES_PARTNER_CARD", null, {
+    status: "ACTIVE",
+    cardNumber: issued.cardNumber,
+    byAdmin: true,
+    photoChecked: true,
+  }, issued.id);
+  await notifyUser(partner.userId, "sales_partner_card_reissued", {
+    cardNumber: issued.cardNumber,
+    actionPath: "/sales/id-card",
+  }).catch(() => {});
+  return res.status(201).json({ ok: true, card: { cardNumber: issued.cardNumber, status: "ACTIVE" } });
 }) as RequestHandler);
 
 /**

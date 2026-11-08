@@ -23,6 +23,7 @@ import { notifyAdmins } from "../lib/notifications.js";
 const DATA_EXPORT_LOCKED_MESSAGE = "Data downloads are locked on your account after too many wrong codes. Contact NoLSAF support at support@nolsaf.com to unlock them.";
 import { sendSms } from "../lib/sms.js";
 import { sendMail, SECURITY_EMAIL_FROM } from "../lib/mailer.js";
+import { BRAND_TEAL, proDetailRows, proDivider, proEmail, proNoteCard } from "../lib/emailBase.js";
 import { getDataExportAlertEmail, getVerificationCodeEmail } from "../lib/authEmailTemplates.js";
 import {
   generateOtp as generateContactChangeOtp,
@@ -1272,10 +1273,30 @@ async function sendPayoutDestinationSecurityAlerts(
   const details = `${provider} ending in ${lastFour}`;
   const tasks: Array<Promise<unknown>> = [];
   if (user.email) {
+    const verb = action === "added" ? "add" : action === "changed" ? "change" : "reverify";
+    const RED = "#b42318";
+    const RED_BG = "#fdf3f2";
+    const html = proEmail(`Payout account ${actionText}`, `
+    <p style="margin:0;color:#4b5563;">Your NoLSAF payout account was ${actionText}: <strong style="color:#1a1a1a;">${escapeContactHtml(details)}</strong> on ${escapeContactHtml(savedAtEat)} EAT.</p>
+    ${proDivider()}
+    ${proDetailRows("Account details", [
+      ["Provider", escapeContactHtml(provider)],
+      ["Account", `Ending in ${escapeContactHtml(lastFour)}`],
+      ["Change", actionText.charAt(0).toUpperCase() + actionText.slice(1)],
+      ["When", `${escapeContactHtml(savedAtEat)} EAT`],
+    ])}
+    ${proDivider()}
+    ${proNoteCard(BRAND_TEAL, isBank ? "Bank payouts" : "Security waiting period", `${escapeContactHtml(waitingNote)} ${noPayoutNote}`)}
+    <div style="height:16px;font-size:0;line-height:0;">&nbsp;</div>
+    ${proNoteCard(RED, "If this wasn't you", `If you did not ${verb} this account, contact <a href="mailto:support@nolsaf.com" style="color:${RED};font-weight:bold;text-decoration:none;">support@nolsaf.com</a> immediately so we can stop any payout.`, RED_BG)}
+    ${proDivider()}
+    <p style="margin:0;color:#4b5563;font-size:14px;">If this was you, no action is needed.</p>
+    <p style="margin:18px 0 0;color:#1a1a1a;">Kind regards,<br><strong>The NoLSAF Team</strong></p>
+  `);
     tasks.push(sendMail(
       user.email,
       `Security alert: payout account ${actionText}`,
-      `<p>Your NoLSAF payout account was ${actionText}: <strong>${escapeContactHtml(details)}</strong> on ${escapeContactHtml(savedAtEat)} EAT.</p><p>${escapeContactHtml(waitingNote)} ${noPayoutNote}</p><p>If you did not ${action === "added" ? "add" : action === "changed" ? "change" : "reverify"} this account, contact <a href="mailto:support@nolsaf.com">support@nolsaf.com</a> immediately.</p>`,
+      html,
       undefined,
       { bypassEligibilityCheck: true, from: SECURITY_EMAIL_FROM, replyTo: "support@nolsaf.com" },
     ));

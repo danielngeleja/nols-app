@@ -120,6 +120,10 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Sales team at risk",
           body: `${data.teamName || "A sales team"} (lead ${data.leadName || "unknown"}) is at risk: ${data.reason || "warning signs found"} Review it in Sales, Teams.`
         },
+        sales_partner_card_photo_review: {
+          title: "ID card photo needs a check",
+          body: `${data.partnerName || data.agentCode || "A sales partner"}${data.agentCode && data.partnerName ? ` (${data.agentCode})` : ""} ${data.replacing ? "asked for a replacement" : "is getting their first"} ID card ${data.cardNumber || ""}. Confirm the photo is a clear face of this person before it verifies. Open the partner, ID card tab.`
+        },
         sales_team_invite_review: {
           title: "Team invite waiting for review",
           body: `${data.inviteeName || "A recruit"} accepted an invite to ${data.teamName || "a sales team"}.${Number(data.warnings) > 0 ? ` ${data.warnings} warning sign${Number(data.warnings) === 1 ? "" : "s"} found: check before approving.` : ""} Review it in Sales partners, Team invites.`
@@ -173,6 +177,14 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Data downloads locked after wrong codes",
           body: `Someone entered ${data.attempts || 3} wrong codes while asking for ${data.customerName || "a customer"}'s personal data, so data downloads on that account are locked. Confirm with the customer that it was them before unlocking it from their record, Karibu and data tab.`
         },
+        booking_payment_case_reported: {
+          title: data.codeReady
+            ? "Traveller reported payment; code is now ready"
+            : data.unverified
+              ? "Traveller says they paid, no attempt on record"
+              : "Traveller paid but has no check-in code",
+          body: `A traveller${data.propertyTitle ? ` booked at "${data.propertyTitle}"` : ""} reported paying ${Number(data.amount || 0).toLocaleString("en-US")} TZS without receiving a check-in code${data.paymentMethod ? ` (${String(data.paymentMethod).replace(/_/g, " ").toLowerCase()})` : ""}. ${data.codeReady ? "A provider confirmation arrived meanwhile: confirm the code reached them." : data.unverified ? "No payment attempt was recorded, so check with the provider before acting." : "Recheck the provider result, then repair the booking or follow up."} Case ${data.caseReference || ""}.`.trim()
+        },
         payment_unmatched: {
           title: "Payment received but not matched",
           body: `A ${data.status || "SUCCESS"} callback for ${Number(data.amount || 0).toLocaleString("en-US")} TZS matched no invoice, tour, group booking or NRMS token. Find it under Payments, unmatched events.`
@@ -220,6 +232,7 @@ export async function notifyAdmins(template: string, data: any) {
           const urgent = template === "transport_auto_dispatch_warning"
             || template === "transport_auto_dispatch_takeover"
             || template === "nrms_payment_reconcile_needed"
+            || template === "booking_payment_case_reported"
             || template.startsWith("security_");
 
           io.to("admin").emit("admin:notification:new", {
@@ -631,7 +644,11 @@ export async function notifyUser(userId: number, template: string, data: any) {
       },
       sales_partner_workspace_suspended: {
         title: "Sales workspace suspended",
-        body: `Your sales workspace has been suspended. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+        body: "Your NoLSAF sales workspace and ID card are paused. Your other NoLSAF account features still work. Contact NoLSAF support for details."
+      },
+      sales_partner_workspace_reinstated: {
+        title: "Sales workspace open again",
+        body: "Your NoLSAF sales workspace is open again and your ID card verifies, as long as it has not expired."
       },
       sales_partner_contract_expiring: {
         title: "Your agreement is expiring soon",
@@ -661,9 +678,21 @@ export async function notifyUser(userId: number, template: string, data: any) {
         title: "Owner did not confirm you",
         body: `The owner of ${data.propertyName || "the property"} did not confirm your claim. The attribution is on hold while NoLSAF reviews it.`
       },
+      sales_partner_card_approved: {
+        title: "Your ID card is active",
+        body: `NoLSAF checked your photo and ID card ${data.cardNumber || ""} now verifies. Open ID card to share it or show the QR code.`
+      },
+      sales_partner_card_photo_rejected: {
+        title: "Your ID card photo was not approved",
+        body: `NoLSAF could not approve the photo on ID card ${data.cardNumber || ""}.${data.reason ? ` Reason: ${data.reason}` : ""} Upload a clear, recent photo of your face, then request your card again.`
+      },
       sales_partner_card_revoked: {
         title: "Your ID card was cancelled",
-        body: `NoLSAF cancelled ID card ${data.cardNumber || ""}. It no longer verifies.${data.reason ? ` Reason: ${data.reason}` : ""} Contact NoLSAF support for details.`
+        body: `NoLSAF cancelled ID card ${data.cardNumber || ""}. It no longer verifies. Contact NoLSAF support about a new card.`
+      },
+      sales_partner_card_reissued: {
+        title: "NoLSAF issued you a new ID card",
+        body: `Your new ID card ${data.cardNumber || ""} is active and verifies now. Open ID card to share it or show the QR code.`
       },
       sales_partner_team_lead_appointed: {
         title: "You are now a team lead",

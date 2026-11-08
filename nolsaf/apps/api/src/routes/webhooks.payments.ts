@@ -34,6 +34,7 @@ import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrm
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import { confirmNoLsafBooking, MARKETPLACE_CONNECT_TX_OPTIONS } from "../lib/nolsafMarketplaceNrms.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
+import { releaseFailedBookingPayment } from "../lib/bookingPaymentAttempt.js";
 import {
   expectedInvoicePaymentAmount,
   isPaymentAmountWithinTolerance,
@@ -1467,6 +1468,10 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     }
     if (nrmsPaymentToken && normalizedStatus === "FAILED") {
       await prisma.$transaction((tx: any) => markNrmsPaymentFailed(tx, nrmsPaymentToken.token));
+    }
+    // A failed room-booking payment ends now: the traveller may pay again.
+    if (invoice && normalizedStatus === "FAILED") {
+      await releaseFailedBookingPayment(invoice.id, [eventId ? String(eventId) : null, paymentRef ? String(paymentRef) : null], "AZAMPAY");
     }
 
     // ── Tour booking payment success ──────────────────────────────────────────

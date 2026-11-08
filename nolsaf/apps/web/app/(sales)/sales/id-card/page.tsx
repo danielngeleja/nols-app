@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Copy, Download, ExternalLink, IdCard, Loader2, RefreshCw, Share2, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, Copy, Download, ExternalLink, IdCard, Loader2, RefreshCw, ScanFace, Share2, ShieldCheck, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
@@ -28,6 +28,7 @@ type Card = {
   holder: { name: string; agentCode: string; level: string; region: string | null; territory: string | null; teamLead?: boolean };
 };
 
+type Review = { status: "PENDING" | "REJECTED"; cardNumber: string; photoUrl: string; requestedAt: string; decidedAt: string | null; reason: string | null };
 type Requirements = { activePartner: boolean; activeContract: boolean; profilePhoto: boolean };
 type Preview = { name: string; agentCode: string; region: string | null; territory: string | null; photoUrl: string | null; teamLead: boolean; expiresAt: string | null };
 
@@ -43,6 +44,8 @@ export default function SalesIdCardPage() {
   const [card, setCard] = useState<Card | null>(null);
   const [requirements, setRequirements] = useState<Requirements | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [review, setReview] = useState<Review | null>(null);
+  const [cancelled, setCancelled] = useState<{ cardNumber: string; at: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -57,6 +60,8 @@ export default function SalesIdCardPage() {
       setCard(data.card ?? null);
       setRequirements(data.requirements ?? null);
       setPreview(data.preview ?? null);
+      setReview(data.review ?? null);
+      setCancelled(data.cancelled ?? null);
     } catch (cause) {
       setError(errorText(cause, "Could not load your ID card."));
     } finally {
@@ -108,9 +113,11 @@ export default function SalesIdCardPage() {
     setNotice("");
     try {
       const { data } = await apiClient.post("/api/sales/id-card", {});
-      setCard(data.card);
+      setReview(data.review ?? null);
       setConfirmReplace(false);
-      setNotice(card ? "New card issued. Your old card no longer verifies." : "Your ID card is ready.");
+      setNotice(card
+        ? "Sent for a photo check. Your current card keeps working until NoLSAF approves the new one."
+        : "Sent for a photo check. You will be notified the moment your card is active.");
     } catch (cause) {
       setError(errorText(cause, "Could not issue your ID card."));
     } finally {
@@ -179,6 +186,52 @@ export default function SalesIdCardPage() {
     { ok: !!requirements?.activeContract, label: "Active agreement with NoLSAF", help: "Sign or renew your agreement first.", href: "/sales/contract", action: "Open agreement" },
     { ok: !!requirements?.profilePhoto, label: "Clear profile photo of your face", help: "It is printed on the card, so owners can match it to you.", href: "/account", action: "Add photo" },
   ];
+  const pending = review?.status === "PENDING";
+  const rejected = review?.status === "REJECTED";
+
+  // Where the card request stands. NoLSAF checks every new photo before a card verifies.
+  const reviewBanner = review ? (
+    <section className={`mt-5 flex flex-col gap-4 rounded-lg border border-solid p-4 sm:flex-row sm:items-center ${pending ? "border-amber-200 bg-amber-50/60" : "border-rose-200 bg-rose-50/60"}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={review.photoUrl} alt="The photo on your card request" className="h-20 w-16 shrink-0 rounded-md border border-solid border-white object-cover shadow-sm" />
+      <div className="min-w-0 flex-1">
+        <p className={`m-0 flex items-center gap-2 text-sm font-semibold ${pending ? "text-amber-900" : "text-rose-800"}`}>
+          {pending ? <Clock className="h-4 w-4 shrink-0" aria-hidden /> : <XCircle className="h-4 w-4 shrink-0" aria-hidden />}
+          {pending ? `Card ${review.cardNumber} is waiting for a photo check` : `The photo on card ${review.cardNumber} was not approved`}
+        </p>
+        <p className="m-0 mt-1 text-[13px] text-slate-700">
+          {pending
+            ? card
+              ? "NoLSAF checks that the photo is a clear face of you. Your current card keeps working until then."
+              : "NoLSAF checks that the photo is a clear face of you. The card verifies the moment it is approved."
+            : `${review.reason ? `Reason: ${review.reason}. ` : ""}Upload a clear, recent photo of your face, then request your card again.`}
+        </p>
+        {pending ? <p className="m-0 mt-1 text-[12px] text-slate-500">Requested {eat(review.requestedAt)}</p> : null}
+      </div>
+      {rejected ? (
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Link href="/account" className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 no-underline hover:bg-slate-50">
+            <ScanFace className="h-4 w-4" aria-hidden /> Change photo
+          </Link>
+          <button type="button" onClick={() => void issue()} disabled={busy === "issue" || !ready} className="inline-flex h-10 items-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-3 text-sm font-semibold text-white [font-family:inherit] disabled:opacity-50">
+            {busy === "issue" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />} Request again
+          </button>
+        </div>
+      ) : null}
+    </section>
+  ) : null;
+
+  const photoRules = (
+    <section className="rounded-lg border border-solid border-slate-200 bg-white p-4">
+      <p className="m-0 flex items-center gap-2 text-sm font-semibold text-slate-900"><ScanFace className="h-4 w-4 text-slate-500" aria-hidden /> Photo that gets approved</p>
+      <ul className="m-0 mt-2 list-none space-y-1.5 p-0 text-[12.5px] text-slate-600">
+        {["A real, recent photo of your face", "Only you, facing the camera", "No sunglasses, mask, hat or heavy filter", "Plain background, good light"].map((rule) => (
+          <li key={rule} className="flex items-start gap-1.5"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />{rule}</li>
+        ))}
+      </ul>
+      <p className="m-0 mt-2 text-[12px] text-slate-500">Logos, drawings, objects or someone else are rejected. Owners must be able to match the face to you.</p>
+    </section>
+  );
 
   return (
     <SalesShell>
@@ -192,6 +245,28 @@ export default function SalesIdCardPage() {
 
         {error && <p className="m-0 mt-4 flex items-start gap-2 rounded-lg border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p>}
         {notice && <p className="m-0 mt-4 flex items-start gap-2 rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{notice}</p>}
+
+        {!loading ? reviewBanner : null}
+
+        {loading ? null : cancelled && !card ? (
+          <section className="mt-5 overflow-hidden rounded-lg border border-solid border-rose-200 bg-white">
+            <div className="flex items-start gap-3 border-0 border-b border-solid border-rose-100 bg-rose-50 px-5 py-4">
+              <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" aria-hidden />
+              <div className="min-w-0">
+                <p className="m-0 text-[15px] font-semibold text-rose-900">Your ID card was cancelled by NoLSAF</p>
+                <p className="m-0 mt-0.5 text-[13px] text-rose-900/80">
+                  Card {cancelled.cardNumber}{cancelled.at ? `, ${eat(cancelled.at)}` : ""}. It no longer verifies, so do not show it to owners.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="m-0 text-[13px] text-slate-600">Only NoLSAF can issue your next card. Contact support to talk about it.</p>
+              <Link href="/sales/support" className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-4 text-sm font-semibold text-white no-underline hover:bg-[#014d47]">
+                Contact support
+              </Link>
+            </div>
+          </section>
+        ) : null}
 
         {loading ? (
           <div className="mt-5 flex items-center gap-2 rounded-lg border border-solid border-slate-200 bg-white p-5 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading</div>
@@ -239,17 +314,21 @@ export default function SalesIdCardPage() {
                 </ul>
               </section>
 
+              {photoRules}
+
               <section className="rounded-lg border border-solid border-slate-200 bg-white p-4">
                 {confirmReplace ? (
                   <>
-                    <p className="m-0 text-[13px] text-slate-700">Your current card and its code will stop verifying immediately. Your latest profile photo will be used.</p>
+                    <p className="m-0 text-[13px] text-slate-700">Your latest profile photo goes to NoLSAF for a quick check. Your current card keeps working until the new one is approved, then the old one stops verifying.</p>
                     <div className="mt-3 flex gap-2">
                       <button type="button" onClick={() => void issue()} disabled={busy === "issue"} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg border-0 bg-rose-600 px-3 text-sm font-semibold text-white [font-family:inherit] disabled:opacity-50">
-                        {busy === "issue" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Replace card
+                        {busy === "issue" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Request new card
                       </button>
                       <button type="button" onClick={() => setConfirmReplace(false)} className="h-10 rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 [font-family:inherit]">Cancel</button>
                     </div>
                   </>
+                ) : pending ? (
+                  <p className="m-0 flex items-center gap-2 text-[13px] text-amber-900"><Clock className="h-4 w-4 shrink-0" aria-hidden /> A new card is waiting for its photo check.</p>
                 ) : (
                   <button type="button" onClick={() => setConfirmReplace(true)} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 [font-family:inherit] hover:bg-slate-50">
                     <RefreshCw className="h-4 w-4" /> Replace card
@@ -258,13 +337,13 @@ export default function SalesIdCardPage() {
               </section>
             </aside>
           </div>
-        ) : (
+        ) : cancelled ? null : (
           <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
             {/* What the card will look like */}
             <section className="rounded-lg border border-solid border-slate-200 bg-white p-3 sm:p-5">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <p className="m-0 text-sm font-semibold text-slate-900">Your card</p>
-                <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Preview, not issued yet</span>
+                <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">{pending ? "Photo check in progress" : "Preview, not active yet"}</span>
               </div>
               <div className="relative">
                 <canvas ref={previewRef} className="block h-auto w-full rounded-xl opacity-60" aria-label="Preview of your ID card" />
@@ -281,9 +360,9 @@ export default function SalesIdCardPage() {
                 <div className="border-0 border-b border-solid border-slate-100 px-4 py-3">
                   <p className={`m-0 flex items-center gap-2 text-sm font-semibold ${ready ? "text-emerald-700" : "text-slate-900"}`}>
                     {ready ? <ShieldCheck className="h-4 w-4" aria-hidden /> : <IdCard className="h-4 w-4 text-slate-500" aria-hidden />}
-                    {ready ? "You are ready for your card" : `${checklist.filter((c) => c.ok).length} of ${checklist.length} done`}
+                    {pending ? "Waiting for NoLSAF to check your photo" : ready ? "You are ready for your card" : `${checklist.filter((c) => c.ok).length} of ${checklist.length} done`}
                   </p>
-                  <p className="m-0 mt-0.5 text-[12px] text-slate-500">{ready ? "Issue it now. You can show it the moment you tap." : "Finish the steps below and you can issue it straight away."}</p>
+                  <p className="m-0 mt-0.5 text-[12px] text-slate-500">{pending ? "You will be notified the moment it is active." : ready ? "Request it now. NoLSAF checks the photo, then it is live." : "Finish the steps below, then request your card."}</p>
                 </div>
                 <ul className="m-0 list-none p-0">
                   {checklist.map((item) => (
@@ -301,14 +380,16 @@ export default function SalesIdCardPage() {
                   <button
                     type="button"
                     onClick={() => void issue()}
-                    disabled={!ready || busy === "issue"}
+                    disabled={!ready || pending || busy === "issue"}
                     className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-5 text-sm font-semibold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                   >
-                    {busy === "issue" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <IdCard className="h-4 w-4" aria-hidden />} Issue my ID card
+                    {busy === "issue" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : pending ? <Clock className="h-4 w-4" aria-hidden /> : <IdCard className="h-4 w-4" aria-hidden />} {pending ? "Photo check in progress" : rejected ? "Request my card again" : "Request my ID card"}
                   </button>
                   {preview?.expiresAt ? <p className="m-0 mt-2 text-center text-[11px] text-slate-500">Valid until {eat(preview.expiresAt)}, or until your agreement ends</p> : null}
                 </div>
               </section>
+
+              {photoRules}
 
               <section className="rounded-lg border border-solid border-slate-200 bg-white p-4">
                 <p className="m-0 text-sm font-semibold text-slate-900">How owners check it</p>

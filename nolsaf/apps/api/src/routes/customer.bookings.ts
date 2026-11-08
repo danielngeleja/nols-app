@@ -10,6 +10,7 @@ import { computeDraftBookingAvailability } from "../lib/draftBookingAvailability
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { mapPropertyLifecycle } from "../lib/serviceLifecycle.js";
 import { paymentReportEligibility } from "../lib/bookingPaymentCaseEligibility.js";
+import { bookingPaymentOutcome, PROVIDER_FAILED_STATUSES } from "../lib/bookingPaymentAttempt.js";
 import {
   customerBookingReference,
   isCustomerBookingReference,
@@ -190,7 +191,10 @@ router.get("/", (async (req: AuthedRequest, res) => {
                 { createdAt: { gte: visibleDraftCutoff } },
                 { invoices: { some: { status: "PAID" } } },
                 { invoices: { some: { paymentEvents: { some: { status: "SUCCESS" } } } } },
-                ...(!excludeExpiredDrafts ? [{ invoices: { some: { status: "PROCESSING" } } }] : []),
+                // A still-PROCESSING invoice stays visible past retention only
+                // while the provider has not answered. Once it reported a failure
+                // the attempt is just expired and is swept like any other.
+                ...(!excludeExpiredDrafts ? [{ invoices: { some: { status: "PROCESSING", paymentEvents: { none: { status: { in: PROVIDER_FAILED_STATUSES } } } } } }] : []),
                 { invoices: { some: { status: "CUSTOMER_PAID" } } },
               ],
             },
@@ -255,6 +259,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
               netPayable: true,
               paidAt: true,
               updatedAt: true,
+              paymentMethod: true,
               paymentEvents: { orderBy: { createdAt: "desc" }, take: 10, select: { status: true, createdAt: true } },
             },
             orderBy: { createdAt: "desc" },
@@ -282,10 +287,12 @@ router.get("/", (async (req: AuthedRequest, res) => {
       // A NEW booking is still an attempt even if the provider has sent a paid
       // signal. It must not enter the confirmed-stay bucket until finalized.
       const isDraft = booking.status === "NEW";
-      const paymentProcessing = isDraft && !isPaid && customerInvoices.some((item) => {
-        const latest = item.paymentEvents[0];
-        return latest ? latest.status === "PENDING" : item.status === "PROCESSING";
-      });
+      // "Processing" lasts only while a live attempt is inside its limit
+      // (5 min mobile money, 15 min card). After that it reads as failed or
+      // no result, and the traveller may pay again.
+      const latestInvoice = customerInvoices[0] || null;
+      const paymentOutcome = isDraft && !isPaid ? bookingPaymentOutcome(latestInvoice as any, now) : { state: null, since: null };
+      const paymentProcessing = paymentOutcome.state === "PROCESSING" || paymentOutcome.state === "SLOW";
       const paymentNeedsReview = isDraft && (isPaid || customerInvoices.some((item) => item.status === "CUSTOMER_PAID" || item.paymentEvents.some((event) => event.status === "SUCCESS")));
       const dashboardBucket = isDraft ? "DRAFT" : "PAID";
 
@@ -342,6 +349,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
         isPaid,
         paymentProcessing,
         paymentNeedsReview,
+        paymentOutcome: paymentOutcome.state,
+        paymentOutcomeSince: paymentOutcome.since,
         bookingCode: booking.code?.code || null,
         paymentCase: booking.paymentReconciliationCase || null,
         paymentReportEligibility: paymentReportEligibility(booking, now),

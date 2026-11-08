@@ -59,6 +59,7 @@ function categoryOf(m: Message): Category {
   // Customer data copies: legal, dispute and locked-download alerts live together.
   if (kind.startsWith("data_export") || kind === "security_data_export_locked") return "privacy";
   if (kind.startsWith("security_") || type === "system") return "system";
+  if (kind.startsWith("booking_payment")) return "money";
   if (type === "invoice" || kind.startsWith("payment") || kind.includes("payout")) return "money";
   if (type === "booking" || type === "cancellation" || kind.startsWith("group_stay")) return "bookings";
   if (type === "ride" || kind.startsWith("transport")) return "transport";
@@ -71,6 +72,7 @@ const URGENT_KINDS = new Set([
   "payment_amount_mismatch",
   "payment_stuck_unsettled",
   "payment_unmatched",
+  "booking_payment_case_reported",
   "nrms_payment_reconcile_needed",
   "nrms_stop_sell_approval_requested",
   "transport_auto_dispatch_takeover",
@@ -594,6 +596,11 @@ export default function Page() {
                       {isDataAlert && meta.userId && (
                         <Link href={recordHref("user", meta.userId, { suffix: "?tab=karibu" })} className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-[#123a33] hover:no-underline">
                           {String(meta.notificationKind) === "security_data_export_locked" ? "Review and unlock" : "Open customer record"} <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
+                      )}
+                      {typeof meta.href === "string" && /^\/admin\/[A-Za-z0-9_\-/%.]*(\?[A-Za-z0-9_\-%.=&]*)?$/.test(meta.href) && !meta.href.includes("..") && (
+                        <Link href={meta.href} className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-[#123a33] hover:no-underline">
+                          {String(meta.notificationKind).startsWith("booking_payment") ? "Open payment case" : String(meta.notificationKind) === "sales_partner_card_photo_review" ? "Check the photo" : "Open record"} <ExternalLink className="h-3.5 w-3.5" />
                         </Link>
                       )}
                       {(meta.note || meta.reasons) && (

@@ -7,7 +7,10 @@ import {
   BadgeCheck,
   Building2,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  ChevronsUpDown,
+  ChevronUp,
   Clock3,
   FileSignature,
   Inbox,
@@ -28,6 +31,13 @@ import apiClient from "@/lib/apiClient";
 import SalesAdminHeader from "@/components/admin/sales/SalesAdminHeader";
 import LeadVisitEvidence from "@/components/admin/sales/LeadVisitEvidence";
 import SalesPartnerPicker, { type PickedPartner } from "@/components/admin/sales/SalesPartnerPicker";
+import SalesPager from "@/components/sales/SalesPager";
+
+type AttrSort = "property" | "product" | "stage" | "owner" | "partner" | "ends";
+/** Work first: what needs an admin sorts to the top. */
+const STAGE_ORDER: Record<string, number> = { VERIFIED: 0, DISPUTED: 1, ACTIVE: 2, REVOKED: 3 };
+const OWNER_ORDER: Record<string, number> = { DENIED: 0, UNKNOWN_PARTNER: 1, PENDING: 2, EXPIRED: 3, NONE: 4, CONFIRMED: 5 };
+const ATTR_FIRST: Record<AttrSort, "asc" | "desc"> = { property: "asc", product: "asc", stage: "asc", owner: "asc", partner: "asc", ends: "asc" };
 
 type Lead = {
   id: number;
@@ -188,6 +198,11 @@ export default function SalesReviewPage() {
   const [targetPartner, setTargetPartner] = useState<Record<number, PickedPartner | null>>({});
   const [reassignOpen, setReassignOpen] = useState<Record<number, boolean>>({});
   const [ownerOverride, setOwnerOverride] = useState<Record<number, boolean>>({});
+  const [openAttributionId, setOpenAttributionId] = useState<number | null>(null);
+  const [attrSort, setAttrSort] = useState<AttrSort>("stage");
+  const [attrDir, setAttrDir] = useState<"asc" | "desc">("asc");
+  const [attrPage, setAttrPage] = useState(1);
+  const [attrPageSize, setAttrPageSize] = useState(25);
 
   const stats = useMemo(() => ({
     waiting: leads.length,
@@ -201,16 +216,26 @@ export default function SalesReviewPage() {
     setLoading(true);
     setError(null);
     try {
-      const [queueResponse, attributionResponse] = await Promise.all([
+      // The API serves at most 100 per page; walk the pages so the table, its
+      // sorting and the stage counts cover every attribution, not the first 100.
+      const loadAllAttributions = async () => {
+        const all: Attribution[] = [];
+        for (let page = 1; page <= 50; page += 1) {
+          const { data } = await apiClient.get("/api/admin/sales/attributions", { params: { q: query || undefined, pageSize: 100, page } });
+          const batch: Attribution[] = data?.attributions ?? [];
+          all.push(...batch);
+          if (batch.length < 100 || all.length >= Number(data?.total || 0)) break;
+        }
+        return all;
+      };
+      const [queueResponse, allAttributions] = await Promise.all([
         apiClient.get("/api/admin/sales/leads/conversion-requests", {
           params: { q: query || undefined, pageSize: 100 },
         }),
-        apiClient.get("/api/admin/sales/attributions", {
-          params: { q: query || undefined, pageSize: 100 },
-        }),
+        loadAllAttributions(),
       ]);
       setLeads(queueResponse.data?.leads ?? []);
-      setAttributions(attributionResponse.data?.attributions ?? []);
+      setAttributions(allAttributions);
     } catch (cause: any) {
       setError(messageFor(cause, "Could not load sales review data"));
     } finally {
@@ -336,7 +361,56 @@ export default function SalesReviewPage() {
     }
   };
 
-  const visibleAttributions = stageFilter ? attributions.filter((item) => item.status === stageFilter) : attributions;
+  const visibleAttributions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const rows = attributions.filter((item) => {
+      if (stageFilter && item.status !== stageFilter) return false;
+      if (!q) return true;
+      return [item.property.title, item.salesPartner.agentCode, item.salesPartner.user.name, item.salesPartner.user.email, item.contract?.contractNumber, productLabel(item.productType)]
+        .some((v) => String(v || "").toLowerCase().includes(q));
+    });
+    const value = (item: Attribution): string | number => {
+      switch (attrSort) {
+        case "property": return item.property.title.toLowerCase();
+        case "product": return productLabel(item.productType).toLowerCase();
+        case "owner": return OWNER_ORDER[item.ownerConfirmation?.status ?? "NONE"] ?? 9;
+        case "partner": return (tidyName(item.salesPartner.user.name) || item.salesPartner.agentCode).toLowerCase();
+        case "ends": return item.commissionEndsAt ? new Date(item.commissionEndsAt).getTime() : Number.MAX_SAFE_INTEGER;
+        default: return STAGE_ORDER[item.status] ?? 9;
+      }
+    };
+    return [...rows].sort((a, b) => {
+      const x = value(a);
+      const y = value(b);
+      const cmp = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+      return (attrDir === "asc" ? cmp : -cmp) || a.property.title.localeCompare(b.property.title) || a.id - b.id;
+    });
+  }, [attributions, stageFilter, query, attrSort, attrDir]);
+  const pagedAttributions = visibleAttributions.slice((attrPage - 1) * attrPageSize, attrPage * attrPageSize);
+  const openAttribution = openAttributionId ? attributions.find((item) => item.id === openAttributionId) ?? null : null;
+  useEffect(() => { setAttrPage(1); }, [stageFilter, query]);
+  useEffect(() => {
+    if (!openAttributionId) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpenAttributionId(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openAttributionId]);
+  const sortAttr = (key: AttrSort) => {
+    if (attrSort === key) setAttrDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setAttrSort(key); setAttrDir(ATTR_FIRST[key]); }
+    setAttrPage(1);
+  };
+  const attrHead = (key: AttrSort, label: string, extra = "") => {
+    const on = attrSort === key;
+    return (
+      <th scope="col" className={`px-3 py-2.5 text-left text-[11px] font-semibold text-neutral-500 ${extra}`} aria-sort={on ? (attrDir === "asc" ? "ascending" : "descending") : "none"}>
+        <button type="button" onClick={() => sortAttr(key)} className={`inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[11px] font-semibold ${on ? "text-neutral-900" : "text-neutral-500 hover:text-neutral-800"}`}>
+          {label}
+          {!on ? <ChevronsUpDown className="h-3 w-3 text-neutral-300" aria-hidden /> : attrDir === "asc" ? <ChevronUp className="h-3 w-3 text-emerald-700" aria-hidden /> : <ChevronDown className="h-3 w-3 text-emerald-700" aria-hidden />}
+        </button>
+      </th>
+    );
+  };
 
   // The three-step flow this page runs; each step jumps to where its work is.
   const flow = [
@@ -656,71 +730,147 @@ export default function SalesReviewPage() {
             <p className="m-0 mt-1 text-xs text-neutral-500">Verified property bindings will appear here.</p>
           </div>
         ) : (
-          <ul className="m-0 list-none space-y-3 border-0 border-t border-solid border-neutral-100 p-3 sm:p-4">
-            {visibleAttributions.map((item) => {
-              const stage = stageOf(item.status);
-              const partnerName = tidyName(item.salesPartner.user.name) || item.salesPartner.user.email || "Partner";
-              const start = item.commissionStartsAt ? new Date(item.commissionStartsAt).getTime() : null;
-              const end = item.commissionEndsAt ? new Date(item.commissionEndsAt).getTime() : null;
-              const progress = start && end && end > start ? Math.min(Math.max(((Date.now() - start) / (end - start)) * 100, 0), 100) : 0;
-              const daysLeft = end ? Math.max(Math.ceil((end - Date.now()) / 86400000), 0) : null;
-              const note = (reason[item.id] || "").trim();
-              const reassigning = Boolean(reassignOpen[item.id]);
-              const owner = ownerAnswer(item.ownerConfirmation);
-              const ownerBlocks = ["PENDING", "DENIED", "UNKNOWN_PARTNER"].includes(owner.status);
-              const needsOverride = owner.status === "EXPIRED" || owner.status === "NONE";
-              return (
-                <li key={item.id} className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
-                  <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_minmax(340px,0.9fr)]">
-                    <div className="min-w-0 p-4 sm:p-5">
-                      <div className="flex items-start gap-3">
-                        <span className={`inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-white ring-2 ring-offset-2 ${stage.ring}`}><Building2 className="h-4 w-4" /></span>
-                        <div className="min-w-0 flex-1">
-                          <h3 className="m-0 truncate text-base font-bold text-neutral-900">{item.property.title}</h3>
-                          <p className="m-0 mt-0.5 text-xs text-neutral-400">{humanize(item.property.status)} property</p>
-                        </div>
-                        <span className="flex-shrink-0 rounded-md border border-dashed border-neutral-300 px-2 py-0.5 text-[11px] font-medium text-neutral-700">{productLabel(item.productType)}</span>
-                      </div>
+          <div className="border-0 border-t border-solid border-neutral-100">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[880px] border-collapse text-left">
+                <thead className="bg-neutral-50/70">
+                  <tr>
+                    {attrHead("property", "Property", "pl-4 sm:pl-5")}
+                    {attrHead("product", "Product")}
+                    {attrHead("stage", "Stage")}
+                    {attrHead("owner", "Owner answer")}
+                    {attrHead("partner", "Sales partner")}
+                    {attrHead("ends", "Earning window")}
+                    <th scope="col" className="w-10 px-3 py-2.5" aria-label="Open" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedAttributions.map((item) => {
+                    const stage = stageOf(item.status);
+                    const owner = ownerAnswer(item.ownerConfirmation);
+                    const partnerName = tidyName(item.salesPartner.user.name) || item.salesPartner.user.email || "Partner";
+                    const start = item.commissionStartsAt ? new Date(item.commissionStartsAt).getTime() : null;
+                    const end = item.commissionEndsAt ? new Date(item.commissionEndsAt).getTime() : null;
+                    const progress = start && end && end > start ? Math.min(Math.max(((Date.now() - start) / (end - start)) * 100, 0), 100) : 0;
+                    const daysLeft = end ? Math.max(Math.ceil((end - Date.now()) / 86400000), 0) : null;
+                    return (
+                      <tr
+                        key={item.id}
+                        onClick={() => setOpenAttributionId(item.id)}
+                        className="cursor-pointer border-0 border-t border-solid border-neutral-100 transition-colors hover:bg-neutral-50"
+                      >
+                        <td className="py-3 pl-4 pr-3 sm:pl-5">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white ring-2 ring-offset-1 ${stage.ring}`}><Building2 className="h-4 w-4" /></span>
+                            <span className="min-w-0">
+                              <span className="block max-w-[240px] truncate text-[13px] font-semibold text-neutral-900">{tidyName(item.property.title)}</span>
+                              <span className="block text-[11px] text-neutral-400">{humanize(item.property.status)} property</span>
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3"><span className="whitespace-nowrap rounded border border-dashed border-neutral-300 px-1.5 py-0.5 text-[11px] font-medium text-neutral-700">{productLabel(item.productType)}</span></td>
+                        <td className="px-3 py-3">
+                          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold ${stage.text}`}><span className={`h-1.5 w-1.5 rounded-full ${stage.dot}`} />{stage.label}</span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className={`inline-flex whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold ${owner.tone}`}>{owner.label}</span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className="block max-w-[180px] truncate text-[13px] text-neutral-800">{partnerName}</span>
+                          <span className="block font-mono text-[11px] text-neutral-500">{item.salesPartner.agentCode}</span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className="block whitespace-nowrap text-[12px] text-neutral-700">{item.status === "ACTIVE" && daysLeft != null ? `${daysLeft} days left` : end ? `Until ${day(item.commissionEndsAt)}` : "Not started"}</span>
+                          <span className="mt-1 block h-1 w-28 overflow-hidden rounded-full bg-neutral-100"><span className={`block h-full rounded-full ${item.status === "ACTIVE" ? "bg-emerald-500" : "bg-neutral-300"}`} style={{ width: `${progress}%` }} /></span>
+                        </td>
+                        <td className="px-3 py-3 text-neutral-300"><ChevronRight className="h-4 w-4" aria-hidden /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <SalesPager
+              page={attrPage}
+              pageSize={attrPageSize}
+              total={visibleAttributions.length}
+              noun="attributions"
+              onPage={setAttrPage}
+              onPageSize={(size) => { setAttrPageSize(size); setAttrPage(1); }}
+            />
+          </div>
+        )}
+      </section>
 
-                      <div className={`mt-3 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs ${stage.soft} ${stage.text}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${stage.dot}`} />
-                        <span className="font-semibold">{stage.label}</span>
-                        {stage.hint && <span className="opacity-80">· {stage.hint}</span>}
-                      </div>
-                      <div className={`mt-1.5 flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs ${owner.tone}`}>
-                        <ShieldQuestion className="h-3.5 w-3.5 flex-shrink-0" />
-                        <span className="font-semibold">{owner.label}</span>
-                        {owner.detail && <span className="opacity-80">· {owner.detail}</span>}
-                      </div>
-
-                      <dl className="m-0 mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-solid border-neutral-100 bg-neutral-100 sm:grid-cols-2">
-                        <div className="min-w-0 bg-white px-3 py-2.5">
-                          <dt className="text-[11px] text-neutral-400">Sales partner</dt>
-                          <dd className="m-0 truncate text-sm text-neutral-800">{partnerName}</dd>
-                          <dd className="m-0 font-mono text-[11px] text-neutral-500">{item.salesPartner.agentCode}</dd>
-                        </div>
-                        <div className="min-w-0 bg-white px-3 py-2.5">
-                          <dt className="flex items-center gap-1 text-[11px] text-neutral-400"><FileSignature className="h-3 w-3" /> Contract</dt>
-                          <dd className="m-0 truncate text-sm text-neutral-800">{item.contract?.contractNumber || "Not bound"}</dd>
-                          <dd className="m-0 text-[11px] text-neutral-500">{item.contract ? `${humanize(item.contract.status)} · expires ${day(item.contract.expiresAt)}` : " "}</dd>
-                        </div>
-                      </dl>
-
-                      {/* Earning window */}
-                      <div className="mt-3">
-                        <div className="flex items-center justify-between text-[11px] text-neutral-500">
-                          <span className="inline-flex items-center gap-1"><Clock3 className="h-3 w-3" /> {day(item.commissionStartsAt) || "Not started"}</span>
-                          <span>{item.status === "ACTIVE" && daysLeft != null ? `${daysLeft} days left` : "Earning window"}</span>
-                          <span>{day(item.commissionEndsAt) || "No end date"}</span>
-                        </div>
-                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100">
-                          <div className={`h-full rounded-full ${item.status === "ACTIVE" ? "bg-emerald-500" : "bg-neutral-300"}`} style={{ width: `${progress}%` }} />
-                        </div>
-                      </div>
+      {openAttribution ? (() => {
+        const item = openAttribution;
+        const stage = stageOf(item.status);
+        const partnerName = tidyName(item.salesPartner.user.name) || item.salesPartner.user.email || "Partner";
+        const note = (reason[item.id] || "").trim();
+        const reassigning = Boolean(reassignOpen[item.id]);
+        const owner = ownerAnswer(item.ownerConfirmation);
+        const ownerBlocks = ["PENDING", "DENIED", "UNKNOWN_PARTNER"].includes(owner.status);
+        const needsOverride = owner.status === "EXPIRED" || owner.status === "NONE";
+        const start = item.commissionStartsAt ? new Date(item.commissionStartsAt).getTime() : null;
+        const end = item.commissionEndsAt ? new Date(item.commissionEndsAt).getTime() : null;
+        const progress = start && end && end > start ? Math.min(Math.max(((Date.now() - start) / (end - start)) * 100, 0), 100) : 0;
+        const daysLeft = end ? Math.max(Math.ceil((end - Date.now()) / 86400000), 0) : null;
+        return (
+          <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-neutral-950/45 p-3 sm:p-6" onMouseDown={() => setOpenAttributionId(null)}>
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="attribution-record-title"
+              className="flex max-h-[calc(100dvh-24px)] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-48px)]"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <header className="flex shrink-0 items-start gap-3 bg-[#0b2420] px-5 py-4 text-white">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-white/10"><Building2 className="h-5 w-5" /></span>
+                <div className="min-w-0 flex-1">
+                  <h2 id="attribution-record-title" className="m-0 truncate text-lg font-bold">{tidyName(item.property.title)}</h2>
+                  <p className="m-0 mt-1 flex flex-wrap items-center gap-1.5 text-[12px]">
+                    <span className="rounded bg-white/10 px-1.5 py-0.5 font-semibold text-white/80">{productLabel(item.productType)}</span>
+                    <span className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 font-semibold text-white/80"><span className={`h-1.5 w-1.5 rounded-full ${stage.dot}`} />{stage.label}</span>
+                    <span className="text-white/55">{humanize(item.property.status)} property</span>
+                  </p>
+                </div>
+                <button type="button" onClick={() => setOpenAttributionId(null)} aria-label="Close attribution" className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-solid border-white/15 bg-white/[0.04] text-white/80 hover:bg-white/10 hover:text-white">
+                  <X className="h-4 w-4" />
+                </button>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="space-y-3 p-5">
+                  {error ? <p className="m-0 flex items-start gap-2 rounded-md border border-solid border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-800" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p> : null}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs ${stage.soft} ${stage.text}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${stage.dot}`} /><span className="font-semibold">{stage.label}</span>{stage.hint && <span className="opacity-80">· {stage.hint}</span>}
                     </div>
-
+                    <div className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs ${owner.tone}`}>
+                      <ShieldQuestion className="h-3.5 w-3.5 flex-shrink-0" /><span className="font-semibold">{owner.label}</span>{owner.detail && <span className="opacity-80">· {owner.detail}</span>}
+                    </div>
+                  </div>
+                  <dl className="m-0 grid grid-cols-1 overflow-hidden rounded-md border border-solid border-neutral-200 sm:grid-cols-3">
+                    <div className="min-w-0 px-3 py-2.5">
+                      <dt className="text-[11px] text-neutral-400">Sales partner</dt>
+                      <dd className="m-0 truncate text-sm text-neutral-800">{partnerName}</dd>
+                      <dd className="m-0 font-mono text-[11px] text-neutral-500">{item.salesPartner.agentCode}</dd>
+                    </div>
+                    <div className="min-w-0 border-0 border-t border-solid border-neutral-200 px-3 py-2.5 sm:border-l sm:border-t-0">
+                      <dt className="flex items-center gap-1 text-[11px] text-neutral-400"><FileSignature className="h-3 w-3" /> Contract</dt>
+                      <dd className="m-0 truncate text-sm text-neutral-800">{item.contract?.contractNumber || "Not bound"}</dd>
+                      <dd className="m-0 text-[11px] text-neutral-500">{item.contract ? `${humanize(item.contract.status)} · expires ${day(item.contract.expiresAt)}` : " "}</dd>
+                    </div>
+                    <div className="min-w-0 border-0 border-t border-solid border-neutral-200 px-3 py-2.5 sm:border-l sm:border-t-0">
+                      <dt className="flex items-center gap-1 text-[11px] text-neutral-400"><Clock3 className="h-3 w-3" /> Earning window</dt>
+                      <dd className="m-0 text-sm text-neutral-800">{item.status === "ACTIVE" && daysLeft != null ? `${daysLeft} days left` : day(item.commissionStartsAt) || "Not started"}</dd>
+                      <dd className="m-0 mt-1 h-1 w-full overflow-hidden rounded-full bg-neutral-100"><span className={`block h-full rounded-full ${item.status === "ACTIVE" ? "bg-emerald-500" : "bg-neutral-300"}`} style={{ width: `${progress}%` }} /></dd>
+                      <dd className="m-0 mt-1 text-[11px] text-neutral-500">{day(item.commissionStartsAt) || "Not started"} to {day(item.commissionEndsAt) || "no end date"}</dd>
+                    </div>
+                  </dl>
+                </div>
+                <div className="grid">
                     {/* Actions */}
-                    <div className="min-w-0 space-y-3 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 p-4 sm:p-5 lg:border-l lg:border-t-0">
+                    <div className="min-w-0 space-y-3 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 p-5">
                       {item.status === "REVOKED" && !reassigning ? (
                         <p className="m-0 text-xs text-neutral-500">This attribution is revoked. You can still reassign the property to another partner.</p>
                       ) : null}
@@ -793,13 +943,12 @@ export default function SalesReviewPage() {
                         <Lock className="h-3 w-3" /> Finance OTP is required for activation, revocation and reassignment. Activation waits for the owner&apos;s answer.
                       </p>
                     </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                </div>
+              </div>
+            </section>
+          </div>
+        );
+      })() : null}
     </div>
   );
 }

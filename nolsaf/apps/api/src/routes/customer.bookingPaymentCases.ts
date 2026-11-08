@@ -5,6 +5,7 @@ import { type AuthedRequest, blockImpersonated, requireAuth } from "../middlewar
 import { isCustomerBookingReference, matchesCustomerBookingReference } from "../lib/customerBookingReference.js";
 import { bookingPaymentCaseReference } from "../lib/bookingPaymentCaseReference.js";
 import { paymentReportEligibility } from "../lib/bookingPaymentCaseEligibility.js";
+import { notifyAdmins } from "../lib/notifications.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler, blockImpersonated as RequestHandler);
@@ -123,6 +124,27 @@ router.post("/", (async (req: AuthedRequest, res) => {
       }
     } catch (error: any) {
       console.error("[booking-payment-case] post-report code check failed", { bookingId, message: error?.message });
+    }
+
+    // Tell the admin desk. The alert links straight to the case and never
+    // carries the traveller's transaction reference or phone digits.
+    try {
+      const reference = bookingPaymentCaseReference(created.id);
+      const context = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        select: { totalAmount: true, property: { select: { title: true } } },
+      });
+      await notifyAdmins("booking_payment_case_reported", {
+        caseReference: reference,
+        href: `/admin/payment-cases/${encodeURIComponent(reference)}`,
+        propertyTitle: context?.property?.title || null,
+        amount: Number(context?.totalAmount ?? 0),
+        unverified: eligibility.state === "UNVERIFIED",
+        codeReady: created.status === "CODE_READY",
+        paymentMethod: paymentMethod || null,
+      });
+    } catch (error: any) {
+      console.error("[booking-payment-case] admin alert failed", { caseId: created.id, message: error?.message });
     }
 
     return res.status(201).json({ paymentCase: responseCase(created) });

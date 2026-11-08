@@ -225,6 +225,14 @@ export default function SystemHealthPopover({
       : health === "checking"
         ? "Checking"
         : "Connection issue";
+  // One short word on the button so it never wraps on a phone; the full
+  // sentence stays in the accessible label and the details panel.
+  const shortLabel =
+    health === "healthy"
+      ? performanceDegraded ? "Slow" : "Ok"
+      : health === "checking"
+        ? "Checking"
+        : "Poor";
   const statusDot =
     health === "healthy"
       ? performanceDegraded
@@ -284,7 +292,7 @@ export default function SystemHealthPopover({
               <span className={`absolute h-2 w-2 rounded-full ${statusDot}`} />
               <HeartPulse className={`relative h-3.5 w-3.5 ${heartTone}`} />
             </span>
-            <span>{statusLabel}</span>
+            <span className="whitespace-nowrap">{shortLabel}</span>
             <ChevronUp
               className={`h-3 w-3 opacity-45 transition-transform ${open ? "rotate-180" : ""}`}
               aria-hidden
