@@ -6,7 +6,7 @@
  * checks it not to deal with this person on NoLSAF's behalf.
  */
 import { useState } from "react";
-import { IdCard, Loader2 } from "lucide-react";
+import { CheckCircle2, IdCard, Loader2, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 export type AdminIdCard = {
@@ -21,6 +21,31 @@ export type AdminIdCard = {
   lastVerifiedAt: string | null;
 };
 
+/** The same three rules the partner's ID card page checks, live from the server. */
+export type CardReadiness = { activePartner: boolean; activeContract: boolean; profilePhoto: boolean; everIssued: boolean };
+
+const READINESS: Array<[keyof Omit<CardReadiness, "everIssued">, string]> = [
+  ["activePartner", "Active partner account"],
+  ["activeContract", "Active agreement"],
+  ["profilePhoto", "Profile photo"],
+];
+
+/** Why this partner has no active card, in one line an admin can act on. */
+export function cardGapText(r: CardReadiness | null | undefined): { title: string; detail: string } {
+  if (!r) return { title: "No ID card yet", detail: "Open the ID card tab to see what is missing." };
+  const missing = READINESS.filter(([key]) => !r[key]).map(([, label]) => label.toLowerCase());
+  if (missing.length) {
+    return {
+      title: `No ID card: ${missing.length === 1 ? "1 requirement" : `${missing.length} requirements`} missing`,
+      detail: `Missing: ${missing.join(", ")}. The card is created automatically once this is done and the partner opens their ID card page.`,
+    };
+  }
+  if (r.everIssued) {
+    return { title: "No active ID card", detail: "The last card was cancelled or expired. The partner can issue a new one from their ID card page." };
+  }
+  return { title: "Ready, not opened yet", detail: "Every requirement is met. The card is created the moment the partner opens ID card in their portal." };
+}
+
 function day(value: string | null) {
   return value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" }) : "";
 }
@@ -31,7 +56,7 @@ const TONE: Record<string, string> = {
   REVOKED: "bg-rose-50 text-rose-700",
 };
 
-export default function PartnerIdCardAdmin({ partnerId, cards, onChanged }: { partnerId: number; cards?: AdminIdCard[]; onChanged: () => void }) {
+export default function PartnerIdCardAdmin({ partnerId, cards, readiness, onChanged }: { partnerId: number; cards?: AdminIdCard[]; readiness?: CardReadiness | null; onChanged: () => void }) {
   const [reason, setReason] = useState("");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -60,7 +85,20 @@ export default function PartnerIdCardAdmin({ partnerId, cards, onChanged }: { pa
       <h3 className="m-0 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-neutral-500"><IdCard className="h-3.5 w-3.5" /> ID card</h3>
       <div className="mt-2 rounded-lg border border-solid border-neutral-200 p-3 text-xs">
         {list.length === 0 ? (
-          <p className="m-0 text-neutral-500">No card issued yet. The partner issues it from their portal once they have a profile photo.</p>
+          <div>
+            <p className="m-0 font-semibold text-neutral-800">{cardGapText(readiness).title}</p>
+            <p className="m-0 mt-0.5 text-neutral-500">{cardGapText(readiness).detail}</p>
+            {readiness ? (
+              <ul className="m-0 mt-2.5 flex list-none flex-wrap gap-x-4 gap-y-1.5 p-0">
+                {READINESS.map(([key, label]) => (
+                  <li key={key} className="inline-flex items-center gap-1.5">
+                    {readiness[key] ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden /> : <XCircle className="h-3.5 w-3.5 text-rose-500" aria-hidden />}
+                    <span className={readiness[key] ? "text-neutral-700" : "font-semibold text-rose-700"}>{label}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         ) : (
           <ul className="m-0 list-none space-y-2 p-0">
             {list.map((card) => (

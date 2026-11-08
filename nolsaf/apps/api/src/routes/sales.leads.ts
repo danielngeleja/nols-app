@@ -159,7 +159,7 @@ const listSchema = z.object({
   product: z.enum(PROPOSED_PRODUCTS).optional(),
   q: z.string().trim().max(120).optional(),
   followUp: z.enum(["OVERDUE", "TODAY", "UPCOMING", "NONE", "PROTECTION", "STALE"]).optional(),
-  sort: z.enum(["createdAt", "updatedAt", "nextFollowUpAt", "propertyName"]).default("updatedAt"),
+  sort: z.enum(["createdAt", "updatedAt", "nextFollowUpAt", "propertyName", "proposedProduct", "status", "protectionExpiresAt", "activity"]).default("updatedAt"),
   direction: z.enum(["asc", "desc"]).default("desc"),
 });
 
@@ -334,7 +334,8 @@ router.get("/leads", limitSalesLeadRead as any, asyncHandler(async (req: SalesAu
     db.salesLead.count({ where }),
     db.salesLead.findMany({
       where,
-      orderBy: { [sort]: direction },
+      // A stable tie-break so paging never repeats or skips a lead.
+      orderBy: [sort === "activity" ? { activities: { _count: direction } } : { [sort]: direction }, { id: "desc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
       select: {

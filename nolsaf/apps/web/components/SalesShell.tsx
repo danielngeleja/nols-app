@@ -436,18 +436,12 @@ export default function SalesShell({ children }: { children: ReactNode }) {
       onClickCapture={handleWorkspaceNavigation}
       aria-busy={navigation ? "true" : undefined}
     >
-      <style jsx global>{`
+      <style>{`
         #sales-workspace,
         #sales-workspace *,
         #sales-workspace *::before,
         #sales-workspace *::after {
           box-sizing: border-box;
-        }
-        #sales-workspace button,
-        #sales-workspace input,
-        #sales-workspace select,
-        #sales-workspace textarea {
-          font: inherit;
         }
         /* Tailwind preflight is off app-wide, so utility classes here were
            fighting browser defaults: "border" drew nothing (no border-style),
@@ -455,19 +449,30 @@ export default function SalesShell({ children }: { children: ReactNode }) {
            and <dd> kept their UA margins and indents. This is the relevant
            slice of preflight, scoped to the sales workspace. :where() keeps it
            at zero specificity, so every utility class still wins. */
-        :where(#sales-workspace) *,
-        :where(#sales-workspace) *::before,
-        :where(#sales-workspace) *::after {
-          border-width: 0;
-          border-style: solid;
-          border-color: #e2e8f0;
-        }
-        :where(#sales-workspace) :where(h1, h2, h3, h4, h5, h6, p, dl, dd, figure, blockquote, pre) {
-          margin: 0;
-        }
-        :where(#sales-workspace) :where(button, [type="button"], [type="submit"], [type="reset"]) {
-          background-color: transparent;
-          background-image: none;
+        @layer base {
+          /* Inside the base layer on purpose: Tailwind 4 puts utilities in a
+             cascade layer, and unlayered CSS beats every layer whatever its
+             specificity. Unlayered, these rules erased all bg-* on buttons
+             and all border-* on fields across the sales workspace. */
+          :where(#sales-workspace) *,
+          :where(#sales-workspace) *::before,
+          :where(#sales-workspace) *::after {
+            border-width: 0;
+            border-style: solid;
+            border-color: #e2e8f0;
+          }
+          :where(#sales-workspace) :where(h1, h2, h3, h4, h5, h6, p, dl, dd, figure, blockquote, pre) {
+            margin: 0;
+          }
+          /* Only buttons that bring no background of their own: a button with
+             any bg-* class is never touched, whatever the cascade does. */
+          :where(#sales-workspace) :where(button, [type="button"], [type="submit"], [type="reset"]):where(:not([class*="bg-"])) {
+            background-color: transparent;
+            background-image: none;
+          }
+          :where(#sales-workspace) :where(button, input, select, textarea) {
+            font: inherit;
+          }
         }
       `}</style>
       <div className="hidden shrink-0 p-3 lg:block">{renderSidebar(collapsed)}</div>

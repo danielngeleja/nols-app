@@ -4,11 +4,13 @@
  * Sales leaderboard: your place first, then the board. Points come only from
  * verified results; earnings never appear here.
  */
-import { useCallback, useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, Info, Loader2, Minus, Target, Trophy } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronsUpDown, ChevronUp, Info, Loader2, Minus, Sparkles, Target, Trophy } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
+import SalesPager from "@/components/sales/SalesPager";
+import PointsRulesDialog from "@/components/sales/PointsRulesDialog";
 
 type Entry = { rank: number; name: string; initials: string; region: string | null; level: string; points: number; confirmed: number; me: boolean };
 type Board = {
@@ -32,6 +34,12 @@ type Board = {
 
 const PERIODS = [["month", "This month"], ["quarter", "This quarter"], ["all", "All time"]] as const;
 const SCOPES = [["national", "Tanzania"], ["region", "My region"], ["team", "My team"]] as const;
+
+const th = "px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500";
+type SortKey = "rank" | "name" | "region" | "level" | "confirmed" | "points";
+const LEVEL_ORDER: Record<string, number> = { STARTER: 0, BRONZE: 1, SILVER: 2, GOLD: 3, PLATINUM: 4 };
+/** First click direction per column: the useful end first. */
+const FIRST: Record<SortKey, "asc" | "desc"> = { rank: "asc", name: "asc", region: "asc", level: "desc", confirmed: "desc", points: "desc" };
 
 const LEVEL_TONE: Record<string, string> = {
   PLATINUM: "bg-slate-900 text-white",
@@ -57,6 +65,10 @@ export default function SalesLeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showRules, setShowRules] = useState(false);
+  const [sort, setSort] = useState<SortKey>("rank");
+  const [direction, setDirection] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   // Last month's winning team (a badge only, no money).
   const [topTeam, setTopTeam] = useState<{ name: string; month: string; mine: boolean } | null>(null);
   useEffect(() => {
@@ -69,6 +81,7 @@ export default function SalesLeaderboardPage() {
     try {
       const { data } = await apiClient.get<Board>("/api/sales/leaderboard", { params: { period, scope } });
       setBoard(data);
+      setPage(1);
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Could not load the leaderboard.");
     } finally {
@@ -81,6 +94,48 @@ export default function SalesLeaderboardPage() {
   }, [load]);
 
   const me = board?.me;
+
+  // Sort and page the loaded board (the top 50 plus you) in the browser.
+  const sorted = useMemo(() => {
+    const rows = [...(board?.entries ?? [])];
+    const value = (e: Entry): string | number => {
+      switch (sort) {
+        case "name": return e.name.toLowerCase();
+        case "region": return (e.region || "Tanzania").toLowerCase();
+        case "level": return LEVEL_ORDER[e.level] ?? 0;
+        case "confirmed": return e.confirmed;
+        case "points": return e.points;
+        default: return e.rank;
+      }
+    };
+    rows.sort((a, b) => {
+      const x = value(a);
+      const y = value(b);
+      const cmp = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+      return (direction === "asc" ? cmp : -cmp) || a.rank - b.rank;
+    });
+    return rows;
+  }, [board, sort, direction]);
+  const visible = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const myIndex = sorted.findIndex((e) => e.me);
+  const myPage = myIndex >= 0 ? Math.floor(myIndex / pageSize) + 1 : null;
+
+  const sortBy = (key: SortKey) => {
+    if (sort === key) setDirection((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSort(key); setDirection(FIRST[key]); }
+    setPage(1);
+  };
+  const sortHead = (key: SortKey, label: string, extra = "", align: "left" | "right" | "center" = "left") => {
+    const active = sort === key;
+    return (
+      <th scope="col" className={`${th} ${extra}`} aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}>
+        <button type="button" onClick={() => sortBy(key)} className={`inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[11px] font-semibold ${align === "right" ? "flex-row-reverse" : ""} ${active ? "text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
+          {label}
+          {!active ? <ChevronsUpDown className="h-3 w-3 text-slate-300" aria-hidden /> : direction === "asc" ? <ChevronUp className="h-3 w-3 text-[#02665e]" aria-hidden /> : <ChevronDown className="h-3 w-3 text-[#02665e]" aria-hidden />}
+        </button>
+      </th>
+    );
+  };
   const progress = me ? Math.min(100, Math.round((me.target.confirmed / Math.max(1, me.target.goal)) * 100)) : 0;
 
   return (
@@ -105,138 +160,162 @@ export default function SalesLeaderboardPage() {
           </section>
         ) : null}
 
-        {/* Your place */}
+        {/* Your standing: one joined panel */}
         {me && (
-          <section className="mt-5 grid gap-4 rounded-lg border border-solid border-slate-200 bg-white p-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:p-5">
-            <div className="flex items-center gap-4 sm:block sm:min-w-[88px] sm:text-center">
-              <div>
-                <p className="m-0 text-[12px] text-slate-500">Your rank</p>
-                <p className="m-0 text-[34px] font-bold leading-none text-slate-900">{me.excluded ? "–" : me.rank ?? "–"}</p>
-              </div>
-              {!me.excluded && period === "month" && (
-                <p className={`m-0 mt-1 inline-flex items-center gap-0.5 text-[12px] font-semibold ${me.movement > 0 ? "text-emerald-700" : me.movement < 0 ? "text-rose-700" : "text-slate-400"}`}>
-                  {me.movement > 0 ? <ArrowUp className="h-3.5 w-3.5" /> : me.movement < 0 ? <ArrowDown className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
-                  {me.movement === 0 ? "No change this week" : `${Math.abs(me.movement)} this week`}
+          <section className="mt-4 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white" aria-label="Your standing">
+            <div className="grid grid-cols-2 gap-px bg-slate-200 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1.4fr)_minmax(0,1.4fr)]">
+              <div className="min-w-0 bg-white px-4 py-3.5">
+                <p className="m-0 flex items-center gap-1.5 text-[12px] text-slate-500"><Trophy className="h-3.5 w-3.5" aria-hidden /> Your rank</p>
+                <p className="m-0 mt-1 text-2xl font-bold tabular-nums leading-tight text-slate-900">
+                  {me.excluded || !me.rank ? "–" : `#${me.rank}`}
+                  {!me.excluded && me.rank && board ? <span className="ml-1 text-[13px] font-medium text-slate-400">of {board.total}</span> : null}
                 </p>
-              )}
+                {!me.excluded && period === "month" ? (
+                  <p className={`m-0 inline-flex items-center gap-0.5 text-[12px] font-semibold ${me.movement > 0 ? "text-emerald-700" : me.movement < 0 ? "text-rose-700" : "text-slate-400"}`}>
+                    {me.movement > 0 ? <ArrowUp className="h-3.5 w-3.5" aria-hidden /> : me.movement < 0 ? <ArrowDown className="h-3.5 w-3.5" aria-hidden /> : <Minus className="h-3.5 w-3.5" aria-hidden />}
+                    {me.movement === 0 ? "No change this week" : `${Math.abs(me.movement)} this week`}
+                  </p>
+                ) : <p className="m-0 text-[12px] text-slate-400">{SCOPES.find(([v]) => v === scope)?.[1]}</p>}
+              </div>
+              <div className="min-w-0 bg-white px-4 py-3.5">
+                <p className="m-0 flex items-center gap-1.5 text-[12px] text-slate-500"><Sparkles className="h-3.5 w-3.5" aria-hidden /> Points</p>
+                <p className="m-0 mt-1 text-2xl font-bold tabular-nums leading-tight text-slate-900">{me.points.toLocaleString("en-US")}</p>
+                <button type="button" onClick={() => setShowRules(true)} aria-haspopup="dialog" className="inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-[#02665e] hover:underline">
+                  <Info className="h-3.5 w-3.5" aria-hidden /> How points work
+                </button>
+              </div>
+              <div className="min-w-0 bg-white px-4 py-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="m-0 flex items-center gap-1.5 text-[12px] text-slate-500"><Target className="h-3.5 w-3.5" aria-hidden /> {board ? monthLabel(board.month) : ""} target</p>
+                  <span className="text-[12px] font-semibold tabular-nums text-slate-700">{progress}%</span>
+                </div>
+                <p className="m-0 mt-1 text-[15px] font-semibold tabular-nums text-slate-900">{me.target.confirmed} of {me.target.goal} <span className="text-[12px] font-normal text-slate-500">owner-confirmed properties</span></p>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+                  <div className="h-full rounded-full bg-[#02665e] transition-[width] duration-500" style={{ width: `${progress}%` }} />
+                </div>
+              </div>
+              <div className="min-w-0 bg-white px-4 py-3.5">
+                <p className="m-0 flex items-center gap-1.5 text-[12px] text-slate-500"><ArrowUp className="h-3.5 w-3.5" aria-hidden /> Your next move</p>
+                <p className="m-0 mt-1 text-[13px] leading-5 text-slate-800">
+                  {me.excluded
+                    ? "You are not on this month's board. Contact NoLSAF support for details."
+                    : me.gap
+                      ? `${me.gap.points} points behind #${me.gap.rank}. ${me.gap.points <= 50 ? "One owner-confirmed property gets you there." : "Each owner-confirmed property is worth 50."}`
+                      : me.rank === 1
+                        ? "You lead. Keep it with verified results: confirmed properties and clean visits."
+                        : "Every owner-confirmed property is worth 50 points."}
+                </p>
+              </div>
             </div>
 
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900"><Target className="h-4 w-4 text-[#02665e]" /> {board ? monthLabel(board.month) : ""} target</span>
-                <span className="text-slate-600">{me.target.confirmed} of {me.target.goal} confirmed properties</span>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-                <div className="h-full rounded-full bg-[#02665e] transition-[width] duration-500" style={{ width: `${progress}%` }} />
-              </div>
-              <p className="m-0 mt-2 text-[13px] text-slate-600">
-                {me.excluded
-                  ? "You are not on this month's board. Contact NoLSAF support for details."
-                  : me.gap
-                    ? `${me.gap.points} points behind number ${me.gap.rank}. ${me.gap.points <= 50 ? "One owner-confirmed property gets you there." : "Each owner-confirmed property is worth 50."}`
-                    : me.rank === 1
-                      ? "You are number 1. Keep your lead with verified results."
-                      : "Every owner-confirmed property is worth 50 points."}
-              </p>
-            </div>
-
-            <div className="flex items-end justify-between gap-4 sm:block sm:text-right">
-              <div>
-                <p className="m-0 text-[12px] text-slate-500">Points</p>
-                <p className="m-0 text-2xl font-bold text-slate-900">{me.points.toLocaleString("en-US")}</p>
-              </div>
-              <button type="button" onClick={() => setShowRules((v) => !v)} className="mt-1 inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-[#02665e] [font-family:inherit]">
-                <Info className="h-3.5 w-3.5" /> How points work
-              </button>
-            </div>
-
-            {showRules && (
-              <div className="rounded-lg bg-slate-50 p-3 text-[13px] text-slate-700 sm:col-span-3">
-                <ul className="m-0 grid list-none gap-1.5 p-0 sm:grid-cols-2">
-                  <li><b className="text-slate-900">+50</b> owner confirms you brought them {me.breakdown ? <span className="text-slate-500">· you: {me.breakdown.confirmed}</span> : null}</li>
-                  <li><b className="text-slate-900">+30</b> a property's first booking {me.breakdown ? <span className="text-slate-500">· you: {me.breakdown.live}</span> : null}</li>
-                  <li><b className="text-slate-900">+5</b> clean visit, up to 3 per lead {me.breakdown ? <span className="text-slate-500">· you: {me.breakdown.visits}</span> : null}</li>
-                  <li><b className="text-slate-900">+1</b> per TSh 10,000 NoLSAF revenue after check-out {me.breakdown ? <span className="text-slate-500">· you: {me.breakdown.revenuePoints}</span> : null}</li>
-                  <li><b className="text-rose-700">−40</b> owner says no, or doesn't know you {me.breakdown ? <span className="text-slate-500">· you: {me.breakdown.denials}</span> : null}</li>
-                  <li><b className="text-rose-700">−</b> revenue points from reversed commissions {me.breakdown ? <span className="text-slate-500">· you: {me.breakdown.reversalPoints}</span> : null}</li>
-                </ul>
-                <p className="m-0 mt-2 text-[12px] text-slate-500">Flagged visits count once NoLSAF reviews them. The month resets on the 1st, so everyone can win next month.</p>
-              </div>
-            )}
           </section>
         )}
 
-        {/* Filters */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Period">
-            {PERIODS.map(([value, label]) => (
-              <button key={value} type="button" onClick={() => setPeriod(value)} aria-pressed={period === value}
-                className={`h-8 rounded-full border border-solid px-3 text-[13px] font-semibold [font-family:inherit] transition ${period === value ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Who to compare with">
-            {SCOPES.filter(([value]) => (value === "team" ? board?.hasTeam : value === "region" ? board?.hasRegion !== false : true)).map(([value, label]) => (
-              <button key={value} type="button" onClick={() => setScope(value)} aria-pressed={scope === value}
-                className={`h-8 rounded-full border border-solid px-3 text-[13px] font-semibold [font-family:inherit] transition ${scope === value ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Board */}
-        <section className="mt-3 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white" aria-live="polite">
+        <section className="mt-4 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white" aria-live="polite">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-slate-100 px-4 py-2.5">
+            <div className="inline-flex rounded-md bg-slate-100 p-0.5" role="group" aria-label="Period">
+              {PERIODS.map(([value, label]) => (
+                <button key={value} type="button" onClick={() => setPeriod(value)} aria-pressed={period === value}
+                  className={`h-7 rounded border-0 px-3 text-[12px] font-semibold transition ${period === value ? "bg-white text-slate-900 shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-800"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="inline-flex rounded-md bg-slate-100 p-0.5" role="group" aria-label="Who to compare with">
+              {SCOPES.filter(([value]) => (value === "team" ? board?.hasTeam : value === "region" ? board?.hasRegion !== false : true)).map(([value, label]) => (
+                <button key={value} type="button" onClick={() => setScope(value)} aria-pressed={scope === value}
+                  className={`h-7 rounded border-0 px-3 text-[12px] font-semibold transition ${scope === value ? "bg-[#02665e] text-white shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-800"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {loading && !board ? (
-            <div className="flex items-center gap-2 p-5 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading</div>
+            <div className="flex items-center gap-2 p-5 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading</div>
           ) : !board?.entries.length ? (
-            <div className="p-6 text-center text-sm text-slate-600">No one has scored yet this period. The first owner-confirmed property takes the lead.</div>
+            <div className="px-4 py-10 text-center">
+              <Trophy className="mx-auto h-6 w-6 text-slate-300" aria-hidden />
+              <p className="m-0 mt-2 text-sm font-medium text-slate-800">Nobody has scored yet this period</p>
+              <p className="m-0 mt-1 text-[13px] text-slate-500">The first owner-confirmed property takes the lead.</p>
+            </div>
           ) : (
             <div className={`overflow-x-auto transition-opacity ${loading ? "opacity-60" : ""}`}>
-              <table className="w-full border-collapse text-left">
-                <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <table className="w-full min-w-[560px] border-collapse text-left">
+                <thead className="bg-slate-50">
                   <tr>
-                    <th scope="col" className="w-14 px-4 py-2.5 text-center">Rank</th>
-                    <th scope="col" className="px-3 py-2.5">Representative</th>
-                    <th scope="col" className="hidden px-3 py-2.5 sm:table-cell">Region</th>
-                    <th scope="col" className="hidden px-3 py-2.5 md:table-cell">Level</th>
-                    <th scope="col" className="px-3 py-2.5 text-right">Confirmed</th>
-                    <th scope="col" className="px-4 py-2.5 text-right">Points</th>
+                    {sortHead("rank", "Rank", "w-20 pl-4 text-center", "center")}
+                    {sortHead("name", "Representative")}
+                    {sortHead("region", "Region", "hidden sm:table-cell")}
+                    {sortHead("level", "Level", "hidden md:table-cell")}
+                    {sortHead("confirmed", "Confirmed", "text-right", "right")}
+                    {sortHead("points", "Points", "pr-4 text-right", "right")}
                   </tr>
                 </thead>
                 <tbody>
-                  {board.entries.map((entry) => (
-                    <tr key={`${entry.rank}-${entry.name}`} className={`border-0 border-t border-solid border-slate-100 ${entry.me ? "bg-emerald-50/70" : "hover:bg-slate-50/60"}`}>
-                      <td className={`px-4 py-3 text-center text-[15px] font-bold ${entry.rank === 1 ? "text-amber-600" : entry.rank <= 3 ? "text-amber-700/80" : "text-slate-400"}`}>
-                        {entry.rank <= 3 ? <Trophy className="mx-auto h-4 w-4" aria-label={`Rank ${entry.rank}`} /> : entry.rank}
+                  {visible.map((entry) => (
+                    <tr key={`${entry.rank}-${entry.name}`} className={`border-0 border-t border-solid border-slate-100 ${entry.me ? "bg-[#02665e]/[0.06]" : "hover:bg-slate-50/60"}`}>
+                      <td className="py-3 pl-4 pr-3 text-center">
+                        {entry.rank <= 3 ? (
+                          <span className={`inline-grid h-7 w-7 place-items-center rounded-md text-[12px] font-bold ${entry.rank === 1 ? "bg-amber-100 text-amber-800" : entry.rank === 2 ? "bg-slate-200 text-slate-700" : "bg-orange-100 text-orange-800"}`} aria-label={`Rank ${entry.rank}`}>{entry.rank}</span>
+                        ) : (
+                          <span className="text-[13px] font-semibold tabular-nums text-slate-400">{entry.rank}</span>
+                        )}
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex min-w-0 items-center gap-3">
-                          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[12px] font-bold ${entry.me ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-600"}`}>{entry.initials}</span>
+                          <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-md text-[11px] font-bold ${entry.me ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-600"}`}>{entry.initials}</span>
                           <div className="min-w-0">
-                            <p className="m-0 truncate text-sm font-semibold text-slate-900">{entry.name}</p>
-                            <p className="m-0 text-[12px] text-slate-500 sm:hidden">{entry.region || "Tanzania"}</p>
+                            <p className="m-0 truncate text-[13px] font-semibold text-slate-900">{entry.me ? entry.name.replace(/ \(you\)$/, "") : entry.name}{entry.me ? <span className="ml-1.5 rounded bg-[#02665e] px-1.5 py-px text-[10px] font-semibold text-white">You</span> : null}</p>
+                            <p className="m-0 text-[11px] text-slate-500 sm:hidden">{entry.region || "Tanzania"}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="hidden px-3 py-3 text-[13px] text-slate-600 sm:table-cell">{entry.region || "Tanzania"}</td>
+                      <td className="hidden px-3 py-3 text-[12px] text-slate-600 sm:table-cell">{entry.region || "Tanzania"}</td>
                       <td className="hidden px-3 py-3 md:table-cell">
                         <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${LEVEL_TONE[entry.level] ?? "bg-slate-100 text-slate-600"}`}>{levelLabel(entry.level)}</span>
                       </td>
                       <td className="px-3 py-3 text-right text-[13px] tabular-nums text-slate-700">{entry.confirmed}</td>
-                      <td className="px-4 py-3 text-right text-[15px] font-bold tabular-nums text-slate-900">{entry.points.toLocaleString("en-US")}</td>
+                      <td className="py-3 pl-3 pr-4 text-right text-[14px] font-bold tabular-nums text-slate-900">{entry.points.toLocaleString("en-US")}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
+          {board && board.entries.length ? (
+            <SalesPager
+              page={page}
+              pageSize={pageSize}
+              total={sorted.length}
+              noun="representatives"
+              onPage={setPage}
+              onPageSize={(size) => { setPageSize(size); setPage(1); }}
+            />
+          ) : null}
+          {myPage && myPage !== page ? (
+            <div className="flex justify-center border-0 border-t border-solid border-slate-100 px-4 py-2">
+              <button type="button" onClick={() => setPage(myPage)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-[#02665e]/30 bg-[#02665e]/[0.06] px-3 text-[12px] font-semibold text-[#02665e] hover:bg-[#02665e]/10">
+                Jump to my row (page {myPage})
+              </button>
+            </div>
+          ) : null}
+          <p className="m-0 flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-slate-100 px-4 py-2.5 text-[11px] text-slate-500">
+            <span>Names show first name and initial. Earnings are never shown here.</span>
+            {board && board.total > board.entries.length ? (
+              <span>Top {board.entries.length - (board.entries.some((e) => e.me && e.rank > 50) ? 1 : 0)} of {board.total}</span>
+            ) : null}
+          </p>
         </section>
-        {board && board.total > board.entries.length && (
-          <p className="m-0 mt-2 text-center text-[12px] text-slate-500">Showing the top {board.entries.length - (board.entries.some((e) => e.me && e.rank > 50) ? 1 : 0)} of {board.total}.</p>
-        )}
-        <p className="m-0 mt-3 text-center text-[12px] text-slate-500">Names show first name and initial. Earnings are never shown on the leaderboard.</p>
+        {showRules && me ? (
+          <PointsRulesDialog
+            breakdown={me.breakdown}
+            total={me.points}
+            periodLabel={period === "month" ? (board ? monthLabel(board.month) : "this month") : period === "quarter" ? "this quarter" : "all time"}
+            onClose={() => setShowRules(false)}
+          />
+        ) : null}
       </div>
     </SalesShell>
   );

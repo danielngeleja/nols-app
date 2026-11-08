@@ -196,8 +196,7 @@ export default function SalesTeamPage() {
                     <tr>
                       <th scope="col" className={`${th} pl-4`}>Representative</th>
                       <th scope="col" className={th}>Level</th>
-                      <th scope="col" className={`${th} text-right`}>National rank</th>
-                      <th scope="col" className={`${th} text-right`}>Points</th>
+                      <th scope="col" className={`${th} text-right`}>Performance</th>
                       <th scope="col" className={`${th} w-[220px]`}>Target</th>
                       <th scope="col" className={`${th} text-right`}>Open</th>
                       <th scope="col" className={`${th} text-right`}>Stuck</th>
@@ -233,8 +232,10 @@ export default function SalesTeamPage() {
                               </div>
                             </td>
                             <td className="px-3 py-3 text-[13px] text-slate-700">{label(m.level)}</td>
-                            <td className="px-3 py-3 text-right text-[13px] tabular-nums text-slate-700">{m.nationalRank ? `#${m.nationalRank}` : "–"}</td>
-                            <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-slate-900">{m.points.toLocaleString("en-US")}</td>
+                            <td className="whitespace-nowrap px-3 py-3 text-right">
+                              <span className="block text-sm font-bold tabular-nums text-slate-900">{m.points.toLocaleString("en-US")} pts</span>
+                              <span className="block text-[11px] tabular-nums text-slate-500">{m.nationalRank ? `#${m.nationalRank} in Tanzania` : "Not ranked yet"}</span>
+                            </td>
                             <td className="px-3 py-3">
                               {editing ? (
                                 <div className="flex flex-wrap items-center gap-1.5">
@@ -265,7 +266,7 @@ export default function SalesTeamPage() {
 
                           {open && (
                             <tr className="bg-slate-50/70">
-                              <td colSpan={9} className="px-4 pb-4 pt-1">
+                              <td colSpan={8} className="px-4 pb-4 pt-1">
                                 {!memberLeads ? (
                                   <p className="m-0 flex items-center gap-2 py-2 text-[13px] text-slate-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading leads</p>
                                 ) : memberLeads.length === 0 ? (

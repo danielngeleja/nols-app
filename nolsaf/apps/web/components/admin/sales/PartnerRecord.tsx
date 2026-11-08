@@ -12,7 +12,7 @@ import {
   ShieldCheck, Users, Wallet, X,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import PartnerIdCardAdmin, { type AdminIdCard } from "./PartnerIdCardAdmin";
+import PartnerIdCardAdmin, { type AdminIdCard, type CardReadiness, cardGapText } from "./PartnerIdCardAdmin";
 import PartnerTeamAdmin from "./PartnerTeamAdmin";
 
 export type RecordPartner = {
@@ -52,7 +52,7 @@ export type RecordPartner = {
   _count: { attributions: number; leads: number; commissions: number; payoutRequests: number };
   idCards?: AdminIdCard[];
 };
-export type RecordAttention = { payoutsUnderReview: number; flaggedVisits: number; disputedProperties: number; leadsTeam: string | null };
+export type RecordAttention = { payoutsUnderReview: number; flaggedVisits: number; disputedProperties: number; leadsTeam: string | null; card?: CardReadiness };
 type Access = { status: string; expiresAt: string | null } | null;
 
 type Tab = "overview" | "agreements" | "team" | "card";
@@ -143,7 +143,10 @@ export default function PartnerRecord({
     if (attention?.payoutsUnderReview) out.push({ key: "payouts", tone: "amber", icon: Wallet, title: `${attention.payoutsUnderReview} withdrawal${attention.payoutsUnderReview === 1 ? "" : "s"} waiting for review`, action: { label: "Open Finance", href: "/admin/sales/finance" } });
     if (attention?.flaggedVisits) out.push({ key: "visits", tone: "amber", icon: ShieldAlert, title: `${attention.flaggedVisits} flagged visit${attention.flaggedVisits === 1 ? "" : "s"} waiting for review`, action: { label: "Review", href: "/admin/sales" } });
     if (attention?.disputedProperties) out.push({ key: "disputed", tone: "amber", icon: AlertTriangle, title: `${attention.disputedProperties} propert${attention.disputedProperties === 1 ? "y is" : "ies are"} on hold after an owner said no`, action: { label: "Review", href: "/admin/sales" } });
-    if (partner.status === "ACTIVE" && !activeCard) out.push({ key: "card", tone: "sky", icon: IdCard, title: "No ID card yet", detail: "The partner issues it from their portal once they have a profile photo.", action: { label: "ID card", tab: "card" } });
+    if (partner.status === "ACTIVE" && !activeCard) {
+      const gap = cardGapText(attention?.card);
+      out.push({ key: "card", tone: attention?.card && (!attention.card.profilePhoto || !attention.card.activeContract) ? "amber" : "sky", icon: IdCard, title: gap.title, detail: gap.detail, action: { label: "ID card", tab: "card" } });
+    }
     return out;
   }, [partner, attention, paused, signed, deadInvite, activeCard]);
 
@@ -411,7 +414,7 @@ export default function PartnerRecord({
               ) : null}
 
               {tab === "team" ? <PartnerTeamAdmin partnerId={partner.id} partnerActive={partner.status === "ACTIVE"} /> : null}
-              {tab === "card" ? <PartnerIdCardAdmin partnerId={partner.id} cards={partner.idCards} onChanged={onReload} /> : null}
+              {tab === "card" ? <PartnerIdCardAdmin partnerId={partner.id} cards={partner.idCards} readiness={attention?.card} onChanged={onReload} /> : null}
             </div>
           )}
         </div>
