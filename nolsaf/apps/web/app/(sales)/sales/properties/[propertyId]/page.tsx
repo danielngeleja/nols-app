@@ -259,12 +259,12 @@ export default function SalesPropertyDetailPage() {
     void load();
   }, [load]);
 
-  const card = "rounded-2xl border border-solid border-slate-200 bg-white shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]";
+  const card = "rounded-lg border border-solid border-slate-200 bg-white";
 
   return (
     <SalesShell>
       <style jsx global>{`#sales-property-detail, #sales-property-detail * { box-sizing: border-box; }`}</style>
-      <div id="sales-property-detail" className="space-y-5">
+      <div id="sales-property-detail" className="w-full min-w-0 space-y-5">
         {error ? <p className="m-0 rounded-xl border border-solid border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
 
         {loading ? (
@@ -294,7 +294,7 @@ export default function SalesPropertyDetailPage() {
             />
 
             {/* Earnings at a glance */}
-            <section className="grid gap-3 sm:grid-cols-3" aria-label="Earnings summary">
+            <section className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-[repeat(3,minmax(0,1fr))]" aria-label="Earnings summary">
               {[
                 { Icon: Wallet, label: "Your earnings", value: money(totals.commissionAmount, totals.currency), accent: true },
                 { Icon: TrendingUp, label: "Eligible NoLSAF revenue", value: money(totals.eligibleNetRevenue, totals.currency) },
@@ -317,7 +317,7 @@ export default function SalesPropertyDetailPage() {
               const done = onboarding.current === null;
               const currentStage = onboarding.stages.find((s) => s.state === "BLOCKED") ?? onboarding.stages.find((s) => s.state === "CURRENT") ?? null;
               return (
-                <section className={`${card} p-5`}>
+                <section className={`${card} min-w-0 p-4 sm:p-5`}>
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h2 className="m-0 text-base font-bold text-slate-950">{done ? "Fully onboarded" : "Road to earning"}</h2>
                     <span className="text-xs text-slate-500">{onboarding.completed} of {onboarding.total} steps done</span>
@@ -343,7 +343,7 @@ export default function SalesPropertyDetailPage() {
                     </div>
                   ) : null}
 
-                  <ol className="m-0 mt-4 grid list-none gap-x-6 gap-y-3 p-0 sm:grid-cols-2">
+                  <ol className="m-0 mt-4 grid list-none grid-cols-[minmax(0,1fr)] gap-x-6 gap-y-3 p-0 sm:grid-cols-[repeat(2,minmax(0,1fr))]">
                     {onboarding.stages.map((stage, index) => (
                       <li key={stage.key} className="flex items-center gap-3">
                         <span
@@ -381,7 +381,7 @@ export default function SalesPropertyDetailPage() {
             })() : null}
 
             {/* Products this partner earns on */}
-            <section className={`${card} p-5`}>
+            <section className={`${card} min-w-0 p-4 sm:p-5`}>
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="m-0 text-base font-bold text-slate-950">What you earn on</h2>
                 <span className="text-xs text-slate-500">
@@ -392,12 +392,12 @@ export default function SalesPropertyDetailPage() {
               {property.salesAttributions.length === 0 ? (
                 <p className="m-0 mt-3 text-sm text-slate-500">No product is attributed to you on this property yet.</p>
               ) : (
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[repeat(2,minmax(0,1fr))]">
                   {property.salesAttributions.map((item) => {
                     const product = PRODUCT_LABELS[item.productType] ?? { name: titleCase(item.productType), hint: "" };
                     const span = earningWindow(item);
                     return (
-                      <article key={item.id} className="rounded-2xl border border-solid border-slate-200 p-4">
+                      <article key={item.id} className="min-w-0 rounded-lg border border-solid border-slate-200 p-3.5 sm:p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="m-0 text-[15px] font-bold text-slate-950">{product.name}</p>
@@ -408,7 +408,7 @@ export default function SalesPropertyDetailPage() {
 
                         {span ? (
                           <div className="mt-4">
-                            <div className="flex items-center justify-between text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs">
                               <span className="font-semibold text-slate-700">Earning window</span>
                               <span className={span.ended ? "font-semibold text-slate-500" : "font-bold text-emerald-700"}>
                                 {span.ended ? "Ended" : !span.started ? "Not started" : `${span.daysLeft} ${span.daysLeft === 1 ? "day" : "days"} left`}
@@ -417,7 +417,7 @@ export default function SalesPropertyDetailPage() {
                             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
                               <div className="h-full rounded-full bg-[#087f68]" style={{ width: `${span.pct}%` }} />
                             </div>
-                            <div className="mt-1.5 flex justify-between text-[11.5px] text-slate-500">
+                            <div className="mt-1.5 flex justify-between gap-3 text-[11.5px] text-slate-500">
                               <span>{shortDate(item.commissionStartsAt)}</span>
                               <span>{shortDate(item.commissionEndsAt)}</span>
                             </div>
@@ -426,7 +426,7 @@ export default function SalesPropertyDetailPage() {
                           <p className="m-0 mt-4 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">Earning has not been activated yet.</p>
                         )}
 
-                        <dl className="m-0 mt-4 grid grid-cols-2 gap-3 border-0 border-t border-solid border-slate-100 pt-3.5">
+                        <dl className="m-0 mt-4 grid grid-cols-[repeat(2,minmax(0,1fr))] gap-3 border-0 border-t border-solid border-slate-100 pt-3.5 max-[359px]:grid-cols-[minmax(0,1fr)]">
                           <div className="flex min-w-0 items-start gap-2">
                             <BadgeCheck className="mt-0.5 h-4 w-4 flex-none text-emerald-600" aria-hidden />
                             <div className="min-w-0">
@@ -446,9 +446,9 @@ export default function SalesPropertyDetailPage() {
                         {item.lead ? (
                           <Link
                             href={`/sales/leads/${item.lead.ref}`}
-                            className="group mt-4 flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3.5 py-2.5 text-sm no-underline transition hover:bg-emerald-50"
+                            className="group mt-4 flex min-w-0 items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2.5 text-[13px] no-underline transition hover:bg-emerald-50"
                           >
-                            <span className="min-w-0 truncate text-slate-600">
+                            <span className="min-w-0 break-words text-slate-600 sm:truncate">
                               From your lead <span className="font-semibold text-slate-900">{titleCase(item.lead.propertyName)}</span>
                               {item.lead.contactPerson ? <span className="text-slate-500"> · {item.lead.contactPerson}</span> : null}
                             </span>
@@ -525,7 +525,7 @@ export default function SalesPropertyDetailPage() {
                 LEAD: activity.filter((a) => a.source === "LEAD").length,
               };
               return (
-                <section className={`${card} p-5`}>
+                <section className={`${card} min-w-0 p-4 sm:p-5`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <h2 className="m-0 text-base font-bold text-slate-950">Activity</h2>
                     {activity.length > 0 && counts.ATTRIBUTION > 0 && counts.LEAD > 0 ? (

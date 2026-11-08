@@ -177,4 +177,37 @@ describe("issuing", () => {
     const res = await request(app).post("/api/sales/id-card").set({ ...as, "x-test-impersonated": "true" });
     expect(res.status).toBe(403);
   });
+
+  it("issues the first card automatically when the partner opens the page ready", async () => {
+    h.db.salesPartnerProfile.findUnique.mockResolvedValue(partner());
+    h.db.salesPartnerCard.findFirst.mockResolvedValue(null);
+    h.db.salesPartnerCard.count.mockResolvedValue(0);
+    h.db.salesPartnerCard.updateMany.mockResolvedValue({ count: 0 });
+    h.db.salesPartnerCard.create.mockImplementation(async ({ data }: any) => ({ id: 12, ...data, verifyCount: 0, lastVerifiedAt: null }));
+    const res = await request(app).get("/api/sales/id-card").set(as);
+    expect(res.status).toBe(200);
+    expect(h.db.salesPartnerCard.create.mock.calls[0][0].data).toMatchObject({ cardNumber: "NSA-DAR-0001-C1", activeKey: 11 });
+    expect(res.body.card.verifyUrl).toContain("/verify/sales/");
+    expect(h.audit).toHaveBeenCalledWith(expect.anything(), "SALES_PARTNER_CARD_ISSUE", "SALES_PARTNER_CARD", null, expect.objectContaining({ automatic: true }), expect.any(Number));
+  });
+
+  it("never issues automatically without a photo, during support sessions, or after an earlier card", async () => {
+    h.db.salesPartnerCard.findFirst.mockResolvedValue(null);
+
+    h.db.salesPartnerProfile.findUnique.mockResolvedValue(partner({ user: { name: "Asha", avatarUrl: null } }));
+    const noPhoto = await request(app).get("/api/sales/id-card").set(as);
+    expect(noPhoto.body.card).toBeNull();
+    expect(noPhoto.body.requirements.profilePhoto).toBe(false);
+
+    h.db.salesPartnerProfile.findUnique.mockResolvedValue(partner());
+    h.db.salesPartnerCard.count.mockResolvedValue(0);
+    const support = await request(app).get("/api/sales/id-card").set({ ...as, "x-test-impersonated": "true" });
+    expect(support.body.card).toBeNull();
+
+    h.db.salesPartnerCard.count.mockResolvedValue(1); // an old, cancelled card exists
+    const revoked = await request(app).get("/api/sales/id-card").set(as);
+    expect(revoked.body.card).toBeNull();
+
+    expect(h.db.salesPartnerCard.create).not.toHaveBeenCalled();
+  });
 });

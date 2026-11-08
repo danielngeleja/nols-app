@@ -13,8 +13,10 @@ import {
   ArrowRight,
   CalendarCheck,
   CalendarX2,
-  ChevronLeft,
-  ChevronRight,
+  ChevronDown,
+  ChevronsUpDown,
+  ChevronUp,
+  Eye,
   Moon,
   Plus,
   RefreshCw,
@@ -27,6 +29,7 @@ import {
 import apiClient from "@/lib/apiClient";
 import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
+import SalesPager from "@/components/sales/SalesPager";
 
 type Lead = {
   ref: string;
@@ -71,7 +74,17 @@ const FOCUS: Array<{ key: Focus; label: string; Icon: typeof AlarmClock; tone: s
   { key: "NONE", label: "No follow-up set", Icon: CalendarX2, tone: "text-slate-700" },
   { key: "STALE", label: "Gone quiet", Icon: Moon, tone: "text-slate-700" },
 ];
-const pageSize = 25;
+type SortKey = "propertyName" | "proposedProduct" | "status" | "nextFollowUpAt" | "protectionExpiresAt" | "activity" | "updatedAt";
+/** First click direction per column: the useful end first. */
+const FIRST_DIRECTION: Record<SortKey, "asc" | "desc"> = {
+  propertyName: "asc",
+  proposedProduct: "asc",
+  status: "asc",
+  nextFollowUpAt: "asc",
+  protectionExpiresAt: "asc",
+  activity: "desc",
+  updatedAt: "desc",
+};
 const card = "rounded-lg border border-solid border-slate-200 bg-white";
 const th = "px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500";
 const DAY = 86_400_000;
@@ -116,6 +129,9 @@ export default function SalesLeadsPage() {
   const [pulse, setPulse] = useState<Pulse | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [sort, setSort] = useState<SortKey>("updatedAt");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
   const [stage, setStage] = useState("");
   const [focus, setFocus] = useState<Focus | "">("");
   const [query, setQuery] = useState("");
@@ -138,7 +154,7 @@ export default function SalesLeadsPage() {
     setError("");
     try {
       const { data } = await apiClient.get("/api/sales/leads", {
-        params: { page, pageSize, ...(stage ? { status: stage } : {}), ...(focus ? { followUp: focus } : {}), ...(search ? { q: search } : {}) },
+        params: { page, pageSize, sort, direction, ...(stage ? { status: stage } : {}), ...(focus ? { followUp: focus } : {}), ...(search ? { q: search } : {}) },
       });
       setLeads(data?.leads || []);
       setTotal(Number(data?.total || 0));
@@ -147,7 +163,7 @@ export default function SalesLeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, stage, focus, search]);
+  }, [page, pageSize, sort, direction, stage, focus, search]);
 
   useEffect(() => { void loadPulse(); }, [loadPulse]);
   useEffect(() => { void loadList(); }, [loadList]);
@@ -161,7 +177,22 @@ export default function SalesLeadsPage() {
   const clear = () => { setStage(""); setFocus(""); setQuery(""); setSearch(""); setPage(1); };
   const pickStage = (next: string) => { setStage((cur) => (cur === next ? "" : next)); setPage(1); };
   const pickFocus = (next: Focus) => { setFocus((cur) => (cur === next ? "" : next)); setPage(1); };
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const sortBy = (key: SortKey) => {
+    if (sort === key) setDirection((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSort(key); setDirection(FIRST_DIRECTION[key]); }
+    setPage(1);
+  };
+  const sortHead = (key: SortKey, label: string, extra = "") => {
+    const active = sort === key;
+    return (
+      <th scope="col" className={`${th} ${extra}`} aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}>
+        <button type="button" onClick={() => sortBy(key)} className={`inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[11px] font-semibold ${active ? "text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
+          {label}
+          {!active ? <ChevronsUpDown className="h-3 w-3 text-slate-300" aria-hidden /> : direction === "asc" ? <ChevronUp className="h-3 w-3 text-[#02665e]" aria-hidden /> : <ChevronDown className="h-3 w-3 text-[#02665e]" aria-hidden />}
+        </button>
+      </th>
+    );
+  };
   const peak = useMemo(() => Math.max(1, ...OPEN_STAGES.map((k) => pulse?.byStage[k] ?? 0)), [pulse]);
   const attention = pulse ? pulse.focus.OVERDUE + pulse.focus.PROTECTION : 0;
   const warnDays = pulse?.rules.protectionWarningDays ?? 7;
@@ -311,10 +342,15 @@ export default function SalesLeadsPage() {
             <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); setPage(1); setSearch(query.trim()); }}>
               <label className="relative">
                 <span className="sr-only">Find a lead</span>
-                <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden />
-                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Property, contact, phone or place" className="h-8 w-56 max-w-[60vw] rounded-md border border-solid border-slate-200 bg-white pl-7 pr-2 text-[12px] outline-none focus:border-[#02665e]" />
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search property, contact or place" className="h-9 w-64 max-w-[62vw] rounded-md border border-solid border-slate-300 bg-slate-50 pl-8 pr-8 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:bg-white focus:ring-2 focus:ring-[#02665e]/15" />
+                {query ? (
+                  <button type="button" onClick={() => { setQuery(""); setSearch(""); setPage(1); }} aria-label="Clear search" className="absolute right-1.5 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded border-0 bg-transparent text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                ) : null}
               </label>
-              <button type="button" onClick={() => { void loadPulse(); void loadList(); }} disabled={loading} aria-label="Refresh" title="Refresh" className="grid h-8 w-8 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50">
+              <button type="button" onClick={() => { void loadPulse(); void loadList(); }} disabled={loading} aria-label="Refresh" title="Refresh" className="grid h-9 w-9 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50">
                 <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
               </button>
             </form>
@@ -324,13 +360,13 @@ export default function SalesLeadsPage() {
             <table className="w-full min-w-[920px] border-collapse">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className={`${th} pl-4`}>Property</th>
-                  <th className={th}>Product</th>
-                  <th className={th}>Stage</th>
-                  <th className={th}>Next follow-up</th>
-                  <th className={th}>Protection</th>
-                  <th className={th}>Activity</th>
-                  <th className={`${th} pr-4`}><span className="sr-only">Open</span></th>
+                  {sortHead("propertyName", "Property", "pl-4")}
+                  {sortHead("proposedProduct", "Product")}
+                  {sortHead("status", "Stage")}
+                  {sortHead("nextFollowUpAt", "Next follow-up")}
+                  {sortHead("protectionExpiresAt", "Protection")}
+                  {sortHead("activity", "Activity")}
+                  <th className={`${th} w-12 pr-4`}><span className="sr-only">View</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -368,8 +404,8 @@ export default function SalesLeadsPage() {
                         <span className="block text-[11px] text-slate-400">{quiet(lead.updatedAt, now)}</span>
                       </td>
                       <td className="py-3 pl-3 pr-4 text-right">
-                        <Link href={`/sales/leads/${lead.ref}`} aria-label={`Open ${lead.propertyName}`} className="inline-flex h-7 items-center gap-1 rounded-md border border-solid border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700 no-underline hover:bg-slate-50">
-                          Open <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                        <Link href={`/sales/leads/${lead.ref}`} aria-label={`View ${lead.propertyName}`} title="View lead" className="inline-grid h-8 w-8 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 no-underline hover:border-[#02665e] hover:bg-[#02665e]/[0.06] hover:text-[#02665e]">
+                          <Eye className="h-4 w-4" aria-hidden />
                         </Link>
                       </td>
                     </tr>
@@ -379,16 +415,15 @@ export default function SalesLeadsPage() {
             </table>
           </div>
 
-          {total > pageSize ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 px-4 py-2.5">
-              <p className="m-0 text-[12px] text-slate-500">{(page - 1) * pageSize + 1} to {Math.min(page * pageSize, total)} of {total.toLocaleString("en-US")}</p>
-              <div className="flex items-center gap-1.5">
-                <button type="button" disabled={page <= 1 || loading} onClick={() => setPage((v) => Math.max(1, v - 1))} aria-label="Previous page" className="grid h-8 w-8 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" aria-hidden /></button>
-                <span className="min-w-12 text-center text-[12px] font-semibold tabular-nums text-slate-600">{page} / {totalPages}</span>
-                <button type="button" disabled={page >= totalPages || loading} onClick={() => setPage((v) => Math.min(totalPages, v + 1))} aria-label="Next page" className="grid h-8 w-8 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"><ChevronRight className="h-4 w-4" aria-hidden /></button>
-              </div>
-            </div>
-          ) : null}
+          <SalesPager
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            disabled={loading}
+            noun="leads"
+            onPage={(next) => setPage(next)}
+            onPageSize={(size) => { setPageSize(size); setPage(1); }}
+          />
         </section>
       </div>
     </SalesShell>

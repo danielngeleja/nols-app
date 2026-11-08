@@ -526,7 +526,7 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
   });
   if (!partner) return res.status(404).json({ error: "Partner not found" });
 
-  const [access, payoutsUnderReview, flaggedVisits, disputedProperties, ledTeam] = await Promise.all([
+  const [access, payoutsUnderReview, flaggedVisits, disputedProperties, ledTeam, photo] = await Promise.all([
     db.userWorkspaceAccess.findUnique({
       where: { userId_workspace: { userId: partner.user.id, workspace: "SALES" } },
       select: { status: true, grantedAt: true, expiresAt: true, suspendedAt: true, revokedAt: true },
@@ -536,7 +536,18 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
     db.salesLeadVisit.count({ where: { salesPartnerId: id, status: "FLAGGED", reviewedAt: null } }),
     db.propertySalesAttribution.count({ where: { salesPartnerId: id, status: "DISPUTED" } }),
     db.salesTeam.findUnique({ where: { leadPartnerId: id }, select: { name: true, status: true } }),
+    db.user.findUnique({ where: { id: partner.user.id }, select: { avatarUrl: true } }),
   ]);
+
+  // Why there is (or is not) a card, checked live with the same rules the
+  // partner's ID card page uses, so admin never has to guess.
+  const nowForCard = new Date();
+  const cardReadiness = {
+    activePartner: partner.status === "ACTIVE",
+    activeContract: partner.contracts.some((c: any) => ["ACTIVE", "EXPIRING"].includes(c.status) && c.startsAt && c.expiresAt && new Date(c.startsAt) <= nowForCard && new Date(c.expiresAt) > nowForCard),
+    profilePhoto: Boolean(photo?.avatarUrl),
+    everIssued: partner.idCards.length > 0,
+  };
 
   res.json({
     partner: {
@@ -547,6 +558,7 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
     },
     workspaceAccess: access,
     attention: {
+      card: cardReadiness,
       payoutsUnderReview,
       flaggedVisits,
       disputedProperties,

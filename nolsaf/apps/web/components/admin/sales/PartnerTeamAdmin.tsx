@@ -6,10 +6,11 @@
  * team they belong to. Every action needs a reason and is audited.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Users } from "lucide-react";
+import { Loader2, UserMinus, Users } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesPartnerPicker, { type PickedPartner } from "@/components/admin/sales/SalesPartnerPicker";
 import TargetSetter from "./TargetSetter";
+import AdminReasonDialog from "./AdminReasonDialog";
 
 type TeamMember = { partnerId: number; name: string; agentCode: string; region: string | null; status: string; points: number };
 type Team = { id: number; name: string; region: string | null; rank: number; points: number; lead: { partnerId: number; name: string; agentCode: string }; members: TeamMember[] };
@@ -27,6 +28,8 @@ export default function PartnerTeamAdmin({ partnerId, partnerActive }: { partner
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [removing, setRemoving] = useState<TeamMember | null>(null);
+  const [dialogError, setDialogError] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -88,16 +91,7 @@ export default function PartnerTeamAdmin({ partnerId, partnerActive }: { partner
                       type="button"
                       className={btn}
                       disabled={busy}
-                      onClick={() => {
-                        const r = window.prompt(`Reason for removing ${m.name} from the team`);
-                        if (!r || r.trim().length < 5) return setError("Give a reason of at least 5 characters.");
-                        setBusy(true);
-                        apiClient
-                          .post(`/api/admin/sales/teams/${led.id}/members/${m.partnerId}/remove`, { reason: r.trim() })
-                          .then(() => { setNotice(`${m.name} left the team.`); return load(); })
-                          .catch((cause: any) => setError(cause?.response?.data?.error || "Could not remove the member."))
-                          .finally(() => setBusy(false));
-                      }}
+                      onClick={() => { setDialogError(""); setRemoving(m); }}
                     >
                       Remove
                     </button>
@@ -152,6 +146,40 @@ export default function PartnerTeamAdmin({ partnerId, partnerActive }: { partner
       <div className="mt-4">
         <TargetSetter partnerId={partnerId} />
       </div>
+
+      {removing && led ? (
+        <AdminReasonDialog
+          icon={UserMinus}
+          tone="danger"
+          title="Remove from the team"
+          subject={<>{removing.name} · <span className="font-mono text-emerald-300">{removing.agentCode}</span> · {led.name}</>}
+          figures={[["Team", led.name], ["Their points", removing.points.toLocaleString("en-US")], ["Team size after", String(led.members.length - 1)]]}
+          effects={[
+            `${removing.name.split(/\s+/)[0]} leaves ${led.name} now and works solo. They are told they left the team.`,
+            "Their own leads, properties, points and earnings stay theirs.",
+            `${led.lead.name.split(/\s+/)[0]} no longer sees or coaches them, and the team's points drop by theirs.`,
+          ]}
+          chips={["Asked to leave the team", "Moved to another region", "Not working with the team", "Conduct under review"]}
+          placeholder="Why they are leaving the team"
+          confirmLabel="Remove from team"
+          busy={busy}
+          error={dialogError}
+          onCancel={() => setRemoving(null)}
+          onConfirm={(reasonText) => {
+            setBusy(true);
+            setDialogError("");
+            apiClient
+              .post(`/api/admin/sales/teams/${led.id}/members/${removing.partnerId}/remove`, { reason: reasonText })
+              .then(async () => {
+                setNotice(`${removing.name} left the team.`);
+                setRemoving(null);
+                await load();
+              })
+              .catch((cause: any) => setDialogError(cause?.response?.data?.error || "Could not remove the member. Nothing was changed."))
+              .finally(() => setBusy(false));
+          }}
+        />
+      ) : null}
     </div>
   );
 }

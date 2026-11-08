@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, Loader2, Lock, RefreshCw, Trophy, Users } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import LeaderboardExclusionDialog from "@/components/admin/sales/LeaderboardExclusionDialog";
 
 type Breakdown = { confirmed: number; live: number; visits: number; flaggedVisits: number; revenuePoints: number; denials: number; reversalPoints: number };
 type Entry = {
@@ -58,6 +59,8 @@ export default function AdminSalesLeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<number | null>(null);
+  const [asking, setAsking] = useState<Entry | null>(null);
+  const [dialogError, setDialogError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,16 +83,21 @@ export default function AdminSalesLeaderboardPage() {
     void load();
   }, [load]);
 
-  const toggleExclusion = async (entry: Entry) => {
-    const reason = window.prompt(entry.excluded ? `Reason for putting ${entry.name} back on the board` : `Reason for removing ${entry.name} from this month's board`);
-    if (!reason) return;
-    if (reason.trim().length < 5) return setError("Give a reason of at least 5 characters.");
-    setBusy(entry.partnerId);
+  const toggleExclusion = (entry: Entry) => {
+    setDialogError("");
+    setAsking(entry);
+  };
+
+  const confirmExclusion = async (reason: string) => {
+    if (!asking) return;
+    setBusy(asking.partnerId);
+    setDialogError("");
     try {
-      await apiClient.post(`/api/admin/sales/leaderboard/${entry.excluded ? "restore" : "exclude"}`, { salesPartnerId: entry.partnerId, month, reason: reason.trim() });
+      await apiClient.post(`/api/admin/sales/leaderboard/${asking.excluded ? "restore" : "exclude"}`, { salesPartnerId: asking.partnerId, month, reason });
+      setAsking(null);
       await load();
     } catch (cause: any) {
-      setError(cause?.response?.data?.error || "That did not work.");
+      setDialogError(cause?.response?.data?.error || "That did not work. Nothing was changed.");
     } finally {
       setBusy(null);
     }
@@ -232,7 +240,7 @@ export default function AdminSalesLeaderboardPage() {
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       {board.live && (
-                        <button type="button" onClick={() => void toggleExclusion(e)} disabled={busy === e.partnerId} className={`h-7 rounded-md border border-solid px-2 text-[11px] font-semibold [font-family:inherit] disabled:opacity-50 ${e.excluded ? "border-neutral-200 bg-white text-neutral-700" : "border-rose-200 bg-white text-rose-700"}`}>
+                        <button type="button" onClick={() => toggleExclusion(e)} disabled={busy === e.partnerId} className={`h-7 rounded-md border border-solid px-2 text-[11px] font-semibold [font-family:inherit] disabled:opacity-50 ${e.excluded ? "border-neutral-200 bg-white text-neutral-700" : "border-rose-200 bg-white text-rose-700"}`}>
                           {e.excluded ? "Restore" : "Exclude"}
                         </button>
                       )}
@@ -244,6 +252,16 @@ export default function AdminSalesLeaderboardPage() {
           </div>
         )}
       </section>
+      {asking ? (
+        <LeaderboardExclusionDialog
+          target={asking}
+          monthLabel={monthName(month)}
+          busy={busy === asking.partnerId}
+          error={dialogError}
+          onCancel={() => setAsking(null)}
+          onConfirm={(reason) => void confirmExclusion(reason)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -29,6 +29,7 @@ type Card = {
 };
 
 type Requirements = { activePartner: boolean; activeContract: boolean; profilePhoto: boolean };
+type Preview = { name: string; agentCode: string; region: string | null; territory: string | null; photoUrl: string | null; teamLead: boolean; expiresAt: string | null };
 
 function eat(value: string) {
   return new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) + " EAT";
@@ -41,18 +42,21 @@ function errorText(cause: any, fallback: string) {
 export default function SalesIdCardPage() {
   const [card, setCard] = useState<Card | null>(null);
   const [requirements, setRequirements] = useState<Requirements | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmReplace, setConfirmReplace] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const previewRef = useRef<HTMLCanvasElement>(null);
 
   const load = useCallback(async () => {
     try {
       const { data } = await apiClient.get("/api/sales/id-card");
       setCard(data.card ?? null);
       setRequirements(data.requirements ?? null);
+      setPreview(data.preview ?? null);
     } catch (cause) {
       setError(errorText(cause, "Could not load your ID card."));
     } finally {
@@ -79,6 +83,24 @@ export default function SalesIdCardPage() {
       teamLead: Boolean(card.holder.teamLead),
     });
   }, [card]);
+
+  // Before the first card: draw the partner's own card as a preview. No code,
+  // and the QR only opens the NoLSAF home page, so it proves nothing.
+  useEffect(() => {
+    if (card || !preview || !previewRef.current) return;
+    void drawIdCard(previewRef.current, {
+      name: preview.name,
+      agentCode: preview.agentCode,
+      cardNumber: "PREVIEW",
+      code: "ISSUE TO ACTIVATE",
+      region: preview.region,
+      territory: preview.territory,
+      photoUrl: preview.photoUrl || "data:,",
+      expiresAt: preview.expiresAt || new Date().toISOString(),
+      verifyUrl: "https://nolsaf.com",
+      teamLead: preview.teamLead,
+    });
+  }, [card, preview]);
 
   const issue = async () => {
     setBusy("issue");
@@ -151,7 +173,12 @@ export default function SalesIdCardPage() {
     }
   };
 
-  const ready = requirements && requirements.activePartner && requirements.activeContract && requirements.profilePhoto;
+  const ready = Boolean(requirements && requirements.activePartner && requirements.activeContract && requirements.profilePhoto);
+  const checklist = [
+    { ok: !!requirements?.activePartner, label: "Active partner account", help: "Your partner account is paused. Contact NoLSAF support.", href: "/sales/support", action: "Get help" },
+    { ok: !!requirements?.activeContract, label: "Active agreement with NoLSAF", help: "Sign or renew your agreement first.", href: "/sales/contract", action: "Open agreement" },
+    { ok: !!requirements?.profilePhoto, label: "Clear profile photo of your face", help: "It is printed on the card, so owners can match it to you.", href: "/account", action: "Add photo" },
+  ];
 
   return (
     <SalesShell>
@@ -232,33 +259,77 @@ export default function SalesIdCardPage() {
             </aside>
           </div>
         ) : (
-          <section className="mt-5 max-w-xl rounded-lg border border-solid border-slate-200 bg-white p-5">
-            <h2 className="m-0 text-base font-bold text-slate-900">Get your ID card</h2>
-            <p className="m-0 mt-1 text-sm text-slate-600">Owners can check it live, so they know they are talking to a real NoLSAF representative.</p>
-            <ul className="m-0 mt-4 list-none space-y-2 p-0 text-sm">
-              {[
-                ["Active partner account", requirements?.activePartner],
-                ["Active agreement with NoLSAF", requirements?.activeContract],
-                ["Clear profile photo of your face", requirements?.profilePhoto],
-              ].map(([label, ok]) => (
-                <li key={String(label)} className="flex items-center gap-2">
-                  {ok ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <XCircle className="h-4 w-4 text-rose-500" />}
-                  <span className={ok ? "text-slate-800" : "text-slate-600"}>{label}</span>
-                  {!ok && label === "Clear profile photo of your face" && (
-                    <Link href="/account" className="ml-auto text-[13px] font-semibold text-[#02665e] no-underline hover:underline">Add photo</Link>
-                  )}
-                </li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              onClick={() => void issue()}
-              disabled={!ready || busy === "issue"}
-              className="mt-5 inline-flex h-11 items-center gap-2 rounded-lg border-0 bg-[#02665e] px-5 text-sm font-semibold text-white [font-family:inherit] transition hover:bg-[#014d47] disabled:opacity-45"
-            >
-              {busy === "issue" ? <Loader2 className="h-4 w-4 animate-spin" /> : <IdCard className="h-4 w-4" />} Issue my ID card
-            </button>
-          </section>
+          <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+            {/* What the card will look like */}
+            <section className="rounded-lg border border-solid border-slate-200 bg-white p-3 sm:p-5">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="m-0 text-sm font-semibold text-slate-900">Your card</p>
+                <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Preview, not issued yet</span>
+              </div>
+              <div className="relative">
+                <canvas ref={previewRef} className="block h-auto w-full rounded-xl opacity-60" aria-label="Preview of your ID card" />
+                <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                  <span className="rotate-[-8deg] rounded-md border-2 border-solid border-white bg-slate-900/60 px-5 py-2 text-lg font-bold text-white sm:text-2xl">Not active</span>
+                </div>
+              </div>
+              <p className="m-0 mt-3 text-[12px] text-slate-500">The real card gets its own verification code and QR. Scanning this preview proves nothing.</p>
+            </section>
+
+            {/* Issue it */}
+            <aside className="space-y-4">
+              <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+                <div className="border-0 border-b border-solid border-slate-100 px-4 py-3">
+                  <p className={`m-0 flex items-center gap-2 text-sm font-semibold ${ready ? "text-emerald-700" : "text-slate-900"}`}>
+                    {ready ? <ShieldCheck className="h-4 w-4" aria-hidden /> : <IdCard className="h-4 w-4 text-slate-500" aria-hidden />}
+                    {ready ? "You are ready for your card" : `${checklist.filter((c) => c.ok).length} of ${checklist.length} done`}
+                  </p>
+                  <p className="m-0 mt-0.5 text-[12px] text-slate-500">{ready ? "Issue it now. You can show it the moment you tap." : "Finish the steps below and you can issue it straight away."}</p>
+                </div>
+                <ul className="m-0 list-none p-0">
+                  {checklist.map((item) => (
+                    <li key={item.label} className="flex items-center gap-3 border-0 border-t border-solid border-slate-100 px-4 py-2.5 first:border-t-0">
+                      {item.ok ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden /> : <XCircle className="h-4 w-4 shrink-0 text-rose-500" aria-hidden />}
+                      <span className="min-w-0 flex-1">
+                        <span className={`block text-[13px] ${item.ok ? "text-slate-800" : "font-medium text-slate-900"}`}>{item.label}</span>
+                        {!item.ok ? <span className="block text-[12px] text-slate-500">{item.help}</span> : null}
+                      </span>
+                      {!item.ok ? <Link href={item.href} className="shrink-0 text-[12px] font-semibold text-[#02665e] no-underline hover:underline">{item.action}</Link> : null}
+                    </li>
+                  ))}
+                </ul>
+                <div className="border-0 border-t border-solid border-slate-100 p-4">
+                  <button
+                    type="button"
+                    onClick={() => void issue()}
+                    disabled={!ready || busy === "issue"}
+                    className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-5 text-sm font-semibold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    {busy === "issue" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <IdCard className="h-4 w-4" aria-hidden />} Issue my ID card
+                  </button>
+                  {preview?.expiresAt ? <p className="m-0 mt-2 text-center text-[11px] text-slate-500">Valid until {eat(preview.expiresAt)}, or until your agreement ends</p> : null}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-solid border-slate-200 bg-white p-4">
+                <p className="m-0 text-sm font-semibold text-slate-900">How owners check it</p>
+                <ol className="m-0 mt-3 list-none space-y-3 p-0">
+                  {[
+                    ["Show or send it", "On your phone, or shared to WhatsApp as an image."],
+                    ["The owner scans the QR", "With their own phone camera, or types the card code."],
+                    ["NoLSAF confirms live", "Your name, photo and that you are authorised today."],
+                  ].map(([title, text], index) => (
+                    <li key={title} className="flex gap-3">
+                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[#02665e]/10 text-[12px] font-bold text-[#02665e]">{index + 1}</span>
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold text-slate-800">{title}</span>
+                        <span className="block text-[12px] text-slate-500">{text}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            </aside>
+          </div>
         )}
       </div>
     </SalesShell>

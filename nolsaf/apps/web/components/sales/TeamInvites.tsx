@@ -240,9 +240,28 @@ export default function TeamInvites({ onChanged }: { onChanged?: () => void }) {
       {loading ? (
         <div className="flex items-center gap-2 p-5 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading</div>
       ) : !data?.invites.length ? (
-        <div className="px-4 py-8 text-center">
-          <p className="m-0 text-sm font-medium text-slate-800">Grow your team</p>
-          <p className="m-0 mt-1 text-[13px] text-slate-500">Create a personal link for someone you trust. NoLSAF reviews them before they join.</p>
+        <div className="grid gap-4 px-4 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <div className="min-w-0">
+            <p className="m-0 text-sm font-semibold text-slate-900">Grow your team</p>
+            <p className="m-0 mt-1 text-[13px] text-slate-500">Create a personal link for someone you trust. NoLSAF reviews them before they join.</p>
+            <ol className="m-0 mt-3 grid list-none gap-2 p-0 text-[12px] text-slate-600 sm:grid-cols-3">
+              {["Create a link with their name and number", "Send it on WhatsApp", "They apply, NoLSAF approves"].map((step, index) => (
+                <li key={step} className="flex items-center gap-2">
+                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-[#02665e]/10 text-[11px] font-bold text-[#02665e]">{index + 1}</span>
+                  {step}
+                </li>
+              ))}
+            </ol>
+          </div>
+          {!full && !open ? (
+            <button
+              type="button"
+              onClick={() => { setOpen(true); setError(""); }}
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014d47]"
+            >
+              <Plus className="h-4 w-4" aria-hidden /> Invite your first member
+            </button>
+          ) : null}
         </div>
       ) : (
         <div className="overflow-x-auto">
