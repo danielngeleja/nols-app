@@ -137,7 +137,9 @@ function PaymentCasePanel({ booking, nowTick, onCreated }: { booking: Booking; n
   const waiting = eligibility?.state === "WAITING" && Boolean(eligibility.availableAt) && new Date(eligibility.availableAt!).getTime() > nowTick;
   const unverified = eligibility?.state === "UNVERIFIED";
   const waitMinutes = waiting ? Math.max(1, Math.ceil((new Date(eligibility!.availableAt!).getTime() - nowTick) / 60_000)) : 0;
-  const caseMessage = paymentCase?.status === "RESOLVED"
+  const caseMessage = paymentCase?.status === "RESOLVED" && paymentCase.resolution === "NOT_PAID"
+    ? "We checked with the payment provider and no payment reached NoLSAF, so no code was issued. If money left your account, contact NoLSAF support with your provider receipt."
+    : paymentCase?.status === "RESOLVED"
     ? "Your confirmation was sent to your account and verified contact."
     : paymentCase?.status === "INVENTORY_CONFLICT" || paymentCase?.status === "REFUND_REQUIRED"
     ? "We verified the payment, but the original room needs a rebooking or refund decision. Our team is handling it."
@@ -814,7 +816,10 @@ export default function MyBookingsPage() {
               const paymentPending = Boolean(booking.paymentProcessing || booking.paymentNeedsReview);
               const timeLeft = draftTimeLeft(booking);
               const unavailable = booking.draftAvailability && !booking.draftAvailability.available;
-              const canPay = !booking.paymentCase && !expired && !unavailable && !paymentPending && Boolean(booking.invoiceId && booking.invoiceAccessToken);
+              // A case NoLSAF closed as "not paid" no longer blocks paying again.
+              const caseClosedNotPaid = booking.paymentCase?.status === "RESOLVED" && booking.paymentCase.resolution === "NOT_PAID";
+              const caseOpen = Boolean(booking.paymentCase) && !caseClosedNotPaid;
+              const canPay = !caseOpen && !expired && !unavailable && !paymentPending && Boolean(booking.invoiceId && booking.invoiceAccessToken);
               const payHref = canPay
                 ? `/public/booking/payment?invoiceId=${encodeURIComponent(String(booking.invoiceId))}&accessToken=${encodeURIComponent(String(booking.invoiceAccessToken))}`
                 : null;
@@ -841,7 +846,7 @@ export default function MyBookingsPage() {
                             ].join(" ")}
                           >
                             {blocked ? <XCircle className="h-3.5 w-3.5" aria-hidden /> : <Clock className="h-3.5 w-3.5" aria-hidden />}
-                            {booking.paymentCase ? "Payment help open" : booking.paymentNeedsReview ? "Payment under review" : booking.paymentOutcome === "SLOW" ? "Waiting for your network" : booking.paymentProcessing ? "Payment processing" : expired ? "Payment window closed" : unavailable ? "Room no longer available" : booking.paymentOutcome === "FAILED" ? "Payment failed" : booking.paymentOutcome === "NO_RESULT" ? "Payment not completed" : "Awaiting payment"}
+                            {caseOpen ? "Payment help open" : caseClosedNotPaid && !expired ? "No payment received" : booking.paymentNeedsReview ? "Payment under review" : booking.paymentOutcome === "SLOW" ? "Waiting for your network" : booking.paymentProcessing ? "Payment processing" : expired ? "Payment window closed" : unavailable ? "Room no longer available" : booking.paymentOutcome === "FAILED" ? "Payment failed" : booking.paymentOutcome === "NO_RESULT" ? "Payment not completed" : "Awaiting payment"}
                           </span>
                         </div>
                         {location ? (
@@ -873,7 +878,7 @@ export default function MyBookingsPage() {
                           <CreditCard className="h-4 w-4" aria-hidden />
                           Complete payment
                         </Link>
-                      ) : booking.paymentCase ? (
+                      ) : caseOpen ? (
                         <span className="inline-flex h-10 items-center rounded-lg bg-teal-50 px-4 text-[13px] font-semibold text-teal-800">We are checking</span>
                       ) : paymentPending ? (
                         <span className="inline-flex h-10 items-center rounded-lg bg-sky-50 px-4 text-[13px] font-semibold text-sky-800">Awaiting payment result</span>
@@ -889,8 +894,12 @@ export default function MyBookingsPage() {
                     </div>
                   </div>
                   <p className="m-0 mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">
-                    {booking.paymentCase
+                    {caseOpen
                       ? "Your payment report is being reviewed. Do not pay again while it is open."
+                      : caseClosedNotPaid
+                      ? expired
+                        ? "We checked with the payment provider: no payment reached NoLSAF for this booking. This payment window has closed, so please make a new booking."
+                        : "We checked with the payment provider: no payment reached NoLSAF for this booking. You can pay again."
                       : booking.paymentNeedsReview
                       ? "Your payment needs verification. We will update this booking after confirming the provider result; do not pay again."
                       : booking.paymentOutcome === "SLOW"

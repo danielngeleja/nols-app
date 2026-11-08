@@ -378,6 +378,8 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
           CallbackUrl: config.callbackUrl,
           CallbackFormat: "json",
           CallbackMethod: "post",
+          // Coral's sender must use TLS 1.2: our hosts refuse older protocols.
+          CallbackProtocol: "tls12",
           CallbackVar: "UCFCallback",
           TransactionType: "03",
           PostBackSuccessUrl: appendParams(config.successUrl, postbackParams),

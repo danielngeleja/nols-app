@@ -347,7 +347,9 @@ export default function NrmsBillingPage() {
     if (!cardReturn) return;
     setPaymentNotice(cardReturn === "success"
       ? "Card payment received. NRMS billing is refreshing your account."
-      : "Card checkout was not completed. You can choose a payment channel and try again.");
+      : cardReturn === "pending"
+        ? "Card payment is being confirmed with the card provider. Refresh this page in a minute; do not pay again."
+        : "Card checkout was not completed. You can choose a payment channel and try again.");
   }, []);
 
   // A blocked reservation links here with ?pay=1. Resolve the owner's current

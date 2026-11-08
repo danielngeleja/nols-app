@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   invoiceFindMany: vi.fn(),
@@ -19,8 +19,17 @@ const ago = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // releaseFailedBookingPayment reads the real clock, so pin it to NOW.
+  // Without this the "newer attempt still waiting" case started failing once
+  // real time passed NOW plus the 5 minute mobile money window.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
   mocks.invoiceUpdateMany.mockResolvedValue({ count: 1 });
   mocks.auditCreate.mockResolvedValue({});
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("bookingPaymentOutcome", () => {

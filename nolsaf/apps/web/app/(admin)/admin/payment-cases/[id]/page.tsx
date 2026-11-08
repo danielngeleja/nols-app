@@ -14,7 +14,7 @@ type CaseDetail = {
   reference: string; status: string; resolution?: string | null; evidenceState: string; createdAt: string; updatedAt: string; customerReference?: string | null;
   booking: { adminReference: string; status: string; propertyTitle: string; guestName: string; guestPhoneMasked: string | null; checkIn: string; checkOut: string; amount: number; codeStatus: string | null; codeIssuedAt: string | null };
   invoices: Array<{ invoiceNumber: string; status: string; expectedAmount: number; paymentRef: string | null; receiptNumber: string | null; paidAt: string | null; createdAt: string; events: Array<{ eventId: string; provider: string; status: string; amount: number; currency: string; createdAt: string }> }>;
-  timeline: Array<{ type: string; actorRole: string; note: string | null; metadata?: { channels?: string[]; destinationMasked?: string | null; paymentMethod?: string; approximatePaidAt?: string; payerPhoneLast4?: string; recordedAttempt?: boolean } | null; createdAt: string }>;
+  timeline: Array<{ type: string; actorRole: string; note: string | null; metadata?: { channels?: string[]; destinationMasked?: string | null; paymentMethod?: string; approximatePaidAt?: string; payerPhoneLast4?: string; recordedAttempt?: boolean; statementProvider?: string; statementTransactionId?: string; releasedInvoices?: number } | null; createdAt: string }>;
 };
 
 type Source = "invoice" | "provider" | "traveller" | "staff" | "system";
@@ -86,6 +86,14 @@ export default function PaymentCaseDetailPage() {
   const [success, setSuccess] = useState("");
   const [note, setNote] = useState("");
   const [filter, setFilter] = useState<"all" | Source>("all");
+  // Closing the case by hand: either no money arrived, or the provider's own
+  // statement shows it did. Both need finance OTP and a written reason.
+  const [closeMode, setCloseMode] = useState<"" | "not-paid" | "statement">("");
+  const [closeNote, setCloseNote] = useState("");
+  const [closeConfirmed, setCloseConfirmed] = useState(false);
+  const [stmtProvider, setStmtProvider] = useState<"AZAMPAY" | "CORALCOMMERCE">("AZAMPAY");
+  const [stmtTransaction, setStmtTransaction] = useState("");
+  const [stmtAmount, setStmtAmount] = useState("");
 
   const load = useCallback(async () => {
     try { const { data } = await apiClient.get(`/api/admin/booking-payment-cases/${encodeURIComponent(reference)}`); setDetail(data.paymentCase); setError(""); }
@@ -99,8 +107,15 @@ export default function PaymentCaseDetailPage() {
     setBusy(true); setError(""); setSuccess("");
     try {
       const { data } = await apiClient.post(`/api/admin/booking-payment-cases/${encodeURIComponent(detail.reference)}/${path}`, body || {});
-      setSuccess(path === "check-payment" ? (data?.matched ? "A matching provider confirmation is recorded. Review the repair action." : "No matching provider confirmation is recorded. Follow up with the provider.") : data?.deliveredVia?.length ? `Confirmation sent via ${data.deliveredVia.join(" and ")}.` : "Case updated.");
-      setNote(""); await load();
+      setSuccess(
+        path === "check-payment" ? (data?.matched ? "A matching provider confirmation is recorded. Review the repair action." : "No matching provider confirmation is recorded. Follow up with the provider.")
+        : path === "close-not-paid" ? `Case closed as not paid.${data?.releasedInvoices ? " The stuck invoice was released." : ""} The traveller was told no payment arrived.`
+        : path === "confirm-statement" && data?.status === "REFUND_REQUIRED" ? "Payment recorded from the statement. The booking cannot be honoured, so the case moved to refund review."
+        : data?.deliveredVia?.length ? `${path === "confirm-statement" ? "Payment recorded from the statement. " : ""}Confirmation sent via ${data.deliveredVia.join(" and ")}.`
+        : path === "confirm-statement" ? "Payment recorded from the statement. The code is ready; resend it securely."
+        : "Case updated.");
+      setNote(""); setCloseMode(""); setCloseNote(""); setCloseConfirmed(false); setStmtTransaction(""); setStmtAmount("");
+      await load();
     } catch (cause) { setError(errorText(cause)); await load(); }
     finally { setBusy(false); }
   };
@@ -113,9 +128,12 @@ export default function PaymentCaseDetailPage() {
       if (invoice.paidAt) rows.push({ key: `paid-${invoice.invoiceNumber}`, at: invoice.paidAt, source: "invoice", label: `Invoice ${invoice.invoiceNumber} settled`, note: `Receipt ${invoice.receiptNumber || "pending"}`, tone: "emerald" });
       for (const event of invoice.events) {
         const status = event.status.toUpperCase();
+        const fromStatement = event.provider === "MANUAL_STATEMENT";
         rows.push({
-          key: `provider-${event.eventId}`, at: event.createdAt, source: "provider",
-          label: `${event.provider} reported ${humanize(event.status).toLowerCase()}`,
+          key: `provider-${event.eventId}`, at: event.createdAt, source: fromStatement ? "staff" : "provider",
+          label: fromStatement
+            ? (status === "SUCCESS" ? "Finance recorded money from the provider statement" : "Statement record voided, nothing settled")
+            : `${event.provider} reported ${humanize(event.status).toLowerCase()}`,
           note: `${tsh(event.amount)} ${event.currency === "TZS" ? "" : event.currency}`.trim() + ` · event ${event.eventId}`,
           tone: SUCCESS_EVENTS.includes(status) ? "emerald" : FAILED_EVENTS.includes(status) ? "rose" : "amber",
         });
@@ -125,11 +143,21 @@ export default function PaymentCaseDetailPage() {
     detail.timeline.forEach((event, index) => {
       const role = event.actorRole.toUpperCase();
       const source: Source = role === "CUSTOMER" ? "traveller" : role === "ADMIN" ? "staff" : "system";
-      const extra = [event.note, event.metadata?.channels?.length ? `Sent via ${event.metadata.channels.join(" and ")}` : null, event.metadata?.destinationMasked].filter(Boolean).join(" · ");
+      const extra = [
+        event.note,
+        event.metadata?.statementProvider ? `${event.metadata.statementProvider} transaction ${event.metadata.statementTransactionId || ""}`.trim() : null,
+        event.metadata?.releasedInvoices ? "Stuck invoice released" : null,
+        event.metadata?.channels?.length ? `Sent via ${event.metadata.channels.join(" and ")}` : null,
+        event.metadata?.destinationMasked,
+      ].filter(Boolean).join(" · ");
       rows.push({
         key: `case-${index}-${event.createdAt}`, at: event.createdAt, source,
-        label: event.type === "CUSTOMER_REPORTED" ? "Traveller reported payment without a code" : humanize(event.type),
+        label: event.type === "CUSTOMER_REPORTED" ? "Traveller reported payment without a code"
+          : event.type === "CLOSED_NOT_PAID" ? "Closed: payment did not go through"
+          : event.type === "STATEMENT_CONFIRMED" ? "Money confirmed from the provider statement"
+          : humanize(event.type),
         note: extra || (source === "traveller" ? "Opened from My bookings" : ""),
+        tone: event.type === "CLOSED_NOT_PAID" ? "rose" : event.type === "STATEMENT_CONFIRMED" ? "emerald" : undefined,
       });
     });
     return rows.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
@@ -165,8 +193,21 @@ export default function PaymentCaseDetailPage() {
   const providerPaid = SUCCESS_EVENTS.includes(lastStatus) || ["PAID_NEEDS_REPAIR", "VERIFIED_EVENT", "CODE_READY"].includes(detail.evidenceState);
   const invoiceStillProcessing = detail.invoices.some((invoice) => invoice.status === "PROCESSING");
 
+  const closedNotPaid = detail.status === "RESOLVED" && detail.resolution === "NOT_PAID";
+  const moneyRecorded = detail.invoices.some((invoice) => invoice.invoiceNumber.startsWith("INV-") && (["PAID", "CUSTOMER_PAID"].includes(invoice.status) || invoice.events.some((event) => event.status.toUpperCase() === "SUCCESS")));
+  const settleInvoice = detail.invoices.find((invoice) => invoice.invoiceNumber.startsWith("INV-")) || null;
+  const canClose = !["RESOLVED", "INVENTORY_CONFLICT", "REFUND_REQUIRED"].includes(detail.status) && !inFlight && !moneyRecorded;
+  const canConfirmStatement = canClose && Boolean(settleInvoice) && !["CODE_READY", "PAID_NEEDS_REPAIR", "VERIFIED_EVENT"].includes(detail.evidenceState);
+  const stmtAmountNumber = Number(stmtAmount.replace(/[^0-9]/g, ""));
+  const stmtAmountMatches = settleInvoice ? stmtAmountNumber > 0 && Math.abs(stmtAmountNumber - settleInvoice.expectedAmount) <= 1 : false;
+  const closeReady = closeNote.trim().length >= 10 && closeConfirmed && (closeMode === "not-paid" || (stmtTransaction.trim().length >= 6 && stmtAmountMatches));
+
   const verdict: { tone: Tone; Icon: LucideIcon; title: string; body: string } =
-    detail.status === "RESOLVED"
+    closedNotPaid
+      ? { tone: "rose", Icon: XCircle, title: "Closed: payment did not go through", body: "No money reached NoLSAF for this booking. Any stuck invoice was released, nothing was marked paid, and the traveller was told to pay again or contact support with their provider receipt." }
+      : detail.status === "RESOLVED" && detail.resolution === "PROVIDER_STATEMENT"
+        ? { tone: "emerald", Icon: BadgeCheck, title: "Resolved from the provider statement", body: "Finance confirmed the money in the provider's own records. The invoice settled through the normal path and the code was sent." }
+      : detail.status === "RESOLVED"
       ? { tone: "emerald", Icon: BadgeCheck, title: "Case resolved", body: detail.resolution ? humanize(detail.resolution) : "The traveller has a working check-in code." }
       : detail.status === "INVENTORY_CONFLICT" || detail.status === "REFUND_REQUIRED"
         ? { tone: "rose", Icon: AlertTriangle, title: "Payment verified, original room unavailable", body: "Keep the payment protected. Arrange an available alternative with the traveller or use the approved refund process. No check-in code can be issued for an unavailable room." }
@@ -184,7 +225,12 @@ export default function PaymentCaseDetailPage() {
 
   // Lifecycle: where this case is.
   const codeSent = detail.status === "RESOLVED" || detail.timeline.some((event) => (event.metadata?.channels?.length ?? 0) > 0);
-  const steps: Array<{ label: string; done: boolean; failed?: boolean }> = [
+  const steps: Array<{ label: string; done: boolean; failed?: boolean }> = closedNotPaid ? [
+    { label: "Reported", done: true },
+    { label: "Provider checked", done: true, failed: true },
+    { label: "Traveller told", done: true },
+    { label: "Closed", done: true },
+  ] : [
     { label: "Reported", done: true },
     { label: "Provider checked", done: providerPaid || providerFailed, failed: providerFailed && !providerPaid },
     { label: "Booking repaired", done: detail.booking.status !== "NEW" || detail.evidenceState === "CODE_READY" },
@@ -249,7 +295,7 @@ export default function PaymentCaseDetailPage() {
       </header>
 
       {/* Lifecycle */}
-      <ol className="m-0 grid list-none grid-cols-5 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white p-0">
+      <ol className="m-0 grid list-none overflow-hidden rounded-lg border border-solid border-slate-200 bg-white p-0" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
         {steps.map((step, index) => {
           const isCurrent = index === current;
           return (
@@ -300,6 +346,88 @@ export default function PaymentCaseDetailPage() {
                   {canRefund ? <button type="button" disabled={busy || note.trim().length < 10} onClick={() => void action("next-step", { status: "REFUND_REQUIRED", note })} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-solid border-rose-300 bg-white px-3 text-[13px] font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50"><Undo2 className="h-3.5 w-3.5" aria-hidden /> Send to refund review</button> : null}
                   <span className="ml-auto text-[11px] tabular-nums text-slate-400">{note.length}/500</span>
                 </div>
+              </div>
+            ) : null}
+            {canClose ? (
+              <div className="border-0 border-t border-solid border-slate-100 px-5 py-4">
+                <p className="m-0 text-[12px] font-semibold text-slate-700">Close the case by hand</p>
+                <p className="m-0 mt-0.5 text-[12px] text-slate-500">Only after you have the provider&rsquo;s answer. Both need finance verification and are kept on the case and audit log.</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="How the case ends">
+                  {([
+                    { key: "not-paid", Icon: XCircle, title: "Payment did not go through", body: "The provider confirms no money arrived. Nothing is marked paid; the traveller is told.", on: "border-rose-300 bg-rose-50/60", icon: "text-rose-700", enabled: true },
+                    { key: "statement", Icon: FileText, title: "Money is on the provider statement", body: "The provider's own records show it arrived, but no callback reached NoLSAF.", on: "border-emerald-300 bg-emerald-50/60", icon: "text-emerald-700", enabled: canConfirmStatement },
+                  ] as const).map((option) => {
+                    const on = closeMode === option.key;
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        disabled={!option.enabled || busy}
+                        onClick={() => { setCloseMode(on ? "" : option.key); setCloseConfirmed(false); if (option.key === "statement" && settleInvoice && !stmtAmount) setStmtAmount(String(settleInvoice.expectedAmount)); }}
+                        className={`flex items-start gap-3 rounded-md border border-solid p-3 text-left disabled:opacity-50 ${on ? option.on : "border-slate-200 bg-white hover:bg-slate-50"}`}
+                      >
+                        <option.Icon className={`mt-0.5 h-4 w-4 shrink-0 ${option.icon}`} aria-hidden />
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-semibold text-slate-900">{option.title}</span>
+                          <span className="mt-0.5 block text-[12px] leading-5 text-slate-600">{option.body}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {closeMode ? (
+                  <div className="mt-3 space-y-3 rounded-md border border-solid border-slate-200 bg-slate-50/60 p-3">
+                    {closeMode === "statement" && settleInvoice ? (
+                      <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)_10rem]">
+                        <label className="block text-[12px] font-semibold text-slate-700">Provider
+                          <span className="mt-1 flex overflow-hidden rounded-md border border-solid border-slate-300 bg-white">
+                            {(["AZAMPAY", "CORALCOMMERCE"] as const).map((value) => (
+                              <button key={value} type="button" onClick={() => setStmtProvider(value)} className={`h-9 flex-1 border-0 px-2 text-[12px] font-semibold ${stmtProvider === value ? "bg-[#02665e] text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>
+                                {value === "AZAMPAY" ? "AzamPay" : "Coral"}
+                              </button>
+                            ))}
+                          </span>
+                        </label>
+                        <label className="block text-[12px] font-semibold text-slate-700">Provider transaction ID
+                          <input value={stmtTransaction} onChange={(event) => setStmtTransaction(event.target.value.trim())} maxLength={80} placeholder="Exactly as the provider shows it" className="mt-1 block h-9 w-full rounded-md border border-solid border-slate-300 bg-white px-2.5 font-mono text-[13px] text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" />
+                        </label>
+                        <label className="block text-[12px] font-semibold text-slate-700">Amount received (TSh)
+                          <input value={stmtAmount} onChange={(event) => setStmtAmount(event.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" className={`mt-1 block h-9 w-full rounded-md border border-solid bg-white px-2.5 text-[13px] tabular-nums text-slate-900 outline-none focus:ring-2 focus:ring-[#02665e]/15 ${stmtAmount && !stmtAmountMatches ? "border-rose-400" : "border-slate-300 focus:border-[#02665e]"}`} />
+                          <span className={`mt-1 block text-[11px] font-normal ${stmtAmount && !stmtAmountMatches ? "text-rose-700" : "text-slate-500"}`}>Invoice {settleInvoice.invoiceNumber} expects {tsh(settleInvoice.expectedAmount)}</span>
+                        </label>
+                      </div>
+                    ) : null}
+                    <label className="block text-[12px] font-semibold text-slate-700" htmlFor="close-note">
+                      {closeMode === "not-paid" ? "What the provider confirmed" : "Where you checked it"} <span className="font-normal text-slate-500">(at least 10 characters)</span>
+                    </label>
+                    <textarea id="close-note" value={closeNote} onChange={(event) => setCloseNote(event.target.value)} maxLength={500} rows={2} className="block w-full resize-y rounded-md border border-solid border-slate-300 bg-white p-2.5 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" placeholder={closeMode === "not-paid" ? "For example: Coral confirmed the card was declined; no funds captured" : "For example: AzamPay merchant portal, settled 19 Oct 21:32"} />
+                    <label className="flex cursor-pointer items-start gap-2 text-[12px] text-slate-700">
+                      <input type="checkbox" checked={closeConfirmed} onChange={(event) => setCloseConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-[#02665e]" />
+                      <span>{closeMode === "not-paid"
+                        ? "I confirmed with the provider that no money from this traveller reached NoLSAF. The traveller is told no payment arrived."
+                        : "I found this transaction in the provider's own statement or portal, for this amount, and it is not a screenshot from the traveller. The booking is confirmed and the code is sent."}</span>
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={busy || !closeReady}
+                        onClick={() => void action(closeMode === "not-paid" ? "close-not-paid" : "confirm-statement", closeMode === "not-paid"
+                          ? { note: closeNote.trim(), confirmNoMoney: true }
+                          : { provider: stmtProvider, transactionId: stmtTransaction.trim(), amount: stmtAmountNumber, note: closeNote.trim(), confirmStatement: true })}
+                        className={closeMode === "not-paid"
+                          ? "inline-flex h-10 items-center gap-2 rounded-md border-0 bg-rose-700 px-4 text-sm font-semibold text-white hover:bg-rose-800 disabled:opacity-50"
+                          : primary}
+                      >
+                        {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : closeMode === "not-paid" ? <XCircle className="h-4 w-4" aria-hidden /> : <BadgeCheck className="h-4 w-4" aria-hidden />}
+                        {closeMode === "not-paid" ? "Close case: not paid" : "Record payment and send code"}
+                      </button>
+                      <button type="button" disabled={busy} onClick={() => { setCloseMode(""); setCloseConfirmed(false); }} className="h-10 rounded-md border-0 bg-transparent px-3 text-sm font-semibold text-slate-600 hover:text-slate-900">Cancel</button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </section>
