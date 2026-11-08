@@ -185,6 +185,10 @@ export async function notifyAdmins(template: string, data: any) {
               : "Traveller paid but has no check-in code",
           body: `A traveller${data.propertyTitle ? ` booked at "${data.propertyTitle}"` : ""} reported paying ${Number(data.amount || 0).toLocaleString("en-US")} TZS without receiving a check-in code${data.paymentMethod ? ` (${String(data.paymentMethod).replace(/_/g, " ").toLowerCase()})` : ""}. ${data.codeReady ? "A provider confirmation arrived meanwhile: confirm the code reached them." : data.unverified ? "No payment attempt was recorded, so check with the provider before acting." : "Recheck the provider result, then repair the booking or follow up."} Case ${data.caseReference || ""}.`.trim()
         },
+        coral_postback_settlement: {
+          title: "Card payment confirmed by the browser only: check it",
+          body: `A ${data.kind || "card"} payment of ${Number(data.amount || 0).toLocaleString("en-US")} ${data.currency || "TZS"} was confirmed from Coral's browser postback, without Coral's server callback. Open the Coral portal, Transactions, and check that transaction ${data.coralTransactionId || ""} is green and the amount matches. If it is red or missing, reverse the booking.`
+        },
         payment_unmatched: {
           title: "Payment received but not matched",
           body: `A ${data.status || "SUCCESS"} callback for ${Number(data.amount || 0).toLocaleString("en-US")} TZS matched no invoice, tour, group booking or NRMS token. Find it under Payments, unmatched events.`
@@ -233,6 +237,7 @@ export async function notifyAdmins(template: string, data: any) {
             || template === "transport_auto_dispatch_takeover"
             || template === "nrms_payment_reconcile_needed"
             || template === "booking_payment_case_reported"
+            || template === "coral_postback_settlement"
             || template.startsWith("security_");
 
           io.to("admin").emit("admin:notification:new", {
@@ -628,6 +633,10 @@ export async function notifyUser(userId: number, template: string, data: any) {
       agent_payout_rejected: {
         title: "Payout Claim Rejected",
         body: `Your payout claim for booking ${data.bookingCode || `#${data.tourBookingId}`} was rejected. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      booking_payment_case_closed_not_paid: {
+        title: "We checked your payment",
+        body: `We checked with the payment provider and no payment reached NoLSAF for your booking${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""}, so no check-in code was issued. If money left your account, keep the provider receipt and contact NoLSAF support with case ${data.caseReference || ""}. Otherwise you can book and pay again.`
       },
       // Sales Partner Workspace. See docs/SALES_PARTNER_WORKSPACE.md section 13.
       sales_partner_contract_sent: {

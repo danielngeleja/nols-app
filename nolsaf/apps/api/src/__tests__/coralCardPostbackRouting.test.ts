@@ -1,12 +1,14 @@
 /**
- * Where does a card payer land after CoralCommerce sends them back?
+ * CoralCommerce card notices.
  *
- * These tests drive the real `/postback` handler with a decrypted Coral payload
- * and assert the redirect target. The cases that matter most are the ones where
- * Coral gives us back NO query string: routing must still come out right, because
- * nothing in the Coral integration guide promises our postback query params are
- * echoed. Sending an app payer to the web page (or a web payer to nolsaf://) is
- * the exact defect these cover.
+ * 1. Where does a card payer land after Coral sends them back? These drive the
+ *    real `/postback` handler and assert the redirect target, including when
+ *    Coral echoes NO query string.
+ * 2. SECURITY: the postback passes through the payer's browser and Coral's
+ *    Blowfish-ECB encryption has no integrity check, so a declined postback can
+ *    be turned into "Code 000" by swapping one 8-byte block. The postback must
+ *    therefore never settle or fail anything; only the server-to-server
+ *    callback, with an explicit Status "Success", can mark a payment paid.
  */
 
 import express from "express";
@@ -15,8 +17,11 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   invoiceFindFirst: vi.fn(),
+  invoiceFindUnique: vi.fn(),
   tourFindFirst: vi.fn(),
+  tourFindUnique: vi.fn(),
   groupFindFirst: vi.fn(),
+  groupFindUnique: vi.fn(),
   paymentEventFindUnique: vi.fn(),
   paymentEventFindFirst: vi.fn(),
   paymentEventCreate: vi.fn(),
@@ -30,13 +35,17 @@ const mocks = vi.hoisted(() => ({
   markTourBookingPaid: vi.fn(),
   markGroupBookingDepositPaid: vi.fn(),
   reconcileNrmsPaymentAndAccrue: vi.fn(),
+  releaseFailedBookingPayment: vi.fn(),
+  notifyAdmins: vi.fn(),
 }));
+
+vi.mock("../lib/notifications.js", () => ({ notifyAdmins: mocks.notifyAdmins }));
 
 vi.mock("@nolsaf/prisma", () => ({
   prisma: {
-    invoice: { findFirst: mocks.invoiceFindFirst, findUnique: vi.fn(), updateMany: vi.fn() },
-    tourBooking: { findFirst: mocks.tourFindFirst, update: vi.fn() },
-    groupBooking: { findFirst: mocks.groupFindFirst },
+    invoice: { findFirst: mocks.invoiceFindFirst, findUnique: mocks.invoiceFindUnique, updateMany: vi.fn() },
+    tourBooking: { findFirst: mocks.tourFindFirst, findUnique: mocks.tourFindUnique, update: vi.fn() },
+    groupBooking: { findFirst: mocks.groupFindFirst, findUnique: mocks.groupFindUnique },
     booking: { update: vi.fn() },
     paymentEvent: {
       findUnique: mocks.paymentEventFindUnique,
@@ -94,10 +103,16 @@ vi.mock("../lib/nrmsBilling.js", () => ({
   reconcileNrmsPaymentAndAccrue: mocks.reconcileNrmsPaymentAndAccrue,
 }));
 
+vi.mock("../lib/bookingPaymentAttempt.js", () => ({
+  releaseFailedBookingPayment: mocks.releaseFailedBookingPayment,
+}));
+
 const WEB = "https://www.nolsaf.test";
+const NRMS_REF = "NRMS-C-1234567890ABCDEF1234567890ABCDEF";
+const NRMS_TOKEN = "NRMS-1234567890ABCDEF1234567890ABCDEF1234";
 let app: express.Express;
 
-/** A successful Coral postback for the given merchant reference. */
+/** A successful Coral postback (browser). Per Coral's guide it has no Status field. */
 function successPostback(paymentRef: string) {
   return {
     Result: {
@@ -111,6 +126,20 @@ function successPostback(paymentRef: string) {
   };
 }
 
+/** A final Coral callback (server to server), with its explicit Status. */
+function callbackNotice(paymentRef: string, overrides: Record<string, unknown> = {}) {
+  return {
+    Code: "000",
+    Message: "The request was processed successfully",
+    TransactionID: "TX-9",
+    Stamp: paymentRef,
+    Identifier: paymentRef,
+    Status: "Success",
+    ISOCode: "00",
+    ...overrides,
+  };
+}
+
 /** What we persisted at initiate time: "app" or "web", or nothing at all. */
 function persistedIntent(client: "app" | "web" | null) {
   mocks.paymentEventFindFirst.mockResolvedValue(client ? { payload: { client } } : null);
@@ -119,6 +148,7 @@ function persistedIntent(client: "app" | "web" | null) {
 beforeAll(async () => {
   process.env.CORAL_UCF_SHARED_ENCRYPTION_KEY = "test-key";
   process.env.WEB_ORIGIN = WEB;
+  process.env.CORAL_POSTBACK_SETTLE_WAIT_MS = "0";
   const { default: cardRouter } = await import("../routes/payments.coralcommerce.card.js");
   app = express();
   app.use(express.json());
@@ -128,9 +158,15 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.WEB_ORIGIN = WEB;
+  process.env.CORAL_POSTBACK_SETTLE_WAIT_MS = "0";
+  delete process.env.CORAL_POSTBACK_SETTLE; // default: "verified"
+  mocks.notifyAdmins.mockResolvedValue(undefined);
   mocks.invoiceFindFirst.mockResolvedValue(null);
+  mocks.invoiceFindUnique.mockResolvedValue({ status: "PROCESSING" });
   mocks.tourFindFirst.mockResolvedValue(null);
+  mocks.tourFindUnique.mockResolvedValue({ paymentStatus: "PENDING" });
   mocks.groupFindFirst.mockResolvedValue(null);
+  mocks.groupFindUnique.mockResolvedValue({ depositPaid: false });
   mocks.paymentEventFindUnique.mockResolvedValue(null);
   mocks.paymentEventFindFirst.mockResolvedValue(null);
   mocks.paymentEventCreate.mockResolvedValue({ id: 1 });
@@ -142,6 +178,7 @@ beforeEach(() => {
   mocks.markTourBookingPaid.mockResolvedValue({ ok: true });
   mocks.markGroupBookingDepositPaid.mockResolvedValue({ ok: true });
   mocks.reconcileNrmsPaymentAndAccrue.mockResolvedValue(undefined);
+  mocks.releaseFailedBookingPayment.mockResolvedValue(true);
 });
 
 /** Posts the encrypted postback the way Coral does, with an optional query string. */
@@ -152,7 +189,14 @@ async function postback(paymentRef: string, query = "") {
     .field("UCFResponse", "encrypted-blob");
 }
 
-function anInvoice() {
+async function callback(notice: Record<string, unknown>) {
+  mocks.parseCoralEncryptedJson.mockReturnValue(notice);
+  return request(app)
+    .post("/api/payments/coralcommerce/card/callback")
+    .field("UCFCallback", "encrypted-blob");
+}
+
+function anInvoice({ paid = true } = {}) {
   mocks.invoiceFindFirst.mockResolvedValue({
     id: 501,
     status: "PROCESSING",
@@ -160,6 +204,8 @@ function anInvoice() {
     netPayable: null,
     booking: { property: { currency: "TZS" } },
   });
+  // What the read-only postback sees: the callback already settled it (or not).
+  mocks.invoiceFindUnique.mockResolvedValue({ status: paid ? "PAID" : "PROCESSING" });
 }
 
 function aTourBooking() {
@@ -170,6 +216,7 @@ function aTourBooking() {
     grossAmount: 90000,
     currency: "TZS",
   });
+  mocks.tourFindUnique.mockResolvedValue({ paymentStatus: "PAID" });
 }
 
 function aGroupBooking() {
@@ -187,6 +234,28 @@ function aGroupBooking() {
     toRegion: "Arusha",
     toDistrict: "Arusha City",
   });
+  mocks.groupFindUnique.mockResolvedValue({ depositPaid: true });
+}
+
+/** An NRMS token reached by its checkout session (lookup) and by token (settled check). */
+function anNrmsToken({ settled = true, currency = "TZS" } = {}) {
+  const token = { token: NRMS_TOKEN, amount: 75000, currency, payment: null, statement: { account: { id: 12 } } };
+  mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => {
+    if (where.checkoutSessionId === NRMS_REF) return token;
+    if (where.token === NRMS_TOKEN) return { ...token, payment: settled ? { id: 1 } : null };
+    return null;
+  });
+}
+
+function expectNothingWritten() {
+  expect(mocks.paymentEventCreate).not.toHaveBeenCalled();
+  expect(mocks.paymentEventUpdateMany).not.toHaveBeenCalled();
+  expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
+  expect(mocks.markTourBookingPaid).not.toHaveBeenCalled();
+  expect(mocks.markGroupBookingDepositPaid).not.toHaveBeenCalled();
+  expect(mocks.reconcileNrmsPaymentAndAccrue).not.toHaveBeenCalled();
+  expect(mocks.markNrmsPaymentFailed).not.toHaveBeenCalled();
+  expect(mocks.releaseFailedBookingPayment).not.toHaveBeenCalled();
 }
 
 describe("Coral card postback: app payers return to the app", () => {
@@ -238,131 +307,18 @@ describe("Coral card postback: app payers return to the app", () => {
 
 describe("Coral card postback: web payers stay on the web", () => {
   it("resolves an NRMS attempt reference and returns to billing without echoed query parameters", async () => {
-    const paymentRef = "NRMS-C-1234567890ABCDEF1234567890ABCDEF";
-    const nrmsToken = "NRMS-1234567890ABCDEF1234567890ABCDEF1234";
-    mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => {
-      if (where.checkoutSessionId === paymentRef) {
-        return {
-          token: nrmsToken,
-          amount: 75000,
-          currency: "USD",
-          payment: null,
-          statement: { account: { id: 12 } },
-        };
-      }
-      return null;
-    });
+    anNrmsToken();
 
-    const res = await postback(paymentRef);
+    const res = await postback(NRMS_REF);
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toMatch(new RegExp(`^${WEB}/owner/nrms/billing\\?`));
-    expect(res.headers.location).toContain(`ref=${paymentRef}`);
-    expect(mocks.reconcileNrmsPaymentAndAccrue).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ token: nrmsToken, amount: 75000 }),
-      "CoralCommerce NRMS"
-    );
-    expect(mocks.paymentEventCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ currency: "USD", status: "PENDING" }),
-    }));
-    expect(mocks.paymentEventUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ eventId: "TX-1", status: { in: ["PENDING", "FAILED"] } }),
-      data: expect.objectContaining({ status: "SUCCESS" }),
-    }));
+    expect(res.headers.location).toContain(`ref=${NRMS_REF}`);
+    expect(res.headers.location).toContain("cardReturn=success");
     expect(mocks.invoiceFindFirst).not.toHaveBeenCalled();
     expect(mocks.tourFindFirst).not.toHaveBeenCalled();
     expect(mocks.groupFindFirst).not.toHaveBeenCalled();
-  });
-
-  it("accepts a duplicate Coral event when callback and NRMS postback overlap", async () => {
-    const paymentRef = "NRMS-C-1234567890ABCDEF1234567890ABCDEF";
-    const nrmsToken = "NRMS-1234567890ABCDEF1234567890ABCDEF1234";
-    mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => (
-      where.checkoutSessionId === paymentRef
-        ? { token: nrmsToken, amount: 75000, currency: "TZS", payment: null, statement: { account: { id: 12 } } }
-        : null
-    ));
-    mocks.paymentEventCreate.mockRejectedValueOnce(Object.assign(new Error("duplicate"), { code: "P2002" }));
-    mocks.paymentEventFindUnique.mockResolvedValueOnce({ provider: "CORALCOMMERCE" });
-
-    const res = await postback(paymentRef);
-
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toContain("cardReturn=success");
-    expect(mocks.reconcileNrmsPaymentAndAccrue).toHaveBeenCalledTimes(1);
-    expect(mocks.paymentEventUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "SUCCESS" }),
-    }));
-  });
-
-  it("does not acknowledge a duplicate event belonging to another provider", async () => {
-    const paymentRef = "NRMS-C-1234567890ABCDEF1234567890ABCDEF";
-    mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => (
-      where.checkoutSessionId === paymentRef
-        ? { token: "NRMS-1234567890ABCDEF1234567890ABCDEF1234", amount: 75000, currency: "TZS", payment: null, statement: { account: { id: 12 } } }
-        : null
-    ));
-    mocks.paymentEventCreate.mockRejectedValueOnce(Object.assign(new Error("duplicate"), { code: "P2002" }));
-    mocks.paymentEventFindUnique.mockResolvedValueOnce({ provider: "AZAMPAY" });
-
-    const res = await postback(paymentRef);
-
-    expect(res.status).toBe(400);
-    expect(mocks.reconcileNrmsPaymentAndAccrue).not.toHaveBeenCalled();
-  });
-
-  it("does not downgrade a settled Coral event when an Initialised callback arrives late", async () => {
-    const paymentRef = "NRMS-C-1234567890ABCDEF1234567890ABCDEF";
-    mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => (
-      where.checkoutSessionId === paymentRef
-        ? { token: "NRMS-1234567890ABCDEF1234567890ABCDEF1234", amount: 75000, currency: "TZS", payment: null, statement: { account: { id: 12 } } }
-        : null
-    ));
-    mocks.parseCoralEncryptedJson.mockReturnValue({
-      Code: "000", Status: "Initialised", TransactionID: "TX-1", Identifier: paymentRef, Stamp: paymentRef,
-    });
-    mocks.paymentEventCreate.mockRejectedValueOnce(Object.assign(new Error("duplicate"), { code: "P2002" }));
-    mocks.paymentEventFindUnique.mockResolvedValueOnce({ provider: "CORALCOMMERCE" });
-
-    const res = await request(app)
-      .post("/api/payments/coralcommerce/card/callback")
-      .field("UCFCallback", "encrypted-blob");
-
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe("PENDING");
-    expect(mocks.paymentEventUpdateMany).not.toHaveBeenCalled();
-    expect(mocks.reconcileNrmsPaymentAndAccrue).not.toHaveBeenCalled();
-  });
-
-  it("resolves an NRMS callback from an earlier retry through its initiation event", async () => {
-    const paymentRef = "NRMS-C-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-    const nrmsToken = "NRMS-1234567890ABCDEF1234567890ABCDEF1234";
-    const token = {
-      token: nrmsToken,
-      amount: 50000,
-      currency: "TZS",
-      payment: null,
-      statement: { account: { id: 12 } },
-    };
-    mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => (
-      where.token === nrmsToken ? token : null
-    ));
-    mocks.paymentEventFindUnique.mockImplementation(async ({ where }: any) => (
-      where.eventId === `${paymentRef}-INIT`
-        ? { provider: "CORALCOMMERCE", payload: { paymentRef, nrmsToken } }
-        : null
-    ));
-
-    const res = await postback(paymentRef);
-
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toMatch(new RegExp(`^${WEB}/owner/nrms/billing\\?`));
-    expect(mocks.reconcileNrmsPaymentAndAccrue).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ token: nrmsToken }),
-      "CoralCommerce NRMS"
-    );
+    expectNothingWritten();
   });
 
   it("keeps a booking payer on the web payment page", async () => {
@@ -400,50 +356,296 @@ describe("Coral card postback: web payers stay on the web", () => {
   });
 });
 
+/** A real approval postback: every field agrees, numeric Coral TransactionID. */
+function approvalPostback(paymentRef: string, overrides: Record<string, unknown> = {}) {
+  return {
+    Result: {
+      Code: "000",
+      Message: "The request was processed successfully",
+      TransactionID: "107800000000003202476",
+      Stamp: paymentRef,
+      Identifier: paymentRef,
+      ISOCode: "00",
+      ISOMessage: "Approved or completed successfully",
+      GatewayID: "107800000000003202476",
+      ...overrides,
+    },
+  };
+}
+
+async function postbackWith(notice: unknown) {
+  mocks.parseCoralEncryptedJson.mockReturnValue(notice);
+  return request(app)
+    .post("/api/payments/coralcommerce/card/postback")
+    .field("UCFResponse", "encrypted-blob");
+}
+
 describe("Coral card postback: failures follow the same door", () => {
-  it("returns a failed NRMS payment to billing and gives its status transaction room to finish", async () => {
-    const paymentRef = "NRMS-C-1234567890ABCDEF1234567890ABCDEF";
-    const nrmsToken = "NRMS-1234567890ABCDEF1234567890ABCDEF1234";
-    mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => (
-      where.checkoutSessionId === paymentRef
-        ? { token: nrmsToken, amount: 75000, currency: "TZS", payment: null, statement: { account: { id: 12 } } }
-        : null
-    ));
-    mocks.parseCoralEncryptedJson.mockReturnValue({
-      Result: { Code: "001", Message: "Declined by issuer", Status: "Failure", Stamp: paymentRef, Identifier: paymentRef },
-    });
+  const decline = { Result: { Code: "001", Message: "Declined by issuer", Stamp: "CORAL-501-1", Identifier: "CORAL-501-1", ISOCode: "87" } };
 
-    const res = await request(app)
-      .post("/api/payments/coralcommerce/card/postback")
-      .field("UCFResponse", "encrypted-blob");
-
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toContain("cardReturn=failed");
-    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 20_000 });
-    expect(mocks.markNrmsPaymentFailed).toHaveBeenCalledWith(expect.anything(), nrmsToken);
-    expect(mocks.reconcileNrmsPaymentAndAccrue).not.toHaveBeenCalled();
-  });
-
-  it("returns a failed app payment to the app with cardReturn=failed", async () => {
-    anInvoice();
+  it("returns a failed app payment to the app and ends the attempt so the traveller can pay again", async () => {
+    anInvoice({ paid: false });
     persistedIntent("app");
-    mocks.parseCoralEncryptedJson.mockReturnValue({
-      Result: {
-        Code: "001",
-        Message: "Declined by issuer",
-        Status: "Failure",
-        Stamp: "CORAL-501-1",
-        Identifier: "CORAL-501-1",
-      },
-    });
 
-    const res = await request(app)
-      .post("/api/payments/coralcommerce/card/postback")
-      .field("UCFResponse", "encrypted-blob");
+    const res = await postbackWith(decline);
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toMatch(/^nolsaf:\/\/card-return\?/);
     expect(res.headers.location).toContain("cardReturn=failed");
+    expect(mocks.releaseFailedBookingPayment).toHaveBeenCalledWith(501, expect.any(Array), "CORALCOMMERCE");
     expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
+  });
+
+  it("with CORAL_POSTBACK_SETTLE=off a decline only reports failed and changes nothing", async () => {
+    process.env.CORAL_POSTBACK_SETTLE = "off";
+    anInvoice({ paid: false });
+    persistedIntent("app");
+
+    const res = await postbackWith(decline);
+
+    expect(res.headers.location).toContain("cardReturn=failed");
+    expectNothingWritten();
+  });
+});
+
+describe("Coral card postback: strict approval while callbacks are unproven", () => {
+  it("settles a fully consistent approval and alerts admins to check the Coral portal", async () => {
+    anInvoice({ paid: false });
+    persistedIntent("web");
+
+    const res = await postbackWith(approvalPostback("CORAL-501-1"));
+
+    expect(res.status).toBe(302);
+    expect(mocks.markInvoicePaid).toHaveBeenCalledWith(501, "CARD", "CORAL-501-1", undefined, "CORALCOMMERCE", "107800000000003202476", 120000);
+    expect(mocks.notifyAdmins).toHaveBeenCalledWith("coral_postback_settlement", expect.objectContaining({
+      coralTransactionId: "107800000000003202476", amount: 120000, kind: "Room booking",
+    }));
+  });
+
+  it("with CORAL_POSTBACK_SETTLE=off even a perfect approval is display-only", async () => {
+    process.env.CORAL_POSTBACK_SETTLE = "off";
+    anInvoice({ paid: false });
+    persistedIntent("web");
+
+    const res = await postbackWith(approvalPostback("CORAL-501-1"));
+
+    expect(res.headers.location).toContain("cardReturn=pending");
+    expectNothingWritten();
+    expect(mocks.notifyAdmins).not.toHaveBeenCalled();
+  });
+
+  it("does not re-settle or re-alert a target that is already paid", async () => {
+    anInvoice({ paid: true });
+    persistedIntent("web");
+
+    const res = await postbackWith(approvalPostback("CORAL-501-1"));
+
+    expect(res.headers.location).toContain("cardReturn=success");
+    expectNothingWritten();
+    expect(mocks.notifyAdmins).not.toHaveBeenCalled();
+  });
+});
+
+describe("SECURITY: a forged postback cannot pay anything", () => {
+  it("a 'Code 000' postback for an unpaid invoice only reports pending and writes nothing", async () => {
+    // Exactly what a one-block ECB swap produces: a declined postback whose
+    // Code now reads 000. Our records still say unpaid.
+    anInvoice({ paid: false });
+    persistedIntent("web");
+
+    const res = await postback("CORAL-501-1", "?invoiceId=501&accessToken=abc");
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toContain("cardReturn=pending");
+    expectNothingWritten();
+  });
+
+  it("does not settle an NRMS token, tour or group deposit from a postback either", async () => {
+    anNrmsToken({ settled: false });
+    expect((await postback(NRMS_REF)).headers.location).toContain("cardReturn=pending");
+
+    mocks.nrmsTokenFindUnique.mockResolvedValue(null);
+    aTourBooking();
+    mocks.tourFindUnique.mockResolvedValue({ paymentStatus: "PENDING" });
+    expect((await postback("TOUR-CARD-77-1")).headers.location).toContain("cardReturn=pending");
+
+    mocks.tourFindFirst.mockResolvedValue(null);
+    aGroupBooking();
+    mocks.groupFindUnique.mockResolvedValue({ depositPaid: false });
+    expect((await postback("GBDEP-CARD-55-1")).headers.location).toContain("cardReturn=pending");
+
+    expectNothingWritten();
+  });
+
+  it("the exact one-block swap (decline with Code flipped to 000) is refused", async () => {
+    // Everything except the Code block still comes from the decline.
+    anInvoice({ paid: false });
+    persistedIntent("web");
+
+    const res = await postbackWith({
+      Result: {
+        Code: "000", Message: "Transaction declined", TransactionID: "", Stamp: "CORAL-501-1",
+        Identifier: "CORAL-501-1", ISOCode: "87", ISOMessage: "declined", GatewayID: "2222",
+      },
+    });
+
+    expect(res.headers.location).toContain("cardReturn=pending");
+    expectNothingWritten();
+  });
+
+  it("refuses an approval whose ISO code, message or transaction id does not agree", async () => {
+    anInvoice({ paid: false });
+    persistedIntent("web");
+    for (const bad of [{ ISOCode: "87" }, { Message: "Transaction declined" }, { TransactionID: "" }, { TransactionID: "TX-1" }, { ISOMessage: "declined" }]) {
+      const res = await postbackWith(approvalPostback("CORAL-501-1", bad));
+      expect(res.headers.location).toContain("cardReturn=pending");
+    }
+    expectNothingWritten();
+  });
+
+  it("a genuine Coral transaction cannot settle a second, different booking", async () => {
+    anInvoice({ paid: false });
+    persistedIntent("web");
+    mocks.paymentEventCreate.mockRejectedValueOnce(Object.assign(new Error("duplicate"), { code: "P2002" }));
+    // That TransactionID already belongs to another invoice.
+    mocks.paymentEventFindUnique.mockResolvedValueOnce({ provider: "CORALCOMMERCE", invoiceId: 999, tourBookingId: null, groupBookingId: null });
+
+    const res = await postbackWith(approvalPostback("CORAL-501-1"));
+
+    expect(res.status).toBe(400);
+    expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
+  });
+
+  it("a postback-shaped body sent to /callback has no top-level Status and pays nothing", async () => {
+    anInvoice({ paid: false });
+    const res = await callback(successPostback("CORAL-501-1") as any);
+    expect(res.status).toBe(400); // no top-level Identifier: the target cannot be resolved
+    expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
+  });
+});
+
+describe("Coral card callback: the only path that settles", () => {
+  it("marks an invoice paid on an explicit Success with code 000 and ISO 00", async () => {
+    anInvoice({ paid: false });
+
+    const res = await callback(callbackNotice("CORAL-501-1"));
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("SUCCESS");
+    expect(mocks.markInvoicePaid).toHaveBeenCalledWith(501, "CARD", "CORAL-501-1", undefined, "CORALCOMMERCE", "TX-9", 120000);
+  });
+
+  it("refuses a 'Code 000' callback without an explicit Success status", async () => {
+    anInvoice({ paid: false });
+
+    const res = await callback(callbackNotice("CORAL-501-1", { Status: undefined }));
+
+    expect(res.body.status).toBe("PENDING");
+    expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
+  });
+
+  it("refuses a Success callback whose ISO code is not an approval", async () => {
+    anInvoice({ paid: false });
+
+    const res = await callback(callbackNotice("CORAL-501-1", { ISOCode: "51" }));
+
+    expect(res.body.status).toBe("PENDING");
+    expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
+  });
+
+  it("releases a booking payment on an explicit Failure callback", async () => {
+    anInvoice({ paid: false });
+
+    const res = await callback(callbackNotice("CORAL-501-1", { Code: "051", Status: "Failure", ISOCode: "51" }));
+
+    expect(res.body.status).toBe("FAILED");
+    expect(mocks.releaseFailedBookingPayment).toHaveBeenCalledWith(501, ["TX-9", "CORAL-501-1"], "CORALCOMMERCE");
+    expect(mocks.markInvoicePaid).not.toHaveBeenCalled();
+  });
+
+  it("settles an NRMS token from the callback", async () => {
+    anNrmsToken({ settled: false, currency: "USD" });
+
+    const res = await callback(callbackNotice(NRMS_REF));
+
+    expect(res.status).toBe(200);
+    expect(mocks.reconcileNrmsPaymentAndAccrue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ token: NRMS_TOKEN, amount: 75000 }),
+      "CoralCommerce NRMS"
+    );
+    expect(mocks.paymentEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ currency: "USD", status: "PENDING" }),
+    }));
+    expect(mocks.paymentEventUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ eventId: "TX-9", status: { in: ["PENDING", "FAILED"] } }),
+      data: expect.objectContaining({ status: "SUCCESS" }),
+    }));
+  });
+
+  it("accepts a duplicate Coral event as an idempotent retry", async () => {
+    anNrmsToken({ settled: false });
+    mocks.paymentEventCreate.mockRejectedValueOnce(Object.assign(new Error("duplicate"), { code: "P2002" }));
+    mocks.paymentEventFindUnique.mockResolvedValueOnce({ provider: "CORALCOMMERCE" });
+
+    const res = await callback(callbackNotice(NRMS_REF));
+
+    expect(res.status).toBe(200);
+    expect(mocks.reconcileNrmsPaymentAndAccrue).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not acknowledge a duplicate event belonging to another provider", async () => {
+    anNrmsToken({ settled: false });
+    mocks.paymentEventCreate.mockRejectedValueOnce(Object.assign(new Error("duplicate"), { code: "P2002" }));
+    mocks.paymentEventFindUnique.mockResolvedValueOnce({ provider: "AZAMPAY" });
+
+    const res = await callback(callbackNotice(NRMS_REF));
+
+    expect(res.status).toBe(400);
+    expect(mocks.reconcileNrmsPaymentAndAccrue).not.toHaveBeenCalled();
+  });
+
+  it("does not downgrade a settled Coral event when an Initialised callback arrives late", async () => {
+    anNrmsToken({ settled: false });
+    mocks.paymentEventCreate.mockRejectedValueOnce(Object.assign(new Error("duplicate"), { code: "P2002" }));
+    mocks.paymentEventFindUnique.mockResolvedValueOnce({ provider: "CORALCOMMERCE" });
+
+    const res = await callback(callbackNotice(NRMS_REF, { Status: "Initialised", TransactionID: "TX-1" }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("PENDING");
+    expect(mocks.paymentEventUpdateMany).not.toHaveBeenCalled();
+    expect(mocks.reconcileNrmsPaymentAndAccrue).not.toHaveBeenCalled();
+  });
+
+  it("resolves an NRMS callback from an earlier retry through its initiation event", async () => {
+    const paymentRef = "NRMS-C-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const token = { token: NRMS_TOKEN, amount: 50000, currency: "TZS", payment: null, statement: { account: { id: 12 } } };
+    mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => (where.token === NRMS_TOKEN ? token : null));
+    mocks.paymentEventFindUnique.mockImplementation(async ({ where }: any) => (
+      where.eventId === `${paymentRef}-INIT`
+        ? { provider: "CORALCOMMERCE", payload: { paymentRef, nrmsToken: NRMS_TOKEN } }
+        : null
+    ));
+
+    const res = await callback(callbackNotice(paymentRef));
+
+    expect(res.status).toBe(200);
+    expect(mocks.reconcileNrmsPaymentAndAccrue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ token: NRMS_TOKEN }),
+      "CoralCommerce NRMS"
+    );
+  });
+
+  it("fails an NRMS token on an explicit Failure callback and gives its transaction room to finish", async () => {
+    anNrmsToken({ settled: false });
+
+    const res = await callback(callbackNotice(NRMS_REF, { Code: "001", Status: "Failure", ISOCode: "05" }));
+
+    expect(res.status).toBe(200);
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 20_000 });
+    expect(mocks.markNrmsPaymentFailed).toHaveBeenCalledWith(expect.anything(), NRMS_TOKEN);
+    expect(mocks.reconcileNrmsPaymentAndAccrue).not.toHaveBeenCalled();
   });
 });

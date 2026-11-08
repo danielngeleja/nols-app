@@ -29,6 +29,7 @@ import { markInvoicePaid, markGroupBookingDepositPaid, markTourBookingPaid } fro
 import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 import { nrmsTokenFromCoralInitiationPayload } from "../lib/nrmsCoral.js";
 import { releaseFailedBookingPayment } from "../lib/bookingPaymentAttempt.js";
+import { notifyAdmins } from "../lib/notifications.js";
 
 const router = Router();
 const coralFormParser = multer().none();
@@ -182,6 +183,8 @@ function buildCoralOrder(params: {
         CallbackUrl: config.callbackUrl,
         CallbackFormat: "json",
         CallbackMethod: "post",
+        // Coral's sender must use TLS 1.2: our hosts refuse older protocols.
+        CallbackProtocol: "tls12",
         CallbackVar: "UCFCallback",
         TransactionType: "03",
         PostBackSuccessUrl: config.successUrl,
@@ -457,6 +460,55 @@ async function initiatedFromApp(paymentRef: string): Promise<boolean> {
   }
 }
 
+/** "verified" (default) lets a fully consistent postback settle; "off" makes it display-only. */
+function coralPostbackMode(): "verified" | "off" {
+  return String(process.env.CORAL_POSTBACK_SETTLE || "verified").trim().toLowerCase() === "off" ? "off" : "verified";
+}
+
+/**
+ * Every approval field must agree. A one-block swap of the Code value keeps
+ * the decline's ISO code, ISO message and message text, and a decline usually
+ * has no TransactionID, so a spliced postback fails here.
+ */
+function postbackIsStrictApproval(notice: ReturnType<typeof normalizeCoralNotification>): boolean {
+  return notice.code === "000" &&
+    notice.isoCode === "00" &&
+    /^\d{12,30}$/.test(notice.transactionId || "") &&
+    /success/i.test(notice.message || "") &&
+    (notice.isoMessage == null || /approved|success/i.test(notice.isoMessage));
+}
+
+const POSTBACK_SETTLE_POLL_MS = 500;
+function postbackSettleWaitMs(): number {
+  const configured = Number(process.env.CORAL_POSTBACK_SETTLE_WAIT_MS);
+  return Number.isFinite(configured) && configured >= 0 ? Math.min(configured, 10_000) : 4_000;
+}
+
+/** Read-only: has our own record of this payment target already settled? */
+async function coralTargetSettled(target: { invoice: any; tourBooking: any; groupBooking: any; nrmsPaymentToken: any }): Promise<boolean> {
+  try {
+    if (target.invoice) {
+      const row = await prisma.invoice.findUnique({ where: { id: target.invoice.id }, select: { status: true } });
+      return row?.status === "PAID";
+    }
+    if (target.tourBooking) {
+      const row = await prisma.tourBooking.findUnique({ where: { id: target.tourBooking.id }, select: { paymentStatus: true } });
+      return row?.paymentStatus === "PAID";
+    }
+    if (target.groupBooking) {
+      const row = await prisma.groupBooking.findUnique({ where: { id: target.groupBooking.id }, select: { depositPaid: true } });
+      return Boolean(row?.depositPaid);
+    }
+    if (target.nrmsPaymentToken) {
+      const row = await (prisma as any).nrmsServicePaymentToken.findUnique({ where: { token: target.nrmsPaymentToken.token }, select: { payment: { select: { id: true } } } });
+      return Boolean(row?.payment);
+    }
+  } catch {
+    // A read failure only means the page shows "pending" and keeps checking.
+  }
+  return false;
+}
+
 function normalizeCoralNotification(kind: "callback" | "postback", payload: any) {
   const result = kind === "postback" ? (payload?.Result ?? payload?.result ?? {}) : payload;
   return {
@@ -570,10 +622,60 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     throw new Error("coral_payment_target_not_found");
   }
 
-  const isSuccess =
-    (notice.status ? /^success$/i.test(notice.status) : true) &&
-    notice.code === "000";
-  const isFailure = notice.status ? /^failure$/i.test(notice.status) : notice.code && notice.code !== "000";
+  // SECURITY: the browser postback is untrusted.
+  //
+  // Coral encrypts notices with Blowfish-ECB and no integrity check, and the
+  // postback ciphertext passes through the payer's browser. The postback has no
+  // Status field and Code is its first field, so one 8-byte block can be swapped
+  // to turn a declined "Code 051" postback into "Code 000" without the key.
+  //
+  // CORAL_POSTBACK_SETTLE decides what a postback may do:
+  //   "verified" (default while Coral's server callback is not yet proven):
+  //     a postback settles only when EVERY approval field agrees (code 000,
+  //     ISO 00, an approval message, a numeric Coral TransactionID never used
+  //     for another target). A block swap leaves the decline's ISO code and
+  //     message behind, so it fails. Every postback-only settlement alerts
+  //     admins to check it against the Coral portal.
+  //   "off" (once callbacks are confirmed arriving): display-only; only the
+  //     server-to-server callback, which the payer never sees, settles.
+  const target = { invoice, tourBooking, groupBooking, nrmsPaymentToken };
+  const postbackApproval = kind === "postback" && postbackIsStrictApproval(notice);
+  const postbackDecline = kind === "postback" && Boolean(notice.code) && notice.code !== "000";
+  const settledBeforeNotice = kind === "postback" ? await coralTargetSettled(target) : false;
+  const postbackMaySettle = kind === "postback" && coralPostbackMode() === "verified" && !settledBeforeNotice && (postbackApproval || postbackDecline);
+
+  if (kind === "postback" && !postbackMaySettle) {
+    const looksSuccessful = notice.code === "000";
+    let settled = settledBeforeNotice;
+    // The callback usually lands within seconds of the redirect; give it a
+    // short moment so most payers see the confirmed state straight away.
+    const waitLimit = postbackSettleWaitMs();
+    for (let waited = 0; !settled && looksSuccessful && waited < waitLimit; waited += POSTBACK_SETTLE_POLL_MS) {
+      await new Promise((resolve) => setTimeout(resolve, POSTBACK_SETTLE_POLL_MS));
+      settled = await coralTargetSettled(target);
+    }
+    const looksFailed = Boolean(notice.code) && notice.code !== "000";
+    return {
+      ok: true,
+      invoiceId: invoice?.id ?? null,
+      tourBookingId: tourBooking?.id ?? null,
+      groupBookingId: groupBooking?.id ?? null,
+      nrmsToken: nrmsPaymentToken?.token ?? null,
+      status: (settled ? "SUCCESS" : looksFailed ? "FAILED" : "PENDING") as "SUCCESS" | "FAILED" | "PENDING",
+      paymentRef,
+      message: notice.message || null,
+    };
+  }
+
+  // From here on: a callback, or a postback that passed every strict check.
+  // A callback success needs Coral's explicit final status, not just a
+  // "request processed" code.
+  const isSuccess = kind === "postback"
+    ? postbackApproval
+    : /^success$/i.test(notice.status || "") &&
+      notice.code === "000" &&
+      (notice.isoCode == null || notice.isoCode === "00");
+  const isFailure = kind === "postback" ? postbackDecline : /^failure$/i.test(notice.status || "");
   const eventStatus: "SUCCESS" | "FAILED" | "PENDING" = isSuccess ? "SUCCESS" : isFailure ? "FAILED" : "PENDING";
   const eventId = notice.transactionId || notice.gatewayId || `${paymentRef}-${kind}-${eventStatus}`;
   const amount = invoice
@@ -614,12 +716,22 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
   } catch (error: any) {
     if (error?.code !== "P2002") throw error;
     // Coral sends both callback and browser postback, often for the same event.
-    // Only a duplicate Coral event may be treated as an idempotent retry.
+    // Only a duplicate Coral event FOR THE SAME TARGET may be treated as an
+    // idempotent retry: one Coral transaction can never settle a second
+    // booking, so a genuine approval cannot be replayed onto another one.
     const existing = await prisma.paymentEvent.findUnique({
       where: { eventId },
-      select: { provider: true },
+      select: { provider: true, invoiceId: true, tourBookingId: true, groupBookingId: true },
     });
     if (existing?.provider !== "CORALCOMMERCE") throw error;
+    const sameTarget =
+      (existing.invoiceId ?? null) === (invoice?.id ?? null) &&
+      (existing.tourBookingId ?? null) === (tourBooking?.id ?? null) &&
+      (existing.groupBookingId ?? null) === (groupBooking?.id ?? null);
+    if (!sameTarget) {
+      console.error("[CoralCommerce/Card] transaction already bound to another target; refusing", { eventId, kind });
+      throw new Error("coral_transaction_bound_to_other_target");
+    }
   }
   if (!createdEvent && statusBeforeSettlement !== "PENDING") {
     await prisma.paymentEvent.updateMany({
@@ -702,6 +814,24 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     } catch (err: any) {
       console.error(`[CoralCommerce/Card] Failed to mark group booking ${groupBooking.id} deposit as paid:`, err?.message ?? err);
     }
+  }
+
+  // Detective control: a payment confirmed by the browser postback alone is
+  // flagged for a human to check against the Coral portal, so anything that
+  // ever slips past the strict checks is caught within minutes.
+  if (kind === "postback" && isSuccess) {
+    await notifyAdmins("coral_postback_settlement", {
+      kind: invoice ? "Room booking" : tourBooking ? "Tour booking" : groupBooking ? "Group stay deposit" : "NRMS billing",
+      amount,
+      currency: invoice
+        ? resolveCoralCurrency(invoice.booking?.property?.currency)
+        : tourBooking ? resolveCoralCurrency(tourBooking.currency)
+        : groupBooking ? resolveCoralCurrency(groupBooking.currency)
+        : resolveCoralCurrency(nrmsPaymentToken?.currency),
+      coralTransactionId: notice.transactionId,
+      paymentRef,
+      href: "/admin/payments",
+    }).catch(() => undefined);
   }
 
   return {

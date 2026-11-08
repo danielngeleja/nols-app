@@ -1184,6 +1184,8 @@ router.post("/:id/deposit/initiate-card", depositPaymentLimiter, async (req, res
           CallbackUrl: coralConfig.callbackUrl,
           CallbackFormat: "json",
           CallbackMethod: "post",
+          // Coral's sender must use TLS 1.2: our hosts refuse older protocols.
+          CallbackProtocol: "tls12",
           CallbackVar: "UCFCallback",
           TransactionType: "03",
           PostBackSuccessUrl: successUrl,

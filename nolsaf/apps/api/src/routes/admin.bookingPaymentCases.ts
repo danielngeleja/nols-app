@@ -9,9 +9,12 @@ import { bookingPaymentCaseReference, resolveBookingPaymentCaseReference } from 
 import { maskPhone } from "../lib/guestCodeRequests.js";
 import { deliverBookingCaseConfirmation } from "../lib/bookingPaymentCaseDelivery.js";
 import { paidInvoiceForRepair, paymentCaseEvidenceState, verifiedSuccessForRepair } from "../lib/bookingPaymentCase.js";
-import { expectedInvoicePaymentAmount } from "../lib/paymentAmount.js";
+import { expectedInvoicePaymentAmount, isPaymentAmountWithinTolerance } from "../lib/paymentAmount.js";
 import { confirmNoLsafBooking, MARKETPLACE_CONNECT_TX_OPTIONS, NoLsafInventoryConflictError } from "../lib/nolsafMarketplaceNrms.js";
 import { generateBookingCodeForBooking } from "../lib/bookingCodeService.js";
+import { noResultLimitMs, PROVIDER_FAILED_STATUSES } from "../lib/bookingPaymentAttempt.js";
+import { audit } from "../lib/audit.js";
+import { notifyUser } from "../lib/notifications.js";
 import { markInvoicePaid } from "./webhooks.payments.js";
 
 const router = Router();
@@ -26,7 +29,7 @@ const bookingInclude = {
     orderBy: { id: "desc" },
     select: {
       id: true, invoiceNumber: true, status: true, total: true, netPayable: true,
-      paymentMethod: true, paymentRef: true, receiptNumber: true, paidAt: true, createdAt: true,
+      paymentMethod: true, paymentRef: true, receiptNumber: true, paidAt: true, createdAt: true, updatedAt: true,
       paymentEvents: { orderBy: { id: "desc" }, select: {
         id: true, eventId: true, provider: true, status: true, amount: true, currency: true,
         phone: true, payload: true, createdAt: true,
@@ -91,6 +94,9 @@ function describeCase(row: any, detail = false) {
           destinationMasked: event.metadata?.destinationMasked || undefined,
           ownerPhoneOverlap: Boolean(event.metadata?.ownerPhoneOverlap),
           result: typeof event.metadata?.result === "string" ? event.metadata.result : undefined,
+          statementProvider: typeof event.metadata?.statementProvider === "string" ? event.metadata.statementProvider : undefined,
+          statementTransactionId: typeof event.metadata?.statementTransactionId === "string" ? event.metadata.statementTransactionId : undefined,
+          releasedInvoices: Number.isInteger(event.metadata?.releasedInvoices) ? event.metadata.releasedInvoices : undefined,
         },
         createdAt: event.createdAt,
       })) ?? [],
@@ -346,6 +352,213 @@ router.post("/:reference/next-step", blockImpersonated as RequestHandler, requir
   await db.bookingPaymentCase.update({ where: { id }, data: { status: parsed.data.status } });
   await recordEvent(id, parsed.data.status, req.user!.id, parsed.data.note);
   return res.json({ ok: true, status: parsed.data.status });
+}) as RequestHandler);
+
+const CLOSED_STATUSES = ["RESOLVED", "INVENTORY_CONFLICT", "REFUND_REQUIRED"];
+const SETTLED_INVOICE_STATUSES = ["PAID", "CUSTOMER_PAID"];
+
+function customerInvoices(booking: any): any[] {
+  return (booking.invoices || []).filter((invoice: any) => String(invoice.invoiceNumber || "").startsWith("INV-"));
+}
+
+/** Any sign that money reached NoLSAF for this booking, from any source. */
+function anyMoneyRecorded(booking: any): boolean {
+  return customerInvoices(booking).some((invoice: any) =>
+    SETTLED_INVOICE_STATUSES.includes(invoice.status) ||
+    invoice.paymentEvents.some((event: any) => event.status === "SUCCESS"));
+}
+
+/**
+ * POST /:reference/close-not-paid
+ * The provider confirmed no money arrived (a failure result, or no result and
+ * the provider has nothing). Closes the case without marking anything paid:
+ * a stuck PROCESSING invoice goes back to PENDING so the normal expiry applies,
+ * and the traveller is told plainly that nothing was received.
+ */
+const closeNotPaidSchema = z.object({
+  note: z.string().trim().min(10).max(500),
+  confirmNoMoney: z.literal(true),
+}).strict();
+
+router.post("/:reference/close-not-paid", blockImpersonated as RequestHandler, requireAdminFinanceGrant as RequestHandler, (async (req: AuthedRequest, res) => {
+  const parsed = closeNotPaidSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Explain what the provider confirmed and tick the confirmation" });
+  try {
+    const row = await loadCaseByReference(String(req.params.reference || ""));
+    if (!row) return res.status(404).json({ error: "Case not found" });
+    const id = row.id;
+    if (CLOSED_STATUSES.includes(row.status)) return res.status(409).json({ error: "This case is already closed or on the refund path" });
+    if (["REPAIRING", "SENDING_CODE"].includes(row.status)) return res.status(409).json({ error: "Another staff action is already in progress" });
+    if (anyMoneyRecorded(row.booking)) {
+      return res.status(409).json({ error: "A payment is recorded on this booking. Repair it or send it to refund review instead." });
+    }
+    const now = Date.now();
+    const live = customerInvoices(row.booking).find((invoice: any) => {
+      if (invoice.status !== "PROCESSING") return false;
+      const failed = invoice.paymentEvents.some((event: any) => PROVIDER_FAILED_STATUSES.includes(String(event.status).toUpperCase()));
+      return !failed && now - new Date(invoice.updatedAt).getTime() < noResultLimitMs(invoice.paymentMethod);
+    });
+    if (live) return res.status(409).json({ error: "A payment attempt is still inside its window. Wait for the provider result before closing." });
+
+    const processingIds = customerInvoices(row.booking).filter((invoice: any) => invoice.status === "PROCESSING").map((invoice: any) => invoice.id);
+    const result = await prisma.$transaction(async (tx: any) => {
+      const moved = await tx.bookingPaymentCase.updateMany({
+        where: { id, status: row.status, updatedAt: row.updatedAt },
+        data: { status: "RESOLVED", resolution: "NOT_PAID", resolvedById: req.user!.id, resolvedAt: new Date() },
+      });
+      if (moved.count !== 1) return null;
+      // Never touches an invoice that has gained a success meanwhile.
+      const released = processingIds.length ? await tx.invoice.updateMany({
+        where: { id: { in: processingIds }, status: "PROCESSING", paymentEvents: { none: { status: "SUCCESS" } } },
+        data: { status: "PENDING" },
+      }) : { count: 0 };
+      return { released: released.count };
+    });
+    if (!result) return res.status(409).json({ error: "This case changed. Reload before acting." });
+
+    await recordEvent(id, "CLOSED_NOT_PAID", req.user!.id, parsed.data.note, { releasedInvoices: result.released });
+    await audit(req as any, "BOOKING_PAYMENT_CASE_CLOSED_NOT_PAID", "BOOKING_PAYMENT_CASE", { status: row.status }, {
+      status: "RESOLVED", resolution: "NOT_PAID", releasedInvoices: result.released, note: parsed.data.note,
+    }, id);
+    await notifyUser(row.customerId, "booking_payment_case_closed_not_paid", {
+      propertyTitle: row.booking.property?.title || null,
+      caseReference: bookingPaymentCaseReference(id),
+      actionPath: "/account/bookings",
+    }).catch(() => undefined);
+    return res.json({ ok: true, status: "RESOLVED", resolution: "NOT_PAID", releasedInvoices: result.released });
+  } catch (error: any) {
+    console.error("[booking-payment-case] close not paid failed", { reference: req.params.reference, message: error?.message });
+    return res.status(500).json({ error: "Could not close the case" });
+  }
+}) as RequestHandler);
+
+/**
+ * POST /:reference/confirm-statement
+ * The provider's own statement or portal shows the money arrived, but no
+ * callback reached NoLSAF. Finance records the provider transaction and the
+ * invoice settles through the normal markInvoicePaid path (amount check,
+ * receipt, commission, booking confirmation, code). The record is labelled
+ * MANUAL_STATEMENT so it never passes as an authenticated provider callback.
+ */
+const STATEMENT_PROVIDERS = ["AZAMPAY", "CORALCOMMERCE"] as const;
+const confirmStatementSchema = z.object({
+  provider: z.enum(STATEMENT_PROVIDERS),
+  transactionId: z.string().trim().min(6).max(80).regex(/^[A-Za-z0-9._:\-/]+$/, "Use the transaction ID exactly as the provider shows it"),
+  amount: z.number().int().positive(),
+  note: z.string().trim().min(10).max(500),
+  confirmStatement: z.literal(true),
+}).strict();
+
+router.post("/:reference/confirm-statement", blockImpersonated as RequestHandler, requireAdminFinanceGrant as RequestHandler, (async (req: AuthedRequest, res) => {
+  const parsed = confirmStatementSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message?.startsWith("Use the") ? parsed.error.issues[0].message : "Enter the provider, transaction ID, amount and a note, and tick the confirmation" });
+  const { provider, transactionId, amount, note } = parsed.data;
+  const row = await loadCaseByReference(String(req.params.reference || ""));
+  if (!row) return res.status(404).json({ error: "Case not found" });
+  const id = row.id;
+  if (CLOSED_STATUSES.includes(row.status)) return res.status(409).json({ error: "This case is already closed or on the refund path" });
+  if (["REPAIRING", "SENDING_CODE"].includes(row.status)) return res.status(409).json({ error: "Another staff action is already in progress" });
+  const evidence = paymentCaseEvidenceState(row.booking);
+  if (["CODE_READY", "PAID_NEEDS_REPAIR", "VERIFIED_EVENT"].includes(evidence)) {
+    return res.status(409).json({ error: "A provider result is already recorded. Use repair or resend instead." });
+  }
+  if (anyMoneyRecorded(row.booking)) return res.status(409).json({ error: "A payment is already recorded on this booking. Review it before adding another." });
+  const invoice = customerInvoices(row.booking)[0];
+  if (!invoice) return res.status(409).json({ error: "This booking has no customer invoice to settle" });
+  const expected = expectedInvoicePaymentAmount(invoice);
+  if (!isPaymentAmountWithinTolerance(amount, expected)) {
+    return res.status(409).json({ error: `The statement amount does not match the invoice (expected TSh ${expected.toLocaleString("en-US")}). Do not settle a different amount here.` });
+  }
+
+  // One provider transaction settles one invoice, ever.
+  const eventId = `STATEMENT:${provider}:${transactionId}`;
+  const reused = await db.paymentEvent.findFirst({
+    where: { OR: [{ eventId }, { eventId: transactionId }] }, select: { id: true },
+  }) || await db.invoice.findFirst({
+    where: { OR: [{ paymentRef: transactionId }, { checkoutSessionId: transactionId }] }, select: { id: true },
+  });
+  if (reused) return res.status(409).json({ error: "This transaction ID is already recorded on NoLSAF. It cannot settle another booking." });
+
+  const claimed = await db.bookingPaymentCase.updateMany({ where: { id, status: row.status, updatedAt: row.updatedAt }, data: { status: "REPAIRING" } });
+  if (claimed.count !== 1) return res.status(409).json({ error: "This case changed. Reload before acting." });
+
+  let statementEventId: number | null = null;
+  try {
+    const created = await db.paymentEvent.create({ data: {
+      provider: "MANUAL_STATEMENT",
+      eventId,
+      invoiceId: invoice.id,
+      amount,
+      currency: "TZS",
+      status: "SUCCESS",
+      rawStatus: "STATEMENT_CONFIRMED",
+      payload: { statementProvider: provider, transactionId, confirmedById: req.user!.id, caseReference: bookingPaymentCaseReference(id), note },
+    } });
+    statementEventId = created.id;
+  } catch (error: any) {
+    await db.bookingPaymentCase.update({ where: { id }, data: { status: row.status } }).catch(() => {});
+    if (error?.code === "P2002") return res.status(409).json({ error: "This transaction ID is already recorded on NoLSAF. It cannot settle another booking." });
+    console.error("[booking-payment-case] statement record failed", { caseId: id, message: error?.message });
+    return res.status(500).json({ error: "Could not record the statement" });
+  }
+  const statementMeta = { statementProvider: provider, statementTransactionId: transactionId };
+  await audit(req as any, "BOOKING_PAYMENT_STATEMENT_CONFIRMED", "INVOICE", { status: invoice.status }, {
+    caseReference: bookingPaymentCaseReference(id), provider, transactionId, amount, note,
+  }, invoice.id);
+
+  const booking = row.booking;
+  const stayEnded = new Date(booking.checkOut).getTime() + 24 * 60 * 60 * 1000 <= Date.now();
+  if (booking.status === "CANCELED" || stayEnded) {
+    // Money is real but the stay cannot be honoured: refund or rebook, no code.
+    await db.bookingPaymentCase.update({ where: { id }, data: { status: "REFUND_REQUIRED" } });
+    await recordEvent(id, "STATEMENT_CONFIRMED", req.user!.id, note, statementMeta);
+    await recordEvent(id, "REFUND_REQUIRED", req.user!.id, booking.status === "CANCELED"
+      ? "Money confirmed from the provider statement, but the booking was already cancelled. Refund or rebook."
+      : "Money confirmed from the provider statement after the stay ended. Refund or rebook.");
+    return res.json({ ok: true, status: "REFUND_REQUIRED" });
+  }
+
+  try {
+    await recordEvent(id, "STATEMENT_CONFIRMED", req.user!.id, note, statementMeta);
+    await markInvoicePaid(invoice.id, provider, transactionId, undefined, provider, transactionId, amount);
+    const fresh = await prisma.booking.findUnique({ where: { id: booking.id }, select: { status: true, code: { select: { status: true } } } });
+    if (!fresh || fresh.status === "CANCELED" || (fresh.code && fresh.code.status !== "ACTIVE")) {
+      await db.bookingPaymentCase.update({ where: { id }, data: { status: "REFUND_REQUIRED" } });
+      await recordEvent(id, "REFUND_REQUIRED", req.user!.id, "The invoice settled but the booking could not be confirmed. Refund or rebook.");
+      return res.json({ ok: true, status: "REFUND_REQUIRED" });
+    }
+    if (fresh.status === "NEW") await prisma.$transaction((tx: any) => confirmNoLsafBooking(tx, booking.id), MARKETPLACE_CONNECT_TX_OPTIONS);
+    await generateBookingCodeForBooking(booking.id);
+    const delivery = await deliverBookingCaseConfirmation(booking.id);
+    const resolved = delivery.channels.length > 0;
+    await db.bookingPaymentCase.update({ where: { id }, data: {
+      status: resolved ? "RESOLVED" : "CODE_READY",
+      resolution: resolved ? "PROVIDER_STATEMENT" : null,
+      resolvedById: resolved ? req.user!.id : null,
+      resolvedAt: resolved ? new Date() : null,
+    } });
+    await recordEvent(id, "BOOKING_REPAIRED", req.user!.id, null, {
+      invoiceId: invoice.id, channels: delivery.channels,
+      destinationMasked: delivery.destinationMasked, ownerPhoneOverlap: delivery.ownerPhoneOverlap,
+    });
+    return res.json({ ok: true, status: resolved ? "RESOLVED" : "CODE_READY", deliveredVia: delivery.channels });
+  } catch (error: any) {
+    if (error instanceof NoLsafInventoryConflictError || error?.code === "ROOM_UNAVAILABLE_AFTER_PAYMENT") {
+      await inventoryConflict(id, req.user!.id, "Money confirmed from the provider statement, but the original room cannot be confirmed. Arrange an alternative or the approved refund.");
+      return res.status(409).json({ error: "Payment confirmed; room unavailable. Arrange a rebooking or approved refund.", status: "INVENTORY_CONFLICT" });
+    }
+    // Settlement did not complete: the statement record must not count as money.
+    const settled = await prisma.invoice.findUnique({ where: { id: invoice.id }, select: { status: true } }).catch(() => null);
+    if (settled?.status !== "PAID" && statementEventId) {
+      await db.paymentEvent.update({ where: { id: statementEventId }, data: { status: "VOIDED", rawStatus: "STATEMENT_SETTLEMENT_FAILED" } }).catch(() => {});
+    }
+    await db.bookingPaymentCase.update({ where: { id }, data: { status: settled?.status === "PAID" ? "CODE_READY" : row.status } }).catch(() => {});
+    await recordEvent(id, "REPAIR_FAILED", req.user!.id, settled?.status === "PAID"
+      ? "The invoice settled from the statement but the code step failed. Use resend or recheck."
+      : "Settlement from the statement failed; nothing was marked paid.");
+    console.error("[booking-payment-case] statement settlement failed", { caseId: id, message: error?.message });
+    return res.status(500).json({ error: settled?.status === "PAID" ? "The invoice settled but the code step failed. Reload and resend." : "Settlement did not complete. Nothing was marked paid." });
+  }
 }) as RequestHandler);
 
 export default router;
