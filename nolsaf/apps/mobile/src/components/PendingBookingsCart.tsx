@@ -144,6 +144,12 @@ export function PendingBookingsCart() {
           (booking) =>
             String(booking.draftExpiryStatus || "").toUpperCase() !== "EXPIRED" &&
             booking.draftAvailability?.available !== false &&
+            // A payment already with the provider, under review or reported is not "payment required".
+            !booking.paymentProcessing &&
+            !booking.paymentNeedsReview &&
+            !booking.paymentCase &&
+            booking.paymentOutcome !== "PROCESSING" &&
+            booking.paymentOutcome !== "SLOW" &&
             isFutureOrUnset(booking.draftExpiresAt, now) &&
             isFutureOrUnset(booking.checkIn, now)
         )

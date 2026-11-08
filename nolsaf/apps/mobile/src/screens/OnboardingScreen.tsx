@@ -889,30 +889,6 @@ const styles = StyleSheet.create({
     gap: 2,
     paddingVertical: 4
   },
-  quietRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(2,102,94,0.14)",
-    backgroundColor: colors.white
-  },
-  quietRowIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(2,102,94,0.08)"
-  },
-  quietRowText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2
-  },
   root: {
     flex: 1,
     backgroundColor: colors.surface
@@ -1215,7 +1191,7 @@ const styles = StyleSheet.create({
     height: 48,
     paddingLeft: 8,
     paddingRight: 12,
-    borderRadius: 11,
+    borderRadius: radius.md,
     // A clear but soft outline, with a light lift so each chip reads as its own card.
     borderWidth: 1,
     borderColor: "rgba(15,23,42,0.14)",
@@ -1237,7 +1213,7 @@ const styles = StyleSheet.create({
   quickChipIcon: {
     width: 30,
     height: 30,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     alignItems: "center",
     justifyContent: "center"
   },
@@ -1874,7 +1850,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing[1]
   },
   operatorSkeleton: {
-    borderRadius: 16,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
@@ -1884,7 +1860,7 @@ const styles = StyleSheet.create({
   operatorSkeletonImage: {
     width: "100%",
     aspectRatio: 1,
-    borderRadius: 12,
+    borderRadius: radius.md,
     backgroundColor: "#eef2f1"
   },
   seeAllEnd: {
@@ -1916,7 +1892,7 @@ const styles = StyleSheet.create({
   },
   propertyTypePressable: {
     minWidth: 0,
-    borderRadius: 22
+    borderRadius: radius.xl
   },
   propertySlideHint: {
     alignSelf: "flex-end",
@@ -1941,7 +1917,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     width: "100%",
     overflow: "hidden",
-    borderRadius: 22,
+    borderRadius: radius.xl,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.7)",

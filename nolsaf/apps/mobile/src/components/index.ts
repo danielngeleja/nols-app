@@ -12,6 +12,7 @@ export * from "./BackupCodesPanel";
 export * from "./BottomActionBar";
 export * from "./CalendarRangeSheet";
 export * from "./BookingSummaryCard";
+export * from "./CodeBoxes";
 export * from "./CodeText";
 export * from "./ConfirmSheet";
 export * from "./CurrencySelector";

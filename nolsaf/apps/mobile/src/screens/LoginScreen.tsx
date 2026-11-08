@@ -1,26 +1,28 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { formatPasskeyError, nativePasskeysSupported } from "@nolsaf/native-ui";
-import { Fingerprint, KeyRound, Mail, Phone, ShieldCheck } from "lucide-react-native";
+import { Fingerprint, Mail, Phone, ScanFace, ShieldCheck } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
 import { useAuth } from "../auth";
 import { AccountMfaStep } from "../auth/AccountMfaStep";
 import { sendOtp, verifyOtp } from "../auth/authApi";
-import { AppButton, AppCard, AppInput, AppStack, AppText, AuthScreen } from "../components";
+import { AppButton, AppInput, AppText, AuthScreen, CodeBoxes } from "../components";
 import { useSecureScreen } from "../lib/secureScreen";
 import { contactProblem, detectContact, EMAIL_PATTERN, shapeContactInput } from "../lib/contact";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Login">;
-type Method = "password" | "otp";
-type IconType = typeof Mail;
+/** identify: who are you. password: email accounts only. code: a one-time code by SMS or email. */
+type Stage = "identify" | "password" | "code";
 
 const RESEND_COOLDOWN_SEC = 60;
+// The icon people already know for unlocking their own phone.
+const PasskeyIcon = Platform.OS === "ios" ? ScanFace : Fingerprint;
 // The last identifier that signed in on this device (never the password), so a
-// returning traveller only types their password. Kept in the device keychain.
+// returning traveller starts one step further. Kept in the device keychain.
 const LAST_LOGIN_KEY = "nolsaf.lastLoginId";
 
 async function readLastLogin(): Promise<string> {
@@ -36,28 +38,36 @@ function rememberLogin(identifier: string) {
   if (value) void SecureStore.setItemAsync(LAST_LOGIN_KEY, value).catch(() => undefined);
 }
 
+/** Enough of the identifier to recognise it, never the whole thing on screen. */
+function maskIdentifier(value: string) {
+  const text = value.trim();
+  if (text.includes("@")) {
+    const [local, domain] = text.split("@");
+    return `${local.slice(0, 2)}•••@${domain ?? ""}`;
+  }
+  const digits = text.replace(/\D/g, "");
+  if (digits.length < 7) return text;
+  return `${digits.slice(0, 4)} ••• ${digits.slice(-3)}`;
+}
+
 export function LoginScreen({ navigation }: Props) {
   useSecureScreen();
   const { signIn, signInWithPasskey, completeOtpSignIn, pendingMfa, beginMfaChallenge, cancelMfa, error: sessionNotice } = useAuth();
-  const [method, setMethod] = useState<Method>("password");
 
-  // Password login state
-  const [email, setEmail] = useState("");
+  const [stage, setStage] = useState<Stage>("identify");
+  const [identifier, setIdentifier] = useState("");
+  // True when the identifier came from this device's last sign-in.
+  const [returning, setReturning] = useState(false);
   const [password, setPassword] = useState("");
-
-  // OTP login state
-  const [otpContact, setOtpContact] = useState("");
   const [code, setCode] = useState("");
-  const [codeSent, setCodeSent] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const passwordRef = useRef<TextInput>(null);
-  const [remembered, setRemembered] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
-  // Hidden entirely when the build/platform cannot do passkeys, so nobody
+  // Hidden entirely when the build or platform cannot do passkeys, so nobody
   // ever sees a button that cannot work (web, Expo Go, old builds).
   const passkeyAvailable = useMemo(() => nativePasskeysSupported(), []);
 
@@ -71,13 +81,8 @@ export function LoginScreen({ navigation }: Props) {
     let alive = true;
     void readLastLogin().then((last) => {
       if (!alive || !last) return;
-      setOtpContact((current) => current || last);
-      // The password form takes an email only, so a remembered phone fills the code tab alone.
-      if (last.includes("@")) {
-        setEmail((current) => current || last);
-        setRemembered(true);
-        setTimeout(() => passwordRef.current?.focus(), 350);
-      }
+      setIdentifier((current) => current || last);
+      setReturning(true);
     });
     return () => {
       alive = false;
@@ -98,25 +103,55 @@ export function LoginScreen({ navigation }: Props) {
     }, 1000);
   }
 
-  // Password sign-in is by email only: one clear identifier, no guessing.
-  const emailValid = EMAIL_PATTERN.test(email.trim());
-  const canSubmitPassword = emailValid && password.length > 0;
-  const contact = detectContact(otpContact);
-  const otpContactValid = Boolean(contact);
+  const contact = detectContact(identifier);
+  // Password sign-in is by email only: one clear identifier, no guessing. A phone always uses a code.
+  const isEmail = EMAIL_PATTERN.test(identifier.trim());
+  const busy = loading || passkeyLoading;
+
+  function goTo(next: Stage) {
+    setStage(next);
+    setError(null);
+    setCode("");
+    if (next !== "password") setPassword("");
+  }
+
+  /** Back to the first step with the phone or email still in the field, ready to edit. */
+  function editAccount() {
+    goTo("identify");
+  }
+
+  /** Continue from the first step: an email asks for the password, a phone gets a code. */
+  async function continueFromIdentify() {
+    if (busy) return;
+    if (!contact) {
+      setError(contactProblem(identifier) || "Enter your phone number or email.");
+      return;
+    }
+    if (isEmail) {
+      goTo("password");
+      setTimeout(() => passwordRef.current?.focus(), 250);
+      return;
+    }
+    await sendLoginCode(false);
+  }
 
   async function submitPassword() {
     if (loading) return;
-    if (!canSubmitPassword) {
-      setError(emailValid ? "Enter your password." : "Enter a valid email address.");
+    if (!isEmail) {
+      goTo("identify");
+      return;
+    }
+    if (!password) {
+      setError("Enter your password.");
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      await signIn(email.trim().toLowerCase(), password);
-      rememberLogin(email);
+      await signIn(identifier.trim().toLowerCase(), password);
+      rememberLogin(identifier);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Login failed.");
+      setError(e instanceof Error ? e.message : "Sign in failed. Try again.");
     } finally {
       setLoading(false);
     }
@@ -124,57 +159,63 @@ export function LoginScreen({ navigation }: Props) {
 
   async function sendLoginCode(resend = false) {
     if (loading || (resend && resendIn > 0)) return;
+    if (!contact) {
+      setError(contactProblem(identifier) || "Enter your phone number or email.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      // No role: login OTP — the account must already exist.
-      if (!contact) return;
+      // No role: a login code, so the account must already exist.
       await sendOtp(contact.destination);
       startResendCooldown();
       if (!resend) {
         setCode("");
-        setCodeSent(true);
+        setStage("code");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send the code. Please try again.");
+      setError(e instanceof Error ? e.message : "Could not send the code. Try again.");
     } finally {
       setLoading(false);
     }
   }
 
   async function submitOtp(value = code) {
-    if (loading || value.trim().length !== 6) return;
+    if (loading || !contact) return;
+    if (value.trim().length !== 6) {
+      setError("Enter all 6 digits of the code.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      if (!contact) return;
       const res = await verifyOtp(contact.destination, value.trim());
       if (beginMfaChallenge(res)) {
         // The account has an authenticator: the next step asks for its code.
-        rememberLogin(otpContact);
+        rememberLogin(identifier);
         setLoading(false);
         return;
       }
       if (!res.token) {
-        throw new Error(res.message || res.error || "Verification failed. Please try again.");
+        throw new Error(res.message || res.error || "Verification failed. Try again.");
       }
       await completeOtpSignIn(res.token, res.user);
-      rememberLogin(otpContact);
+      rememberLogin(identifier);
     } catch (e) {
-      // Map the backend's technical messages to friendly, actionable copy.
+      // Map the backend's technical messages to short, actionable copy.
       const raw = e instanceof Error ? e.message : "";
       const friendly = /no otp found|expired|not found/i.test(raw)
-        ? "That code has expired or was not found. Tap Resend code to get a new one."
+        ? "That code has expired. Send a new one."
         : /incorrect|invalid|wrong|mismatch/i.test(raw)
-          ? "That code is not correct. Check it and try again, or resend a new one."
-          : "We could not verify that code. Please try again or resend a new one.";
+          ? "That code isn't right. Check it and try again."
+          : "We couldn't verify that code. Try again or send a new one.";
       setError(friendly);
       setLoading(false);
     }
   }
 
   async function submitPasskey() {
-    if (passkeyLoading || loading) return;
+    if (busy) return;
     setPasskeyLoading(true);
     setError(null);
     try {
@@ -186,274 +227,239 @@ export function LoginScreen({ navigation }: Props) {
     }
   }
 
-  function switchMethod(next: Method) {
-    if (next === method) return;
-    setMethod(next);
-    setError(null);
-    setCode("");
-    setCodeSent(false);
-  }
+  // Headline and one short line for each step.
+  const heading = pendingMfa
+    ? { title: "Verify it's you", subtitle: "Enter the code from your authenticator app." }
+    : stage === "password"
+      ? { title: "Enter your password", subtitle: undefined }
+      : stage === "code"
+        ? { title: "Enter the code", subtitle: contact ? `Sent to ${maskIdentifier(identifier)} if it has a NoLSAF account.` : undefined }
+        : returning && identifier
+          ? { title: "Welcome back", subtitle: undefined }
+          : { title: "Sign in", subtitle: "Stays, tours and rides in one account." };
+
+  const handleBack = () => {
+    if (pendingMfa) cancelMfa();
+    else if (stage !== "identify") goTo("identify");
+    else navigation.goBack();
+  };
+
+  const errorLine = error ? (
+    <AppText variant="bodySmall" tone="danger" accessibilityLiveRegion="polite">
+      {error}
+    </AppText>
+  ) : null;
+
+  // The account this step is for. Going back edits it, so there is no separate switch here.
+  const accountChip = identifier ? (
+    <View style={styles.accountChip}>
+      <View style={styles.accountIcon}>
+        {isEmail ? <Mail color={colors.primary} size={16} /> : <Phone color={colors.primary} size={16} />}
+      </View>
+      <AppText variant="bodySmall" weight="semiBold" numberOfLines={1} style={styles.flex}>
+        {maskIdentifier(identifier)}
+      </AppText>
+    </View>
+  ) : null;
 
   return (
     <AuthScreen
-      title={pendingMfa ? "Verify it's you" : "Welcome back"}
-      subtitle={
-        pendingMfa
-          ? "Your account is protected with an authenticator app."
-          : remembered
-            ? "Enter your password to continue."
-            : "Sign in to book, pay and track your trips."
-      }
-      onBack={() => (pendingMfa ? cancelMfa() : navigation.goBack())}
-      icon={<KeyRound color={colors.white} size={24} />}
+      title={heading.title}
+      subtitle={heading.subtitle}
+      onBack={handleBack}
       footer={
-        <Pressable accessibilityRole="button" onPress={() => navigation.navigate("Register")}>
-          <AppText variant="bodySmall" tone="primary" weight="bold" style={styles.note}>
-            New to NoLSAF? Create your traveller account
-          </AppText>
-        </Pressable>
+        !pendingMfa && stage === "identify" ? (
+          <Pressable accessibilityRole="button" onPress={() => navigation.navigate("Register")} style={styles.centerRow}>
+            <AppText variant="bodySmall" tone="muted">
+              New to NoLSAF?{" "}
+            </AppText>
+            <AppText variant="bodySmall" tone="primary" weight="bold">
+              Create account
+            </AppText>
+          </Pressable>
+        ) : undefined
       }
     >
-      <AppStack gap={5}>
-          {/* Why the last session ended (e.g. an authenticator was turned on), so a sign-out is never silent. */}
-          {sessionNotice && !pendingMfa ? (
-            <View style={styles.sessionNotice}>
-              <ShieldCheck color={colors.primary} size={16} />
-              <AppText variant="caption" weight="semiBold" style={styles.contactHintText}>
-                {sessionNotice}
-              </AppText>
+      {/* Why the last session ended (e.g. an authenticator was turned on), so a sign-out is never silent. */}
+      {sessionNotice && !pendingMfa ? (
+        <View style={styles.sessionNotice}>
+          <ShieldCheck color={colors.primary} size={16} />
+          <AppText variant="caption" weight="semiBold" style={styles.flex}>
+            {sessionNotice}
+          </AppText>
+        </View>
+      ) : null}
+
+      {pendingMfa ? (
+        <AccountMfaStep
+          onRestart={(message) => {
+            setPassword("");
+            setCode("");
+            setStage("identify");
+            setError(message);
+          }}
+        />
+      ) : stage === "identify" ? (
+        <>
+          {passkeyAvailable ? (
+            <View style={styles.passkeyBlock}>
+              {/* Icon only: Face ID on iPhone, fingerprint on Android. Screen readers still hear the full action. */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Continue with passkey"
+                accessibilityHint="Uses Face ID or your fingerprint. No password needed."
+                disabled={loading || passkeyLoading}
+                onPress={submitPasskey}
+                hitSlop={6}
+                style={({ pressed }) => [styles.passkeyButton, pressed && styles.passkeyPressed, loading && styles.passkeyDisabled]}
+              >
+                {passkeyLoading ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : (
+                  <PasskeyIcon color={colors.primary} size={30} strokeWidth={1.8} />
+                )}
+              </Pressable>
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <AppText variant="caption" tone="muted">
+                  or
+                </AppText>
+                <View style={styles.dividerLine} />
+              </View>
             </View>
           ) : null}
-          {pendingMfa ? (
-            <AccountMfaStep
-              onRestart={(message) => {
-                setPassword("");
-                setCode("");
-                setCodeSent(false);
-                setError(message);
-              }}
-            />
-          ) : (
-          <AppCard style={styles.authCard}>
-            <AppStack gap={4}>
-              {passkeyAvailable ? (
-                <View style={styles.passkeyBlock}>
-                  <AppButton
-                    title="Continue with passkey"
-                    loading={passkeyLoading}
-                    disabled={loading}
-                    onPress={submitPasskey}
-                    icon={<Fingerprint color={colors.white} size={18} />}
-                  />
-                  <AppText variant="caption" tone="muted" style={styles.passkeyHint}>
-                    Face ID or fingerprint, no password needed
-                  </AppText>
-                  <View style={styles.dividerRow}>
-                    <View style={styles.dividerLine} />
-                    <AppText variant="caption" tone="muted">
-                      or
-                    </AppText>
-                    <View style={styles.dividerLine} />
-                  </View>
-                </View>
-              ) : null}
-              <View style={styles.methodRow}>
-                <MethodPill Icon={KeyRound} label="Password" active={method === "password"} onPress={() => switchMethod("password")} />
-                <MethodPill Icon={ShieldCheck} label="One-time code" active={method === "otp"} onPress={() => switchMethod("otp")} />
-              </View>
 
-              {method === "password" ? (
-                <>
-                  <AppInput
-                    label="Email"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="email-address"
-                    textContentType="username"
-                    autoComplete="email"
-                    returnKeyType="next"
-                    submitBehavior="submit"
-                    onSubmitEditing={() => passwordRef.current?.focus()}
-                    value={email}
-                    onChangeText={(value) => {
-                      setEmail(value);
-                      if (error) setError(null);
-                    }}
-                    placeholder="you@example.com"
-                    error={email.trim().length >= 6 && !emailValid ? (email.includes("@") ? "Check the email address." : "Use your email here. For a phone number, use One-time code.") : undefined}
-                    hint={
-                      remembered && email ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          hitSlop={8}
-                          onPress={() => {
-                            setEmail("");
-                            setRemembered(false);
-                            void SecureStore.deleteItemAsync(LAST_LOGIN_KEY).catch(() => undefined);
-                          }}
-                        >
-                          <AppText variant="caption" weight="bold" tone="primary">
-                            Not you?
-                          </AppText>
-                        </Pressable>
-                      ) : undefined
-                    }
-                  />
-                  <AppInput
-                    inputRef={passwordRef}
-                    label="Password"
-                    secureTextEntry
-                    textContentType="password"
-                    autoComplete="current-password"
-                    returnKeyType="go"
-                    onSubmitEditing={submitPassword}
-                    value={password}
-                    onChangeText={(value) => {
-                      setPassword(value);
-                      if (error) setError(null);
-                    }}
-                    placeholder="Enter password"
-                  />
-                  {error ? (
-                    <AppText variant="bodySmall" tone="danger">
-                      {error}
-                    </AppText>
-                  ) : null}
-                  <Pressable accessibilityRole="button" onPress={() => navigation.navigate("ForgotPassword")} style={styles.forgotLink}>
-                    <AppText variant="bodySmall" tone="primary" weight="bold">
-                      Forgot password?
-                    </AppText>
-                  </Pressable>
-                  <AppButton
-                    title="Sign in"
-                    loading={loading}
-                    disabled={passkeyLoading || !canSubmitPassword}
-                    onPress={submitPassword}
-                    style={passkeyAvailable ? styles.submitNeutral : undefined}
-                  />
-                </>
-              ) : (
-                <>
-                  {!codeSent ? (
-                    <>
-                      <AppInput
-                        label="Phone or email"
-                        value={otpContact}
-                        onChangeText={(value) => {
-                          // A phone is shaped as it is typed (digits only, never longer than the
-                          // prefix allows); anything with letters or an @ is left as typed.
-                          setOtpContact(shapeContactInput(value));
-                          if (error) setError(null);
-                        }}
-                        placeholder="0712 345 678 or you@example.com"
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        keyboardType="email-address"
-                        textContentType="username"
-                        autoComplete="username"
-                        returnKeyType="send"
-                        onSubmitEditing={() => otpContactValid && sendLoginCode(false)}
-                      />
-                      {contactProblem(otpContact) ? (
-                        <AppText variant="caption" tone="danger" style={styles.contactInvalid}>
-                          {contactProblem(otpContact)}
-                        </AppText>
-                      ) : null}
-                      {contact ? (
-                        <View style={styles.contactHint}>
-                          {contact.channel === "PHONE" ? <Phone color={colors.primary} size={14} /> : <Mail color={colors.primary} size={14} />}
-                          <AppText variant="caption" tone="muted" numberOfLines={1} style={styles.contactHintText}>
-                            {contact.channel === "PHONE" ? "We will text a code to " : "We will email a code to "}
-                            <AppText variant="caption" weight="bold">{contact.shown}</AppText>
-                          </AppText>
-                        </View>
-                      ) : null}
-                      {error ? (
-                        <AppText variant="bodySmall" tone="danger">
-                          {error}
-                        </AppText>
-                      ) : null}
-                      <AppButton title="Send login code" loading={loading} disabled={!otpContactValid} onPress={() => sendLoginCode(false)} />
-                    </>
-                  ) : (
-                    <>
-                      <AppText variant="caption" tone="muted">
-                        {/* The API only sends to a destination that has an account, and does not say which (so no one can probe who is registered). The copy stays just as honest. */}
-                        {contact ? `If ${contact.shown} belongs to a NoLSAF account, a 6-digit code is on its way. It expires in 5 minutes.` : "If this belongs to a NoLSAF account, a 6-digit code is on its way. It expires in 5 minutes."}
-                      </AppText>
-                      <AppInput
-                        label="Verification code"
-                        value={code}
-                        onChangeText={(value) => {
-                          const next = value.replace(/\D/g, "").slice(0, 6);
-                          setCode(next);
-                          if (error) setError(null);
-                          // No extra tap: the code verifies as soon as all six digits are in.
-                          if (next.length === 6 && next !== code) void submitOtp(next);
-                        }}
-                        placeholder="123456"
-                        keyboardType="number-pad"
-                        maxLength={6}
-                        autoFocus
-                        textContentType="oneTimeCode"
-                        autoComplete="sms-otp"
-                        style={styles.codeInput}
-                      />
-                      {error ? (
-                        <AppText variant="bodySmall" tone="danger">
-                          {error}
-                        </AppText>
-                      ) : null}
-                      <AppButton title="Verify and sign in" loading={loading} disabled={code.trim().length !== 6} onPress={() => submitOtp()} />
-                      <AppButton
-                        title={resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
-                        variant="ghost"
-                        disabled={resendIn > 0 || loading}
-                        onPress={() => sendLoginCode(true)}
-                      />
-                      <AppButton title="Use a different phone or email" variant="ghost" disabled={loading} onPress={() => { setCodeSent(false); setCode(""); setError(null); }} />
-                      {resendIn === 0 ? (
-                        <Pressable accessibilityRole="button" onPress={() => navigation.navigate("Register")} style={styles.noCodeLink}>
-                          <AppText variant="caption" tone="muted" style={styles.noCodeText}>
-                            No code? This phone or email may not have an account yet.{" "}
-                            <AppText variant="caption" weight="bold" tone="primary">Create one</AppText>
-                          </AppText>
-                        </Pressable>
-                      ) : null}
-                    </>
-                  )}
-                </>
-              )}
-            </AppStack>
-          </AppCard>
-          )}
-      </AppStack>
+          {/* A remembered account arrives pre-filled; editing the field is how to use another one. */}
+          <AppInput
+              label="Phone or email"
+              value={identifier}
+              onChangeText={(value) => {
+                // A phone is shaped as it is typed; anything with letters or an @ stays as typed.
+                setIdentifier(shapeContactInput(value));
+                if (error) setError(null);
+              }}
+              placeholder="0712 345 678 or you@example.com"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              textContentType="username"
+              autoComplete="username"
+              returnKeyType="go"
+              onSubmitEditing={continueFromIdentify}
+              error={identifier.trim().length >= 6 ? contactProblem(identifier) || undefined : undefined}
+            />
+          {errorLine}
+          {/* Always active: an invalid entry gets a clear message instead of a faded button. */}
+          <AppButton title="Continue" loading={loading} disabled={passkeyLoading} onPress={continueFromIdentify} />
+        </>
+      ) : stage === "password" ? (
+        <>
+          {accountChip}
+          <AppInput
+            inputRef={passwordRef}
+            label="Password"
+            secureTextEntry
+            textContentType="password"
+            autoComplete="current-password"
+            returnKeyType="go"
+            onSubmitEditing={submitPassword}
+            value={password}
+            onChangeText={(value) => {
+              setPassword(value);
+              if (error) setError(null);
+            }}
+            placeholder="Your password"
+            error={error || undefined}
+          />
+          <AppButton title="Sign in" loading={loading} onPress={submitPassword} />
+          <View style={styles.linkRow}>
+            <Pressable accessibilityRole="button" hitSlop={8} onPress={() => navigation.navigate("ForgotPassword")}>
+              <AppText variant="bodySmall" tone="primary" weight="bold">
+                Forgot password
+              </AppText>
+            </Pressable>
+            <Pressable accessibilityRole="button" hitSlop={8} disabled={loading} onPress={() => sendLoginCode(false)}>
+              <AppText variant="bodySmall" tone="primary" weight="bold">
+                Send a code instead
+              </AppText>
+            </Pressable>
+          </View>
+        </>
+      ) : (
+        <>
+          <CodeBoxes
+            value={code}
+            onChange={(next) => {
+              setCode(next);
+              if (error) setError(null);
+            }}
+            onComplete={(next) => void submitOtp(next)}
+            error={Boolean(error)}
+            editable={!loading}
+          />
+          {errorLine}
+          <AppButton title="Verify and sign in" loading={loading} onPress={() => submitOtp()} />
+          <View style={styles.linkRow}>
+            <Pressable accessibilityRole="button" hitSlop={8} disabled={resendIn > 0 || loading} onPress={() => sendLoginCode(true)}>
+              <AppText variant="bodySmall" tone={resendIn > 0 ? "muted" : "primary"} weight="bold">
+                {resendIn > 0 ? `Resend in 0:${String(resendIn).padStart(2, "0")}` : "Send a new code"}
+              </AppText>
+            </Pressable>
+            {isEmail ? (
+              <Pressable accessibilityRole="button" hitSlop={8} disabled={loading} onPress={() => goTo("password")}>
+                <AppText variant="bodySmall" tone="primary" weight="bold">
+                  Use password
+                </AppText>
+              </Pressable>
+            ) : (
+              <Pressable accessibilityRole="button" hitSlop={8} disabled={loading} onPress={editAccount}>
+                <AppText variant="bodySmall" tone="primary" weight="bold">
+                  Use another number
+                </AppText>
+              </Pressable>
+            )}
+          </View>
+          {resendIn === 0 ? (
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate("Register")} style={styles.centerRow}>
+              <AppText variant="caption" tone="muted" style={styles.centerText}>
+                No code? This may not have an account yet.{" "}
+                <AppText variant="caption" weight="bold" tone="primary">
+                  Create one
+                </AppText>
+              </AppText>
+            </Pressable>
+          ) : null}
+        </>
+      )}
     </AuthScreen>
   );
 }
 
-/** Primary sign-in method: a segmented control, the chosen option a white raised tab. */
-function MethodPill({ Icon, label, active, onPress }: { Icon: IconType; label: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.methodPill, active && styles.methodPillActive, pressed && !active && styles.pressed]}>
-      <Icon color={active ? colors.primary : colors.mutedText} size={15} />
-      <AppText variant="caption" weight={active ? "bold" : "semiBold"} tone={active ? "primary" : "muted"} numberOfLines={1}>
-        {label}
-      </AppText>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  authCard: {
-    borderRadius: radius.xl,
-    padding: spacing[5]
+  flex: {
+    flex: 1,
+    minWidth: 0
   },
   passkeyBlock: {
-    gap: spacing[2]
+    gap: spacing[3],
+    alignItems: "stretch"
   },
-  passkeyHint: {
-    textAlign: "center"
+  passkeyButton: {
+    alignSelf: "center",
+    width: 64,
+    height: 64,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.brand[200],
+    backgroundColor: colors.brand[50]
+  },
+  passkeyPressed: {
+    backgroundColor: colors.brand[100]
+  },
+  passkeyDisabled: {
+    opacity: 0.5
   },
   dividerRow: {
     flexDirection: "row",
@@ -466,37 +472,24 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.border
   },
-  // Segmented control: a quiet tinted track with a white active pill, so the
-  // method switch reads as a control instead of competing with the buttons.
-  methodRow: {
-    flexDirection: "row",
-    gap: 4,
-    padding: 4,
-    borderRadius: radius.md + 2,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: "#eef2f1"
-  },
-  methodPill: {
-    flex: 1,
-    minHeight: 40,
+  accountChip: {
+    minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: spacing[2],
+    gap: spacing[3],
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: "transparent",
-    backgroundColor: "transparent"
+    borderColor: colors.brand[100],
+    backgroundColor: colors.brand[50],
+    paddingHorizontal: spacing[3]
   },
-  methodPillActive: {
-    backgroundColor: colors.white,
-    borderColor: colors.brand[200],
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1
+  accountIcon: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.sm,
+    backgroundColor: colors.white
   },
   sessionNotice: {
     flexDirection: "row",
@@ -509,47 +502,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[2]
   },
-  contactHint: {
+  linkRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: -spacing[2]
+    justifyContent: "space-between",
+    gap: spacing[3]
   },
-  noCodeLink: {
-    alignSelf: "center",
-    paddingHorizontal: spacing[2]
+  centerRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center"
   },
-  noCodeText: {
+  centerText: {
     textAlign: "center"
-  },
-  contactInvalid: {
-    marginTop: -spacing[2]
-  },
-  contactHintText: {
-    flex: 1,
-    minWidth: 0
-  },
-  // When the passkey button holds the brand color, the form submit steps back
-  // to neutral ink so the screen keeps a single accent action.
-  submitNeutral: {
-    backgroundColor: colors.ink,
-    borderColor: colors.ink
-  },
-  note: {
-    textAlign: "center",
-    paddingHorizontal: spacing[3]
-  },
-  codeInput: {
-    textAlign: "center",
-    fontSize: 22,
-    letterSpacing: 10,
-    fontWeight: "700"
-  },
-  forgotLink: {
-    alignSelf: "flex-end"
-  },
-  pressed: {
-    opacity: 0.78,
-    transform: [{ scale: 0.99 }]
   }
 });

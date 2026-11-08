@@ -191,12 +191,12 @@ export function ForgotPasswordScreen({ navigation }: Props) {
   const heroTitle = step === "done" ? "You're secure again" : step === "password" ? "Choose a new password" : "Recover your account";
   const heroSubtitle =
     step === "contact"
-      ? "We'll verify that the account belongs to you."
+      ? "We'll check the account is yours."
       : step === "otp"
-        ? "Enter the private code sent to your verified contact."
+        ? "Sent to your verified phone or email."
         : step === "password"
-          ? "Create a strong password you don't use elsewhere."
-          : "Your password has been updated successfully.";
+          ? "Use one you don't use anywhere else."
+          : "Your password is updated.";
 
   const handleBack = () => {
     if (step === "otp") setStep("contact");

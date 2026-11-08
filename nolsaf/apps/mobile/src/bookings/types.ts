@@ -40,6 +40,18 @@ export type BookingListItem = {
   invoiceId?: number | null;
   invoiceAccessToken?: string | null;
   draftAvailability?: InvoiceDraftAvailability | null;
+  /** A payment attempt is live with the provider: do not offer to pay again. */
+  paymentProcessing?: boolean;
+  /** The provider signalled money; NoLSAF is confirming it. Do not pay again. */
+  paymentNeedsReview?: boolean;
+  /**
+   * How the latest attempt stands (server decides, display only):
+   * PROCESSING and SLOW are live; FAILED and NO_RESULT ended, so paying again is allowed.
+   */
+  paymentOutcome?: "PROCESSING" | "SLOW" | "FAILED" | "NO_RESULT" | null;
+  paymentOutcomeSince?: string | null;
+  /** An open "paid but no code" report. While open, paying again is blocked. */
+  paymentCase?: { status?: string | null } | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 };

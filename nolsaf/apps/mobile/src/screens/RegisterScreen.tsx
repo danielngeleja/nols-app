@@ -1,12 +1,12 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Check, CheckCircle2, ChevronLeft, Eye, EyeOff, Mail, Phone, ShieldCheck } from "lucide-react-native";
+import { Check, CheckCircle2, Mail, Phone } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
 import { completeOtpProfile, sendOtp, verifyOtp } from "../auth/authApi";
 import { OtpChannel } from "../auth/types";
-import { AppButton, AppCard, AppInput, AppStack, AppText, AuthScreen, PhoneNumberField } from "../components";
+import { AppButton, AppInput, AppText, AuthScreen, CodeBoxes, PhoneNumberField } from "../components";
 import { useSecureScreen } from "../lib/secureScreen";
 import { DEFAULT_PHONE_COUNTRY_CODE, isPhoneLengthValid } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
@@ -17,6 +17,7 @@ type Step = "contact" | "otp" | "profile";
 type IconType = typeof Phone;
 
 const RESEND_COOLDOWN_SEC = 60;
+const EMAIL_RE = /^\S+@\S+\.\S{2,}$/;
 
 function maskDestination(channel: OtpChannel, value: string) {
   if (channel === "PHONE") {
@@ -24,7 +25,7 @@ function maskDestination(channel: OtpChannel, value: string) {
   }
   const [local, domain] = value.split("@");
   if (!domain) return value;
-  return `${local.slice(0, 2)}****@${domain}`;
+  return `${local.slice(0, 2)}•••@${domain}`;
 }
 
 export function RegisterScreen({ navigation, route }: Props) {
@@ -41,9 +42,6 @@ export function RegisterScreen({ navigation, route }: Props) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -72,10 +70,18 @@ export function RegisterScreen({ navigation, route }: Props) {
 
   const destination = channel === "PHONE" ? { phone: `${countryCode}${phone.trim()}` } : { email: email.trim().toLowerCase() };
   const destinationValue = channel === "PHONE" ? `${countryCode}${phone.trim()}` : email.trim().toLowerCase();
-  const contactValid = channel === "PHONE" ? isPhoneLengthValid(phone, countryCode) : /^\S+@\S+\.\S{2,}$/.test(email.trim());
+  const contactValid = channel === "PHONE" ? isPhoneLengthValid(phone, countryCode) : EMAIL_RE.test(email.trim());
 
   async function sendCode(resend = false) {
     if (loading || (resend && resendIn > 0)) return;
+    if (!contactValid) {
+      setError(channel === "PHONE" ? "Enter a valid phone number." : "Enter a valid email address.");
+      return;
+    }
+    if (!agreed) {
+      setError("Tick the box to agree to the Terms and Privacy Policy.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -86,44 +92,62 @@ export function RegisterScreen({ navigation, route }: Props) {
         setStep("otp");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send the code. Please try again.");
+      setError(e instanceof Error ? e.message : "Could not send the code. Try again.");
     } finally {
       setLoading(false);
     }
   }
 
   async function verifyCode(value = code) {
-    if (loading || value.trim().length !== 6) return;
+    if (loading) return;
+    if (value.trim().length !== 6) {
+      setError("Enter all 6 digits of the code.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const res = await verifyOtp(destination, value.trim(), "CUSTOMER");
       if (!res.token) {
-        throw new Error(res.message || res.error || "Verification failed. Please try again.");
+        throw new Error(res.message || res.error || "Verification failed. Try again.");
       }
       setSessionToken(res.token);
       setError(null);
       setStep("profile");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Verification failed. Please try again.");
+      setError(e instanceof Error ? e.message : "Verification failed. Try again.");
     } finally {
       setLoading(false);
     }
   }
 
+  // The server's password rules, unchanged. The show/hide eye replaces a second "confirm" field.
   const passwordChecks = [
     { label: "8 to 12 characters", ok: password.length >= 8 && password.length <= 12 },
-    { label: "Uppercase and lowercase letters", ok: /[A-Z]/.test(password) && /[a-z]/.test(password) },
-    { label: "At least one number", ok: /\d/.test(password) },
-    { label: "At least one symbol", ok: /[^A-Za-z0-9]/.test(password) },
-    { label: "Confirmation matches", ok: Boolean(confirmPassword) && password === confirmPassword }
+    { label: "upper and lower case", ok: /[A-Z]/.test(password) && /[a-z]/.test(password) },
+    { label: "a number", ok: /\d/.test(password) },
+    { label: "a symbol", ok: /[^A-Za-z0-9]/.test(password) }
   ];
-  const emailValid = /^\S+@\S+\.\S{2,}$/.test(email.trim());
+  const passedChecks = passwordChecks.filter((item) => item.ok).length;
+  const passwordOk = passedChecks === passwordChecks.length;
+  const emailValid = EMAIL_RE.test(email.trim());
   const phoneValid = isPhoneLengthValid(phone, countryCode);
-  const profileValid = name.trim().length >= 2 && emailValid && phoneValid && passwordChecks.every((item) => item.ok);
+  const profileValid = name.trim().length >= 2 && emailValid && phoneValid && passwordOk;
 
   async function finishProfile() {
-    if (loading || !sessionToken || !profileValid) return;
+    if (loading || !sessionToken) return;
+    if (!profileValid) {
+      setError(
+        name.trim().length < 2
+          ? "Enter your full name."
+          : !emailValid
+            ? "Enter a valid email address."
+            : !phoneValid
+              ? "Enter a valid phone number."
+              : "Your password still needs: " + passwordChecks.filter((item) => !item.ok).map((item) => item.label).join(", ") + "."
+      );
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -135,283 +159,222 @@ export function RegisterScreen({ navigation, route }: Props) {
         ...(referralCode ? { referralCode } : {})
       });
       if (completed.user?.registrationStatus !== "COMPLETE") {
-        throw new Error("Your account profile is still incomplete. Confirm your full name, email, and phone, then try again.");
+        throw new Error("Your profile is still incomplete. Check your name, email and phone, then try again.");
       }
       await completeOtpSignIn(sessionToken);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not finish your profile. Please try again.");
+      setError(e instanceof Error ? e.message : "Could not finish your account. Try again.");
       setLoading(false);
     }
   }
 
   const stepNumber = step === "contact" ? 1 : step === "otp" ? 2 : 3;
-  const heroTitle = step === "contact" ? "Join NoLSAF" : step === "otp" ? "Verify your contact" : "Make it yours";
-  const heroSubtitle =
+  const heading =
     step === "contact"
-      ? "One traveller account for verified stays, rides and tours."
+      ? { title: "Create your account", subtitle: "We'll send a code to confirm it's you." }
       : step === "otp"
-        ? "A quick security check keeps your account protected."
-        : "Add your full name, email, and phone so bookings and support use the same verified account.";
+        ? { title: "Enter the code", subtitle: `Sent to ${maskDestination(channel, destinationValue)}` }
+        : { title: "Almost done", subtitle: undefined };
 
   const handleBack = () => {
+    setError(null);
     if (step === "contact") navigation.goBack();
     else if (step === "otp") setStep("contact");
     else setStep("otp");
   };
 
+  const errorLine = error ? (
+    <AppText variant="bodySmall" tone="danger">
+      {error}
+    </AppText>
+  ) : null;
+
   return (
     <AuthScreen
-      title={heroTitle}
-      subtitle={heroSubtitle}
+      title={heading.title}
+      subtitle={heading.subtitle}
       onBack={handleBack}
-      icon={<ShieldCheck color={colors.white} size={24} />}
       progress={{ current: stepNumber, total: 3, label: "Account setup" }}
       footer={
         step === "contact" ? (
-          <Pressable accessibilityRole="button" onPress={() => navigation.navigate("Login")} style={styles.loginLink}>
-            <ChevronLeft color={colors.primary} size={14} />
+          <Pressable accessibilityRole="button" onPress={() => navigation.navigate("Login")} style={styles.centerRow}>
+            <AppText variant="bodySmall" tone="muted">
+              Have an account?{" "}
+            </AppText>
             <AppText variant="bodySmall" tone="primary" weight="bold">
-              Already have an account? Login
+              Sign in
             </AppText>
           </Pressable>
         ) : undefined
       }
     >
-        <AppStack gap={5}>
-          {referralCode ? (
-            <AppText variant="bodySmall" tone="primary" weight="bold" style={styles.center}>
-              You were invited by a friend
+      {referralCode ? (
+        <View style={styles.inviteNote}>
+          <CheckCircle2 color={colors.primary} size={15} />
+          <AppText variant="caption" weight="semiBold" tone="primary">
+            You were invited by a friend
+          </AppText>
+        </View>
+      ) : null}
+
+      {step === "contact" ? (
+        <>
+          <View style={styles.segment} accessibilityRole="tablist">
+            <SegmentOption Icon={Phone} label="Phone" active={channel === "PHONE"} onPress={() => setChannel("PHONE")} />
+            <SegmentOption Icon={Mail} label="Email" active={channel === "EMAIL"} onPress={() => setChannel("EMAIL")} />
+          </View>
+          {channel === "PHONE" ? (
+            <PhoneNumberField
+              label="Phone number"
+              countryCode={countryCode}
+              onCountryCodeChange={setCountryCode}
+              value={phone}
+              onChangeText={setPhone}
+            />
+          ) : (
+            <AppInput
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              textContentType="emailAddress"
+            />
+          )}
+          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: agreed }} onPress={() => setAgreed(!agreed)} style={styles.agreeRow}>
+            <View style={[styles.checkbox, agreed && styles.checkboxChecked]}>
+              {agreed ? <Check color={colors.white} size={14} /> : null}
+            </View>
+            <AppText variant="caption" tone="muted" style={styles.flex}>
+              I agree to the <AppText variant="caption" weight="bold" tone="primary">Terms</AppText> and{" "}
+              <AppText variant="caption" weight="bold" tone="primary">Privacy Policy</AppText>
             </AppText>
-          ) : null}
+          </Pressable>
+          {errorLine}
+          <AppButton title="Send code" loading={loading} onPress={() => sendCode(false)} />
+        </>
+      ) : null}
 
-          {step === "contact" ? (
-            <AppCard style={styles.authCard}>
-              <AppStack gap={4}>
-                <AppText variant="titleSm" weight="extraBold">
-                  Where should we send your code?
+      {step === "otp" ? (
+        <>
+          <CodeBoxes
+            value={code}
+            onChange={(next) => {
+              setCode(next);
+              if (error) setError(null);
+            }}
+            onComplete={(next) => void verifyCode(next)}
+            error={Boolean(error)}
+            editable={!loading}
+          />
+          {errorLine}
+          <AppButton title="Verify" loading={loading} onPress={() => verifyCode()} />
+          <View style={styles.linkRow}>
+            <Pressable accessibilityRole="button" hitSlop={8} disabled={resendIn > 0 || loading} onPress={() => sendCode(true)}>
+              <AppText variant="bodySmall" tone={resendIn > 0 ? "muted" : "primary"} weight="bold">
+                {resendIn > 0 ? `Resend in 0:${String(resendIn).padStart(2, "0")}` : "Send a new code"}
+              </AppText>
+            </Pressable>
+            <Pressable accessibilityRole="button" hitSlop={8} disabled={loading} onPress={() => { setError(null); setStep("contact"); }}>
+              <AppText variant="bodySmall" tone="primary" weight="bold">
+                {channel === "PHONE" ? "Change number" : "Change email"}
+              </AppText>
+            </Pressable>
+          </View>
+        </>
+      ) : null}
+
+      {step === "profile" ? (
+        <>
+          {/* The contact just verified: shown, never asked again. */}
+          <View style={styles.lockedField}>
+            <AppText variant="label" weight="semiBold" tone="muted">
+              {channel === "PHONE" ? "Phone" : "Email"}
+            </AppText>
+            <View style={styles.lockedRow}>
+              <AppText variant="body" numberOfLines={1} style={styles.flex}>
+                {destinationValue}
+              </AppText>
+              <View style={styles.verifiedTag}>
+                <Check color={colors.success} size={12} />
+                <AppText variant="caption" weight="bold" tone="success">
+                  Verified
                 </AppText>
-                <View style={styles.channelRow}>
-                  <ChannelPill Icon={Phone} label="Phone (SMS)" active={channel === "PHONE"} onPress={() => setChannel("PHONE")} />
-                  <ChannelPill Icon={Mail} label="Email" active={channel === "EMAIL"} onPress={() => setChannel("EMAIL")} />
-                </View>
-                {channel === "PHONE" ? (
-                  <PhoneNumberField
-                    label="Phone number"
-                    countryCode={countryCode}
-                    onCountryCodeChange={setCountryCode}
-                    value={phone}
-                    onChangeText={setPhone}
-                  />
-                ) : (
-                  <AppInput
-                    label="Email"
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="you@example.com"
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    textContentType="emailAddress"
-                  />
-                )}
-                <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: agreed }} onPress={() => setAgreed(!agreed)} style={styles.agreeRow}>
-                  <View style={[styles.checkbox, agreed && styles.checkboxChecked]}>
-                    {agreed ? <Check color={colors.white} size={14} /> : null}
-                  </View>
-                  <AppText variant="caption" tone="muted" style={styles.flex}>
-                    I agree to the NoLSAF <AppText variant="caption" weight="bold" tone="primary">Terms and Conditions</AppText> and{" "}
-                    <AppText variant="caption" weight="bold" tone="primary">Privacy Policy</AppText>.
-                  </AppText>
-                </Pressable>
-                {error ? (
-                  <AppText variant="bodySmall" tone="danger">
-                    {error}
-                  </AppText>
-                ) : null}
-                <AppButton title="Send code" loading={loading} disabled={!contactValid || !agreed} onPress={() => sendCode(false)} />
-              </AppStack>
-            </AppCard>
-          ) : null}
+              </View>
+            </View>
+          </View>
 
-          {step === "otp" ? (
-            <AppCard style={styles.authCard}>
-              <AppStack gap={4}>
-                <View style={styles.otpHeader}>
-                  <View style={styles.otpIcon}>
-                    <ShieldCheck color={colors.primary} size={20} />
-                  </View>
-                  <View style={styles.flex}>
-                    <AppText variant="titleSm" weight="extraBold">
-                      Enter your code
-                    </AppText>
-                    <AppText variant="caption" tone="muted">
-                      We sent a 6-digit code to {maskDestination(channel, destinationValue)}. It expires in 5 minutes.
-                    </AppText>
-                  </View>
-                </View>
-                <AppInput
-                  label="Verification code"
-                  value={code}
-                  onChangeText={(value) => {
-                    const next = value.replace(/\D/g, "").slice(0, 6);
-                    setCode(next);
-                    if (error) setError(null);
-                    // No extra tap: the code verifies as soon as all six digits are in.
-                    if (next.length === 6 && next !== code) void verifyCode(next);
-                  }}
-                  placeholder="123456"
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  autoFocus
-                  textContentType="oneTimeCode"
-                  autoComplete="sms-otp"
-                  style={styles.codeInput}
-                />
-                {error ? (
-                  <AppText variant="bodySmall" tone="danger">
-                    {error}
-                  </AppText>
-                ) : null}
-                <AppButton title="Verify" loading={loading} disabled={code.trim().length !== 6} onPress={() => verifyCode()} />
-                <AppButton
-                  title={resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
-                  variant="ghost"
-                  disabled={resendIn > 0 || loading}
-                  onPress={() => sendCode(true)}
-                />
-              </AppStack>
-            </AppCard>
-          ) : null}
+          <AppInput label="Full name" value={name} onChangeText={setName} placeholder="Your full name" textContentType="name" autoComplete="name" />
+          {channel === "PHONE" ? (
+            <AppInput
+              label="Email"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              textContentType="emailAddress"
+              error={email.trim().length >= 5 && !emailValid ? "Check the email address." : undefined}
+            />
+          ) : (
+            <PhoneNumberField
+              label="Phone number"
+              countryCode={countryCode}
+              onCountryCodeChange={setCountryCode}
+              value={phone}
+              onChangeText={setPhone}
+            />
+          )}
 
-          {step === "profile" ? (
-            <AppCard style={styles.authCard}>
-              <AppStack gap={4}>
-                <AppText variant="titleSm" weight="extraBold">
-                  Finish your profile
+          <View style={styles.passwordBlock}>
+            <AppInput
+              label="Password"
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+              placeholder="8 to 12 characters"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="newPassword"
+              autoComplete="new-password"
+            />
+            {password ? (
+              <>
+                <View style={styles.meter}>
+                  {passwordChecks.map((item, index) => (
+                    <View key={item.label} style={[styles.meterBar, index < passedChecks && (passwordOk ? styles.meterStrong : styles.meterPartial)]} />
+                  ))}
+                </View>
+                <AppText variant="caption" tone={passwordOk ? "success" : "muted"} weight={passwordOk ? "bold" : "regular"}>
+                  {passwordOk
+                    ? "Strong password"
+                    : `Still needed: ${passwordChecks.filter((item) => !item.ok).map((item) => item.label).join(", ")}`}
                 </AppText>
-                <AppInput label="Full name" required value={name} onChangeText={setName} placeholder="Your name" textContentType="name" />
-                {channel === "PHONE" ? (
-                  <AppInput
-                    label="Email"
-                    required
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="you@example.com"
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    textContentType="emailAddress"
-                  />
-                ) : (
-                  <PhoneNumberField
-                    label="Phone number *"
-                    countryCode={countryCode}
-                    onCountryCodeChange={setCountryCode}
-                    value={phone}
-                    onChangeText={setPhone}
-                  />
-                )}
-                <PasswordField
-                  label="Password"
-                  required
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="8 to 12 characters"
-                  visible={showPassword}
-                  onToggle={() => setShowPassword((value) => !value)}
-                />
-                {(password || confirmPassword) && !passwordChecks.every((item) => item.ok) ? <PasswordChecklist checks={passwordChecks} /> : null}
-                <PasswordField
-                  label="Confirm password"
-                  required
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  placeholder="Re-enter your password"
-                  visible={showConfirmPassword}
-                  onToggle={() => setShowConfirmPassword((value) => !value)}
-                />
-                {error ? (
-                  <AppText variant="bodySmall" tone="danger">
-                    {error}
-                  </AppText>
-                ) : null}
-                <AppButton title="Finish and login" loading={loading} disabled={!profileValid} onPress={finishProfile} />
-              </AppStack>
-            </AppCard>
-          ) : null}
+              </>
+            ) : null}
+          </View>
 
-        </AppStack>
+          {errorLine}
+          <AppButton title="Create account" loading={loading} onPress={finishProfile} />
+        </>
+      ) : null}
     </AuthScreen>
   );
 }
 
-function PasswordField({
-  label,
-  required,
-  value,
-  onChangeText,
-  visible,
-  onToggle,
-  placeholder
-}: {
-  label: string;
-  required?: boolean;
-  value: string;
-  onChangeText: (value: string) => void;
-  visible: boolean;
-  onToggle: () => void;
-  placeholder?: string;
-}) {
+function SegmentOption({ Icon, label, active, onPress }: { Icon: IconType; label: string; active: boolean; onPress: () => void }) {
   return (
-    <View style={styles.passwordWrap}>
-      <AppText variant="label" weight="semiBold" tone="muted">
-        {label}
-        {required ? (
-          <AppText variant="label" weight="bold" tone="danger">
-            {" *"}
-          </AppText>
-        ) : null}
-      </AppText>
-      <View style={styles.passwordInputRow}>
-        <TextInput
-          value={value}
-          onChangeText={onChangeText}
-          secureTextEntry={!visible}
-          placeholder={placeholder}
-          placeholderTextColor={colors.softText}
-          autoCapitalize="none"
-          autoCorrect={false}
-          textContentType="newPassword"
-          style={styles.passwordInput}
-        />
-        <Pressable accessibilityRole="button" onPress={onToggle} style={styles.eyeButton}>
-          {visible ? <EyeOff color={colors.primary} size={20} /> : <Eye color={colors.primary} size={20} />}
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-function PasswordChecklist({ checks }: { checks: Array<{ label: string; ok: boolean }> }) {
-  return (
-    <View style={styles.ruleList}>
-      {checks.map((item) => (
-        <View key={item.label} style={styles.ruleRow}>
-          <View style={[styles.ruleIcon, item.ok && styles.ruleIconOk]}>
-            <CheckCircle2 color={item.ok ? colors.success : colors.softText} size={13} />
-          </View>
-          <AppText variant="caption" tone={item.ok ? "success" : "muted"} weight={item.ok ? "extraBold" : "regular"}>
-            {item.label}
-          </AppText>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function ChannelPill({ Icon, label, active, onPress }: { Icon: IconType; label: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.channelPill, active && styles.channelPillActive, pressed && styles.pressed]}>
-      <Icon color={active ? colors.white : colors.primary} size={16} />
-      <AppText variant="caption" weight="extraBold" tone={active ? "inverse" : "primary"}>
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={({ pressed }) => [styles.segmentOption, active && styles.segmentOptionActive, pressed && !active && styles.pressed]}
+    >
+      <Icon color={active ? colors.primary : colors.mutedText} size={16} />
+      <AppText variant="bodySmall" weight={active ? "bold" : "semiBold"} tone={active ? "primary" : "muted"}>
         {label}
       </AppText>
     </Pressable>
@@ -419,43 +382,49 @@ function ChannelPill({ Icon, label, active, onPress }: { Icon: IconType; label: 
 }
 
 const styles = StyleSheet.create({
-  authCard: {
-    borderRadius: radius.xl,
-    padding: spacing[5]
-  },
   flex: {
     flex: 1,
     minWidth: 0
   },
-  center: {
-    textAlign: "center",
-    paddingHorizontal: spacing[3]
-  },
-  codeInput: {
-    textAlign: "center",
-    fontSize: 22,
-    letterSpacing: 10,
-    fontWeight: "700"
-  },
-  channelRow: {
+  centerRow: {
     flexDirection: "row",
-    gap: spacing[2]
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center"
   },
-  channelPill: {
+  inviteNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[2],
+    alignSelf: "flex-start",
+    borderRadius: radius.sm,
+    backgroundColor: colors.brand[50],
+    paddingHorizontal: spacing[3],
+    paddingVertical: 6
+  },
+  segment: {
+    flexDirection: "row",
+    gap: 4,
+    padding: 4,
+    borderRadius: radius.md,
+    backgroundColor: "#f1f5f9"
+  },
+  segmentOption: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: spacing[2],
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: colors.white
+    borderRadius: radius.sm
   },
-  channelPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary
+  segmentOptionActive: {
+    backgroundColor: colors.white,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
   },
   agreeRow: {
     flexDirection: "row",
@@ -463,11 +432,11 @@ const styles = StyleSheet.create({
     gap: spacing[2]
   },
   checkbox: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.sm,
+    borderRadius: 5,
     borderWidth: 1.5,
     borderColor: colors.border,
     backgroundColor: colors.white
@@ -476,87 +445,55 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary
   },
-  otpHeader: {
+  linkRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: spacing[3]
   },
-  otpIcon: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.full,
-    backgroundColor: colors.brand[50],
-    borderWidth: 1,
-    borderColor: colors.brand[100]
+  lockedField: {
+    gap: spacing[2]
   },
-  loginLink: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing[1]
-  },
-  pressed: {
-    opacity: 0.78,
-    transform: [{ scale: 0.99 }]
-  },
-  passwordWrap: {
-    gap: spacing[2],
-    minWidth: 0
-  },
-  passwordInputRow: {
+  lockedRow: {
     minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    paddingLeft: spacing[4],
-    paddingRight: spacing[2]
-  },
-  passwordInput: {
-    flex: 1,
-    minWidth: 0,
-    color: colors.ink,
-    fontSize: 16,
-    paddingVertical: spacing[3]
-  },
-  eyeButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.full,
-    backgroundColor: colors.brand[50]
-  },
-  ruleList: {
     gap: spacing[2],
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: "#f8fafc",
-    padding: spacing[3]
+    paddingHorizontal: spacing[4]
   },
-  ruleRow: {
+  verifiedTag: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing[2],
-    minWidth: 0
+    gap: 3,
+    borderRadius: 5,
+    backgroundColor: "#ecfdf5",
+    paddingHorizontal: 6,
+    paddingVertical: 2
   },
-  ruleIcon: {
-    width: 22,
-    height: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white
+  passwordBlock: {
+    gap: spacing[2]
   },
-  ruleIconOk: {
-    borderColor: colors.brand[100],
-    backgroundColor: "#e9f7ef"
+  meter: {
+    flexDirection: "row",
+    gap: 4
+  },
+  meterBar: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border
+  },
+  meterPartial: {
+    backgroundColor: colors.warning
+  },
+  meterStrong: {
+    backgroundColor: colors.primary
+  },
+  pressed: {
+    opacity: 0.78
   }
 });

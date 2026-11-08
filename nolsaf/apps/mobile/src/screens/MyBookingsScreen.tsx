@@ -160,23 +160,71 @@ function draftPayability(booking: BookingListItem) {
   return { canPay: true };
 }
 
+/**
+ * A payment that is live, under review or reported must never invite a second
+ * payment or a re-book. Returns the held state to show, or null.
+ */
+function paymentHold(booking: BookingListItem) {
+  if (booking.paymentCase) {
+    return { label: "Checking", detail: "We are checking your payment report. Do not pay again while it is open." };
+  }
+  if (booking.paymentNeedsReview) {
+    return { label: "Under review", detail: "Your payment is being verified with the provider. Do not pay again." };
+  }
+  if (booking.paymentOutcome === "SLOW") {
+    return { label: "Waiting", detail: "We have not heard back from your bank or mobile network yet. Do not pay again; this updates within a few minutes." };
+  }
+  if (booking.paymentOutcome === "PROCESSING" || (booking.paymentProcessing && booking.paymentOutcome == null)) {
+    return { label: "Processing", detail: "Your payment is processing. Please wait a moment; do not pay again." };
+  }
+  return null;
+}
+
+/** True while the list should refresh itself to pick up the provider's answer. */
+function paymentInFlight(booking: BookingListItem) {
+  return isDraftBooking(booking) && (booking.paymentOutcome === "PROCESSING" || booking.paymentOutcome === "SLOW" || (Boolean(booking.paymentProcessing) && booking.paymentOutcome == null));
+}
+
 function stayStage(booking: BookingListItem) {
   if (isDraftBooking(booking)) {
+    const hold = paymentHold(booking);
+    if (hold) {
+      return {
+        title: "Payment in progress",
+        detail: hold.detail,
+        status: "pending" as BadgeStatus,
+        label: hold.label,
+        actionLabel: "Please wait",
+        iconColor: colors.info,
+        bg: "#eef2ff",
+        border: "#c7d2fe",
+        canPress: false,
+        action: null
+      };
+    }
     const payability = draftPayability(booking);
     const expired = String(booking.draftExpiryStatus || "").toUpperCase() === "EXPIRED";
     const unavailable = Boolean(booking.draftAvailability && !booking.draftAvailability.available);
+    // How the last attempt ended, so a failed payment never just looks "due".
+    const lastFailed = booking.paymentOutcome === "FAILED";
+    const lastNoResult = booking.paymentOutcome === "NO_RESULT";
+    const lastNote = lastFailed || lastNoResult ? "Your last payment attempt did not go through. " : "";
     return {
       title: "Draft stay",
       detail: payability.canPay
-        ? "Complete payment to confirm this stay."
+        ? lastFailed
+          ? "Your last payment attempt did not go through. You can try again."
+          : lastNoResult
+            ? "Your last payment attempt was not completed. If money left your account, contact NoLSAF support. Otherwise you can pay again."
+            : "Complete payment to confirm this stay."
         : expired
-          ? "Choose new available dates to book this property again."
+          ? `${lastNote}Choose new available dates to book this property again.`
           : unavailable
             ? "Your previous selection is unavailable. Choose new dates or another room."
             : "Start a fresh booking with the latest availability and price.",
       status: expired || unavailable ? ("cancelled" as BadgeStatus) : ("pending" as BadgeStatus),
-      label: expired ? "Expired" : unavailable ? "Update needed" : payability.canPay ? "Payment due" : "Restart",
-      actionLabel: payability.canPay ? "Pay now" : "Re-book",
+      label: expired ? "Expired" : unavailable ? "Update needed" : payability.canPay ? (lastFailed ? "Payment failed" : lastNoResult ? "Not completed" : "Payment due") : "Restart",
+      actionLabel: payability.canPay ? (lastFailed || lastNoResult ? "Try again" : "Pay now") : "Re-book",
       iconColor: expired || unavailable ? colors.danger : "#b45309",
       bg: expired || unavailable ? "#fee2e2" : "#fffbeb",
       border: expired || unavailable ? "#fecaca" : "#fde68a",
@@ -241,6 +289,21 @@ export function MyBookingsScreen({ navigation }: Props) {
     }
   }, [token]);
 
+  // While a payment is with the provider, refresh quietly (no spinner) so the
+  // card moves to paid, failed or not completed on its own.
+  const anyInFlight = items.some(paymentInFlight);
+  useFocusEffect(
+    useCallback(() => {
+      if (!token || !anyInFlight) return undefined;
+      const timer = setInterval(() => {
+        fetchMyBookings(token, { page: 1, pageSize: 20 })
+          .then((response) => setItems(response.items || []))
+          .catch(() => undefined);
+      }, 15_000);
+      return () => clearInterval(timer);
+    }, [token, anyInFlight])
+  );
+
   const loadServiceCounts = useCallback(async () => {
     if (!token) {
       setServiceCounts({ tours: null, groups: null, rides: null });
@@ -298,6 +361,8 @@ export function MyBookingsScreen({ navigation }: Props) {
       const title = booking.property?.title || "NoLSAF stay";
       const area = [booking.property?.regionName, booking.property?.district, booking.property?.city].filter(Boolean).join(", ");
       if (isDraftBooking(booking)) {
+        // Never start a second payment or a re-book while one is live or under review.
+        if (paymentHold(booking)) return;
         const payability = draftPayability(booking);
         if (payability.canPay && booking.invoiceId && booking.invoiceAccessToken) {
           navigation.navigate("BookingPayment", { invoiceId: booking.invoiceId, accessToken: booking.invoiceAccessToken });
