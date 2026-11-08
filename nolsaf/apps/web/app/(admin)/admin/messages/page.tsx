@@ -59,7 +59,7 @@ function categoryOf(m: Message): Category {
   // Customer data copies: legal, dispute and locked-download alerts live together.
   if (kind.startsWith("data_export") || kind === "security_data_export_locked") return "privacy";
   if (kind.startsWith("security_") || type === "system") return "system";
-  if (kind.startsWith("booking_payment")) return "money";
+  if (kind.startsWith("booking_payment") || kind.startsWith("coral_")) return "money";
   if (type === "invoice" || kind.startsWith("payment") || kind.includes("payout")) return "money";
   if (type === "booking" || type === "cancellation" || kind.startsWith("group_stay")) return "bookings";
   if (type === "ride" || kind.startsWith("transport")) return "transport";
@@ -73,6 +73,8 @@ const URGENT_KINDS = new Set([
   "payment_stuck_unsettled",
   "payment_unmatched",
   "booking_payment_case_reported",
+  "coral_postback_settlement",
+  "coral_postback_unverified",
   "nrms_payment_reconcile_needed",
   "nrms_stop_sell_approval_requested",
   "transport_auto_dispatch_takeover",

@@ -431,7 +431,11 @@ describe("Coral card postback: strict approval while callbacks are unproven", ()
 
     expect(res.headers.location).toContain("cardReturn=pending");
     expectNothingWritten();
-    expect(mocks.notifyAdmins).not.toHaveBeenCalled();
+    // Not settled, but never silent: a person is told to check Coral.
+    expect(mocks.notifyAdmins).not.toHaveBeenCalledWith("coral_postback_settlement", expect.anything());
+    expect(mocks.notifyAdmins).toHaveBeenCalledWith("coral_postback_unverified", expect.objectContaining({
+      coralTransactionId: "107800000000003202476", reason: expect.stringContaining("off"),
+    }));
   });
 
   it("does not re-settle or re-alert a target that is already paid", async () => {
@@ -491,6 +495,23 @@ describe("SECURITY: a forged postback cannot pay anything", () => {
 
     expect(res.headers.location).toContain("cardReturn=pending");
     expectNothingWritten();
+    // The attempt is surfaced to admins as a possible tampering case.
+    expect(mocks.notifyAdmins).toHaveBeenCalledWith("coral_postback_unverified", expect.objectContaining({
+      paymentRef: "CORAL-501-1", reason: "the approval fields did not all agree",
+    }));
+    expect(mocks.notifyAdmins).not.toHaveBeenCalledWith("coral_postback_settlement", expect.anything());
+  });
+
+  it("does not raise the unverified alert for a decline or an already-paid target", async () => {
+    anInvoice({ paid: true });
+    persistedIntent("web");
+    await postbackWith(approvalPostback("CORAL-501-1", { ISOCode: "87" }));
+
+    process.env.CORAL_POSTBACK_SETTLE = "off";
+    anInvoice({ paid: false });
+    await postbackWith({ Result: { Code: "001", Message: "Declined", Stamp: "CORAL-501-1", Identifier: "CORAL-501-1" } });
+
+    expect(mocks.notifyAdmins).not.toHaveBeenCalled();
   });
 
   it("refuses an approval whose ISO code, message or transaction id does not agree", async () => {

@@ -655,6 +655,19 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
       settled = await coralTargetSettled(target);
     }
     const looksFailed = Boolean(notice.code) && notice.code !== "000";
+    // An "approval" we did not trust, and no callback confirmed it either.
+    // Either a genuine payment with an unusual field (the payer has paid and
+    // must not be left waiting or pay twice) or a tampering attempt. Both need
+    // a human, so never let it pass silently.
+    if (looksSuccessful && !settled) {
+      await notifyAdmins("coral_postback_unverified", {
+        kind: invoice ? "Room booking" : tourBooking ? "Tour booking" : groupBooking ? "Group stay deposit" : "NRMS billing",
+        coralTransactionId: notice.transactionId || null,
+        paymentRef,
+        reason: coralPostbackMode() === "off" ? "postback settlement is off and no callback arrived" : "the approval fields did not all agree",
+        href: "/admin/payments",
+      }).catch(() => undefined);
+    }
     return {
       ok: true,
       invoiceId: invoice?.id ?? null,

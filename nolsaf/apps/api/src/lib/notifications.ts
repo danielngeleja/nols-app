@@ -189,6 +189,10 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Card payment confirmed by the browser only: check it",
           body: `A ${data.kind || "card"} payment of ${Number(data.amount || 0).toLocaleString("en-US")} ${data.currency || "TZS"} was confirmed from Coral's browser postback, without Coral's server callback. Open the Coral portal, Transactions, and check that transaction ${data.coralTransactionId || ""} is green and the amount matches. If it is red or missing, reverse the booking.`
         },
+        coral_postback_unverified: {
+          title: "Card approval not confirmed: check Coral now",
+          body: `A ${data.kind || "card"} payment came back from Coral looking approved, but NoLSAF did not accept it (${data.reason || "unverified"}) and no server confirmation arrived. Open the Coral portal, Transactions${data.coralTransactionId ? ` and find transaction ${data.coralTransactionId}` : ` and search reference ${data.paymentRef || ""}`}. If it is green, confirm the payment from the statement so the traveller is not asked to pay again. If it is red or missing, treat it as a possible tampering attempt.`
+        },
         payment_unmatched: {
           title: "Payment received but not matched",
           body: `A ${data.status || "SUCCESS"} callback for ${Number(data.amount || 0).toLocaleString("en-US")} TZS matched no invoice, tour, group booking or NRMS token. Find it under Payments, unmatched events.`
@@ -238,6 +242,7 @@ export async function notifyAdmins(template: string, data: any) {
             || template === "nrms_payment_reconcile_needed"
             || template === "booking_payment_case_reported"
             || template === "coral_postback_settlement"
+            || template === "coral_postback_unverified"
             || template.startsWith("security_");
 
           io.to("admin").emit("admin:notification:new", {
