@@ -168,6 +168,30 @@ export default function AdminSalesPartnersPage() {
     reason: "",
   });
 
+  // Deep link from an alert: ?q=<agent code>&open=card searches for the
+  // partner and opens their record on the ID card tab once it is found.
+  const [recordTab, setRecordTab] = useState<"overview" | "card">("overview");
+  const [autoOpen, setAutoOpen] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const q = (params.get("q") || "").trim().slice(0, 80);
+      if (q) setQuery(q);
+      if (q && params.get("open") === "card") setAutoOpen(q.toUpperCase());
+    } catch {}
+  }, []);
+  useEffect(() => {
+    if (!autoOpen || loading) return;
+    const match = partners.find((p: any) => String(p.agentCode || "").toUpperCase() === autoOpen);
+    setAutoOpen(null);
+    if (match) {
+      setRecordTab("card");
+      void openPartner((match as any).id);
+    }
+    // openPartner is stable enough for a one-time deep link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen, loading, partners]);
+
   // Remember the preferred directory view for this admin.
   useEffect(() => {
     try {
@@ -666,7 +690,8 @@ export default function AdminSalesPartnersPage() {
           attention={attention}
           access={access}
           loading={detailLoading}
-          onClose={() => setDetailOpen(false)}
+          initialTab={recordTab}
+          onClose={() => { setDetailOpen(false); setRecordTab("overview"); }}
           onReload={() => { if (selectedPartner) void openPartner(selectedPartner.id); }}
           onChanged={() => void loadPartners()}
         />

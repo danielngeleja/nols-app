@@ -38,6 +38,7 @@ import { startGuestCodeRequestReminders } from "./guestCodeRequestReminders.js";
 import { startTwigaAutoResolveWorker } from "./twigaAutoResolve.js";
 import { startFinalizeTourCompletionWorker } from "./finalizeTourCompletion.js";
 import { startMobilePushWorker } from "./mobilePush.js";
+import { startBookingPaymentNoResultWorker } from "../lib/bookingPaymentAttempt.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -110,6 +111,8 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startMobilePushWorker();
       // Expire NEW bookings that were never paid within 30 minutes (anti-squatting).
       startExpireStaleBookings();
+      // End room-booking payments the provider never answered (5 min mobile money, 15 min card).
+      startBookingPaymentNoResultWorker();
       // Remind admins when a guest code request waits past 30 minutes.
       startGuestCodeRequestReminders();
       // Expire group stay offers whose 24h deposit window has passed.

@@ -8,9 +8,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle, ArrowRight, BadgeCheck, CheckCircle2, FileSignature, IdCard, Loader2, Lock, MapPin, ShieldAlert,
+  AlertTriangle, ArrowRight, BadgeCheck, CheckCircle2, FileSignature, IdCard, Loader2, Lock, MapPin, PauseCircle, PlayCircle, ShieldAlert,
   ShieldCheck, Users, Wallet, X,
 } from "lucide-react";
+import AdminReasonDialog from "./AdminReasonDialog";
 import apiClient from "@/lib/apiClient";
 import PartnerIdCardAdmin, { type AdminIdCard, type CardReadiness, cardGapText } from "./PartnerIdCardAdmin";
 import PartnerTeamAdmin from "./PartnerTeamAdmin";
@@ -52,7 +53,15 @@ export type RecordPartner = {
   _count: { attributions: number; leads: number; commissions: number; payoutRequests: number };
   idCards?: AdminIdCard[];
 };
-export type RecordAttention = { payoutsUnderReview: number; flaggedVisits: number; disputedProperties: number; leadsTeam: string | null; card?: CardReadiness };
+export type RecordAttention = {
+  payoutsUnderReview: number;
+  flaggedVisits: number;
+  disputedProperties: number;
+  leadsTeam: string | null;
+  card?: CardReadiness;
+  /** Admin-only: when and why the partner was suspended. Never shown to the partner. */
+  suspension?: { at: string | null; reason: string | null } | null;
+};
 type Access = { status: string; expiresAt: string | null } | null;
 
 type Tab = "overview" | "agreements" | "team" | "card";
@@ -91,7 +100,10 @@ export default function PartnerRecord({
   onClose,
   onReload,
   onChanged,
+  initialTab = "overview",
 }: {
+  /** Open on a tab, e.g. "card" from an ID card photo alert. */
+  initialTab?: Tab;
   partner: RecordPartner | null;
   attention: RecordAttention | null;
   access: Access;
@@ -101,16 +113,20 @@ export default function PartnerRecord({
   /** After an action that changes the directory (activation). */
   onChanged: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [activation, setActivation] = useState({ signatoryName: "", signatoryTitle: "", reason: "" });
   const [resendReason, setResendReason] = useState("");
   const [resumeReason, setResumeReason] = useState("");
+  const [statusDialog, setStatusDialog] = useState<"suspend" | "reinstate" | null>(null);
+  const [statusError, setStatusError] = useState("");
 
   useEffect(() => {
-    setTab("overview");
+    setTab(initialTab);
+    setStatusDialog(null);
+    setStatusError("");
     setError("");
     setNotice("");
     setActivation({ signatoryName: "", signatoryTitle: "", reason: "" });
@@ -130,7 +146,15 @@ export default function PartnerRecord({
   // Everything waiting on an admin, most urgent first.
   const decisions = useMemo(() => {
     if (!partner) return [];
-    const out: Array<{ key: string; tone: "rose" | "amber" | "sky"; icon: typeof AlertTriangle; title: string; detail?: string; action?: { label: string; tab?: Tab; href?: string } }> = [];
+    const out: Array<{ key: string; tone: "rose" | "amber" | "sky"; icon: typeof AlertTriangle; title: string; detail?: string; action?: { label: string; tab?: Tab; href?: string; onClick?: () => void } }> = [];
+    if (partner.status === "SUSPENDED") {
+      out.push({
+        key: "suspended", tone: "rose", icon: PauseCircle,
+        title: "Partner suspended",
+        detail: `Since ${eatDate(attention?.suspension?.at || partner.suspendedAt)}. Sales portal closed, ID card not verifying, payouts not sent.${attention?.suspension?.reason ? ` Reason: ${attention.suspension.reason} (not shown to the partner).` : ""}`,
+        action: { label: "Reinstate", onClick: () => { setStatusError(""); setStatusDialog("reinstate"); } },
+      });
+    }
     if (paused) {
       out.push({
         key: "paused", tone: "rose", icon: Lock,
@@ -143,7 +167,10 @@ export default function PartnerRecord({
     if (attention?.payoutsUnderReview) out.push({ key: "payouts", tone: "amber", icon: Wallet, title: `${attention.payoutsUnderReview} withdrawal${attention.payoutsUnderReview === 1 ? "" : "s"} waiting for review`, action: { label: "Open Finance", href: "/admin/sales/finance" } });
     if (attention?.flaggedVisits) out.push({ key: "visits", tone: "amber", icon: ShieldAlert, title: `${attention.flaggedVisits} flagged visit${attention.flaggedVisits === 1 ? "" : "s"} waiting for review`, action: { label: "Review", href: "/admin/sales" } });
     if (attention?.disputedProperties) out.push({ key: "disputed", tone: "amber", icon: AlertTriangle, title: `${attention.disputedProperties} propert${attention.disputedProperties === 1 ? "y is" : "ies are"} on hold after an owner said no`, action: { label: "Review", href: "/admin/sales" } });
-    if (partner.status === "ACTIVE" && !activeCard) {
+    if (attention?.card?.photoPending) {
+      const gap = cardGapText(attention.card);
+      out.push({ key: "card-photo", tone: "amber", icon: IdCard, title: gap.title, detail: activeCard ? "A replacement card is waiting. Their current card keeps working until you approve it." : gap.detail, action: { label: "Check photo", tab: "card" } });
+    } else if (partner.status === "ACTIVE" && !activeCard) {
       const gap = cardGapText(attention?.card);
       out.push({ key: "card", tone: attention?.card && (!attention.card.profilePhoto || !attention.card.activeContract) ? "amber" : "sky", icon: IdCard, title: gap.title, detail: gap.detail, action: { label: "ID card", tab: "card" } });
     }
@@ -278,6 +305,10 @@ export default function PartnerRecord({
                               <button type="button" onClick={() => setTab(d.action!.tab!)} className="inline-flex h-8 items-center gap-1 rounded-md border border-solid border-neutral-200 bg-white px-2.5 text-[12px] font-semibold text-neutral-700 hover:bg-neutral-50">
                                 {d.action.label} <ArrowRight className="h-3.5 w-3.5" />
                               </button>
+                            ) : d.action?.onClick ? (
+                              <button type="button" onClick={d.action.onClick} className="inline-flex h-8 items-center gap-1 rounded-md border border-solid border-neutral-200 bg-white px-2.5 text-[12px] font-semibold text-neutral-700 hover:bg-neutral-50">
+                                {d.action.label} <ArrowRight className="h-3.5 w-3.5" />
+                              </button>
                             ) : d.action?.href ? (
                               <Link href={d.action.href} className="inline-flex h-8 items-center gap-1 rounded-md border border-solid border-neutral-200 bg-white px-2.5 text-[12px] font-semibold text-neutral-700 no-underline hover:bg-neutral-50 hover:no-underline">
                                 {d.action.label} <ArrowRight className="h-3.5 w-3.5" />
@@ -339,6 +370,17 @@ export default function PartnerRecord({
                     </div>
                     <span className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-1 text-[11px] font-semibold text-neutral-600"><Lock className="h-3 w-3" /> Locked, verified by name lookup</span>
                   </section>
+                  {partner.status === "ACTIVE" ? (
+                    <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-solid border-rose-100 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="m-0 text-[13px] font-semibold text-neutral-900">Suspend this partner</p>
+                        <p className="m-0 mt-0.5 text-[12px] text-neutral-500">Closes the sales portal and stops the ID card at once. The rest of their NoLSAF account keeps working. You can reinstate later.</p>
+                      </div>
+                      <button type="button" onClick={() => { setStatusError(""); setStatusDialog("suspend"); }} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-solid border-rose-200 bg-white px-3 text-[13px] font-semibold text-rose-700 hover:bg-rose-50">
+                        <PauseCircle className="h-4 w-4" aria-hidden /> Suspend partner
+                      </button>
+                    </section>
+                  ) : null}
                 </>
               ) : null}
 
@@ -414,11 +456,56 @@ export default function PartnerRecord({
               ) : null}
 
               {tab === "team" ? <PartnerTeamAdmin partnerId={partner.id} partnerActive={partner.status === "ACTIVE"} /> : null}
-              {tab === "card" ? <PartnerIdCardAdmin partnerId={partner.id} cards={partner.idCards} readiness={attention?.card} onChanged={onReload} /> : null}
+              {tab === "card" ? <PartnerIdCardAdmin partnerId={partner.id} cards={partner.idCards} readiness={attention?.card} holder={{ name, agentCode: partner.agentCode, region: partner.region ?? null, territory: (partner as any).territory ?? null }} onChanged={onReload} /> : null}
             </div>
           )}
         </div>
       </section>
+
+      {statusDialog && partner ? (
+        <AdminReasonDialog
+          icon={statusDialog === "suspend" ? PauseCircle : PlayCircle}
+          tone={statusDialog === "suspend" ? "danger" : "safe"}
+          title={statusDialog === "suspend" ? "Suspend sales partner" : "Reinstate sales partner"}
+          subject={<><strong>{name}</strong> · <span className="font-mono">{partner.agentCode}</span></>}
+          effects={statusDialog === "suspend"
+            ? [
+                "The sales portal closes on their next tap",
+                "Their ID card shows not active on the next scan",
+                "A card waiting for a photo check is withdrawn",
+                "Payouts stop; earnings already recorded stay on the ledger",
+                "They are told it happened, never why",
+              ]
+            : [
+                "The sales portal opens again",
+                "Their current ID card verifies again, if it has not expired",
+                "Payouts can be sent again",
+              ]}
+          chips={statusDialog === "suspend"
+            ? ["Owner complaint under review", "Possible misconduct", "Documents need checking", "Requested by the partner"]
+            : ["Review completed, no issue", "Complaint resolved", "Documents verified"]}
+          placeholder={statusDialog === "suspend" ? "Why, for the record (not shown to the partner)" : "Why it is safe to reinstate (kept in the audit log)"}
+          confirmLabel={statusDialog === "suspend" ? "Suspend partner" : "Reinstate partner"}
+          busy={busy === "status"}
+          error={statusError}
+          onCancel={() => setStatusDialog(null)}
+          onConfirm={async (reason) => {
+            setBusy("status");
+            setStatusError("");
+            try {
+              await apiClient.post(`/api/admin/sales/partners/${partner.id}/${statusDialog}`, { reason });
+              setNotice(statusDialog === "suspend" ? `${partner.agentCode} is suspended. Portal closed and ID card stopped.` : `${partner.agentCode} is active again.`);
+              setStatusDialog(null);
+              onReload();
+              onChanged();
+            } catch (cause: any) {
+              setStatusError(errorOf(cause, "That did not work. Try again."));
+            } finally {
+              setBusy("");
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
 import { markInvoicePaid, markGroupBookingDepositPaid, markTourBookingPaid } from "./webhooks.payments.js";
 import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 import { nrmsTokenFromCoralInitiationPayload } from "../lib/nrmsCoral.js";
+import { releaseFailedBookingPayment } from "../lib/bookingPaymentAttempt.js";
 
 const router = Router();
 const coralFormParser = multer().none();
@@ -655,6 +656,9 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
       where: { eventId, provider: "CORALCOMMERCE", status: { in: ["PENDING", "FAILED"] } },
       data: { status: "SUCCESS", rawStatus: notice.status || notice.code || undefined, payload: notice.raw },
     });
+  }
+  if (isFailure && invoice && invoice.status !== "PAID") {
+    await releaseFailedBookingPayment(invoice.id, [eventId, paymentRef], "CORALCOMMERCE");
   }
   if (isFailure && nrmsPaymentToken) {
     await prisma.$transaction(

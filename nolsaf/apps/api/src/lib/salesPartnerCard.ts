@@ -86,10 +86,21 @@ export function cardVerifyUrl(token: string): string {
   return `${webOrigin()}/verify/sales/${encodeURIComponent(token)}`;
 }
 
-export type CardValidity = "VALID" | "REVOKED" | "REPLACED" | "EXPIRED" | "PARTNER_INACTIVE" | "NO_CONTRACT";
+/**
+ * Photo review: a new card (first card, or a replacement with a new photo)
+ * starts as PENDING_REVIEW and only becomes ACTIVE once an admin confirms the
+ * photo is a clear face of this person. A replacement leaves the current
+ * ACTIVE card working until then. A rejected photo ends as PHOTO_REJECTED.
+ */
+export const CARD_PENDING_REVIEW = "PENDING_REVIEW";
+export const CARD_PHOTO_REJECTED = "PHOTO_REJECTED";
+
+export type CardValidity = "VALID" | "REVOKED" | "REPLACED" | "EXPIRED" | "PARTNER_INACTIVE" | "NO_CONTRACT" | "PHOTO_REVIEW" | "PHOTO_REJECTED";
 
 export const CARD_VALIDITY_TEXT: Record<CardValidity, string> = {
   VALID: "This person is an authorised NoLSAF sales representative.",
+  PHOTO_REVIEW: "This card is waiting for NoLSAF to check the photo. It is not active yet, so do not rely on it.",
+  PHOTO_REJECTED: "NoLSAF did not approve this card. Do not deal with this person on NoLSAF's behalf.",
   REVOKED: "This card was cancelled by NoLSAF. Do not deal with this person on NoLSAF's behalf.",
   REPLACED: "This card was replaced by a newer one. Ask the representative for their current card.",
   EXPIRED: "This card has expired.",
@@ -107,6 +118,8 @@ export function cardValidity(input: {
   const now = input.now ?? new Date();
   if (input.card.status === "REVOKED") return "REVOKED";
   if (input.card.status === "REPLACED") return "REPLACED";
+  if (input.card.status === CARD_PENDING_REVIEW) return "PHOTO_REVIEW";
+  if (input.card.status === CARD_PHOTO_REJECTED) return "PHOTO_REJECTED";
   if (input.card.status !== "ACTIVE") return "REVOKED";
   if (input.card.expiresAt <= now) return "EXPIRED";
   if (input.partnerStatus !== "ACTIVE") return "PARTNER_INACTIVE";

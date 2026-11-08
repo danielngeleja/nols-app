@@ -48,7 +48,7 @@ const cardSelect = {
       status: true,
       region: true,
       territory: true,
-      user: { select: { name: true, fullName: true } },
+      user: { select: { name: true, fullName: true, suspendedAt: true, isDisabled: true } },
       contracts: { select: { status: true, startsAt: true, expiresAt: true }, orderBy: { expiresAt: "desc" as const }, take: 5 },
       ledTeam: { select: { status: true } },
     },
@@ -57,7 +57,10 @@ const cardSelect = {
 
 async function respond(card: any, res: any) {
   const partner = card.salesPartner;
-  const validity = cardValidity({ card, partnerStatus: partner.status, contracts: partner.contracts });
+  // A suspended or disabled NoLSAF account cannot represent NoLSAF, whatever
+  // the sales profile says.
+  const accountBlocked = Boolean(partner.user?.suspendedAt || partner.user?.isDisabled);
+  const validity = cardValidity({ card, partnerStatus: accountBlocked ? "SUSPENDED" : partner.status, contracts: partner.contracts });
   if (validity === "VALID") {
     await db.salesPartnerCard.update({
       where: { id: card.id },

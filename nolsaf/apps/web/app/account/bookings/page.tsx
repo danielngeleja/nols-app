@@ -89,6 +89,7 @@ type Booking = {
   isPaid: boolean;
   paymentProcessing?: boolean;
   paymentNeedsReview?: boolean;
+  paymentOutcome?: "PROCESSING" | "SLOW" | "FAILED" | "NO_RESULT" | null;
   bookingCode: string | null;
   paymentCase?: { reference?: string; status: string; resolution?: string | null; createdAt: string; updatedAt: string } | null;
   paymentReportEligibility?: { state: "CODE_AVAILABLE" | "READY" | "WAITING" | "UNVERIFIED"; availableAt: string | null };
@@ -185,16 +186,16 @@ function PaymentCasePanel({ booking, nowTick, onCreated }: { booking: Booking; n
               <p className="m-0 text-slate-600 sm:col-span-2">{unverified ? "We have no completed payment attempt on record. Please share details only if money left your account. We will verify with the provider before confirming your stay." : "Tell us if you paid and still have no code. We will check the provider result."}</p>
               <label className="min-w-0 font-medium text-slate-700">
                 Transaction reference <span className="font-normal text-slate-500">(optional)</span>
-                <input value={transactionReference} onChange={(event) => setTransactionReference(event.target.value)} maxLength={100} placeholder="From your payment message" className="mt-1 block h-9 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900" />
+                <input value={transactionReference} onChange={(event) => setTransactionReference(event.target.value)} maxLength={100} placeholder="From your payment message" className="mt-1 box-border block h-9 w-full min-w-0 max-w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900" />
               </label>
               {unverified ? <label className="min-w-0 font-medium text-slate-700">Payment method
-                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className="mt-1 block h-9 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900"><option value="">Choose method</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="BANK">Bank transfer</option><option value="OTHER">Other</option></select>
+                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className="mt-1 box-border block h-9 w-full min-w-0 max-w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900"><option value="">Choose method</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="BANK">Bank transfer</option><option value="OTHER">Other</option></select>
               </label> : null}
               {unverified ? <label className="min-w-0 font-medium text-slate-700">Approximate payment time
-                <input type="datetime-local" value={approximatePaidAt} onChange={(event) => setApproximatePaidAt(event.target.value)} className="mt-1 block h-9 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900" />
+                <input type="datetime-local" value={approximatePaidAt} onChange={(event) => setApproximatePaidAt(event.target.value)} className="mt-1 box-border block h-9 w-full min-w-0 max-w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900" />
               </label> : null}
               {unverified && paymentMethod === "MOBILE_MONEY" ? <label className="min-w-0 font-medium text-slate-700">Payer phone last 4 digits <span className="font-normal text-slate-500">(optional)</span>
-                <input inputMode="numeric" pattern="[0-9]{4}" value={payerPhoneLast4} onChange={(event) => setPayerPhoneLast4(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" className="mt-1 block h-9 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900" />
+                <input inputMode="numeric" pattern="[0-9]{4}" value={payerPhoneLast4} onChange={(event) => setPayerPhoneLast4(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="1234" className="mt-1 box-border block h-9 w-full min-w-0 max-w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900" />
               </label> : null}
               <div className="flex items-end sm:col-span-2"><button type="submit" disabled={busy} className="h-9 cursor-pointer rounded-lg border-0 bg-teal-800 px-4 font-semibold text-white disabled:opacity-50">{busy ? "Sending…" : "Report payment"}</button></div>
             </form>
@@ -840,7 +841,7 @@ export default function MyBookingsPage() {
                             ].join(" ")}
                           >
                             {blocked ? <XCircle className="h-3.5 w-3.5" aria-hidden /> : <Clock className="h-3.5 w-3.5" aria-hidden />}
-                            {booking.paymentCase ? "Payment help open" : booking.paymentNeedsReview ? "Payment under review" : booking.paymentProcessing ? "Payment processing" : expired ? "Payment window closed" : unavailable ? "Room no longer available" : "Awaiting payment"}
+                            {booking.paymentCase ? "Payment help open" : booking.paymentNeedsReview ? "Payment under review" : booking.paymentOutcome === "SLOW" ? "Waiting for your network" : booking.paymentProcessing ? "Payment processing" : expired ? "Payment window closed" : unavailable ? "Room no longer available" : booking.paymentOutcome === "FAILED" ? "Payment failed" : booking.paymentOutcome === "NO_RESULT" ? "Payment not completed" : "Awaiting payment"}
                           </span>
                         </div>
                         {location ? (
@@ -892,10 +893,16 @@ export default function MyBookingsPage() {
                       ? "Your payment report is being reviewed. Do not pay again while it is open."
                       : booking.paymentNeedsReview
                       ? "Your payment needs verification. We will update this booking after confirming the provider result; do not pay again."
+                      : booking.paymentOutcome === "SLOW"
+                      ? "We have not heard back from your bank or mobile network yet. Do not pay again; this updates within a few minutes."
                       : booking.paymentProcessing
-                      ? "Your payment is still processing. Please wait for the result; do not pay again."
+                      ? "Your payment is processing. Please wait a moment; do not pay again."
                       : expired
-                      ? "This payment window has closed. Please make a new booking."
+                      ? `${booking.paymentOutcome === "FAILED" || booking.paymentOutcome === "NO_RESULT" ? "Your last payment attempt did not go through. " : ""}This payment window has closed. Please make a new booking.`
+                      : !unavailable && booking.paymentOutcome === "FAILED"
+                      ? "Your last payment attempt did not go through. You can try again."
+                      : !unavailable && booking.paymentOutcome === "NO_RESULT"
+                      ? "Your last payment attempt was not completed. If money left your account, tell us below. Otherwise you can pay again."
                       : unavailable
                         ? booking.draftAvailability?.message || "Payment is disabled because live availability changed after this draft was created."
                         : "Complete payment to confirm this booking and receive your check-in code."}

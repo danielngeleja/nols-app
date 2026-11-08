@@ -2,10 +2,11 @@
  * The sales partner's own ID card.
  *
  * GET  /api/sales/id-card  current card (with its verify link and code) or what is missing
- * POST /api/sales/id-card  issue a card, or replace the current one (lost phone, new photo)
+ * POST /api/sales/id-card  request a card, or a replacement (lost phone, new photo)
  *
- * Issuing needs an active partner, a current contract and a profile photo.
- * The photo is copied onto the card at that moment.
+ * Requesting needs an active partner, a current contract and a profile photo.
+ * The photo is copied onto the card at that moment, and the card only starts
+ * verifying once an admin approves that photo (see admin.sales.partners).
  */
 import { Router, type RequestHandler, type Response } from "express";
 import { prisma } from "@nolsaf/prisma";
@@ -19,7 +20,10 @@ import {
 } from "../middleware/salesWorkspace.js";
 import { limitSalesLeadRead, limitSalesLeadWrite } from "../middleware/rateLimit.js";
 import { audit } from "../lib/audit.js";
+import { notifyAdmins } from "../lib/notifications.js";
 import {
+  CARD_PENDING_REVIEW,
+  CARD_PHOTO_REJECTED,
   CARD_VALIDITY_TEXT,
   cardCode,
   cardExpiry,
@@ -86,12 +90,16 @@ function activeContractFor(partner: any, now: Date) {
   return partner.contracts.find((c: any) => ["ACTIVE", "EXPIRING"].includes(c.status) && c.startsAt <= now && c.expiresAt > now) ?? null;
 }
 
-/** Issue a new card (replacing any active one). Caller has checked the requirements. */
-async function issueCard(partnerId: number, partner: any, contract: any, now: Date) {
+/**
+ * Request a new card. It starts in photo review and does not verify until an
+ * admin approves the photo; the current active card (if any) keeps working
+ * until then. An older request still in review is withdrawn.
+ */
+async function requestCard(partnerId: number, partner: any, contract: any, now: Date) {
   return db.$transaction(async (tx: any) => {
-    const replaced = await tx.salesPartnerCard.updateMany({
-      where: { salesPartnerId: partnerId, status: "ACTIVE" },
-      data: { status: "REPLACED", activeKey: null, revokedAt: now, revokeReason: "Replaced by a new card" },
+    const withdrawn = await tx.salesPartnerCard.updateMany({
+      where: { salesPartnerId: partnerId, status: CARD_PENDING_REVIEW },
+      data: { status: "REPLACED", revokedAt: now, revokeReason: "Withdrawn by a newer request" },
     });
     const issuedBefore = await tx.salesPartnerCard.count({ where: { salesPartnerId: partnerId } });
     const salt = newCardSalt();
@@ -103,8 +111,8 @@ async function issueCard(partnerId: number, partner: any, contract: any, now: Da
         salt,
         tokenHash: hashCardToken(`pending:${salt}`),
         photoUrl: partner.user.avatarUrl,
-        status: "ACTIVE",
-        activeKey: partnerId,
+        status: CARD_PENDING_REVIEW,
+        activeKey: null,
         issuedAt: now,
         expiresAt: cardExpiry(contract.expiresAt, now),
       },
@@ -113,8 +121,45 @@ async function issueCard(partnerId: number, partner: any, contract: any, now: Da
       where: { id: created.id },
       data: { tokenHash: hashCardToken(cardToken(created)) },
     });
-    return { card: final, replaced: replaced.count };
+    return { card: final, withdrawn: withdrawn.count };
   });
+}
+
+/**
+ * The partner's latest card was cancelled by an admin and nothing has replaced
+ * it. Only an admin can issue the next card in that state.
+ */
+async function cancelledByNoLsaf(partnerId: number) {
+  const latest = await db.salesPartnerCard.findFirst({
+    where: { salesPartnerId: partnerId },
+    orderBy: { id: "desc" },
+    select: { status: true, cardNumber: true, revokedAt: true },
+  });
+  return latest?.status === "REVOKED" ? latest : null;
+}
+
+/** Tell admins a card photo is waiting, with a link that opens the partner. */
+async function alertPhotoReview(partner: any, card: any, replacing: boolean) {
+  await notifyAdmins("sales_partner_card_photo_review", {
+    agentCode: partner.agentCode,
+    partnerName: partner.user?.fullName || partner.user?.name || null,
+    cardNumber: card.cardNumber,
+    replacing,
+    href: `/admin/sales/partners?q=${encodeURIComponent(partner.agentCode)}&open=card`,
+  }).catch(() => undefined);
+}
+
+/** The card waiting for review, or the latest rejected one if nothing newer replaced it. */
+function reviewView(card: any) {
+  if (!card) return null;
+  return {
+    status: card.status === CARD_PENDING_REVIEW ? "PENDING" : "REJECTED",
+    cardNumber: card.cardNumber,
+    photoUrl: card.photoUrl,
+    requestedAt: card.issuedAt,
+    decidedAt: card.revokedAt ?? null,
+    reason: card.status === CARD_PHOTO_REJECTED ? card.revokeReason ?? null : null,
+  };
 }
 
 /** GET /api/sales/id-card */
@@ -123,24 +168,30 @@ router.get("/id-card", limitSalesLeadRead as any, asyncHandler(async (req: Sales
   if (!partnerId) return res.status(403).json({ error: "Sales partner context required" });
   const partner = await db.salesPartnerProfile.findUnique({ where: { id: partnerId }, select: partnerSelect });
   if (!partner) return res.status(404).json({ error: "Sales partner not found" });
-  let card = await db.salesPartnerCard.findFirst({ where: { salesPartnerId: partnerId, status: "ACTIVE" } });
-  // First card only: a partner who meets every requirement gets it the moment
-  // they open the page, instead of hunting for a button. Never during an admin
-  // support session, and never again once any card exists (replacing stays a
-  // deliberate tap, because it cancels the old code).
-  if (!card && !(req as any).user?.imp && partner.status === "ACTIVE" && partner.user?.avatarUrl) {
+  const card = await db.salesPartnerCard.findFirst({ where: { salesPartnerId: partnerId, status: "ACTIVE" } });
+  const cancelled = card ? null : await cancelledByNoLsaf(partnerId);
+  // Latest card request in review, or rejected and not yet followed by another.
+  let review = await db.salesPartnerCard.findFirst({
+    where: { salesPartnerId: partnerId, status: { in: [CARD_PENDING_REVIEW, CARD_PHOTO_REJECTED] }, ...(card ? { id: { gt: card.id } } : {}) },
+    orderBy: { id: "desc" },
+  });
+  // First card only: a partner who meets every requirement gets their card
+  // request sent for photo review the moment they open the page. Never during
+  // an admin support session, and never again once any card exists.
+  if (!card && !review && !cancelled && !(req as any).user?.imp && partner.status === "ACTIVE" && partner.user?.avatarUrl) {
     const now = new Date();
     const contract = activeContractFor(partner, now);
     const everIssued = contract ? await db.salesPartnerCard.count({ where: { salesPartnerId: partnerId } }) : 1;
     if (contract && everIssued === 0) {
       try {
-        const issued = await issueCard(partnerId, partner, contract, now);
-        card = issued.card;
-        await audit(req as any, "SALES_PARTNER_CARD_ISSUE", "SALES_PARTNER_CARD", null, { cardNumber: card.cardNumber, automatic: true }, card.id);
+        const requested = await requestCard(partnerId, partner, contract, now);
+        review = requested.card;
+        await audit(req as any, "SALES_PARTNER_CARD_REQUEST", "SALES_PARTNER_CARD", null, { cardNumber: review.cardNumber, automatic: true }, review.id);
+        await alertPhotoReview(partner, review, false);
       } catch (error: any) {
-        // Two tabs at once: the unique active key lets one win; read the winner.
+        // Two tabs at once: the card number is unique, so one wins; read it.
         if (error?.code !== "P2002") throw error;
-        card = await db.salesPartnerCard.findFirst({ where: { salesPartnerId: partnerId, status: "ACTIVE" } });
+        review = await db.salesPartnerCard.findFirst({ where: { salesPartnerId: partnerId, status: CARD_PENDING_REVIEW }, orderBy: { id: "desc" } });
       }
     }
   }
@@ -164,6 +215,9 @@ router.get("/id-card", limitSalesLeadRead as any, asyncHandler(async (req: Sales
   res.setHeader("Cache-Control", "no-store");
   return res.json({
     card: card ? serializeCard(card, partner) : null,
+    review: cancelled ? null : reviewView(review),
+    // NoLSAF's reason stays on the admin record; the partner only learns when.
+    cancelled: cancelled ? { cardNumber: cancelled.cardNumber, at: cancelled.revokedAt } : null,
     requirements: requirements(partner, contractActive),
     preview,
   });
@@ -186,13 +240,26 @@ router.post(
     const contract = activeContractFor(partner, now);
     if (!contract) return res.status(409).json({ error: "An active agreement is required for an ID card." });
 
-    const card = await issueCard(partnerId, partner, contract, now);
+    // A card NoLSAF cancelled is NoLSAF's to replace, never the partner's.
+    if (await cancelledByNoLsaf(partnerId)) {
+      return res.status(409).json({ error: "Your card was cancelled by NoLSAF. Contact NoLSAF support about a new card." });
+    }
+    // The same photo already waiting: nothing new for an admin to check.
+    const waiting = await db.salesPartnerCard.findFirst({ where: { salesPartnerId: partnerId, status: CARD_PENDING_REVIEW }, orderBy: { id: "desc" } });
+    if (waiting && waiting.photoUrl === partner.user.avatarUrl) {
+      return res.status(409).json({ error: "Your card is already waiting for NoLSAF to check the photo." });
+    }
+    const hadActive = (await db.salesPartnerCard.count({ where: { salesPartnerId: partnerId, status: "ACTIVE" } })) > 0;
 
-    await audit(req as any, "SALES_PARTNER_CARD_ISSUE", "SALES_PARTNER_CARD", null, {
-      cardNumber: card.card.cardNumber,
-      replacedCards: card.replaced,
-    }, card.card.id);
-    return res.status(201).json({ card: serializeCard(card.card, partner) });
+    const requested = await requestCard(partnerId, partner, contract, now);
+
+    await audit(req as any, "SALES_PARTNER_CARD_REQUEST", "SALES_PARTNER_CARD", null, {
+      cardNumber: requested.card.cardNumber,
+      withdrawnRequests: requested.withdrawn,
+      replacing: hadActive,
+    }, requested.card.id);
+    await alertPhotoReview(partner, requested.card, hadActive);
+    return res.status(201).json({ review: reviewView(requested.card), replacing: hadActive });
   }),
 );
 
