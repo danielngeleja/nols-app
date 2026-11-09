@@ -6,6 +6,7 @@ import { withCache, cacheKeys, cacheTags, measureTime } from "../lib/performance
 import { adminRecordReferenceOrNull, resolveAdminRecordReference } from "../lib/adminRecordReference.js";
 import { adminBookingReference } from "../lib/adminBookingReference.js";
 import { summarizeBookingInsights } from "../lib/bookingInsights.js";
+import { summarizeSeasonality } from "../lib/bookingSeasonality.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -223,14 +224,22 @@ router.get("/highlights", async (req, res) => {
 
 const INSIGHT_WINDOWS = new Set([7, 30, 90]);
 const INSIGHT_BOOKING_CAP = 20_000;
+const SEASON_STAY_CAP = 50_000;
+const RECEIVED_BOOKING_STATUSES = ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"];
+/** The highlights query groups properties with no region under this label. */
+const UNKNOWN_REGION = "Unknown";
 
 /**
  * GET /api/admin/performance/booking-insights?days=30&property=<ref>
  * GET /api/admin/performance/booking-insights?days=30&type=BUNGALOW
+ * GET /api/admin/performance/booking-insights?days=30&region=Dar es Salaam
  *
- * Booking funnel for one property or one property type: bookings placed in the
- * window, how many reached payment, and how each ended (received, still paying,
- * did not pay, cancelled). Compared with the window before it.
+ * Booking funnel for one property, one property type or one region: bookings
+ * placed in the window, how many reached payment, and how each ended (received,
+ * still paying, did not pay, cancelled). Compared with the window before it.
+ * Every scope also carries `seasons`: when guests come, month by month, from
+ * received stays (lib/bookingSeasonality.ts), independent of the window.
+ * A region also carries its districts and property types.
  */
 router.get("/booking-insights", async (req, res) => {
   try {
@@ -239,8 +248,10 @@ router.get("/booking-insights", async (req, res) => {
     const days = INSIGHT_WINDOWS.has(requestedDays) ? requestedDays : 30;
     const propertyRef = typeof q.property === "string" ? q.property.trim() : "";
     const type = typeof q.type === "string" ? q.type.trim().toUpperCase() : "";
-    if (!propertyRef && !type) return res.status(400).json({ error: "property or type is required" });
+    const region = typeof q.region === "string" ? q.region.trim() : "";
+    if (!propertyRef && !type && !region) return res.status(400).json({ error: "property, type or region is required" });
     if (type && !/^[A-Z_]{2,40}$/.test(type)) return res.status(400).json({ error: "invalid type" });
+    if (region && !/^[\p{L}\p{M}' .-]{2,80}$/u.test(region)) return res.status(400).json({ error: "invalid region" });
 
     let property: any = null;
     if (propertyRef) {
@@ -256,10 +267,27 @@ router.get("/booking-insights", async (req, res) => {
 
     const now = new Date();
     const previousSince = new Date(now.getTime() - 2 * days * 86_400_000);
+    const regionName = region && region.toLowerCase() !== UNKNOWN_REGION.toLowerCase() ? region : null;
+    const scope = property
+      ? { propertyId: property.id }
+      : type
+        ? { property: { type } }
+        : { property: { regionName } };
+    // Received stays from three years back to seven months ahead, for the seasons.
+    const seasonStays = prisma.booking.findMany({
+      where: {
+        ...scope,
+        status: { in: RECEIVED_BOOKING_STATUSES },
+        checkIn: { gte: new Date(now.getTime() - 37 * 31 * 86_400_000), lte: new Date(now.getTime() + 7 * 31 * 86_400_000) },
+      },
+      select: { checkIn: true, checkOut: true, createdAt: true, totalAmount: true },
+      orderBy: { checkIn: "desc" },
+      take: SEASON_STAY_CAP,
+    });
     const bookings = await prisma.booking.findMany({
       where: {
         createdAt: { gte: previousSince },
-        ...(property ? { propertyId: property.id } : { property: { type } }),
+        ...scope,
       },
       select: {
         id: true, propertyId: true, status: true, createdAt: true, checkIn: true, checkOut: true, totalAmount: true,
@@ -278,25 +306,51 @@ router.get("/booking-insights", async (req, res) => {
 
     let properties: any[] | undefined;
     let propertyCount: number | undefined;
+    let breakdown: { districts: Array<{ name: string; tried: number; received: number }>; types: Array<{ type: string; tried: number; received: number }> } | undefined;
     if (!property) {
-      propertyCount = await prisma.property.count({ where: { type, status: "APPROVED" } });
-      const ranked = [...summary.byProperty.entries()]
+      propertyCount = await prisma.property.count({ where: type ? { type, status: "APPROVED" } : { regionName, status: "APPROVED" } });
+      const all = [...summary.byProperty.entries()];
+      const ranked = [...all]
         .sort((a, b) => b[1].received - a[1].received || b[1].tried - a[1].tried)
         .slice(0, 10);
-      const rows = ranked.length
+      // A region needs every listing's district and type for its breakdown.
+      const wanted = type ? ranked.map(([id]) => id) : all.map(([id]) => id);
+      const rows = wanted.length
         ? await prisma.property.findMany({
-            where: { id: { in: ranked.map(([id]) => id) } },
-            select: { id: true, title: true, regionName: true },
+            where: { id: { in: wanted } },
+            select: { id: true, title: true, regionName: true, district: true, type: true },
           })
         : [];
-      const byId = new Map<number, { title: string; regionName: string | null }>(rows.map((row) => [row.id, row]));
+      const byId = new Map<number, { title: string; regionName: string | null; district: string | null; type: string }>(rows.map((row) => [row.id, row as any]));
       properties = ranked.map(([id, counts]) => ({
         ref: adminRecordReferenceOrNull("property", id),
         title: byId.get(id)?.title ?? "Property",
-        regionName: byId.get(id)?.regionName ?? null,
+        regionName: (type ? byId.get(id)?.regionName : byId.get(id)?.district) ?? null,
         ...counts,
       }));
+      if (!type) {
+        const add = (map: Map<string, { tried: number; received: number }>, key: string, c: { tried: number; received: number }) => {
+          const cur = map.get(key) ?? { tried: 0, received: 0 };
+          cur.tried += c.tried;
+          cur.received += c.received;
+          map.set(key, cur);
+        };
+        const districts = new Map<string, { tried: number; received: number }>();
+        const types = new Map<string, { tried: number; received: number }>();
+        for (const [id, counts] of all) {
+          const row = byId.get(id);
+          add(districts, row?.district?.trim() || "District not set", counts);
+          add(types, row?.type || "OTHER", counts);
+        }
+        const rank = <T extends { tried: number; received: number }>(a: T, b: T) => b.received - a.received || b.tried - a.tried;
+        breakdown = {
+          districts: [...districts.entries()].map(([name, c]) => ({ name, ...c })).sort(rank),
+          types: [...types.entries()].map(([t, c]) => ({ type: t, ...c })).sort(rank),
+        };
+      }
     }
+
+    const seasons = summarizeSeasonality(await seasonStays as any, { now });
 
     const recent = property
       ? summary.classified.slice(0, 10).map(({ booking, outcome }) => ({
@@ -311,7 +365,7 @@ router.get("/booking-insights", async (req, res) => {
 
     res.set("Cache-Control", "private, no-store");
     return res.json({
-      scope: property ? "property" : "type",
+      scope: property ? "property" : type ? "type" : "region",
       subject: property
         ? {
             title: property.title,
@@ -321,14 +375,18 @@ router.get("/booking-insights", async (req, res) => {
             district: property.district,
             propertyRef: adminRecordReferenceOrNull("property", property.id),
           }
-        : { type, propertyCount },
+        : type
+          ? { type, propertyCount }
+          : { type: "", regionName: regionName ?? UNKNOWN_REGION, propertyCount },
       window: summary.window,
       totals: summary.totals,
       previous: summary.previous,
       daily: summary.daily,
       channels: summary.channels,
       properties,
+      breakdown,
       recent,
+      seasons,
       truncated: bookings.length >= INSIGHT_BOOKING_CAP,
     });
   } catch (err) {
