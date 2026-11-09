@@ -8,6 +8,7 @@ import { notifyUser } from "../lib/notifications.js";
 import { notifyTourOperatorCase } from "../lib/tourCaseNotifications.js";
 import { validateTourCancellationDecision } from "../lib/tourCancellationConsistency.js";
 import { calculateRefundChannelCharges, inferRefundChannel, REFUND_CHANNEL_POLICY_VERSION } from "../lib/refundChannelCharges.js";
+import { reverseTourRefund } from "../lib/revenueRecognition.js";
 
 /** Policy 10.2: the terms accepted at booking time govern; bookings made before the charges policy pay no channel charges. */
 function chargesAcceptedAtBooking(bookingMetadata: unknown): boolean {
@@ -278,6 +279,8 @@ router.post("/:id/action", async (req: any, res) => {
     const updated = await prisma.$transaction(async (tx) => {
       await tx.tourFinancialTransaction.update({ where: { id: approvedRefund.id }, data: { status: "REFUNDED", reference: refundReference, provider: item.booking.paymentProvider || "MANUAL", metadata: { ...(approvedRefund.metadata as any || {}), recordedBy: adminId, recordedAt: new Date().toISOString(), channelCharges } as any } });
       await tx.tourBooking.update({ where: { id: item.booking.id }, data: { status: "REFUNDED", paymentStatus: "REFUNDED" } });
+      // The refund left NoLSAF: take the matching share out of recognized revenue.
+      await reverseTourRefund(tx, approvedRefund.id);
       const value = await tx.tourCase.update({ where: { id: caseId }, data: { status: "RESOLVED", resolution: reason, closedAt: new Date(), assignedToUserId: adminId } });
       await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { refundReference, amount: Number(approvedRefund.amount), channelCharges } as any } });
       return value;

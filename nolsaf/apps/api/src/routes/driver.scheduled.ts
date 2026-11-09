@@ -8,6 +8,7 @@ import { limitDriverTripAction, limitDriverTripClaim, limitDriverTripsList } fro
 import { AUTO_DISPATCH_GRACE_MS, AUTO_DISPATCH_LOOKAHEAD_MS } from "../lib/transportPolicy.js";
 import { sendSms } from "../lib/sms.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { recognizeTransportRevenue, REVENUE_TX_OPTIONS } from "../lib/revenueRecognition.js";
 
 export const router = Router();
 
@@ -717,18 +718,23 @@ router.post("/:id/payout-claim", limitDriverTripAction, (async (req: AuthedReque
     const currency = booking.currency ?? "TZS";
 
     try {
-      const payout = await prisma.transportPayout.create({
-        data: {
-          transportBookingId: bookingId,
-          driverId: user.id,
-          currency,
-          grossAmount: grossAmount as any,
-          commissionPercent: commissionPercent as any,
-          commissionAmount: commissionAmount as any,
-          netPaid: netPaid as any,
-          status: "PENDING",
-        },
-      });
+      // The payout row fixes NoLSAF's commission, so revenue is recognized with it.
+      const payout = await prisma.$transaction(async (tx: any) => {
+        const created = await tx.transportPayout.create({
+          data: {
+            transportBookingId: bookingId,
+            driverId: user.id,
+            currency,
+            grossAmount: grossAmount as any,
+            commissionPercent: commissionPercent as any,
+            commissionAmount: commissionAmount as any,
+            netPaid: netPaid as any,
+            status: "PENDING",
+          },
+        });
+        await recognizeTransportRevenue(tx, bookingId);
+        return created;
+      }, REVENUE_TX_OPTIONS);
 
       // Notify admins that a driver submitted a payout claim to review.
       try {

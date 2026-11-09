@@ -32,6 +32,7 @@ import {
   Zap,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import RevenueReconciliationPanel from "@/components/admin/RevenueReconciliationPanel";
 
 type StreamKey = "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions";
 
@@ -282,6 +283,7 @@ function TakeGauge({ value, previous }: { value: number | null; previous: number
 
 export default function AdminFinancePage() {
   const [period, setPeriod] = useState<PeriodKey>("month");
+  const [view, setView] = useState<"overview" | "reconciliation">("overview");
   const [data, setData] = useState<Overview | null>(null);
   const [previous, setPrevious] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -374,6 +376,10 @@ export default function AdminFinancePage() {
   const fmtDay = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
   const quiet = Boolean(totals && totals.nolsafRevenue === 0 && totals.gmv === 0 && totals.pendingRevenue === 0);
   const updated = data ? new Date(data.generatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) : null;
+  // The reconciliation works in EAT calendar days, both inclusive.
+  const eatDay = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  const dayRange = range ? { from: eatDay(range.from), to: eatDay(range.to) } : null;
+  const lockFigures = useCallback(() => { setData(null); setPrevious(null); setLocked(true); }, []);
 
   // Canvas shared by every state.
   const canvas = (children: React.ReactNode) => (
@@ -437,6 +443,16 @@ export default function AdminFinancePage() {
             {updated ? <><span className="text-slate-600">·</span> updated {updated} EAT</> : null}
           </p>
         </div>
+        <div className="inline-flex rounded-md border border-solid border-[#284540] bg-[#182c28] p-0.5" role="tablist" aria-label="View">
+          {([
+            { key: "overview", label: "Overview" },
+            { key: "reconciliation", label: "Reconciliation" },
+          ] as const).map((v) => (
+            <button key={v.key} type="button" role="tab" aria-selected={view === v.key} onClick={() => setView(v.key)} className={`h-8 rounded border-0 px-3.5 text-xs font-semibold transition ${view === v.key ? "bg-[#02665e] text-white" : "bg-transparent text-slate-400 hover:text-white"}`}>
+              {v.label}
+            </button>
+          ))}
+        </div>
         <div className="inline-flex rounded-md border border-solid border-[#284540] bg-[#182c28] p-0.5" role="tablist" aria-label="Period">
           {PERIODS.map((p) => (
             <button key={p.key} type="button" role="tab" aria-selected={period === p.key} onClick={() => setPeriod(p.key)} className={`h-8 rounded border-0 px-3.5 text-xs font-semibold transition ${period === p.key ? "bg-emerald-400 text-[#06201b]" : "bg-transparent text-slate-400 hover:text-white"}`}>
@@ -451,6 +467,9 @@ export default function AdminFinancePage() {
 
       {error && <div className="rounded-md border border-solid border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">Could not load the revenue view: {error}</div>}
 
+      {view === "reconciliation" ? (
+        <RevenueReconciliationPanel range={dayRange} periodPhrase={periodPhrase} onLocked={lockFigures} />
+      ) : (<>
       {/* Hero: the line, the dial and the meters */}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <section className={`${glass} p-5 sm:p-6`}>
@@ -683,6 +702,7 @@ export default function AdminFinancePage() {
           </ul>
         </section>
       )}
+      </>)}
 
       <p className="m-0 px-1 pb-1 text-[10px] uppercase tracking-[0.16em] text-slate-600">
         Read only · money of record {currency} · take rate green above the blended rate, amber below

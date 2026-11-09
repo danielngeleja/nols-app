@@ -17,9 +17,12 @@ import { getWebAuthnRp } from '../lib/webauthnRp.js';
 import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js';
 import { audit } from '../lib/audit.js';
 import { hashCode } from '../lib/otp.js';
+import { normalizeEmailForAuth, normalizePhoneForAuth } from '../lib/authDestination.js';
+import { otpAuditDestinationFields, otpAuditEntity } from '../lib/otpAudit.js';
+import { OTP_MAX_ATTEMPTS, registerOtpAttempt, resetOtpAttempts } from '../lib/otpAttempts.js';
 import { maybeAuth, requireAuth, blockImpersonated } from '../middleware/auth.js';
 import { invalidateAuthSessionCacheForUser } from '../lib/authSessionCache.js';
-import { limitAccountCheck, limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts } from '../middleware/rateLimit.js';
+import { limitAccountCheck, limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts, limitPasswordResetRequest, limitPasswordResetRequestPerIp } from '../middleware/rateLimit.js';
 import { isEmailLocked, recordFailedAttempt, clearFailedAttempts } from '../lib/loginAttemptTracker.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { buildDriverCaseRef } from '../lib/driverCaseRef.js';
@@ -87,12 +90,19 @@ const otpStoreFallback: Record<string, { codeHash: string; expiresAt: number; ro
 // In-memory reset token store (hashedToken -> { userId, expiresAt })
 const resetTokenStore: Record<string, { userId: string; expiresAt: number }> = {};
 
+// Guess budget per issued code (see lib/otpAttempts.ts).
+function otpAttemptsKey(channel: OtpChannel, destination: string): string {
+  return `auth:${otpStoreKey(channel, destination)}`;
+}
+
 // ── OTP store helpers ─────────────────────────────────────────────────────────
 
 async function storeOtp(channel: OtpChannel, destination: string, code: string, role: string | null | undefined): Promise<void> {
   const codeHash = hashCode(code); // SHA-256 hash — never store plain text
   const payload = JSON.stringify({ codeHash, role: role ?? null });
   const key = otpStoreKey(channel, destination);
+  // A fresh code starts with a fresh guess budget.
+  await resetOtpAttempts(otpAttemptsKey(channel, destination));
   try {
     const r = getRedis();
     if (r) {
@@ -125,6 +135,7 @@ async function getOtpEntry(channel: OtpChannel, destination: string): Promise<{ 
 
 async function deleteOtp(channel: OtpChannel, destination: string): Promise<void> {
   const key = otpStoreKey(channel, destination);
+  await resetOtpAttempts(otpAttemptsKey(channel, destination));
   try {
     const r = getRedis();
     if (r) { await r.del(key); return; }
@@ -145,17 +156,6 @@ function generateOtp() {
   return crypto.randomInt(100000, 1000000).toString(); // 6-digit, CSPRNG
 }
 
-function maskOtp(code: string): string {
-  const s = String(code || "");
-  if (s.length <= 2) return "••••••";
-  return `••••${s.slice(-2)}`;
-}
-
-function maskPhoneForAudit(phone: string): string {
-  const value = String(phone || "");
-  if (value.length <= 4) return "******";
-  return `******${value.slice(-4)}`;
-}
 
 function getAuthTokenFromRequest(req: any): string | null {
   const authHeader = String(req.headers?.authorization || "");
@@ -208,11 +208,6 @@ function buildBlockedAccountPayload(user: any) {
     nextSteps: 'If you believe this action was taken in error, contact NoLSAF support and include your registered account details for review.',
     payoutMessage: 'Any active and unpaid payout recorded before the revocation date will still be reviewed and processed under NoLSAF payout policy.',
   };
-}
-
-function otpEntityKey(destinationType: "PHONE" | "EMAIL", destination: string, codeHash: string): string {
-  // Encode enough to support string filtering in admin dashboards without JSON queries.
-  return `OTP:${destinationType}:${destination}:${codeHash}`;
 }
 
 const PHONE_RULES: Record<string, { min: number; max: number }> = {
@@ -289,20 +284,6 @@ const PHONE_RULES: Record<string, { min: number; max: number }> = {
   '+54': { min: 10, max: 11 },
 };
 
-function normalizePhoneForAuth(input: string): string {
-  let cleaned = String(input || '').trim();
-  if (!cleaned) return '';
-  cleaned = cleaned.replace(/[^\d+]/g, '');
-
-  if (cleaned.startsWith('00')) cleaned = `+${cleaned.slice(2)}`;
-  if (cleaned.startsWith('+')) return cleaned;
-
-  const defaultCallingCode = String(process.env.DEFAULT_COUNTRY_CALLING_CODE || '255').replace(/\D/g, '') || '255';
-  if (cleaned.startsWith(defaultCallingCode)) return `+${cleaned}`;
-  if (cleaned.startsWith('0')) return `+${defaultCallingCode}${cleaned.slice(1)}`;
-  return `+${defaultCallingCode}${cleaned}`;
-}
-
 function buildAuthPhoneVariants(input: string): string[] {
   const raw = String(input || '').trim();
   if (!raw) return [];
@@ -347,19 +328,6 @@ function getPhoneValidationMessage(phone: string): string {
   const normalized = normalizePhoneForAuth(phone);
   const { min, max } = getPhoneRuleForNumber(normalized);
   return min === max ? `Phone number must be exactly ${min} digits for that country code.` : `Phone number must be ${min}-${max} digits for that country code.`;
-}
-
-function normalizeEmailForAuth(input: any): string | null {
-  const v = String(input ?? '').trim().toLowerCase();
-  if (!v || v.length > 190) return null;
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) return null;
-  return v;
-}
-
-function maskEmailForAudit(email: string): string {
-  const [local, domain] = String(email || '').split('@');
-  if (!domain) return '******';
-  return `${local.slice(0, 2)}****@${domain}`;
 }
 
 function normalizeSignupRole(input: any): 'CUSTOMER' | 'OWNER' | 'DRIVER' | 'RESET' | null {
@@ -724,9 +692,9 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
   const otp = generateOtp();
   await storeOtp(channel, destination, otp, normalizedRole);
   const expiresAt = new Date(Date.now() + OTP_TTL_MS);
-  const codeHash = hashCode(String(otp));
-  const entity = otpEntityKey(channel, destination, codeHash);
-  const destinationMasked = channel === 'PHONE' ? maskPhoneForAudit(destination) : maskEmailForAudit(destination);
+  // Audit rows carry a keyed reference, never the code, its digits or a plain hash.
+  const entity = otpAuditEntity(channel, destination, otp);
+  const auditDestination = otpAuditDestinationFields(channel, destination);
 
   // The OTP serves three distinct flows — make every message say which one,
   // so a signup code is never mistaken for a sign-in or reset code.
@@ -768,11 +736,8 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
 
   if (process.env.NODE_ENV === 'production' && sendFailureReason) {
     try {
-      await audit(req, "NO4P_OTP_SEND_FAILED", `OTP:${channel}:${hashCode(destination)}:${codeHash}`, null, {
-        destinationType: channel,
-        destinationMasked,
-        destinationHash: hashCode(destination),
-        codeHash,
+      await audit(req, "NO4P_OTP_SEND_FAILED", entity, null, {
+        ...auditDestination,
         usedFor: authOtpUse(normalizedRole),
         provider,
         reason: sendFailureReason,
@@ -804,10 +769,7 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
       // ignore lookup failures
     }
     await audit(req, "NO4P_OTP_SENT", entity, null, {
-      destinationType: channel,
-      destination,
-      codeHash,
-      codeMasked: maskOtp(otp),
+      ...auditDestination,
       expiresAt: expiresAt.toISOString(),
       usedFor: authOtpUse(normalizedRole),
       provider,
@@ -851,16 +813,13 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
     return res.status(400).json({ error: 'invalid_role', message: 'Choose a valid account role.' });
   }
 
+  const otpAuditUse = requestedRole === "RESET" ? "AUTH_RESET" : requestedRole ? "AUTH_SIGNUP" : "AUTH_LOGIN";
   const entry = await getOtpEntry(channel, destination);
   if (!entry) {
     try {
-      const codeHash = hashCode(String(otp));
-      const entity = otpEntityKey(channel, destination, codeHash);
-      await audit(req, "NO4P_OTP_VERIFY_FAILED", entity, null, {
-        destinationType: channel,
-        destination,
-        codeHash,
-        usedFor: requestedRole === "RESET" ? "AUTH_RESET" : requestedRole ? "AUTH_SIGNUP" : "AUTH_LOGIN",
+      await audit(req, "NO4P_OTP_VERIFY_FAILED", otpAuditEntity(channel, destination, String(otp)), null, {
+        ...otpAuditDestinationFields(channel, destination),
+        usedFor: otpAuditUse,
         reason: "no_otp",
       });
     } catch {
@@ -868,17 +827,33 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
     }
     return res.status(400).json({ message: `no OTP found for this ${destinationLabel}` });
   }
+
+  // Count this guess before comparing. Past the cap the code is destroyed, so
+  // a 6-digit code can never be brute-forced within its lifetime.
+  const attempt = await registerOtpAttempt(otpAttemptsKey(channel, destination), OTP_TTL_SEC);
+  if (attempt > OTP_MAX_ATTEMPTS) {
+    await deleteOtp(channel, destination);
+    try {
+      await audit(req, "NO4P_OTP_VERIFY_FAILED", otpAuditEntity(channel, destination, String(otp)), null, {
+        ...otpAuditDestinationFields(channel, destination),
+        usedFor: otpAuditUse,
+        reason: "too_many_attempts",
+      });
+    } catch {
+      // swallow
+    }
+    const message = 'Too many incorrect codes. Request a new code and try again.';
+    return res.status(400).json({ error: 'otp_attempts_exceeded', code: 'OTP_ATTEMPTS_EXCEEDED', message });
+  }
+
   // OTP expiry is enforced by Redis TTL / fallback expiresAt — entry being present means it's valid.
   if (!verifyOtpCode(String(otp), entry.codeHash)) {
     try {
-      const codeHash = hashCode(String(otp));
-      const entity = otpEntityKey(channel, destination, codeHash);
-      await audit(req, "NO4P_OTP_VERIFY_FAILED", entity, null, {
-        destinationType: channel,
-        destination,
-        codeHash,
-        usedFor: requestedRole === "RESET" ? "AUTH_RESET" : requestedRole ? "AUTH_SIGNUP" : "AUTH_LOGIN",
+      await audit(req, "NO4P_OTP_VERIFY_FAILED", otpAuditEntity(channel, destination, String(otp)), null, {
+        ...otpAuditDestinationFields(channel, destination),
+        usedFor: otpAuditUse,
         reason: "invalid",
+        attempt,
       });
     } catch {
       // swallow
@@ -962,12 +937,8 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
   }
 
   try {
-    const codeHash = hashCode(String(otp));
-    const entity = otpEntityKey(channel, destination, codeHash);
-    await audit(req, "NO4P_OTP_USED", entity, null, {
-      destinationType: channel,
-      destination,
-      codeHash,
+    await audit(req, "NO4P_OTP_USED", otpAuditEntity(channel, destination, String(otp)), null, {
+      ...otpAuditDestinationFields(channel, destination),
       usedAt: new Date().toISOString(),
       usedFor: effectiveRole === "RESET" ? "AUTH_RESET" : "AUTH_SIGNUP",
       policyCompliant: true,
@@ -2617,7 +2588,7 @@ router.post('/passkeys/verify', async (req, res) => {
 export default router;
 
 // POST /api/auth/forgot-password
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', limitPasswordResetRequestPerIp, limitPasswordResetRequest, async (req, res) => {
   const { email, phone, resetApp } = req.body || {};
   if (!email && !phone) return res.status(400).json({ message: 'email or phone required' });
 

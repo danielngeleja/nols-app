@@ -19,6 +19,7 @@ import type { AuthedRequest } from "../middleware/auth.js";
 import { MONEY_STAGES, MONEY_STAGE_KEYS, moneyStageOf } from "../lib/invoiceMoneyStage.js";
 import { indexMoneyStages } from "../lib/invoiceMoneyStageIndex.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
+import { recognizeInvoiceRevenue, REVENUE_TX_OPTIONS } from "../lib/revenueRecognition.js";
 
 export const router = Router();
 
@@ -819,19 +820,25 @@ router.post("/:id/mark-paid", blockImpersonated as RequestHandler, requireAdminF
     });
     const { png, payload: qrPayload } = await makeQR(payload);
 
-    const claimed = await prisma.invoice.updateMany({
-      where: { id, status: { not: "PAID" } },
-      data: {
-        status: "PAID",
-        paidBy: adminId,
-        paidAt: new Date(),
-        paymentMethod: method,
-        paymentRef: ref || inv.paymentRef || null,
-        receiptNumber,
-        receiptQrPayload: qrPayload,
-        receiptQrPng: png,
-      },
-    });
+    // The claim and the revenue record commit together (lib/revenueRecognition).
+    // priorStatus keeps an owner-claim settlement from counting as new revenue.
+    const claimed = await prisma.$transaction(async (tx: any) => {
+      const result = await tx.invoice.updateMany({
+        where: { id, status: { not: "PAID" } },
+        data: {
+          status: "PAID",
+          paidBy: adminId,
+          paidAt: new Date(),
+          paymentMethod: method,
+          paymentRef: ref || inv.paymentRef || null,
+          receiptNumber,
+          receiptQrPayload: qrPayload,
+          receiptQrPng: png,
+        },
+      });
+      if (result.count === 1) await recognizeInvoiceRevenue(tx, id, { priorStatus: inv.status });
+      return result;
+    }, REVENUE_TX_OPTIONS);
     if (claimed.count === 0) {
       // The webhook settled it while this request was in flight.
       return res.status(409).json({ error: "Invoice was just paid by another process" });

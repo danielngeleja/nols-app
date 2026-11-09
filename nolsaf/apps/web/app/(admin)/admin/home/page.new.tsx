@@ -348,13 +348,19 @@ export default function AdminHomePage() {
       sub: tp ? `${plural(tp.bookings, "booking", "bookings")} · ${humanize(tp.type || "").toLowerCase()}` : null,
       meta: tp?.interactionsBreakdown && tp.interactions > 0 ? `${plural(tp.interactionsBreakdown.reviews, "review", "reviews")}, ${plural(tp.interactionsBreakdown.saves, "save", "saves")}` : null,
       rule: "Ranked by bookings, then reviews and saves",
-      href: tp?.propertyId ? `/admin/properties/previews?previewId=${adminRefOrId("property", tp.propertyId)}` : "/admin/properties/previews",
+      // Opens the booking insights for this listing (tries, received, how each ended).
+      href: tp?.propertyId
+        ? `/admin/bookings/insights?property=${encodeURIComponent(tp.propertyRef ?? adminRefOrId("property", tp.propertyId))}&days=30`
+        : "/admin/properties/previews",
     },
     {
       label: "Top type", icon: Layers, value: highlights?.bestPropertyType?.type ? humanize(highlights.bestPropertyType.type) : null,
       sub: highlights?.bestPropertyType ? plural(highlights.bestPropertyType.bookings, "booking", "bookings") : null,
       meta: highlights?.bestPropertyType && highlights.bestPropertyType.interactions > 0 ? plural(highlights.bestPropertyType.interactions, "review or save", "reviews and saves") : null,
-      rule: "Ranked by bookings across all listings", href: "/admin/properties/previews",
+      rule: "Ranked by bookings across all listings",
+      href: highlights?.bestPropertyType?.type
+        ? `/admin/bookings/insights?type=${encodeURIComponent(highlights.bestPropertyType.type)}&days=30`
+        : "/admin/properties/previews",
     },
     {
       label: "Top owner", icon: UserRound, value: highlights?.bestOwner?.name,

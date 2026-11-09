@@ -31,13 +31,20 @@ const MAX_BYTES = 2_000_000;
 const TIMEOUT_MS = 12_000;
 const MAX_REDIRECTS = 3;
 /** True for anything that could reach inside the deployment's own network. */
+// Deprecated IPv6 site-local space (RFC 3879). ipaddr.js has no named range
+// for it and reports it as "unicast", yet older networks still route it
+// internally, so it is blocked explicitly.
+const IPV6_SITE_LOCAL = ipaddr.parseCIDR("fec0::/10");
+
 export function isBlockedAddress(address: string): boolean {
   try {
     // process() converts every IPv4-mapped spelling—including hexadecimal
     // forms such as ::ffff:a00:1—back to IPv4 before range classification.
     // Only globally routable unicast addresses are valid feed destinations;
     // this also rejects NAT64, 6to4, Teredo, documentation and reserved space.
-    return ipaddr.process(address.trim()).range() !== "unicast";
+    const parsed = ipaddr.process(address.trim());
+    if (parsed.kind() === "ipv6" && (parsed as ipaddr.IPv6).match(IPV6_SITE_LOCAL)) return true;
+    return parsed.range() !== "unicast";
   } catch {
     return true;
   }

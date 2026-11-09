@@ -3,6 +3,9 @@ import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { withCache, cacheKeys, cacheTags, measureTime } from "../lib/performance.js";
+import { adminRecordReferenceOrNull, resolveAdminRecordReference } from "../lib/adminRecordReference.js";
+import { adminBookingReference } from "../lib/adminBookingReference.js";
+import { summarizeBookingInsights } from "../lib/bookingInsights.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -189,6 +192,7 @@ router.get("/highlights", async (req, res) => {
             topProperty: topProperty
               ? {
                   propertyId: Number(topProperty.propertyId),
+                  propertyRef: adminRecordReferenceOrNull("property", Number(topProperty.propertyId)),
                   title: String(topProperty.title || "Property"),
                   type: String(topProperty.type || "Other"),
                   regionName: String(topProperty.regionName || "Unknown"),
@@ -214,6 +218,122 @@ router.get("/highlights", async (req, res) => {
   } catch (err) {
     console.error("admin.performance.highlights error", err);
     res.status(500).json({ error: "failed" });
+  }
+});
+
+const INSIGHT_WINDOWS = new Set([7, 30, 90]);
+const INSIGHT_BOOKING_CAP = 20_000;
+
+/**
+ * GET /api/admin/performance/booking-insights?days=30&property=<ref>
+ * GET /api/admin/performance/booking-insights?days=30&type=BUNGALOW
+ *
+ * Booking funnel for one property or one property type: bookings placed in the
+ * window, how many reached payment, and how each ended (received, still paying,
+ * did not pay, cancelled). Compared with the window before it.
+ */
+router.get("/booking-insights", async (req, res) => {
+  try {
+    const q = req.query as Record<string, unknown>;
+    const requestedDays = Number(q.days);
+    const days = INSIGHT_WINDOWS.has(requestedDays) ? requestedDays : 30;
+    const propertyRef = typeof q.property === "string" ? q.property.trim() : "";
+    const type = typeof q.type === "string" ? q.type.trim().toUpperCase() : "";
+    if (!propertyRef && !type) return res.status(400).json({ error: "property or type is required" });
+    if (type && !/^[A-Z_]{2,40}$/.test(type)) return res.status(400).json({ error: "invalid type" });
+
+    let property: any = null;
+    if (propertyRef) {
+      // Opaque references only; row ids never appear in admin URLs.
+      const id = await resolveAdminRecordReference("property", propertyRef);
+      if (!id) return res.status(404).json({ error: "property not found" });
+      property = await prisma.property.findUnique({
+        where: { id },
+        select: { id: true, title: true, type: true, status: true, regionName: true, district: true },
+      });
+      if (!property) return res.status(404).json({ error: "property not found" });
+    }
+
+    const now = new Date();
+    const previousSince = new Date(now.getTime() - 2 * days * 86_400_000);
+    const bookings = await prisma.booking.findMany({
+      where: {
+        createdAt: { gte: previousSince },
+        ...(property ? { propertyId: property.id } : { property: { type } }),
+      },
+      select: {
+        id: true, propertyId: true, status: true, createdAt: true, checkIn: true, checkOut: true, totalAmount: true,
+        invoices: {
+          select: {
+            status: true, receiptNumber: true, commissionAmount: true, paymentMethod: true,
+            paymentEvents: { select: { status: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: INSIGHT_BOOKING_CAP,
+    });
+
+    const summary = summarizeBookingInsights(bookings as any, { now, days });
+
+    let properties: any[] | undefined;
+    let propertyCount: number | undefined;
+    if (!property) {
+      propertyCount = await prisma.property.count({ where: { type, status: "APPROVED" } });
+      const ranked = [...summary.byProperty.entries()]
+        .sort((a, b) => b[1].received - a[1].received || b[1].tried - a[1].tried)
+        .slice(0, 10);
+      const rows = ranked.length
+        ? await prisma.property.findMany({
+            where: { id: { in: ranked.map(([id]) => id) } },
+            select: { id: true, title: true, regionName: true },
+          })
+        : [];
+      const byId = new Map<number, { title: string; regionName: string | null }>(rows.map((row) => [row.id, row]));
+      properties = ranked.map(([id, counts]) => ({
+        ref: adminRecordReferenceOrNull("property", id),
+        title: byId.get(id)?.title ?? "Property",
+        regionName: byId.get(id)?.regionName ?? null,
+        ...counts,
+      }));
+    }
+
+    const recent = property
+      ? summary.classified.slice(0, 10).map(({ booking, outcome }) => ({
+          ref: adminBookingReference(booking.id),
+          createdAt: booking.createdAt,
+          checkIn: booking.checkIn,
+          nights: Math.max(1, Math.round((new Date(booking.checkOut).getTime() - new Date(booking.checkIn).getTime()) / 86_400_000)),
+          amount: Math.round(Number(booking.totalAmount ?? 0)),
+          outcome,
+        }))
+      : undefined;
+
+    res.set("Cache-Control", "private, no-store");
+    return res.json({
+      scope: property ? "property" : "type",
+      subject: property
+        ? {
+            title: property.title,
+            type: property.type,
+            status: property.status,
+            regionName: property.regionName,
+            district: property.district,
+            propertyRef: adminRecordReferenceOrNull("property", property.id),
+          }
+        : { type, propertyCount },
+      window: summary.window,
+      totals: summary.totals,
+      previous: summary.previous,
+      daily: summary.daily,
+      channels: summary.channels,
+      properties,
+      recent,
+      truncated: bookings.length >= INSIGHT_BOOKING_CAP,
+    });
+  } catch (err) {
+    console.error("admin.performance.booking-insights error", err);
+    return res.status(500).json({ error: "failed" });
   }
 });
 

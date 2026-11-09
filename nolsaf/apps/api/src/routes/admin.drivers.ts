@@ -12,6 +12,7 @@ import { baseEmail, infoCard, calloutBox, ctaButton, BRAND_TEAL, BRAND_DARK } fr
 import { buildDriverCaseRef } from "../lib/driverCaseRef.js";
 import { isTrustedUserDocumentUrl, sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
 import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
+import { recognizeTransportRevenue } from "../lib/revenueRecognition.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -1585,6 +1586,10 @@ router.post("/trips/:id(\\d+)/payout/approve", async (req, res) => {
       } catch {
         // ignore
       }
+
+      // First payout row for a paid trip recognizes the commission. A later
+      // re-approval with a changed percent leaves the recorded revenue as it was.
+      await recognizeTransportRevenue(tx, bookingId);
 
       return upserted;
     });

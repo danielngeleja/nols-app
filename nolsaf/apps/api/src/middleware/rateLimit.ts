@@ -1,8 +1,13 @@
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { prisma } from "@nolsaf/prisma";
 import crypto from "node:crypto";
+import { authDestinationRateKey } from "../lib/authDestination.js";
 
 const rateDb = prisma as any;
+
+function clientIpKey(req: any): string {
+  return req.ip || req.socket?.remoteAddress || "unknown";
+}
 
 async function recordPublicQrRejection(req: any, kind: string) {
   try {
@@ -370,13 +375,13 @@ export const limitOtpSend = rateLimit({
     };
   },
   keyGenerator: (req) => {
-    // Rate limit by destination (phone or email) to prevent SMS/email spam
-    const destination = req.body?.phone || req.body?.email;
-    if (destination) {
-      return `otp:${String(destination).trim().toLowerCase()}`;
-    }
-    // Fallback to IP if no destination provided
-    return req.ip || req.socket.remoteAddress || "unknown";
+    // Rate limit by the canonical destination the code is stored under, so
+    // reformatting the same number ("0712…", "+255712…", "0712-…") shares one
+    // budget instead of opening a fresh one per spelling.
+    const destination = authDestinationRateKey(req.body);
+    if (destination) return `otp:${destination}`;
+    // Fallback to IP if no usable destination provided
+    return clientIpKey(req);
   },
 });
 
@@ -408,12 +413,80 @@ export const limitOtpVerify = rateLimit({
     };
   },
   keyGenerator: (req) => {
-    const destination = req.body?.phone || req.body?.email;
-    if (destination) {
-      return `otp-verify:${String(destination).trim().toLowerCase()}`;
-    }
-    return req.ip || req.socket.remoteAddress || "unknown";
+    // Same canonical destination as the OTP store (see limitOtpSend).
+    const destination = authDestinationRateKey(req.body);
+    if (destination) return `otp-verify:${destination}`;
+    return clientIpKey(req);
   },
+});
+
+// Password reset links cost an email or SMS each and replace the previous
+// link, so cap them per account destination and per IP.
+export const limitPasswordResetRequest = rateLimit({
+  redisPrefix: "rl:pw-reset-dest:",
+  windowMs: 60 * 60_000, // 1 hour
+  limit: 3, // 3 reset requests per account destination per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: (req: any) => {
+    const resetTime: Date | undefined = req.rateLimit?.resetTime;
+    const retryAfterMs = resetTime ? Math.max(0, resetTime.getTime() - Date.now()) : 60 * 60_000;
+    const message = "Too many password reset requests. Please wait before requesting another link.";
+    return { error: message, code: "rate_limited", message, retryAfterMs, cooldownUntil: Date.now() + retryAfterMs };
+  },
+  keyGenerator: (req) => {
+    // forgot-password reads email before phone.
+    const destination = authDestinationRateKey(req.body, "email");
+    if (destination) return `pw-reset:${destination}`;
+    return `pw-reset-ip:${clientIpKey(req)}`;
+  },
+});
+
+export const limitPasswordResetRequestPerIp = rateLimit({
+  redisPrefix: "rl:pw-reset-ip:",
+  windowMs: 15 * 60_000, // 15 minutes
+  // Generous because mobile carriers put many customers behind one address.
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many password reset requests. Please wait before trying again.", code: "rate_limited" },
+  keyGenerator: (req) => `pw-reset-ip:${clientIpKey(req)}`,
+});
+
+// Owner phone verification texts whatever number the owner enters, so cap it
+// per owner AND per target number: one owner cannot spam a number, and many
+// owner accounts cannot gang up on the same number.
+export const limitOwnerPhoneOtpSendPerUser = rateLimit({
+  redisPrefix: "rl:owner-phone-otp-user:",
+  windowMs: 15 * 60_000,
+  limit: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many verification codes requested. Wait a few minutes and try again.", code: "rate_limited" },
+  keyGenerator: (req: any) => `owner-phone-otp-user:${req.user?.id ?? clientIpKey(req)}`,
+});
+
+export const limitOwnerPhoneOtpSendPerPhone = rateLimit({
+  redisPrefix: "rl:owner-phone-otp-dest:",
+  windowMs: 60 * 60_000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many verification codes have been sent to this number. Try again later.", code: "rate_limited" },
+  keyGenerator: (req: any) => {
+    const destination = authDestinationRateKey({ phone: req.body?.phone });
+    return destination ? `owner-phone-otp:${destination}` : `owner-phone-otp-user:${req.user?.id ?? clientIpKey(req)}`;
+  },
+});
+
+export const limitOwnerPhoneOtpVerify = rateLimit({
+  redisPrefix: "rl:owner-phone-otp-verify:",
+  windowMs: 15 * 60_000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many verification attempts. Wait before trying again.", code: "rate_limited" },
+  keyGenerator: (req: any) => `owner-phone-otp-verify:${req.user?.id ?? clientIpKey(req)}`,
 });
 
 // Rate limiter for authenticated contact (phone/email) change requests.

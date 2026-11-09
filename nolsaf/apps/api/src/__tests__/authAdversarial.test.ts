@@ -578,3 +578,100 @@ describe("enrolled account MFA enforcement", () => {
     expect(state.sessions).toHaveLength(0);
   });
 });
+
+describe("OTP and password-reset abuse resistance", () => {
+  const from = (ip: string, path: string, body: any) =>
+    request(app).post(`/api/auth/${path}`).set("X-Forwarded-For", ip).send(body);
+  const spellings = (phone: string) => {
+    const national = phone.slice(4); // +255 7xx xxx xxx -> 7xxxxxxxx
+    return [phone, `0${national}`, phone.slice(1), `0${national.slice(0, 3)}-${national.slice(3)}`, `00${phone.slice(1)}`];
+  };
+
+  it("shares one send budget across every spelling of the same phone number", async () => {
+    const owner = await register();
+    const statuses: number[] = [];
+    for (const [index, phone] of spellings(owner.phone).entries()) {
+      statuses.push((await from(`198.51.100.${index + 1}`, "send-otp", { phone })).status);
+    }
+    expect(statuses.slice(0, 3)).toEqual([200, 200, 200]);
+    expect(statuses.slice(3)).toEqual([429, 429]);
+    expect(state.sms).toHaveBeenCalledTimes(3);
+  });
+
+  it("shares one verification budget across spellings of the same phone number", async () => {
+    const owner = await register();
+    await post("send-otp", { phone: owner.phone }).expect(200);
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      const phone = spellings(owner.phone)[i % 5];
+      statuses.push((await from(`198.51.101.${i + 1}`, "verify-otp", { phone, otp: "000000" })).status);
+    }
+    expect(statuses.at(-1)).toBe(429);
+    expect(state.sessions).toHaveLength(0);
+  });
+
+  it("destroys a code after five guesses, so the right code no longer works", async () => {
+    const owner = await register();
+    await post("send-otp", { email: owner.email }).expect(200);
+    const otp = deliveredOtp("email");
+    const wrong = otp === "111111" ? "222222" : "111111";
+    for (let i = 0; i < 5; i++) {
+      const miss = await post("verify-otp", { email: owner.email, otp: wrong }).expect(400);
+      expect(miss.body.message).toBe("invalid OTP");
+    }
+    const capped = await post("verify-otp", { email: owner.email, otp }).expect(400);
+    expect(capped.body.code).toBe("OTP_ATTEMPTS_EXCEEDED");
+    await post("verify-otp", { email: owner.email, otp }).expect(400);
+    expect(state.sessions).toHaveLength(0);
+
+    // A fresh code restores a fresh budget.
+    await post("send-otp", { email: owner.email }).expect(200);
+    const login = await post("verify-otp", { email: owner.email, otp: deliveredOtp("email") }).expect(200);
+    expect(login.body.user).toMatchObject({ id: owner.id, role: "OWNER" });
+  });
+
+  it("still accepts the right code within the guess budget", async () => {
+    const owner = await register();
+    await post("send-otp", { email: owner.email }).expect(200);
+    const otp = deliveredOtp("email");
+    const wrong = otp === "111111" ? "222222" : "111111";
+    for (let i = 0; i < 4; i++) await post("verify-otp", { email: owner.email, otp: wrong }).expect(400);
+    await post("verify-otp", { email: owner.email, otp }).expect(200);
+  });
+
+  it("caps password reset links per account, whatever the spelling or source address", async () => {
+    const owner = await register();
+    state.mail.mockClear();
+    const emails = [owner.email, owner.email.toUpperCase(), ` ${owner.email} `, owner.email];
+    const statuses: number[] = [];
+    for (const [index, email] of emails.entries()) {
+      statuses.push((await from(`198.51.102.${index + 1}`, "forgot-password", { email })).status);
+    }
+    expect(statuses).toEqual([200, 200, 200, 429]);
+    expect(state.mail).toHaveBeenCalledTimes(3);
+  });
+
+  it("never writes the code, its digits, a plain hash of it or the full destination to the OTP audit log", async () => {
+    const { audit } = await import("../lib/audit.js");
+    const auditMock = vi.mocked(audit);
+    auditMock.mockClear();
+    const owner = await register();
+    await post("send-otp", { phone: owner.phone }).expect(200);
+    const otp = deliveredOtp("phone");
+    await post("verify-otp", { phone: `0${owner.phone.slice(4)}`, otp }).expect(200);
+
+    const otpRows = auditMock.mock.calls.filter(([, action]) => String(action).startsWith("NO4P_OTP_"));
+    expect(otpRows.length).toBeGreaterThan(0);
+    const { createHash } = await import("node:crypto");
+    const plainHash = createHash("sha256").update(otp).digest("hex");
+    const national = owner.phone.slice(4);
+    for (const row of otpRows) {
+      const text = JSON.stringify(row.slice(2));
+      expect(text).not.toContain(otp);
+      expect(text).not.toContain(otp.slice(-2) + '"');
+      expect(text).not.toContain(plainHash);
+      expect(text).not.toContain(national);
+      expect(text).not.toMatch(/codeHash|codeMasked/);
+    }
+  });
+});

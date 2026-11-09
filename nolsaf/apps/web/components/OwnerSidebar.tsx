@@ -326,7 +326,8 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
         <CollapseBtn href="/owner/properties/approved" label="Properties" Icon={Building2} active={sectionActive.properties} />
         <CollapseBtn href="/owner/group-stays" label="Group stays" Icon={Users} active={sectionActive.groupStays} />
         <CollapseBtn href="/owner/payouts" label="My Payouts" Icon={Wallet} active={sectionActive.revenue} />
-        <div className="mt-auto w-full border-0 border-t border-solid border-white/10 pt-2">
+        {/* Sidebar buttons use `color: inherit !important` (globals.css), so the icon colour is set here. */}
+        <div className="mt-auto w-full border-0 border-t border-solid border-white/10 pt-2 text-white">
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("toggle-owner-sidebar"))}
@@ -403,7 +404,8 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
 
       </div>
 
-      <div className="shrink-0 border-0 border-t border-solid border-white/10 bg-black/5 p-2.5">
+      {/* Sidebar buttons use `color: inherit !important` (globals.css), so the label colour is set here. */}
+      <div className="shrink-0 border-0 border-t border-solid border-white/10 bg-black/5 p-2.5 text-white">
         <button
           type="button"
           onClick={() => window.dispatchEvent(new Event("toggle-owner-sidebar"))}
