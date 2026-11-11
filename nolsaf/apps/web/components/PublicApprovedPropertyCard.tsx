@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { MapPin, ImageIcon } from "lucide-react";
+import { MapPin, ImageIcon, Star } from "lucide-react";
 import { motion } from "framer-motion";
 
 import VerifiedIcon from "./VerifiedIcon";
@@ -18,6 +18,8 @@ export type PublicApprovedPropertyCardData = {
   basePrice: number | null;
   currency: string | null;
   services?: any;
+  /** Guest rating from visible reviews; null or missing when there are none. */
+  rating?: { average: number; count: number } | null;
 };
 
 function PropertyCardImage({
@@ -58,6 +60,7 @@ export default function PublicApprovedPropertyCard({
   priorityImage?: boolean;
 }) {
   const href = `/public/properties/${p.slug}`;
+  const rating = p.rating && p.rating.count > 0 && p.rating.average > 0 ? p.rating : null;
 
   // Calculate final price with commission (TZS — money of record).
   const finalPrice = p.basePrice
@@ -108,14 +111,25 @@ export default function PublicApprovedPropertyCard({
 
         {/* Location, price and action button */}
         <div className="px-3 pb-3 sm:px-4 sm:pb-4 mt-2 sm:mt-3">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
-            <div className="min-w-0">
+          {/* One row at every width: location and rating on the left, price and "per night" on the right. */}
+          <div className="flex items-start justify-between gap-2 sm:gap-3">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                <MapPin className="w-3.5 h-3.5" />
-                <span className="truncate">{p.location || "—"}</span>
+                <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">{p.location || "Tanzania"}</span>
               </div>
+              {rating ? (
+                <div
+                  className="mt-1 flex items-center gap-1 text-[11px] text-slate-500"
+                  aria-label={`Rated ${rating.average.toFixed(1)} out of 5 from ${rating.count} ${rating.count === 1 ? "review" : "reviews"}`}
+                >
+                  <Star className="h-3.5 w-3.5 flex-shrink-0 fill-amber-400 text-amber-400" aria-hidden />
+                  <span className="font-bold text-slate-900">{rating.average.toFixed(1)}</span>
+                  <span>({rating.count})</span>
+                </div>
+              ) : null}
             </div>
-            <div className="sm:text-right flex-shrink-0">
+            <div className="text-right flex-shrink-0">
               <PriceDisplay
                 amountTzs={finalPrice}
                 className="text-sm font-bold text-slate-900"

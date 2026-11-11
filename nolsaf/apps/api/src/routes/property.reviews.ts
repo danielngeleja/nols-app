@@ -1,30 +1,31 @@
 // apps/api/src/routes/property.reviews.ts
 import { Router } from "express";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { AuthedRequest, blockImpersonated, requireAuth } from "../middleware/auth.js";
 import { z } from "zod";
+import { averageCategoryRatings } from "../lib/nrmsReviewCategories.js";
+import { StayReviewError, createStayReview, findFinishedStay, finishedStayWhere } from "../lib/stayReviews.js";
 
 const router = Router();
+
+/** "Amina Kassim Juma" becomes "Amina J."; a single name stays as is. */
+export function publicGuestName(raw: string | null | undefined): string {
+  const parts = String(raw || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "Guest";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+}
 
 // Schema for creating a review
 const createReviewSchema = z.object({
   propertyId: z.number().int().positive(),
   rating: z.number().int().min(1).max(5),
-  title: z.string().max(200).optional().nullable(),
-  comment: z.string().max(5000).optional().nullable(),
-  categoryRatings: z.object({
-    cleanliness: z.number().int().min(1).max(5).optional(),
-    location: z.number().int().min(1).max(5).optional(),
-    value: z.number().int().min(1).max(5).optional(),
-    service: z.number().int().min(1).max(5).optional(),
-    communication: z.number().int().min(1).max(5).optional(),
-  }).optional().nullable(),
+  title: z.string().max(200).transform((v) => v.replace(/<[^>]*>/g, "")).optional().nullable(),
+  comment: z.string().max(5000).transform((v) => v.replace(/<[^>]*>/g, "")).optional().nullable(),
+  // Keys come from the shared registry (customerCare, security, reality,
+  // comfort, ...); unknown keys and skipped (null) categories are dropped.
+  categoryRatings: z.record(z.string(), z.unknown()).optional().nullable(),
   bookingId: z.number().int().positive().optional().nullable(),
-});
-
-// Schema for owner response
-const ownerResponseSchema = z.object({
-  response: z.string().min(1).max(2000),
 });
 
 /**
@@ -38,7 +39,7 @@ router.get("/:propertyId", async (req, res) => {
       return res.status(400).json({ error: "Invalid property ID" });
     }
 
-    const reviews = await prisma.propertyReview.findMany({
+    const rows = await prisma.propertyReview.findMany({
       where: {
         propertyId,
         isPublished: true,
@@ -63,11 +64,18 @@ router.get("/:propertyId", async (req, res) => {
           select: {
             id: true,
             name: true,
+            fullName: true,
             // Don't expose email/phone for privacy
           },
         },
       },
     });
+
+    // Public page: first name and last initial only ("Amina K."), never a full name.
+    const reviews = rows.map(({ user, ...rest }: any) => ({
+      ...rest,
+      user: user ? { id: user.id, name: publicGuestName(user.fullName || user.name) } : null,
+    }));
 
     // Calculate aggregate statistics
     const stats = {
@@ -82,21 +90,11 @@ router.get("/:propertyId", async (req, res) => {
         2: reviews.filter((r: any) => r.rating === 2).length,
         1: reviews.filter((r: any) => r.rating === 1).length,
       },
-      categoryAverages: reviews.length > 0 && reviews[0].categoryRatings
-        ? (() => {
-            const cats = ["cleanliness", "location", "value", "service", "communication"] as const;
-            const avgs: Record<string, number> = {};
-            cats.forEach((cat) => {
-              const ratings = reviews
-                .map((r: any) => (r.categoryRatings as any)?.[cat])
-                .filter((r: any): r is number => typeof r === "number");
-              avgs[cat] = ratings.length > 0
-                ? ratings.reduce((sum: number, r: number) => sum + r, 0) / ratings.length
-                : 0;
-            });
-            return avgs;
-          })()
-        : null,
+      // Averages over the reviews that rated each category; categories nobody rated are left out.
+      categoryAverages: (() => {
+        const averages = averageCategoryRatings(reviews as Array<{ categoryRatings: unknown }>);
+        return averages.length ? Object.fromEntries(averages.map((item) => [item.key, item.average])) : null;
+      })(),
     };
 
     res.json({
@@ -113,79 +111,32 @@ router.get("/:propertyId", async (req, res) => {
  * POST /property-reviews
  * Create a new review (requires authentication)
  */
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, blockImpersonated as any, async (req, res) => {
   try {
     const userId = (req as AuthedRequest).user!.id;
     const parsed = createReviewSchema.parse((req as any).body);
 
-    // Check if user already reviewed this property
-    const existing = await prisma.propertyReview.findFirst({
-      where: {
-        propertyId: parsed.propertyId,
-        userId,
-      },
-    });
-
-    if (existing) {
-      return res.status(400).json({ error: "You have already reviewed this property" });
-    }
-
-    // Verify property exists and check if user is the owner
-    const property = await prisma.property.findFirst({
-      where: { id: parsed.propertyId },
-      select: { id: true, status: true, ownerId: true },
-    });
-
-    if (!property) {
-      return res.status(404).json({ error: "Property not found" });
-    }
-
-    // Prevent owners from reviewing their own properties
-    if (property.ownerId === userId) {
-      return res.status(403).json({ error: "Property owners cannot leave reviews on their own properties" });
-    }
-
-    // Verify booking if bookingId is provided
-    if (parsed.bookingId) {
-      const booking = await prisma.booking.findFirst({
-        where: {
-          id: parsed.bookingId,
-          userId,
-          propertyId: parsed.propertyId,
-          status: { in: ["CHECKED_OUT", "CONFIRMED"] },
-        },
+    // Reviews come from guests who stayed. The stay is the guest's own finished
+    // booking at this property; a bookingId from the browser only picks which one.
+    const booking = parsed.bookingId
+      ? await prisma.booking.findFirst({
+          where: { id: parsed.bookingId, userId, propertyId: parsed.propertyId, ...finishedStayWhere() },
+          select: { id: true, propertyId: true, status: true, checkOut: true, code: { select: { id: true } } },
+        })
+      : await findFinishedStay(userId, parsed.propertyId);
+    if (!booking) {
+      return res.status(403).json({
+        error: "Only guests who stayed here through NoLSAF can review it. After check-out you can rate your stay from My bookings.",
+        code: "STAY_REQUIRED",
       });
-
-      if (!booking) {
-        return res.status(400).json({ error: "Invalid booking ID or booking not found" });
-      }
     }
 
-    const review = await prisma.propertyReview.create({
-      data: {
-        propertyId: parsed.propertyId,
-        userId,
-        rating: parsed.rating,
-        title: parsed.title ?? null,
-        comment: parsed.comment ?? null,
-        categoryRatings: parsed.categoryRatings ?? null,
-        bookingId: parsed.bookingId ?? null,
-        isVerified: !!parsed.bookingId, // Verified if associated with a booking
-        isPublished: true,
-        isHidden: false,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
-
-    res.status(201).json(review);
+    const review = await createStayReview({ userId, booking, review: parsed });
+    res.status(201).json({ ...review, user: review.user ? { id: review.user.id, name: publicGuestName(review.user.name) } : null });
   } catch (err: any) {
+    if (err instanceof StayReviewError) {
+      return res.status(err.status).json({ error: err.message });
+    }
     if (err instanceof z.ZodError) {
       return res.status(400).json({ error: "Invalid request data", details: err.issues });
     }
@@ -194,58 +145,6 @@ router.post("/", requireAuth, async (req, res) => {
   }
 });
 
-/**
- * POST /property-reviews/:reviewId/owner-response
- * Property owner responds to a review (requires owner authentication)
- */
-router.post("/:reviewId/owner-response", requireAuth, async (req, res) => {
-  try {
-    const reviewId = Number((req as any).params.reviewId);
-    const userId = (req as AuthedRequest).user!.id;
-    const parsed = ownerResponseSchema.parse((req as any).body);
-
-    if (!reviewId || isNaN(reviewId)) {
-      return res.status(400).json({ error: "Invalid review ID" });
-    }
-
-    // Get review and verify property ownership
-    const review = await prisma.propertyReview.findFirst({
-      where: { id: reviewId },
-      include: {
-        property: {
-          select: {
-            id: true,
-            ownerId: true,
-          },
-        },
-      },
-    });
-
-    if (!review) {
-      return res.status(404).json({ error: "Review not found" });
-    }
-
-    if (review.property.ownerId !== userId) {
-      return res.status(403).json({ error: "You can only respond to reviews for your own properties" });
-    }
-
-    // Update review with owner response
-    const updated = await prisma.propertyReview.update({
-      where: { id: reviewId },
-      data: {
-        ownerResponse: parsed.response,
-        ownerResponseAt: new Date(),
-      },
-    });
-
-    res.json(updated);
-  } catch (err: any) {
-    if (err instanceof z.ZodError) {
-      return res.status(400).json({ error: "Invalid request data", details: err.issues });
-    }
-    console.error("Owner response error:", err);
-    res.status(500).json({ error: "Failed to add owner response" });
-  }
-});
+// Owner replies live in routes/owner.reviews.ts (owner-only, no support sessions).
 
 export default router;

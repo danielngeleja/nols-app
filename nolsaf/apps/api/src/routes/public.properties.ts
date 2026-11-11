@@ -262,6 +262,34 @@ async function batchResolvePrimaryImages(ids: number[]): Promise<Map<number, str
   }
 }
 
+/**
+ * Guest rating for each card: average and count over reviews guests can see.
+ * A property without reviews gets rating null, so the card shows nothing
+ * rather than a misleading zero. Fail-soft: a failed lookup only drops ratings.
+ */
+async function attachReviewRatings<T extends { id: number }>(cards: T[]): Promise<Array<T & { rating: { average: number; count: number } | null }>> {
+  const ids = cards.map((c) => Number(c.id)).filter((n) => Number.isFinite(n) && n > 0);
+  let byId = new Map<number, { average: number; count: number }>();
+  if (ids.length) {
+    try {
+      const rows = await prisma.propertyReview.groupBy({
+        by: ["propertyId"],
+        where: { propertyId: { in: ids }, isPublished: true, isHidden: false },
+        _avg: { rating: true },
+        _count: { _all: true },
+      });
+      byId = new Map(
+        (rows as any[])
+          .filter((r) => r._count?._all > 0 && r._avg?.rating)
+          .map((r) => [Number(r.propertyId), { average: Number(Number(r._avg.rating).toFixed(1)), count: Number(r._count._all) }]),
+      );
+    } catch {
+      byId = new Map();
+    }
+  }
+  return cards.map((c) => ({ ...c, rating: byId.get(Number(c.id)) ?? null }));
+}
+
 /** Merge a primaryImage map into an items array (mutates each item in-place). */
 function applyPrimaryImages(items: any[], imgMap: Map<number, string | null>): any[] {
   if (imgMap.size === 0) return items;
@@ -842,7 +870,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                 (fbItems as any[]).map((p: any) => Number(p.id)).filter((n: number) => Number.isFinite(n))
               );
               const fbItemsWithImages = applyPrimaryImages(fbItems as any[], fbImgMap);
-              const dto = fbItemsWithImages.map(toPublicCard);
+              const dto = await attachReviewRatings(fbItemsWithImages.map(toPublicCard));
               return {
                 items: dto,
                 total: fbCnt as number,
@@ -890,7 +918,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
             total = minCnt as number;
           }
 
-          const dto = (items || []).map(toPublicCard);
+          const dto = await attachReviewRatings((items || []).map(toPublicCard));
           return { items: dto, total, page, pageSize };
         },
         {

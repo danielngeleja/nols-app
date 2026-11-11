@@ -24,7 +24,21 @@ type Attribution = {
   attributedAt: string;
   commissionStartsAt: string | null;
   commissionEndsAt: string | null;
+  /** Unadopted NRMS claims only: the day it lapses unless the owner switches NRMS on. */
+  nrmsLapsesAt?: string | null;
 };
+
+/** Tells the partner, plainly, when an NRMS claim lapses if NRMS stays off. */
+function NrmsLapseNote({ attributions }: { attributions: Attribution[] }) {
+  const lapse = attributions.find((a) => a.nrmsLapsesAt)?.nrmsLapsesAt;
+  if (!lapse) return null;
+  const date = new Date(lapse).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+  return (
+    <p className="m-0 mt-1.5 text-[11px] leading-4 text-amber-800">
+      NRMS is not switched on yet. Your NRMS claim lapses on {date} unless the owner switches it on.
+    </p>
+  );
+}
 
 type PropertyRow = {
   id: number;
@@ -63,7 +77,7 @@ function OnboardingMini({ value }: { value: PropertyRow["onboarding"] }) {
   );
 }
 
-const attributionStatuses = ["ALL", "VERIFIED", "ACTIVE", "DISPUTED", "EXPIRED", "REVOKED"] as const;
+const attributionStatuses = ["ALL", "VERIFIED", "ACTIVE", "DISPUTED", "EXPIRED", "REVOKED", "LAPSED"] as const;
 
 function money(value: number, currency = "TZS") {
   return `${currency === "TZS" ? "TSh" : currency} ${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
@@ -326,6 +340,7 @@ export default function SalesPropertiesPage() {
                             </span>
                           ))}
                         </div>
+                        <NrmsLapseNote attributions={property.salesAttributions} />
 
                         <div className="mt-3">
                           <OnboardingMini value={property.onboarding} />
@@ -409,6 +424,7 @@ export default function SalesPropertiesPage() {
                               </span>
                             ))}
                           </div>
+                          <div className="max-w-[16rem]"><NrmsLapseNote attributions={property.salesAttributions} /></div>
                         </td>
                         <td className="max-w-[14rem] px-4 py-4">
                           <OnboardingMini value={property.onboarding} />

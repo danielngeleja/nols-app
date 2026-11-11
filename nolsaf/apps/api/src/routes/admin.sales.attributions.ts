@@ -27,6 +27,8 @@ import {
   canReassignAttribution,
   canRevokeAttribution,
   currentAttributionContract,
+  nrmsActivationCheck,
+  nrmsLapsesAt,
   requestedAttributionProducts,
 } from "../lib/salesAttribution.js";
 import {
@@ -94,7 +96,12 @@ const actionSchema = z.object({ reason }).strict();
  * (expired) or the attribution predates owner confirmation, an administrator
  * may override with the finance grant and a written reason, recorded in audit.
  */
-const activateSchema = z.object({ reason, ownerOverride: z.boolean().optional() }).strict();
+/**
+ * An NRMS claim also needs NRMS switched on for the property. When NRMS was
+ * already on before the partner registered the lead, only `nrmsOverride` with
+ * the written reason activates it (lib/salesAttribution.ts, "NRMS adoption").
+ */
+const activateSchema = z.object({ reason, ownerOverride: z.boolean().optional(), nrmsOverride: z.boolean().optional() }).strict();
 const reassignSchema = z.object({
   salesPartnerId: z.coerce.number().int().positive(),
   leadId: z.coerce.number().int().positive().nullable().optional(),
@@ -329,15 +336,48 @@ router.post("/leads/:id/approve-conversion", limitSalesAdminWrite, asyncHandler(
           salesPartner: { select: { agentCode: true } },
         },
       });
-      if (existing.length) {
-        const labels = existing.map((item: any) => `${item.productType} (${item.salesPartner.agentCode}, ${item.status})`);
+      // A lapsed NRMS claim no longer holds the property: the new claim takes
+      // its row over in place (one row per property and product). Anything else
+      // still needs the explicit reassignment workflow.
+      const held = existing.filter((item: any) => item.status !== "LAPSED");
+      if (held.length) {
+        const labels = held.map((item: any) => `${item.productType} (${item.salesPartner.agentCode}, ${item.status})`);
         throw new AttributionConflictError(
           `Property attribution already exists for ${labels.join(", ")}. Use the explicit reassignment workflow.`,
         );
       }
+      const lapsedByProduct = new Map<string, any>(existing.map((item: any) => [item.productType, item]));
 
+      const attributionSelect = { id: true, propertyId: true, salesPartnerId: true, productType: true, status: true, verifiedAt: true };
       const attributions: any[] = [];
+      const takenOver: Array<{ id: number; productType: string; fromPartnerId: number }> = [];
       for (const productType of products) {
+        const lapsed = lapsedByProduct.get(productType);
+        if (lapsed) {
+          const moved = await tx.propertySalesAttribution.updateMany({
+            where: { id: lapsed.id, status: "LAPSED" },
+            data: {
+              salesPartnerId: lead.salesPartnerId,
+              leadId: lead.id,
+              contractId: contract.id,
+              status: "VERIFIED",
+              attributedAt: now,
+              verifiedAt: now,
+              verifiedById: req.user!.id,
+              commissionStartsAt: null,
+              commissionEndsAt: null,
+              reassignedAt: now,
+              reassignedToPartnerId: lead.salesPartnerId,
+              revokedAt: null,
+              disputeReason: null,
+              notes: input.reason,
+            },
+          });
+          if (moved.count !== 1) throw new AttributionConflictError("The lapsed claim on this property was changed by another administrator");
+          takenOver.push({ id: lapsed.id, productType, fromPartnerId: lapsed.salesPartnerId });
+          attributions.push(await tx.propertySalesAttribution.findUnique({ where: { id: lapsed.id }, select: attributionSelect }));
+          continue;
+        }
         attributions.push(await tx.propertySalesAttribution.create({
           data: {
             propertyId: property.id,
@@ -350,14 +390,7 @@ router.post("/leads/:id/approve-conversion", limitSalesAdminWrite, asyncHandler(
             verifiedById: req.user!.id,
             notes: input.reason,
           },
-          select: {
-            id: true,
-            propertyId: true,
-            salesPartnerId: true,
-            productType: true,
-            status: true,
-            verifiedAt: true,
-          },
+          select: attributionSelect,
         }));
       }
       const updated = await tx.salesLead.updateMany({
@@ -392,6 +425,7 @@ router.post("/leads/:id/approve-conversion", limitSalesAdminWrite, asyncHandler(
             propertyId: property.id,
             attributionIds: attributions.map((item: any) => item.id),
             products,
+            ...(takenOver.length ? { takenOverLapsedClaims: takenOver } : {}),
             reason: input.reason,
           }),
       });
@@ -554,7 +588,9 @@ router.get("/attributions", limitSalesAdminRead, asyncHandler(async (req: Authed
         commissionEndsAt: true,
         reassignedAt: true,
         revokedAt: true,
-        property: { select: { id: true, title: true, status: true } },
+        disputeReason: true,
+        lead: { select: { createdAt: true } },
+        property: { select: { id: true, title: true, status: true, nrmsActivatedAt: true } },
         salesPartner: {
           select: { id: true, agentCode: true, status: true, user: { select: { name: true, email: true } } },
         },
@@ -562,7 +598,7 @@ router.get("/attributions", limitSalesAdminRead, asyncHandler(async (req: Authed
         ownerConfirmations: {
           orderBy: { id: "desc" },
           take: 1,
-          select: { status: true, expiresAt: true, respondedAt: true, responseNote: true },
+          select: { status: true, expiresAt: true, respondedAt: true, responseNote: true, contactChannel: true },
         },
       },
     }),
@@ -571,10 +607,21 @@ router.get("/attributions", limitSalesAdminRead, asyncHandler(async (req: Authed
     total,
     page,
     pageSize,
-    attributions: attributions.map(({ ownerConfirmations, ...item }: any) => ({
-      ...item,
-      ownerConfirmation: ownerConfirmations?.[0] ?? null,
-    })),
+    attributions: attributions.map(({ ownerConfirmations, lead, ...item }: any) => {
+      const switchedOnAt = item.property?.nrmsActivatedAt ?? null;
+      return {
+        ...item,
+        ownerConfirmation: ownerConfirmations?.[0] ?? null,
+        // NRMS claims only: is NRMS on, did it start before the claim, and when an unadopted claim lapses.
+        nrms: item.productType === "NRMS"
+          ? {
+              switchedOnAt,
+              check: nrmsActivationCheck({ nrmsActivatedAt: switchedOnAt, claimedAt: lead?.createdAt ?? item.attributedAt }),
+              lapsesAt: nrmsLapsesAt(item, switchedOnAt),
+            }
+          : null,
+      };
+    }),
   });
 }));
 
@@ -595,7 +642,10 @@ router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFina
         propertyId: true,
         productType: true,
         salesPartnerId: true,
-        property: { select: { title: true } },
+        attributedAt: true,
+        verifiedAt: true,
+        lead: { select: { createdAt: true } },
+        property: { select: { title: true, nrmsActivatedAt: true } },
         salesPartner: {
           select: {
             userId: true,
@@ -614,6 +664,25 @@ router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFina
     if (!attribution) throw new AttributionNotFoundError("Attribution not found");
     if (!canActivateAttribution(attribution.status)) {
       throw new AttributionConflictError("Only a VERIFIED attribution can be activated");
+    }
+    // An NRMS claim earns only from NRMS the partner actually brought.
+    let nrmsCheck: string | null = null;
+    if (attribution.productType === "NRMS") {
+      nrmsCheck = nrmsActivationCheck({
+        nrmsActivatedAt: attribution.property?.nrmsActivatedAt ?? null,
+        claimedAt: attribution.lead?.createdAt ?? attribution.attributedAt,
+      });
+      if (nrmsCheck === "NOT_SWITCHED_ON") {
+        const lapses = nrmsLapsesAt(attribution, null);
+        throw new AttributionConflictError(
+          `NRMS is not switched on for this property yet. Activate the NRMS claim once the owner switches it on.${lapses ? ` If that has not happened by ${lapses.toISOString().slice(0, 10)}, the claim lapses and the property is free again.` : ""}`,
+        );
+      }
+      if (nrmsCheck === "ON_BEFORE_CLAIM" && input.nrmsOverride !== true) {
+        throw new AttributionConflictError(
+          "NRMS was already switched on before this partner registered the lead, so they did not bring it. Tick the NRMS override and explain in the reason only if you have proof they did.",
+        );
+      }
     }
     if (attribution.salesPartner.status !== "ACTIVE") {
       throw new AttributionConflictError("The attributed sales partner is not active");
@@ -661,6 +730,7 @@ router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFina
           commissionEndsAt: contract.expiresAt,
           ownerConfirmation: ownerStatus,
           ownerOverride,
+          ...(nrmsCheck ? { nrmsCheck, nrmsOverride: nrmsCheck === "ON_BEFORE_CLAIM", nrmsActivatedAt: attribution.property?.nrmsActivatedAt ?? null } : {}),
           reason: input.reason,
         }),
     });

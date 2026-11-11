@@ -7,6 +7,7 @@ import ownerGroupStaysRouter from "./owner.groupStays";
 import ownerInvoicesRouter from "./owner.invoices";
 import ownerPayoutsRouter from "./owner.payouts.js";
 import ownerSalesConfirmationsRouter from "./owner.salesConfirmations.js";
+import ownerReviewsRouter from "./owner.reviews.js";
 import ownerNotificationsRouter from "./owner.notifications";
 import { router as ownerPhone } from "./owner.phone.verify";
 import { router as ownerProperties } from "./owner.properties";
@@ -109,6 +110,7 @@ export function registerOwnerBookingRoutes(app: Express): void {
   app.use("/owner/payouts", ownerPayoutsRouter as RequestHandler);
   app.use("/api/owner/payouts", ownerPayoutsRouter as RequestHandler);
   app.use("/api/owner/sales-confirmations", ownerSalesConfirmationsRouter as RequestHandler);
+  app.use("/api/owner/reviews", ownerReviewsRouter as RequestHandler);
   app.use("/owner/group-stays", ownerGroupStaysRouter as RequestHandler);
   app.use("/api/owner/group-stays", ownerGroupStaysRouter as RequestHandler);
   app.use("/owner/group-stays/claims", ownerGroupStaysClaimsRouter as RequestHandler);

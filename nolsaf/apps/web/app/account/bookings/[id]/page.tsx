@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import PreferencesPrompt from "@/app/account/karibu/PreferencesPrompt";
+import RateStayCard, { type StayReviewInfo } from "@/components/account/RateStayCard";
 
 const api = apiClient;
 
@@ -71,6 +72,7 @@ type BookingDetail = {
     amount?: number;
   }>;
   user?: { id: number; name: string; email?: string; phone?: string };
+  review?: StayReviewInfo;
 };
 
 function getStatusMeta(status: string) {
@@ -338,6 +340,11 @@ export default function BookingDetailPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* Left */}
         <div className="min-w-0 space-y-4">
+          {/* Rate the stay: shown once it is finished, or with the guest's review once posted */}
+          {booking.review && (booking.review.state || booking.review.mine) ? (
+            <RateStayCard bookingReference={booking.bookingReference} propertyTitle={booking.property.title} info={booking.review} />
+          ) : null}
+
           {/* Your stay */}
           <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
             <header className="flex items-center gap-2.5 border-0 border-b border-solid border-slate-100 px-5 py-3.5">

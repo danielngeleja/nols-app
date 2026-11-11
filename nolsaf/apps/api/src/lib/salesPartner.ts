@@ -151,6 +151,8 @@ export const ATTRIBUTION_STATUSES = [
   "REASSIGNED",
   "EXPIRED",
   "REVOKED",
+  /** An NRMS claim the owner never adopted in time. The property is free again. */
+  "LAPSED",
 ] as const;
 export type AttributionStatus = (typeof ATTRIBUTION_STATUSES)[number];
 

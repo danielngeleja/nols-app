@@ -898,6 +898,21 @@ export const limitOwnerSalesConfirmation = rateLimit({
   },
 });
 
+/** Owner replies to guest reviews: public text, so a sane cap per owner. */
+export const limitOwnerReviewReply = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many replies in a short time. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `owner-review-reply:${userId}`
+      : `owner-review-reply:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
 export const limitOwnerPayoutRead = rateLimit({
   windowMs: 60_000,
   limit: 120,

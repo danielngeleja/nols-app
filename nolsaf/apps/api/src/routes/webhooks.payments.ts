@@ -36,6 +36,7 @@ import { confirmNoLsafBooking, MARKETPLACE_CONNECT_TX_OPTIONS } from "../lib/nol
 import { customerBookingReference } from "../lib/customerBookingReference.js";
 import { releaseFailedBookingPayment } from "../lib/bookingPaymentAttempt.js";
 import { recognizeGroupStayRevenue, recognizeInvoiceRevenue, recognizeTourRevenue, REVENUE_TX_OPTIONS } from "../lib/revenueRecognition.js";
+import { adminRecordReference } from "../lib/adminRecordReference.js";
 import {
   expectedInvoicePaymentAmount,
   isPaymentAmountWithinTolerance,
@@ -744,6 +745,16 @@ export async function markGroupBookingDepositPaid(
   }, REVENUE_TX_OPTIONS);
   if (claimed.count !== 1) return { ok: false, reason: "already_paid" };
 
+  void notifyAdmins("group_stay_deposit_paid", {
+    groupBookingId: groupBooking.id,
+    reference: adminRecordReference("group-stay", groupBooking.id),
+    amount: want,
+    currency: groupBooking.currency || "TZS",
+    provider,
+    destination: [groupBooking.toDistrict, groupBooking.toRegion].filter(Boolean).join(", ") || null,
+    href: "/admin/group-stays/bookings",
+  }).catch(() => undefined);
+
   // Now that the deposit is in, finalize the winning owner's claim as ACCEPTED.
   // Before this point the claim sits in REVIEWING so the owner never sees a premature
   // "accepted" status (the customer selecting the offer is not yet a confirmed deal).
@@ -890,6 +901,17 @@ export async function markTourBookingPaid(
     return result;
   }, REVENUE_TX_OPTIONS);
   if (claimed.count !== 1) return { ok: false, reason: "already_paid" };
+
+  void notifyAdmins("tour_booking_paid", {
+    tourBookingId: tour.id,
+    bookingCode: tour.bookingCode,
+    title: tour.title,
+    guestName: tour.guestName,
+    amount: want,
+    currency: tour.currency || "TZS",
+    provider,
+    href: "/admin/agents/tour-revenue",
+  }).catch(() => undefined);
 
   const incomingRef = tour.customerPaymentRef ?? tour.paymentRef;
   if (incomingRef) {

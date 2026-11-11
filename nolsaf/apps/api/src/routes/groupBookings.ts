@@ -12,7 +12,7 @@ import { Router, type RequestHandler, type Response } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { sanitizeText } from "../lib/sanitize.js";
-import { notifyUser } from "../lib/notifications.js";
+import { notifyAdmins, notifyUser } from "../lib/notifications.js";
 import {
   CreateGroupBookingInput,
   UpdateGroupBookingStatusInput,
@@ -217,6 +217,16 @@ const createGroupBooking: RequestHandler = async (req, res) => {
       console.warn("[GroupBooking] Failed to send auto-received message:", e);
     }
     
+    // The admin inbox gets every new request: someone has to invite owners to bid.
+    void notifyAdmins("group_stay_request_created", {
+      groupBookingId: groupBooking.id,
+      customerName: (req as AuthedRequest).user?.name || null,
+      headcount: groupBooking.headcount ?? null,
+      destination: [groupBooking.toDistrict, groupBooking.toRegion].filter(Boolean).join(", ") || null,
+      checkIn: groupBooking.checkIn ? new Date(groupBooking.checkIn).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" }) : null,
+      href: "/admin/group-stays/bookings",
+    }).catch(() => undefined);
+
     // Log successful creation
     console.log(`[GroupBooking] Created booking #${groupBooking.id} for user #${userId}`);
     

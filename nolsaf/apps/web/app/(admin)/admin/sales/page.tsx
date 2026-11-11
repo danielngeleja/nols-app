@@ -90,15 +90,27 @@ type Attribution = {
     user: { name: string | null; email: string | null };
   };
   contract: { id: number; contractNumber: string; status: string; expiresAt: string } | null;
-  ownerConfirmation: { status: string; expiresAt: string; respondedAt: string | null; responseNote: string | null } | null;
+  ownerConfirmation: { status: string; expiresAt: string; respondedAt: string | null; responseNote: string | null; contactChannel?: string | null } | null;
+  disputeReason?: string | null;
+  /** NRMS claims only: whether the owner has switched NRMS on, and when an unadopted claim lapses. */
+  nrms?: { switchedOnAt: string | null; check: "OK" | "NOT_SWITCHED_ON" | "ON_BEFORE_CLAIM"; lapsesAt: string | null } | null;
+};
+
+/** How the partner first reached the owner, as the owner said when confirming. */
+const CONTACT_CHANNEL_LABEL: Record<string, string> = {
+  FACE_TO_FACE: "in person", PHONE_CALL: "by phone call", WHATSAPP: "on WhatsApp", INSTAGRAM: "on Instagram",
+  FACEBOOK: "on Facebook", TIKTOK: "on TikTok", REFERRAL: "through a referral", EVENT: "at an event", OTHER: "another way",
 };
 
 // What the property owner said about this partner. Classes spelled out for Tailwind.
 function ownerAnswer(confirmation: Attribution["ownerConfirmation"]) {
   const status = confirmation?.status ?? "NONE";
   switch (status) {
-    case "CONFIRMED":
-      return { status, label: "Owner confirmed", detail: confirmation?.respondedAt ? `on ${day(confirmation.respondedAt)}` : "", tone: "text-emerald-700 bg-emerald-50" };
+    case "CONFIRMED": {
+      const channel = confirmation?.contactChannel ? CONTACT_CHANNEL_LABEL[confirmation.contactChannel] : null;
+      const when = confirmation?.respondedAt ? `on ${day(confirmation.respondedAt)}` : "";
+      return { status, label: "Owner confirmed", detail: [when, channel ? `met ${channel}` : ""].filter(Boolean).join(", "), tone: "text-emerald-700 bg-emerald-50" };
+    }
     case "PENDING":
       return { status, label: "Waiting for the owner", detail: confirmation?.expiresAt ? `until ${day(confirmation.expiresAt)}` : "", tone: "text-amber-700 bg-amber-50" };
     case "DENIED":
@@ -125,6 +137,7 @@ const ATTRIBUTION_STAGE: Record<string, { label: string; hint: string; text: str
   DISPUTED: { label: "On hold", hint: "Owner did not confirm", text: "text-rose-700", dot: "bg-rose-500", soft: "bg-rose-50", ring: "ring-rose-400" },
   ACTIVE: { label: "Earning", hint: "Commission running", text: "text-emerald-700", dot: "bg-emerald-500", soft: "bg-emerald-50", ring: "ring-emerald-500" },
   REVOKED: { label: "Revoked", hint: "No longer earning", text: "text-rose-600", dot: "bg-rose-500", soft: "bg-rose-50", ring: "ring-rose-400" },
+  LAPSED: { label: "Lapsed", hint: "NRMS not switched on in time, property free again", text: "text-neutral-600", dot: "bg-neutral-400", soft: "bg-neutral-100", ring: "ring-neutral-300" },
 };
 const stageOf = (status: string) =>
   ATTRIBUTION_STAGE[status] || { label: humanize(status), hint: "", text: "text-neutral-600", dot: "bg-neutral-400", soft: "bg-neutral-50", ring: "ring-neutral-300" };
@@ -198,6 +211,7 @@ export default function SalesReviewPage() {
   const [targetPartner, setTargetPartner] = useState<Record<number, PickedPartner | null>>({});
   const [reassignOpen, setReassignOpen] = useState<Record<number, boolean>>({});
   const [ownerOverride, setOwnerOverride] = useState<Record<number, boolean>>({});
+  const [nrmsOverride, setNrmsOverride] = useState<Record<number, boolean>>({});
   const [openAttributionId, setOpenAttributionId] = useState<number | null>(null);
   const [attrSort, setAttrSort] = useState<AttrSort>("stage");
   const [attrDir, setAttrDir] = useState<"asc" | "desc">("asc");
@@ -341,6 +355,7 @@ export default function SalesReviewPage() {
         reason: note,
         ...(action === "reassign" ? { salesPartnerId: partnerId } : {}),
         ...(action === "activate" && ownerOverride[item.id] ? { ownerOverride: true } : {}),
+        ...(action === "activate" && nrmsOverride[item.id] ? { nrmsOverride: true } : {}),
       });
       setNotice(
         action === "activate"
@@ -352,6 +367,7 @@ export default function SalesReviewPage() {
               : `${item.property.title} was reassigned and the owner was asked to confirm the new partner.`,
       );
       setOwnerOverride((current) => ({ ...current, [item.id]: false }));
+      setNrmsOverride((current) => ({ ...current, [item.id]: false }));
       setReassignOpen((current) => ({ ...current, [item.id]: false }));
       await load();
     } catch (cause: any) {
@@ -815,6 +831,10 @@ export default function SalesReviewPage() {
         const end = item.commissionEndsAt ? new Date(item.commissionEndsAt).getTime() : null;
         const progress = start && end && end > start ? Math.min(Math.max(((Date.now() - start) / (end - start)) * 100, 0), 100) : 0;
         const daysLeft = end ? Math.max(Math.ceil((end - Date.now()) / 86400000), 0) : null;
+        // NRMS claims are activated only once the owner has switched NRMS on.
+        const nrmsWaiting = item.nrms?.check === "NOT_SWITCHED_ON";
+        const nrmsBefore = item.nrms?.check === "ON_BEFORE_CLAIM";
+        const nrmsBlocks = nrmsWaiting || (nrmsBefore && !nrmsOverride[item.id]);
         return (
           <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-neutral-950/45 p-3 sm:p-6" onMouseDown={() => setOpenAttributionId(null)}>
             <section
@@ -848,6 +868,23 @@ export default function SalesReviewPage() {
                     <div className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-xs ${owner.tone}`}>
                       <ShieldQuestion className="h-3.5 w-3.5 flex-shrink-0" /><span className="font-semibold">{owner.label}</span>{owner.detail && <span className="opacity-80">· {owner.detail}</span>}
                     </div>
+                    {item.ownerConfirmation?.responseNote ? (
+                      <p className="m-0 rounded-md bg-neutral-50 px-3 py-2 text-xs text-neutral-700">Owner&apos;s note: {item.ownerConfirmation.responseNote}</p>
+                    ) : null}
+                    {item.nrms && item.status !== "LAPSED" ? (
+                      <p className={`m-0 rounded-md px-3 py-2 text-xs sm:col-span-2 ${item.nrms.check === "OK" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>
+                        {item.nrms.check === "OK"
+                          ? `NRMS switched on ${day(item.nrms.switchedOnAt)}, after this partner registered the property.`
+                          : item.nrms.check === "ON_BEFORE_CLAIM"
+                            ? `NRMS was already switched on ${day(item.nrms.switchedOnAt)}, before this partner registered the property, so they did not bring it.`
+                            : `NRMS is not switched on yet. This claim cannot earn or be activated until it is${item.nrms.lapsesAt ? `, and lapses on ${day(item.nrms.lapsesAt)} if it is still off` : ""}.`}
+                      </p>
+                    ) : null}
+                    {item.status === "LAPSED" ? (
+                      <p className="m-0 rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-700 sm:col-span-2">
+                        {item.disputeReason || "This NRMS claim lapsed."} The property is free for a new NRMS claim, which takes this record over when its conversion is approved.
+                      </p>
+                    ) : null}
                   </div>
                   <dl className="m-0 grid grid-cols-1 overflow-hidden rounded-md border border-solid border-neutral-200 sm:grid-cols-3">
                     <div className="min-w-0 px-3 py-2.5">
@@ -916,14 +953,27 @@ export default function SalesReviewPage() {
                         </label>
                       )}
 
+                      {!reassigning && item.status === "VERIFIED" && nrmsBefore && (
+                        <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-solid border-amber-200 bg-amber-50 p-2.5 text-[12px] text-amber-900">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={Boolean(nrmsOverride[item.id])}
+                            onChange={(event) => setNrmsOverride((current) => ({ ...current, [item.id]: event.target.checked }))}
+                          />
+                          <span>Activate the NRMS claim although NRMS was on before this partner. Use only with proof they brought the owner back to NRMS, and say what it is in the reason. This is recorded.</span>
+                        </label>
+                      )}
+
                       {!reassigning && (
                         <div className="flex flex-wrap gap-2">
                           {item.status === "VERIFIED" && (
-                            <button type="button" className={`${primaryButton} flex-1`} onClick={() => void attributionAction(item, "activate")} disabled={Boolean(busy) || note.length < 5 || ownerBlocks || (needsOverride && !ownerOverride[item.id])}>
+                            <button type="button" className={`${primaryButton} flex-1`} onClick={() => void attributionAction(item, "activate")} disabled={Boolean(busy) || note.length < 5 || ownerBlocks || (needsOverride && !ownerOverride[item.id]) || nrmsBlocks}
+                              title={nrmsWaiting ? "NRMS is not switched on for this property yet" : undefined}>
                               {busy === `activate-${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Activate earning
                             </button>
                           )}
-                          {item.status !== "REVOKED" && (
+                          {item.status !== "REVOKED" && item.status !== "LAPSED" && (
                             <button type="button" className={`${secondaryButton} hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700`} onClick={() => void attributionAction(item, "revoke")} disabled={Boolean(busy) || note.length < 5}>
                               {busy === `revoke-${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Revoke
                             </button>

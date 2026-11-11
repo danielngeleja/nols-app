@@ -6,7 +6,7 @@ import {
   Calendar, Wallet, FileText, PlusSquare, LayoutDashboard,
   ChevronDown, ChevronLeft, ChevronRight, Users, HandHeart, CalendarDays,
   CheckCircle2, Building2, BadgeCheck, LogIn, LogOut, BarChart3, BedDouble,
-  LayoutGrid, Clock, Receipt, Archive, Bell, ShieldCheck,
+  LayoutGrid, Clock, Receipt, Archive, Bell, ShieldCheck, Star,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -294,6 +294,34 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
     };
   }, []);
 
+  // Guest reviews still waiting for the owner's public reply.
+  const [unansweredReviews, setUnansweredReviews] = useState(0);
+  useEffect(() => {
+    let mounted = true;
+    let stopped = false;
+    const fetchReviews = async () => {
+      if (!mounted || stopped) return;
+      try {
+        const { data } = await api.get("/api/owner/reviews/count", { timeout: 10000 });
+        if (mounted) setUnansweredReviews(Number(data?.unanswered ?? 0));
+      } catch (err: any) {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) stopped = true;
+      }
+    };
+    void fetchReviews();
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === "visible") void fetchReviews();
+    }, 5 * 60_000);
+    const onChanged = () => void fetchReviews();
+    window.addEventListener("nols:owner-reviews-changed", onChanged);
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+      window.removeEventListener("nols:owner-reviews-changed", onChanged);
+    };
+  }, []);
+
   const path = usePathname() || "";
   const frontDesk = isFrontDeskPath(path);
   const onPartnerConfirmations = path === "/owner/partner-confirmations";
@@ -317,6 +345,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
       >
         <CollapseBtn href="/owner" label="Dashboard" Icon={LayoutDashboard} active={path === "/owner"} />
         <CollapseBtn href="/owner/notifications" label="Inbox" Icon={Bell} active={path.startsWith("/owner/notifications")} count={unreadCount} />
+        <CollapseBtn href="/owner/reviews" label="Guest reviews" Icon={Star} active={path === "/owner/reviews"} count={unansweredReviews || undefined} />
         {showPartnerConfirmations && (
           <CollapseBtn href="/owner/partner-confirmations" label="Partner confirmations" Icon={ShieldCheck} active={onPartnerConfirmations} count={partnerConfirmations.pending || undefined} />
         )}
@@ -366,6 +395,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
 
         <TopItem href="/owner" label="Dashboard" Icon={LayoutDashboard} />
         <TopItem href="/owner/notifications" label="Inbox" Icon={Bell} count={unreadCount} />
+        <TopItem href="/owner/reviews" label="Guest reviews" Icon={Star} count={unansweredReviews} />
         {showPartnerConfirmations && (
           <TopItem href="/owner/partner-confirmations" label="Partner confirmations" Icon={ShieldCheck} count={partnerConfirmations.pending} />
         )}

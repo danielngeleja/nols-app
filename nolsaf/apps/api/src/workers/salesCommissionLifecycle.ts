@@ -11,6 +11,7 @@ import {
   bookingWasCancelled,
 } from "../lib/salesCommission.js";
 import { sweepOwnerConfirmations } from "../lib/salesOwnerConfirmation.js";
+import { lapseUnadoptedNrmsClaims } from "../lib/salesNrmsAdoption.js";
 import { closeMonth, liveRankNotices, monthKey, shiftMonth } from "../lib/salesLeaderboard.js";
 import { notifyAdmins, notifyUser } from "../lib/notifications.js";
 import { teamHealthNotices } from "../lib/salesTeamHealth.js";
@@ -237,6 +238,12 @@ export function startSalesCommissionLifecycleWorker(): void {
       if (confirmations && (confirmations.expired || confirmations.cancelled || confirmations.reminded)) {
         console.log("[sales-owner-confirmation] sweep", confirmations);
       }
+      // NRMS claims the owner never adopted lapse, freeing the property for a real NRMS sale.
+      const nrms = await lapseUnadoptedNrmsClaims().catch((error: any) => {
+        console.error("[sales-nrms-adoption] lapse sweep failed:", error?.message || error);
+        return null;
+      });
+      if (nrms?.lapsed) console.log("[sales-nrms-adoption] lapsed", nrms);
       await leaderboardHousekeeping().catch((error: any) => {
         console.error("[sales-leaderboard] housekeeping failed:", error?.message || error);
       });

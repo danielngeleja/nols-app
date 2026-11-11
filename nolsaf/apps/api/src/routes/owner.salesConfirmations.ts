@@ -11,15 +11,17 @@ import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { limitOwnerSalesConfirmation } from "../middleware/rateLimit.js";
-import { notifyUser } from "../lib/notifications.js";
+import { notifyAdmins, notifyUser } from "../lib/notifications.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import {
   OWNER_ANSWERS,
+  OWNER_CONTACT_CHANNELS,
   OwnerConfirmationError,
   answerOwnerConfirmation,
   hashConfirmationReference,
   hashResponseIp,
 } from "../lib/salesOwnerConfirmation.js";
+import { CARD_VALIDITY_TEXT, cardToken, cardValidity, cardVerifyUrl } from "../lib/salesPartnerCard.js";
 
 const db = prisma as any;
 
@@ -36,22 +38,54 @@ const idParams = z.object({ id: z.coerce.number().int().positive() });
 const answerSchema = z.object({
   answer: z.enum(OWNER_ANSWERS),
   note: z.string().trim().max(300).transform(sanitizeText).optional(),
+  contactChannel: z.enum(OWNER_CONTACT_CHANNELS).optional(),
 });
 const resolveSchema = z.object({ reference: z.string().trim().min(20).max(80).regex(/^[A-Za-z0-9_-]+$/) });
 
-function publicConfirmation(row: any) {
+/**
+ * The partner's ID card as the owner may see it: the same facts the public
+ * card check shows (photo, card number, region, live validity) plus the link
+ * to that check, so the owner can verify the person behind the name. Never
+ * contact details, never earnings. The newest card that was ever issued wins;
+ * a partner with no card yet gets null.
+ */
+function partnerCard(partner: any, now: Date) {
+  const card = partner?.idCards?.[0];
+  if (!card) return null;
+  const accountBlocked = Boolean(partner.user?.suspendedAt || partner.user?.isDisabled);
+  const validity = cardValidity({ card, partnerStatus: accountBlocked ? "SUSPENDED" : partner.status, contracts: partner.contracts ?? [], now });
+  return {
+    valid: validity === "VALID",
+    validity,
+    message: CARD_VALIDITY_TEXT[validity],
+    cardNumber: card.cardNumber,
+    // A photo NoLSAF has not approved is never shown as the partner's face.
+    photoUrl: validity === "PHOTO_REVIEW" || validity === "PHOTO_REJECTED" ? null : card.photoUrl,
+    expiresAt: card.expiresAt,
+    verifyUrl: cardVerifyUrl(cardToken(card)),
+  };
+}
+
+function publicConfirmation(row: any, now = new Date()) {
+  const partner = row.salesPartner;
   return {
     id: row.id,
     status: row.status,
     requestedAt: row.requestedAt,
     expiresAt: row.expiresAt,
     respondedAt: row.respondedAt,
+    contactChannel: row.contactChannel ?? null,
+    note: row.responseNote ?? null,
     property: { title: row.property?.title ?? "" },
-    // Who the partner is, never what they earn.
+    // Who the partner is, never what they earn or how to reach them privately.
     partner: {
-      name: row.salesPartner?.user?.name || "NoLSAF sales partner",
-      agentCode: row.salesPartner?.agentCode || "",
-      region: row.salesPartner?.region || null,
+      name: partner?.user?.fullName || partner?.user?.name || "NoLSAF sales partner",
+      agentCode: partner?.agentCode || "",
+      region: partner?.region || null,
+      territory: partner?.territory || null,
+      partnerSince: partner?.createdAt ?? null,
+      teamLead: partner?.ledTeam?.status === "ACTIVE",
+      card: partnerCard(partner, now),
     },
   };
 }
@@ -62,10 +96,29 @@ const confirmationSelect = {
   requestedAt: true,
   expiresAt: true,
   respondedAt: true,
+  responseNote: true,
+  contactChannel: true,
   propertyId: true,
   salesPartnerId: true,
   property: { select: { title: true } },
-  salesPartner: { select: { agentCode: true, region: true, user: { select: { name: true } } } },
+  salesPartner: {
+    select: {
+      agentCode: true,
+      region: true,
+      territory: true,
+      status: true,
+      createdAt: true,
+      user: { select: { name: true, fullName: true, suspendedAt: true, isDisabled: true } },
+      contracts: { select: { status: true, startsAt: true, expiresAt: true }, orderBy: { expiresAt: "desc" as const }, take: 5 },
+      idCards: {
+        where: { status: { in: ["ACTIVE", "PENDING_REVIEW", "REVOKED", "PHOTO_REJECTED"] } },
+        select: { id: true, salt: true, cardNumber: true, photoUrl: true, status: true, expiresAt: true },
+        orderBy: { issuedAt: "desc" as const },
+        take: 1,
+      },
+      ledTeam: { select: { status: true } },
+    },
+  },
 };
 
 /** One entry per partner and property: several products answer together. */
@@ -109,7 +162,7 @@ router.get("/", asyncHandler(async (req: AuthedRequest, res: Response) => {
       select: confirmationSelect,
     }),
   ]);
-  res.json({ pending: dedupe(pending).map(publicConfirmation), answered: dedupe(answered).map(publicConfirmation) });
+  res.json({ pending: dedupe(pending).map((row) => publicConfirmation(row, now)), answered: dedupe(answered).map((row) => publicConfirmation(row, now)) });
 }));
 
 /** POST /api/owner/sales-confirmations/resolve: map a link reference to the owner's own request. */
@@ -133,13 +186,14 @@ router.post("/:id/answer", limitWrites, asyncHandler(async (req: AuthedRequest, 
   const params = idParams.safeParse(req.params);
   const parsed = answerSchema.safeParse(req.body);
   if (!params.success) return res.status(404).json({ error: "Request not found" });
-  if (!parsed.success) return res.status(400).json({ error: "Choose an answer" });
+  if (!parsed.success) return res.status(400).json({ error: "Choose an answer, and for a yes, how the partner reached you" });
   try {
     const result = await db.$transaction((tx: any) => answerOwnerConfirmation(tx, {
       confirmationId: params.data.id,
       userId: req.user!.id,
       answer: parsed.data.answer,
       note: parsed.data.note ?? null,
+      contactChannel: parsed.data.contactChannel ?? null,
       ipHash: hashResponseIp(req.ip),
       userAgent: req.get("user-agent") || null,
       sessionId: req.sessionId || null,
@@ -150,6 +204,20 @@ router.post("/:id/answer", limitWrites, asyncHandler(async (req: AuthedRequest, 
         result.answer === "CONFIRMED" ? "sales_partner_owner_confirmed" : "sales_partner_owner_disputed",
         { propertyName: result.propertyTitle },
       ).catch(() => undefined);
+    }
+    // A "no" freezes the claim; someone at NoLSAF has to review, revoke or reassign it.
+    if (result.answer !== "CONFIRMED") {
+      const row = await db.salesOwnerConfirmation.findUnique({
+        where: { id: params.data.id },
+        select: { salesPartner: { select: { agentCode: true } } },
+      }).catch(() => null);
+      void notifyAdmins("sales_partner_owner_disputed", {
+        propertyTitle: result.propertyTitle,
+        agentCode: row?.salesPartner?.agentCode ?? null,
+        answer: result.answer,
+        attributionIds: result.attributionIds,
+        href: "/admin/sales",
+      }).catch(() => undefined);
     }
     res.json({ ok: true, status: result.answer });
   } catch (error) {

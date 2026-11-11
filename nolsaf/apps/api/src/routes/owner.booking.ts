@@ -19,6 +19,7 @@ import {
   recordBookingCodeFailure,
 } from "../lib/bookingCodeAttemptTracker.js";
 import { syncNoLsafBookingToNrms, updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
+import { askGuestToReview } from "../lib/stayReviews.js";
 import { deliverGuestCheckinCode, recordGuestCodeRequest } from "../lib/guestCodeRequests.js";
 import {
   customerBookingReference,
@@ -1106,6 +1107,8 @@ const confirmCheckout: RequestHandler = async (req, res) => {
   }
 
   await invalidateOwnerReports(r.user!.id);
+  // Ask the guest to rate their stay (in-app, plus email when verified). Never blocks check-out.
+  void askGuestToReview(updated.id).catch((err) => console.warn("[checkout] review request failed", err?.message || err));
   return (res as Response).json({ ok: true, bookingId: updated.id, status: updated.status });
 };
 router.post("/:id/confirm-checkout", confirmCheckout);

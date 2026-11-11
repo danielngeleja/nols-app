@@ -28,7 +28,9 @@ import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.
 import { startNrmsInquiryFollowUpWorker } from "./nrmsInquiryFollowUps.js";
 import { startSalesLeadReminderWorker } from "./salesLeadReminders.js";
 import { startAuditRetentionWorker } from "./auditRetention.js";
+import { startAdminNotificationRetentionWorker } from "../lib/adminNotificationRetention.js";
 import { startTravellerTripReminders } from "./travellerTripReminders.js";
+import { startStayReviewPromptWorker } from "../lib/stayReviews.js";
 import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
 import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
 import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
@@ -108,6 +110,9 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startTransportAutoDispatch({ io });
       startOwnerBusinessLicenceExpiryReminders({ io });
       startTravellerTripReminders({ io });
+      // "How was your stay?" for stays that ended without a check-out press
+      // (NRMS properties, or a forgotten check-out). Each booking is asked once.
+      startStayReviewPromptWorker();
       startMobilePushWorker();
       // Expire NEW bookings that were never paid within 30 minutes (anti-squatting).
       startExpireStaleBookings();
@@ -138,6 +143,8 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startSalesLeadReminderWorker();
       startNrmsInquiryFollowUpWorker();
       startAuditRetentionWorker();
+      // Admin alerts: read and resolved ones clear after 7 days; nothing unread or unresolved is ever removed.
+      startAdminNotificationRetentionWorker();
       // Twiga threads an agent took and then left go to Resolved after 12 quiet
       // hours, so the Open view only holds chats someone still has to act on.
       startTwigaAutoResolveWorker();

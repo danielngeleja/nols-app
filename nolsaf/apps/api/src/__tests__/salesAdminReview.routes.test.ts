@@ -213,13 +213,19 @@ describe("POST /leads/:id/reject-conversion", () => {
 });
 
 describe("POST /attributions/:id/activate", () => {
+  // An NRMS claim on a property that switched NRMS on after the partner's
+  // claim, so these tests exercise the owner and contract rules. The NRMS
+  // adoption rules have their own tests (adminSalesNrmsAdoption.routes.test.ts).
   const verified = () => ({
     id: 90,
     status: "VERIFIED",
     propertyId: 4,
     productType: "NRMS",
     salesPartnerId: 11,
-    property: { title: "JAMIREX HOTEL" },
+    attributedAt: new Date(Date.now() - 30 * 86_400_000),
+    verifiedAt: new Date(Date.now() - 29 * 86_400_000),
+    lead: { createdAt: new Date(Date.now() - 30 * 86_400_000) },
+    property: { title: "JAMIREX HOTEL", nrmsActivatedAt: new Date(Date.now() - 20 * 86_400_000) },
     salesPartner: { userId: 101, agentCode: "NSA-DAR-0001", status: "ACTIVE", contracts: [activeContract()] },
   });
 

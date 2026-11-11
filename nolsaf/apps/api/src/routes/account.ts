@@ -3264,6 +3264,16 @@ const deleteAccount: RequestHandler = async (req, res) => {
       }
     } catch { /* best-effort */ }
 
+    // A driver leaving is an operations event: the inbox keeps it, with any trips to re-cover.
+    if (String(before?.role || "").toUpperCase() === "DRIVER") {
+      void notifyAdmins("driver_account_deleted", {
+        driverName,
+        tripsReturned: unassignedTripIds.length,
+        transportBookingIds: unassignedTripIds,
+        href: "/admin/drivers",
+      }).catch(() => undefined);
+    }
+
     // ── 7. Audit trail ───────────────────────────────────────────────────
     await audit(req as AuthedRequest, 'USER_ACCOUNT_DELETE', `user:${userId}`, before, { unassignedTripIds });
     sendSuccess(res, null, "Account deleted successfully");

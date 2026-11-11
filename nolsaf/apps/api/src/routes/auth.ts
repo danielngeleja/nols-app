@@ -36,6 +36,7 @@ import { resolveRegistrationSource } from '../lib/registrationLifecycle.js';
 import { attributePropertyShare } from '../lib/propertyShareAttribution.js';
 import { referralCandidates, type ReferralKind } from '../lib/referralCode.js';
 import { wantsNotification } from '../lib/notificationPrefs.js';
+import { notifyAdmins } from '../lib/notifications.js';
 
 /**
  * Who a referral code belongs to. A driver code only credits an actual driver;
@@ -328,6 +329,26 @@ function getPhoneValidationMessage(phone: string): string {
   const normalized = normalizePhoneForAuth(phone);
   const { min, max } = getPhoneRuleForNumber(normalized);
   return min === max ? `Phone number must be exactly ${min} digits for that country code.` : `Phone number must be ${min}-${max} digits for that country code.`;
+}
+
+/** Owners and drivers act for NoLSAF's customers, so every new one reaches the admin inbox. */
+const PARTNER_SIGNUP: Record<string, { roleLabel: string; nextStep: string; href: string }> = {
+  OWNER: { roleLabel: 'Property owner', nextStep: 'Their listings will come to you for approval. Check their details when the first one arrives.', href: '/admin/owners' },
+  DRIVER: { roleLabel: 'Driver', nextStep: 'Check their licence, vehicle and documents before they take trips.', href: '/admin/drivers' },
+};
+
+function alertPartnerSignup(user: { id: number; role?: string | null; name?: string | null; email?: string | null }, source?: string | null) {
+  const partner = PARTNER_SIGNUP[String(user.role || '').toUpperCase()];
+  if (!partner) return;
+  void notifyAdmins('partner_account_registered', {
+    userId: user.id,
+    role: user.role,
+    roleLabel: partner.roleLabel,
+    name: user.name || user.email || null,
+    source: source && source !== 'UNKNOWN' ? String(source).toLowerCase() : null,
+    nextStep: partner.nextStep,
+    href: partner.href,
+  }).catch(() => undefined);
 }
 
 function normalizeSignupRole(input: any): 'CUSTOMER' | 'OWNER' | 'DRIVER' | 'RESET' | null {
@@ -1834,6 +1855,8 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
       }
     }
 
+    alertPartnerSignup({ id: created.id, role: created.role, name: created.name, email: created.email }, registrationSource);
+
     return res.status(201).json({
       ok: true,
       id: created.id,
@@ -2373,6 +2396,11 @@ router.post('/profile', requireAuth, blockImpersonated, upload.none(), async (re
       } catch (e) {
         console.warn('Failed to create referral notification', e);
       }
+    }
+
+    // First completion of a code-based sign-up only; later profile edits do not re-alert.
+    if (updatedUser && !currentProfileCompletedAt) {
+      alertPartnerSignup({ id: updatedUser.id, role: updatedUser.role, name: updatedUser.name, email: updatedUser.email }, updatedUser.registrationSource);
     }
 
     return res.json({ ok: true, user: updatedUser });
