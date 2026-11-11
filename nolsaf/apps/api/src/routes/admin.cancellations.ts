@@ -15,6 +15,7 @@ import {
 import { calculateRefundChannelCharges, inferRefundChannel, REFUND_CHANNEL_POLICY_VERSION } from "../lib/refundChannelCharges.js";
 import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
 import { recordRefundRecovery } from "../services/payouts/recovery.js";
+import { reverseAccommodationRefund } from "../lib/revenueRecognition.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
 
 export const router = Router();
@@ -356,6 +357,8 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
         },
       });
       if (changed.count !== 1) throw new Error("CANCELLATION_STATE_CHANGED");
+      // The refund left NoLSAF: take the matching share out of recognized revenue.
+      if (nextStatus === "REFUNDED") await reverseAccommodationRefund(tx, id);
       const request = await tx.cancellationRequest.findUniqueOrThrow({
         where: { id },
         select: {

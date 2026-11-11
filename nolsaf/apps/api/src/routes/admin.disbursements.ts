@@ -38,6 +38,7 @@ import { resolveWithdrawalHandoff, WithdrawalError } from "../services/payouts/w
 import { resolveAmountWithdrawalHandoff } from "../services/payouts/partialWithdrawal.js";
 import { adminBookingReference, resolveAdminBookingReference } from "../lib/adminBookingReference.js";
 import { retentionFields } from "../lib/auditRetention.js";
+import { reverseAccommodationChargeback, REVENUE_TX_OPTIONS } from "../lib/revenueRecognition.js";
 import { provisionPayoutAccountFromProfile, NoPayoutProfileError } from "../services/payouts/provisioning.js";
 import { AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
 import {
@@ -439,6 +440,8 @@ router.post(
         createdById: req.user!.id,
         note: body.data.note ?? `Chargeback ${body.data.providerReference}`,
       });
+      // Idempotent on the recovery id, so a retried request cannot reverse twice.
+      await prisma.$transaction((tx: any) => reverseAccommodationChargeback(tx, recovery), REVENUE_TX_OPTIONS);
       res.status(201).json({ ok: true, recovery });
     } catch (err) {
       if (err instanceof RecoveryError) {

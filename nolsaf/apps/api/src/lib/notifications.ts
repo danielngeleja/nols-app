@@ -1,5 +1,6 @@
 import { prisma } from "@nolsaf/prisma";
 import { customerBookingReference } from "./customerBookingReference.js";
+import { adminKindOf } from "./adminNotificationKinds.js";
 
 /**
  * Notify all admins (creates notification with userId=null, ownerId=null so it appears in admin notifications)
@@ -197,6 +198,60 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Payment received but not matched",
           body: `A ${data.status || "SUCCESS"} callback for ${Number(data.amount || 0).toLocaleString("en-US")} TZS matched no invoice, tour, group booking or NRMS token. Find it under Payments, unmatched events.`
         },
+        tour_cancellation_auto_cancelled_unpaid: {
+          title: "Unpaid tour booking cancelled",
+          body: `Tour booking ${data.bookingCode || ""} was cancelled by the traveller before any payment, so it closed automatically with nothing to refund.`.replace(/\s+/g, " ")
+        },
+
+        // Money in that had no admin alert before.
+        tour_booking_paid: {
+          title: "Tour booking paid",
+          body: `${data.guestName || "A traveller"} paid ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} for tour booking ${data.bookingCode || ""}${data.title ? ` ("${data.title}")` : ""} by ${data.provider || "the payment provider"}. The operator has been told.`
+        },
+        group_stay_deposit_paid: {
+          title: "Group stay deposit paid",
+          body: `The deposit of ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} for group stay ${data.reference || ""}${data.destination ? ` to ${data.destination}` : ""} was paid by ${data.provider || "the payment provider"}. The booking is confirmed.`
+        },
+        group_stay_request_created: {
+          title: "New group stay request",
+          body: `${data.customerName || "A customer"} asked for a group stay for ${data.headcount || "a group of"} people${data.destination ? ` in ${data.destination}` : ""}${data.checkIn ? `, arriving ${data.checkIn}` : ""}. Review it and invite owners to bid.`
+        },
+
+        // Money out: payout transfers that failed or were held.
+        payout_disbursement_failed: {
+          title: "Payout transfer failed",
+          body: `Payout #${data.disbursementId} of ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} (${data.sourceLabel || "payout"}) failed at the provider${data.message ? `: ${data.message}` : ""}. The payee has not been paid. Check the account details and request it again in Disbursements.`
+        },
+        payout_security_review: {
+          title: "Payout held for security review",
+          body: `Payout #${data.disbursementId} was stopped before sending and moved to security review: ${data.reason || "an integrity check failed"}. Nothing was sent. Review it in Disbursements.`
+        },
+        payout_amount_mismatch: {
+          title: "Payout amount differs from the provider",
+          body: `Payout #${data.disbursementId}: ${data.reason || "the provider reported a different amount"}. Check the provider statement before it settles. Review it in Disbursements.`
+        },
+        payout_correlation_mismatch: {
+          title: "Payout callback does not match",
+          body: `Payout #${data.disbursementId}: ${data.reason || "a provider callback did not match this payout"}. It was not settled from that callback. Review it in Disbursements.`
+        },
+
+        // People and partners
+        partner_account_registered: {
+          title: `New ${String(data.roleLabel || "partner").toLowerCase()} joined`,
+          body: `${data.name || "Someone"} created a ${String(data.roleLabel || "partner").toLowerCase()} account${data.source ? ` from ${data.source}` : ""}. ${data.nextStep || "Review their details and documents."}`
+        },
+        driver_account_deleted: {
+          title: "Driver deleted their account",
+          body: `${data.driverName || "A driver"} deleted their account.${Number(data.tripsReturned) > 0 ? ` ${data.tripsReturned} assigned trip${Number(data.tripsReturned) === 1 ? " was" : "s were"} returned to the pool and need a new driver.` : " No trips were affected."}`
+        },
+        sales_partner_owner_disputed: {
+          title: "Owner did not confirm a sales partner",
+          body: `The owner of "${data.propertyTitle || "a property"}" said ${data.answer === "UNKNOWN_PARTNER" ? "they do not know" : "they were not helped by"} ${data.agentCode || "the sales partner"}. The claim is on hold. Review, revoke or reassign it in Sales.`
+        },
+        sales_partner_nrms_claim_lapsed: {
+          title: "NRMS claim lapsed",
+          body: `${data.agentCode || "A sales partner"}'s NRMS claim on "${data.propertyTitle || "a property"}" lapsed: NRMS was not switched on within ${data.days || 90} days. The property is free for a new NRMS claim.`
+        },
     };
 
     const templateData = notificationTemplates[template] || {
@@ -204,6 +259,8 @@ export async function notifyAdmins(template: string, data: any) {
       body: `Update: ${JSON.stringify(data)}`
     };
 
+    // Severity, area and whether someone must act come from the registry, never from the title.
+    const kind = adminKindOf({ meta: { notificationKind: template } });
     try {
       // Create notification for admins (no userId/ownerId = visible to all admins)
       const created = await prisma.notification.create({
@@ -213,23 +270,24 @@ export async function notifyAdmins(template: string, data: any) {
           title: templateData.title,
           body: templateData.body,
           unread: true,
-          meta: { ...data, notificationKind: template },
+          requiresAction: kind.requiresAction,
+          meta: { ...data, notificationKind: template, severity: kind.severity, category: kind.category },
           type: template.startsWith("security_")
             ? "system"
-            : template.startsWith("transport")
+            : template.startsWith("transport") || template.startsWith("driver_")
             ? "ride"
             : template.startsWith("careers")
               ? "careers"
-            : template.startsWith("owner_payout") || template.startsWith("payment_")
+            : template.startsWith("owner_payout") || template.startsWith("payment_") || template.startsWith("payout_")
               ? "invoice"
             : template.startsWith("cancellation")
               ? "cancellation"
-              : template.startsWith("group_stay")
+              : template.startsWith("group_stay") || template.startsWith("tour_booking")
                 ? "booking"
               : template.startsWith("booking")
                 ? "booking"
                 : "property"
-        }
+        } as any
       });
 
       // Best-effort realtime delivery to authenticated admin dashboards.
@@ -237,13 +295,7 @@ export async function notifyAdmins(template: string, data: any) {
       try {
         const io = (global as any).io;
         if (io && typeof io.to === "function") {
-          const urgent = template === "transport_auto_dispatch_warning"
-            || template === "transport_auto_dispatch_takeover"
-            || template === "nrms_payment_reconcile_needed"
-            || template === "booking_payment_case_reported"
-            || template === "coral_postback_settlement"
-            || template === "coral_postback_unverified"
-            || template.startsWith("security_");
+          const urgent = kind.severity === "critical";
 
           io.to("admin").emit("admin:notification:new", {
             id: created.id,
@@ -252,6 +304,9 @@ export async function notifyAdmins(template: string, data: any) {
             type: created.type,
             template,
             priority: urgent ? "urgent" : "normal",
+            severity: kind.severity,
+            category: kind.category,
+            requiresAction: kind.requiresAction,
             createdAt: created.createdAt,
           });
         }
@@ -329,6 +384,10 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       owner_payout_withdrawal_reset: {
         title: "Withdrawal is ready to confirm again",
         body: `Our payments team checked withdrawal request #${data.releaseId} and returned it to Ready. Request a new code in My Payouts if you still want to withdraw.`
+      },
+      property_review_received: {
+        title: "New guest review",
+        body: `A guest left a ${Number(data.rating) >= 1 && Number(data.rating) <= 5 ? `${Number(data.rating)}-star ` : ""}review on "${data.propertyTitle || "your property"}". Read it and reply from Guest reviews; your reply is shown under the review.`
       },
       property_submitted: {
         title: "Property Submitted for Review",
@@ -783,6 +842,10 @@ export async function notifyUser(userId: number, template: string, data: any) {
       sales_partner_attribution_revoked: {
         title: "Property attribution revoked",
         body: `${data.propertyName || "A property"} is no longer attributed to you for ${data.productType || "the product"}. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      sales_partner_attribution_lapsed: {
+        title: "NRMS claim lapsed",
+        body: `${data.propertyName || "A property"} did not switch NRMS on within ${data.days || 90} days, so your NRMS claim has lapsed and the property is open again. Your other claims on it are not affected.`
       },
       sales_partner_attribution_reassigned_away: {
         title: "Property attribution reassigned",

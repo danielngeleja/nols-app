@@ -35,6 +35,8 @@ import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import { confirmNoLsafBooking, MARKETPLACE_CONNECT_TX_OPTIONS } from "../lib/nolsafMarketplaceNrms.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
 import { releaseFailedBookingPayment } from "../lib/bookingPaymentAttempt.js";
+import { recognizeGroupStayRevenue, recognizeInvoiceRevenue, recognizeTourRevenue, REVENUE_TX_OPTIONS } from "../lib/revenueRecognition.js";
+import { adminRecordReference } from "../lib/adminRecordReference.js";
 import {
   expectedInvoicePaymentAmount,
   isPaymentAmountWithinTolerance,
@@ -408,21 +410,26 @@ export async function markInvoicePaid(invId: number, method: string, paymentRef:
   });
   const { png, payload: qrPayload } = await makeQR(payload);
 
-  const claimed = await prisma.invoice.updateMany({
-    where: { id: invId, status: { not: "PAID" } },
-    data: {
-      status: "PAID",
-      paidBy: null, // webhook/system
-      paidAt: new Date(),
-      paymentMethod: finalPaymentMethod,
-      paymentRef: paymentRef || inv.paymentRef,
-      checkoutSessionId: transactionId || inv.checkoutSessionId,
-      payerPhone:        phoneNumber  || inv.payerPhone,
-      receiptNumber,
-      receiptQrPayload: qrPayload,
-      receiptQrPng: png,
-    },
-  });
+  // The claim and the revenue record commit together (lib/revenueRecognition).
+  const claimed = await prisma.$transaction(async (tx: any) => {
+    const result = await tx.invoice.updateMany({
+      where: { id: invId, status: { not: "PAID" } },
+      data: {
+        status: "PAID",
+        paidBy: null, // webhook/system
+        paidAt: new Date(),
+        paymentMethod: finalPaymentMethod,
+        paymentRef: paymentRef || inv.paymentRef,
+        checkoutSessionId: transactionId || inv.checkoutSessionId,
+        payerPhone:        phoneNumber  || inv.payerPhone,
+        receiptNumber,
+        receiptQrPayload: qrPayload,
+        receiptQrPng: png,
+      },
+    });
+    if (result.count === 1) await recognizeInvoiceRevenue(tx, invId, { priorStatus: inv.status });
+    return result;
+  }, REVENUE_TX_OPTIONS);
 
   let updated: any = null;
   if (claimed.count === 0) {
@@ -723,16 +730,30 @@ export async function markGroupBookingDepositPaid(
   const want = Math.round(Number(groupBooking.depositAmount || 0));
   if (!isPaymentAmountWithinTolerance(amount, want)) return { ok: false, reason: "amount_mismatch" };
 
-  const claimed = await prisma.groupBooking.updateMany({
-    where: { id: groupBooking.id, depositPaid: false },
-    data: {
-      depositPaid: true,
-      depositPaidAt: new Date(),
-      status: "CONFIRMED",
-      paymentProvider: provider,
-    },
-  });
+  const claimed = await prisma.$transaction(async (tx: any) => {
+    const result = await tx.groupBooking.updateMany({
+      where: { id: groupBooking.id, depositPaid: false },
+      data: {
+        depositPaid: true,
+        depositPaidAt: new Date(),
+        status: "CONFIRMED",
+        paymentProvider: provider,
+      },
+    });
+    if (result.count === 1) await recognizeGroupStayRevenue(tx, groupBooking.id);
+    return result;
+  }, REVENUE_TX_OPTIONS);
   if (claimed.count !== 1) return { ok: false, reason: "already_paid" };
+
+  void notifyAdmins("group_stay_deposit_paid", {
+    groupBookingId: groupBooking.id,
+    reference: adminRecordReference("group-stay", groupBooking.id),
+    amount: want,
+    currency: groupBooking.currency || "TZS",
+    provider,
+    destination: [groupBooking.toDistrict, groupBooking.toRegion].filter(Boolean).join(", ") || null,
+    href: "/admin/group-stays/bookings",
+  }).catch(() => undefined);
 
   // Now that the deposit is in, finalize the winning owner's claim as ACCEPTED.
   // Before this point the claim sits in REVIEWING so the owner never sees a premature
@@ -865,17 +886,32 @@ export async function markTourBookingPaid(
   const want = Math.round(Number(tour.grossAmount));
   if (!near(amount, want)) return { ok: false, reason: "amount_mismatch" };
 
-  const claimed = await prisma.tourBooking.updateMany({
-    where: { id: tour.id, paymentStatus: { not: "PAID" } },
-    data: {
-      paymentStatus: "PAID",
-      status: "CONFIRMED",
-      paidAt: new Date(),
-      paymentProvider: provider,
-      customerPaymentRef: tour.customerPaymentRef ?? tour.paymentRef,
-    },
-  });
+  const claimed = await prisma.$transaction(async (tx: any) => {
+    const result = await tx.tourBooking.updateMany({
+      where: { id: tour.id, paymentStatus: { not: "PAID" } },
+      data: {
+        paymentStatus: "PAID",
+        status: "CONFIRMED",
+        paidAt: new Date(),
+        paymentProvider: provider,
+        customerPaymentRef: tour.customerPaymentRef ?? tour.paymentRef,
+      },
+    });
+    if (result.count === 1) await recognizeTourRevenue(tx, tour.id);
+    return result;
+  }, REVENUE_TX_OPTIONS);
   if (claimed.count !== 1) return { ok: false, reason: "already_paid" };
+
+  void notifyAdmins("tour_booking_paid", {
+    tourBookingId: tour.id,
+    bookingCode: tour.bookingCode,
+    title: tour.title,
+    guestName: tour.guestName,
+    amount: want,
+    currency: tour.currency || "TZS",
+    provider,
+    href: "/admin/agents/tour-revenue",
+  }).catch(() => undefined);
 
   const incomingRef = tour.customerPaymentRef ?? tour.paymentRef;
   if (incomingRef) {

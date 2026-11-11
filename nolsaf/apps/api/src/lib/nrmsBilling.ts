@@ -5,6 +5,7 @@ import { accrueNrmsSalesCommission } from "./salesCommission.js";
 import { getMasterCheckoutBlocker, transferredToMasterForReservation } from "./nrmsMasterFolio.js";
 import { hotelCalendarDayKey, shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
 import { syncNrmsStatement } from "./nrmsStatements.js";
+import { recognizeNrmsPaymentRevenue } from "./revenueRecognition.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -333,6 +334,7 @@ export async function reconcileNrmsPayment(tx: any, input: NrmsPaymentReconcileI
   if (claimed.count !== 1) throw new Error("NRMS_STATEMENT_NOT_PAYABLE");
 
   const payment = await tx.nrmsServicePayment.create({ data: { tokenId: token.id, provider: input.provider, providerRef: input.providerRef, idempotencyKey: input.idempotencyKey, amount: input.amount, currency: token.currency, status: "VERIFIED", verifiedAt: new Date() } });
+  await recognizeNrmsPaymentRevenue(tx, payment.id);
   await tx.nrmsServicePaymentToken.update({ where: { id: token.id }, data: { status: "PAID" } });
   await tx.nrmsServicePaymentToken.updateMany({
     where: {

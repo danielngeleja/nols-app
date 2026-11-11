@@ -5,7 +5,7 @@ import {
   Calendar, Download, CheckCircle, XCircle, Eye,
   ArrowRight, BookOpen, MapPin, Clock, CreditCard,
   Hash, BedDouble, DoorOpen, ChevronLeft, ChevronRight, ChevronDown,
-  Search, SlidersHorizontal, X, ArrowUpDown,
+  Search, SlidersHorizontal, X, ArrowUpDown, Star,
 } from "lucide-react";
 import Link from "next/link";
 import DatePicker from "@/components/ui/DatePicker";
@@ -94,6 +94,8 @@ type Booking = {
   paymentCase?: { reference?: string; status: string; resolution?: string | null; createdAt: string; updatedAt: string } | null;
   paymentReportEligibility?: { state: "CODE_AVAILABLE" | "READY" | "WAITING" | "UNVERIFIED"; availableAt: string | null };
   codeStatus: string | null;
+  /** CAN_REVIEW once the stay is finished and not yet reviewed; REVIEWED after. */
+  reviewState?: "CAN_REVIEW" | "REVIEWED" | null;
   invoice?: {
     invoiceNumber?: string;
     receiptNumber?: string;
@@ -969,6 +971,19 @@ export default function MyBookingsPage() {
                       <div className="text-[11.5px] text-slate-500">Paid</div>
                     </div>
                     <div className="flex items-center gap-1.5">
+                      {booking.reviewState === "CAN_REVIEW" ? (
+                        <Link
+                          href={`/account/bookings/${encodeURIComponent(booking.bookingReference)}#rate`}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-amber-200 bg-amber-50 px-3 text-[13px] font-semibold text-amber-800 no-underline transition-colors hover:border-amber-300 hover:bg-amber-100"
+                        >
+                          <Star className="h-4 w-4 fill-amber-400 text-amber-400" aria-hidden />
+                          Rate your stay
+                        </Link>
+                      ) : booking.reviewState === "REVIEWED" ? (
+                        <span title="You reviewed this property" className="inline-flex h-9 items-center gap-1 px-1.5 text-[12px] font-semibold text-slate-500">
+                          <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden /> Reviewed
+                        </span>
+                      ) : null}
                       {canRequestCancellation(booking) ? (
                         <Link
                           href={`/account/cancellations?code=${encodeURIComponent(booking.bookingCode!)}`}

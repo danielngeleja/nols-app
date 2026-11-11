@@ -35,6 +35,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { getFxRates, BASE_CURRENCY } from "../lib/fx.js";
 import { computeFinanceOverview } from "../lib/financeOverview.js";
+import { computeRevenueReconciliation, parseDayRange } from "../lib/revenueReconciliation.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -130,6 +131,23 @@ router.get("/overview/series", async (req, res) => {
   } catch (err: any) {
     console.error("[GET /api/admin/finance/overview/series] Error:", err);
     return res.status(500).json({ ok: false, error: "Failed to load the revenue series" });
+  }
+});
+
+/**
+ * GET /reconciliation?from=YYYY-MM-DD&to=YYYY-MM-DD
+ * The revenue ledger next to the figures /overview recomputes, per stream, for
+ * a range of EAT business days (both inclusive; omit both for all time), with
+ * the sources behind each difference. Read only. See docs/REVENUE_LEDGER.md.
+ */
+router.get("/reconciliation", async (req, res) => {
+  try {
+    const range = parseDayRange(req.query.from, req.query.to);
+    if (range === "invalid") return res.status(400).json({ ok: false, error: "Pick a valid range of days" });
+    return res.json(await computeRevenueReconciliation(range));
+  } catch (err: any) {
+    console.error("[GET /api/admin/finance/reconciliation] Error:", err);
+    return res.status(500).json({ ok: false, error: "Failed to load the reconciliation" });
   }
 });
 

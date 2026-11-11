@@ -2945,6 +2945,16 @@ model Notification {
   /// Timestamp when notification was read
   readAt DateTime?
 
+  /// Admin inbox only (lib/adminNotificationKinds.ts). Who first read it, whether
+  /// it asks for an action, and who resolved that action. Platform alerts are one
+  /// shared row for every admin, so these say who handled it. A read and
+  /// resolved alert is cleared automatically 7 days after it was resolved;
+  /// unread or unresolved alerts are never deleted.
+  readById       Int?
+  requiresAction Boolean   @default(false)
+  resolvedAt     DateTime?
+  resolvedById   Int?
+
   /// Record creation timestamp
   createdAt DateTime @default(now())
 
@@ -2963,6 +2973,7 @@ model Notification {
   @@index([createdAt])
   @@index([userId, unread])
   @@index([ownerId, unread])
+  @@index([resolvedAt])
   @@map("notification")
 }
 
@@ -8965,6 +8976,9 @@ model SalesOwnerConfirmation {
   respondedAt       DateTime?
   respondedById     Int?
   responseNote      String?   @db.VarChar(300)
+  /// How the partner first reached the owner, given with a "yes": FACE_TO_FACE,
+  /// PHONE_CALL, WHATSAPP, INSTAGRAM, FACEBOOK, TIKTOK, REFERRAL, EVENT, OTHER.
+  contactChannel    String?   @db.VarChar(30)
   responseIpHash    String?   @db.Char(64)
   responseUserAgent String?   @db.VarChar(255)
   responseSessionId String?   @db.VarChar(64)

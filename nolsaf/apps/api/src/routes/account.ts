@@ -9,7 +9,8 @@ import { customerBookingReference, customerRecordReference } from "../lib/custom
 import { mergeNotificationPrefs } from "../lib/notificationPrefs.js";
 import { referralCodeFor, referralKindForRole } from "../lib/referralCode.js";
 import { hashPassword, verifyPassword, encrypt, decrypt, hashCode, verifyCode } from "../lib/crypto.js";
-import { hashCode as hashOtpCode } from "../lib/otp.js";
+import { generate6 } from "../lib/otp.js";
+import { otpAuditDestinationFields, otpAuditEntity } from "../lib/otpAudit.js";
 import { PASSWORD_MAX_LENGTH, validatePasswordStrength, isPasswordReused, addPasswordToHistory, getPasswordChangeCooldownRemaining, recordPasswordChangeSuccess } from "../lib/security.js";
 import { validatePasswordWithSettings } from "../lib/securitySettings.js";
 import { authenticator } from "otplib";
@@ -55,16 +56,6 @@ import { isTravellerDocumentPublicId, signedTravellerDocumentUrl } from "../lib/
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
-
-function maskOtp(code: string): string {
-  const s = String(code || "");
-  if (s.length <= 2) return "••••••";
-  return `••••${s.slice(-2)}`;
-}
-
-function otpEntityKey(destinationType: "PHONE" | "EMAIL", destination: string, codeHash: string): string {
-  return `OTP:${destinationType}:${destination}:${codeHash}`;
-}
 
 // Constants
 const BACKUP_CODES_COUNT = 10;
@@ -2915,9 +2906,9 @@ const sendSms2FA: RequestHandler = async (req, res) => {
     }
 
     // Generate 6-digit OTP code
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = generate6();
     const codeHash = await hashCode(code);
-    const auditHash = hashOtpCode(code);
+    const auditCode = code;
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Store OTP in phoneOtp table
@@ -2934,12 +2925,9 @@ const sendSms2FA: RequestHandler = async (req, res) => {
     const smsResult = await sendSms(user.phone, `NoLSAF 2FA verification code: ${code}`);
 
     try {
-      const entity = otpEntityKey("PHONE", user.phone, auditHash);
+      const entity = otpAuditEntity("PHONE", user.phone, auditCode);
       await audit(req as AuthedRequest, "NO4P_OTP_SENT", entity, null, {
-        destinationType: "PHONE",
-        destination: user.phone,
-        codeHash: auditHash,
-        codeMasked: maskOtp(code),
+        ...otpAuditDestinationFields("PHONE", user.phone),
         expiresAt: expiresAt.toISOString(),
         usedFor: "USER_2FA_ENABLE",
         provider: (smsResult as any)?.provider ?? null,
@@ -3006,12 +2994,10 @@ const verifySms2FA: RequestHandler = async (req, res) => {
     const isValid = await verifyCode(otp.codeHash, code);
     if (!isValid) {
       try {
-        const auditHash = hashOtpCode(code);
-        const entity = otpEntityKey("PHONE", user.phone, auditHash);
+        const auditCode = code;
+        const entity = otpAuditEntity("PHONE", user.phone, auditCode);
         await audit(req as AuthedRequest, "NO4P_OTP_VERIFY_FAILED", entity, null, {
-          destinationType: "PHONE",
-          destination: user.phone,
-          codeHash: auditHash,
+          ...otpAuditDestinationFields("PHONE", user.phone),
           usedFor: "USER_2FA_ENABLE",
           reason: "invalid",
           userRole: (user as any)?.role ?? null,
@@ -3040,12 +3026,10 @@ const verifySms2FA: RequestHandler = async (req, res) => {
     });
 
     try {
-      const auditHash = hashOtpCode(code);
-      const entity = otpEntityKey("PHONE", user.phone, auditHash);
+      const auditCode = code;
+      const entity = otpAuditEntity("PHONE", user.phone, auditCode);
       await audit(req as AuthedRequest, "NO4P_OTP_USED", entity, null, {
-        destinationType: "PHONE",
-        destination: user.phone,
-        codeHash: auditHash,
+        ...otpAuditDestinationFields("PHONE", user.phone),
         usedAt: new Date().toISOString(),
         usedFor: "USER_2FA_ENABLE",
         policyCompliant: true,
@@ -3103,9 +3087,9 @@ const disableSms2FA: RequestHandler = async (req, res) => {
 
     if (!otp) {
       // If no active OTP, send a new one
-      const newCode = String(Math.floor(100000 + Math.random() * 900000));
+      const newCode = generate6();
       const codeHash = await hashCode(newCode);
-      const auditHash = hashOtpCode(newCode);
+      const auditCode = newCode;
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await prisma.phoneOtp.create({
@@ -3120,12 +3104,9 @@ const disableSms2FA: RequestHandler = async (req, res) => {
       const smsResult = await sendSms(user.phone, `NoLSAF 2FA disable verification code: ${newCode}`);
 
       try {
-        const entity = otpEntityKey("PHONE", user.phone, auditHash);
+        const entity = otpAuditEntity("PHONE", user.phone, auditCode);
         await audit(req as AuthedRequest, "NO4P_OTP_SENT", entity, null, {
-          destinationType: "PHONE",
-          destination: user.phone,
-          codeHash: auditHash,
-          codeMasked: maskOtp(newCode),
+          ...otpAuditDestinationFields("PHONE", user.phone),
           expiresAt: expiresAt.toISOString(),
           usedFor: "USER_2FA_DISABLE",
           provider: (smsResult as any)?.provider ?? null,
@@ -3144,12 +3125,10 @@ const disableSms2FA: RequestHandler = async (req, res) => {
     const isValid = await verifyCode(otp.codeHash, code);
     if (!isValid) {
       try {
-        const auditHash = hashOtpCode(code);
-        const entity = otpEntityKey("PHONE", user.phone, auditHash);
+        const auditCode = code;
+        const entity = otpAuditEntity("PHONE", user.phone, auditCode);
         await audit(req as AuthedRequest, "NO4P_OTP_VERIFY_FAILED", entity, null, {
-          destinationType: "PHONE",
-          destination: user.phone,
-          codeHash: auditHash,
+          ...otpAuditDestinationFields("PHONE", user.phone),
           usedFor: "USER_2FA_DISABLE",
           reason: "invalid",
           userRole: (user as any)?.role ?? null,
@@ -3178,12 +3157,10 @@ const disableSms2FA: RequestHandler = async (req, res) => {
     });
 
     try {
-      const auditHash = hashOtpCode(code);
-      const entity = otpEntityKey("PHONE", user.phone, auditHash);
+      const auditCode = code;
+      const entity = otpAuditEntity("PHONE", user.phone, auditCode);
       await audit(req as AuthedRequest, "NO4P_OTP_USED", entity, null, {
-        destinationType: "PHONE",
-        destination: user.phone,
-        codeHash: auditHash,
+        ...otpAuditDestinationFields("PHONE", user.phone),
         usedAt: new Date().toISOString(),
         usedFor: "USER_2FA_DISABLE",
         policyCompliant: true,
@@ -3286,6 +3263,16 @@ const deleteAccount: RequestHandler = async (req, res) => {
         });
       }
     } catch { /* best-effort */ }
+
+    // A driver leaving is an operations event: the inbox keeps it, with any trips to re-cover.
+    if (String(before?.role || "").toUpperCase() === "DRIVER") {
+      void notifyAdmins("driver_account_deleted", {
+        driverName,
+        tripsReturned: unassignedTripIds.length,
+        transportBookingIds: unassignedTripIds,
+        href: "/admin/drivers",
+      }).catch(() => undefined);
+    }
 
     // ── 7. Audit trail ───────────────────────────────────────────────────
     await audit(req as AuthedRequest, 'USER_ACCOUNT_DELETE', `user:${userId}`, before, { unassignedTripIds });

@@ -16,6 +16,7 @@ import {
 } from "../middleware/salesWorkspace.js";
 import { ATTRIBUTION_STATUSES, COMMISSION_STATUSES, PRODUCT_TYPES } from "../lib/salesPartner.js";
 import { loadOnboarding } from "../lib/salesOnboarding.js";
+import { nrmsLapsesAt } from "../lib/salesAttribution.js";
 import { leadRef, propertyRef, resolvePartnerProperty } from "../lib/salesReference.js";
 
 const router = Router();
@@ -201,6 +202,8 @@ router.get("/properties", asyncHandler(async (req: SalesAuthedRequest, res: Resp
       const progress = onboarding.get(property.id);
       return {
         ...property,
+        // An unadopted NRMS claim shows the partner when it lapses.
+        salesAttributions: property.salesAttributions.map((a: any) => ({ ...a, nrmsLapsesAt: nrmsLapsesAt(a, property.nrmsActivatedAt ?? null) })),
         ref: propertyRef(property.id),
         totalEarnings: earningsByProperty.get(property.id) || 0,
         currency: "TZS",

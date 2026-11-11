@@ -17,6 +17,7 @@ import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import { BASE_CURRENCY, getFxRates } from "../lib/fx.js";
 import { moneyStageOf } from "../lib/invoiceMoneyStage.js";
 import { GUEST_MONEY_IN, loadOwnerInvoiceDisbursements } from "../lib/invoiceMoneyStageIndex.js";
+import { recognizeInvoiceRevenue, REVENUE_TX_OPTIONS } from "../lib/revenueRecognition.js";
 import {
   customerBookingReference,
   isOwnerInvoiceReference,
@@ -1105,20 +1106,26 @@ router.post("/invoices/:id/mark-paid", async (req, res) => {
     });
     const { png, payload: qrPayload } = await makeQR(payload);
 
-    const updated = await prisma.invoice.update({
-      where: { id },
-      data: {
-        status: "PAID",
-        paidBy: adminId,
-        paidAt: new Date(),
-        paymentMethod: method,
-        paymentRef: nextPaymentRef,
-        receiptNumber,
-        receiptQrPayload: qrPayload,
-        receiptQrPng: png,
-      },
-      include: { booking: true },
-    });
+    // The PAID write and the revenue record commit together (lib/revenueRecognition).
+    // priorStatus keeps an owner-claim settlement from counting as new revenue.
+    const updated = await prisma.$transaction(async (tx: any) => {
+      const paid = await tx.invoice.update({
+        where: { id },
+        data: {
+          status: "PAID",
+          paidBy: adminId,
+          paidAt: new Date(),
+          paymentMethod: method,
+          paymentRef: nextPaymentRef,
+          receiptNumber,
+          receiptQrPayload: qrPayload,
+          receiptQrPng: png,
+        },
+        include: { booking: true },
+      });
+      await recognizeInvoiceRevenue(tx, id, { priorStatus: inv.status });
+      return paid;
+    }, REVENUE_TX_OPTIONS);
     await prisma.$transaction((tx: any) => accrueMarketplaceSalesCommission(tx, updated.id)).catch((error: any) => {
       console.warn("[sales commission] Admin revenue accrual deferred:", error?.message || String(error));
     });

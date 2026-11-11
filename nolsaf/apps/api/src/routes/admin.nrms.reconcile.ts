@@ -9,6 +9,7 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { evaluateNrmsDunning } from "../lib/nrmsDunning.js";
 import { accrueNrmsSalesCommissionAfterCommit } from "../lib/nrmsBilling.js";
 import { isTransactionCapacityError, runNrmsPaymentTransaction } from "../lib/nrmsTransaction.js";
+import { recognizeNrmsPaymentRevenue } from "../lib/revenueRecognition.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("ADMIN") as RequestHandler, blockImpersonated as RequestHandler);
@@ -91,6 +92,7 @@ router.post("/tokens/:tokenId/reconcile", requireNrmsFinanceApprover as RequestH
     const claimed = await tx.nrmsBillingStatement.updateMany({ where: { id: token.statementId, status: "PAYABLE" }, data: { status: "PAID", paidAt: new Date() } });
     if (claimed.count !== 1) throw new Error("NRMS_STATEMENT_NOT_PAYABLE");
     const created = await tx.nrmsServicePayment.create({ data: { tokenId: token.id, provider: "ADMIN_MANUAL", providerRef: parsed.data.providerRef, idempotencyKey: `ADMIN-NRMS-${token.id}-${Date.now()}`, amount: token.amount, currency: token.currency, status: "MANUALLY_VERIFIED", verifiedAt: new Date() } });
+    await recognizeNrmsPaymentRevenue(tx, created.id, { paymentEventId: null });
     await tx.nrmsServicePaymentToken.update({ where: { id: token.id }, data: { status: "PAID" } });
     await tx.nrmsServicePaymentToken.updateMany({ where: { statementId: token.statementId, id: { not: token.id }, status: { not: "PAID" } }, data: { status: "VOID" } });
     await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: balance, status: dunning.status, limitReachedAt: dunning.limitReachedAt } });

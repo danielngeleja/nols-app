@@ -31,7 +31,37 @@ import { loadAzamPayDisbursementRequestConfig } from "../azampay/disbursement/co
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
 import { canonicalAzamPayProvider } from "../azampay/disbursement/providers.js";
 import type { AzamPayDisburseCallback } from "../azampay/disbursement/types.js";
-import { notifyUser } from "../../lib/notifications.js";
+import { notifyAdmins, notifyUser } from "../../lib/notifications.js";
+
+const SOURCE_LABEL: Record<string, string> = {
+  OWNER_INVOICE: "owner payout",
+  OWNER_WITHDRAWAL: "owner withdrawal",
+  TOUR_BOOKING: "tour operator payout",
+  TOUR_ADVANCE: "tour operator advance",
+  DRIVER_TRIP: "driver payout",
+  SALES_PAYOUT: "sales partner payout",
+};
+
+/** Admin alert about a payout. Never throws: the payout state is already committed. */
+async function alertPayoutAdmins(kind: string, disbursementId: number, extra: Record<string, unknown> = {}): Promise<void> {
+  try {
+    const row = await prisma.disbursement.findUnique({
+      where: { id: disbursementId },
+      select: { amount: true, currency: true, sourceType: true },
+    });
+    await notifyAdmins(kind, {
+      disbursementId,
+      amount: row ? Number(row.amount) : null,
+      currency: row?.currency ?? "TZS",
+      sourceType: row?.sourceType ?? null,
+      sourceLabel: (row && SOURCE_LABEL[row.sourceType]) || "payout",
+      href: "/admin/disbursements",
+      ...extra,
+    });
+  } catch (err) {
+    console.error(`[payout-ledger] admin alert ${kind} failed for disbursement ${disbursementId}`, err);
+  }
+}
 import { sendMail } from "../../lib/mailer.js";
 import { getOwnerDisbursementEmail } from "../../lib/bookingEmailTemplates.js";
 import { generateOwnerDisbursementPdf } from "../../lib/pdfDocuments.js";
@@ -131,12 +161,14 @@ export function ownerDisbursementReceiptNumber(invoiceId: number, paidAt: Date):
  */
 export async function divertToSecurityReview(disbursementId: number, reason: string): Promise<void> {
   const message = truncateReason(reason);
+  let diverted = false;
   await prisma.$transaction(async (tx) => {
     const moved = await tx.disbursement.updateMany({
       where: { id: disbursementId, status: "AUTHORIZED", pgReferenceId: null },
       data: { status: "SECURITY_REVIEW", securityReviewReason: message },
     });
     if (moved.count !== 1) return;
+    diverted = true;
     await tx.disbursementEvent.create({
       data: {
         disbursementId,
@@ -147,6 +179,7 @@ export async function divertToSecurityReview(disbursementId: number, reason: str
       },
     });
   });
+  if (diverted) await alertPayoutAdmins("payout_security_review", disbursementId, { reason: message });
 }
 
 /**
@@ -166,6 +199,7 @@ export async function recordAmountMismatch(
   const message = truncateReason(
     `Provider reported ${details.received} for a payout of ${details.expected} (${details.source.toLowerCase()})`
   );
+  let firstRecord = false;
   try {
     await prisma.disbursementEvent.create({
       data: {
@@ -181,6 +215,7 @@ export async function recordAmountMismatch(
         payload: (details.payload ?? null) as Prisma.InputJsonValue,
       },
     });
+    firstRecord = true;
   } catch (err: any) {
     // P2002 means this exact mismatch is already recorded — nothing to add.
     if (err?.code !== "P2002") {
@@ -195,6 +230,8 @@ export async function recordAmountMismatch(
   } catch (err) {
     console.error(`[payout-ledger] could not flag amount mismatch on disbursement ${disbursementId}`, err);
   }
+  // Once per distinct mismatch: a repeated poll of the same figures is not a new alert.
+  if (firstRecord) await alertPayoutAdmins("payout_amount_mismatch", disbursementId, { reason: message });
 }
 
 /** Persists a callback identifier/provider mismatch without settling or stopping reconciliation. */
@@ -210,6 +247,7 @@ export async function recordProviderCorrelationMismatch(
   const message = truncateReason(
     `Provider callback ${details.code.replace(/_/g, " ")}: expected ${details.expected}, received ${details.received}`
   );
+  let firstRecord = false;
   try {
     await prisma.disbursementEvent.create({
       data: {
@@ -225,6 +263,7 @@ export async function recordProviderCorrelationMismatch(
         payload: (details.payload ?? null) as Prisma.InputJsonValue,
       },
     });
+    firstRecord = true;
   } catch (err: any) {
     if (err?.code !== "P2002") {
       console.error(
@@ -244,6 +283,7 @@ export async function recordProviderCorrelationMismatch(
       err
     );
   }
+  if (firstRecord) await alertPayoutAdmins("payout_correlation_mismatch", disbursementId, { reason: message });
 }
 
 /**
@@ -1207,6 +1247,8 @@ export async function applyProviderEvent(
   disbursementId: number,
   event: { eventType: "CALLBACK" | "STATUS_POLL"; callback: AzamPayDisburseCallback }
 ): Promise<Disbursement> {
+  // Set inside the transaction by the one caller that wins PROCESSING -> FAILED.
+  let transitionedToFailed = false;
   const result = await prisma.$transaction(
     async (tx): Promise<{ disbursement: Disbursement; transitionedToPaid: boolean }> => {
     const disbursement = await tx.disbursement.findUnique({ where: { id: disbursementId } });
@@ -1359,11 +1401,17 @@ export async function applyProviderEvent(
       const failed = await tx.disbursement.findUnique({ where: { id: disbursementId } });
       if (!failed) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared during settlement`);
       await writeBackSourceFailed(tx, failed);
+      transitionedToFailed = true;
       return { disbursement: failed, transitionedToPaid: false };
     }
     // Any other status: leave as-is (still PROCESSING), the event is recorded for audit.
     return { disbursement, transitionedToPaid: false };
   });
+
+  // Exactly one caller wins the PROCESSING -> FAILED claim, so this alerts once.
+  if (transitionedToFailed) {
+    await alertPayoutAdmins("payout_disbursement_failed", disbursementId, { message: result.disbursement.providerMessage ?? null });
+  }
 
   if (result.transitionedToPaid && result.disbursement.sourceType === "OWNER_INVOICE") {
     try {

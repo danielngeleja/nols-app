@@ -16,6 +16,7 @@ import {
   syncNoLsafBookingToNrms,
   updateNoLsafBookingStatus,
 } from "../lib/nolsafMarketplaceNrms.js";
+import { askGuestToReview } from "../lib/stayReviews.js";
 import { findUnitConflicts, getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { adminBookingReference, resolveAdminBookingReference } from "../lib/adminBookingReference.js";
 import { classifyBookingAttempt } from "../lib/bookingAttemptState.js";
@@ -687,6 +688,8 @@ router.post("/:id/checkout", async (req, res) => {
     if (b && b.property && (b.property as any).ownerId) await invalidateOwnerReports((b.property as any).ownerId);
   } catch {}
   try { req.app.get("io")?.emit?.("admin:booking:status", { bookingId: id, from: before.status, to: "CHECKED_OUT" }); } catch {}
+  // Ask the guest to rate their stay. Never blocks check-out.
+  void askGuestToReview(id).catch((err) => console.warn("[admin checkout] review request failed", err?.message || err));
   res.json({ ok: true, booking: updated });
 });
 

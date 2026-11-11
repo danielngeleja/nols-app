@@ -10,8 +10,10 @@ import {
 const tx = {
   nrmsServicePaymentToken: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   nrmsBillingStatement: { updateMany: vi.fn() },
-  nrmsServicePayment: { create: vi.fn() },
+  nrmsServicePayment: { create: vi.fn(), findUnique: vi.fn() },
   ownerPaygAccount: { update: vi.fn() },
+  paymentEvent: { findUnique: vi.fn() },
+  revenueEntry: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn() },
 };
 
 const FUTURE = new Date(Date.now() + 3 * 86400000);
@@ -53,6 +55,10 @@ describe("reconcileNrmsPayment (webhook success path)", () => {
     vi.clearAllMocks();
     tx.nrmsBillingStatement.updateMany.mockResolvedValue({ count: 1 });
     tx.nrmsServicePayment.create.mockImplementation(async ({ data }: any) => ({ id: 77, ...data }));
+    tx.nrmsServicePayment.findUnique.mockImplementation(async () => ({ id: 77, amount: 62400, currency: "TZS", status: "VERIFIED", verifiedAt: new Date(), provider: "AZAMPAY", providerRef: "evt-1" }));
+    tx.paymentEvent.findUnique.mockResolvedValue({ id: 501, provider: "AZAMPAY" });
+    tx.revenueEntry.findUnique.mockResolvedValue(null);
+    tx.revenueEntry.create.mockImplementation(async ({ data }: any) => ({ id: 1, ...data }));
     tx.nrmsServicePaymentToken.update.mockResolvedValue({});
     tx.nrmsServicePaymentToken.updateMany.mockResolvedValue({ count: 0 });
     tx.ownerPaygAccount.update.mockResolvedValue({});
@@ -69,6 +75,15 @@ describe("reconcileNrmsPayment (webhook success path)", () => {
     // Balance paid in full and the sticky PAYMENT_PENDING state is exited:
     // the recompute must land on ACTIVE, not stay pending.
     expect(tx.ownerPaygAccount.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 3 }, data: expect.objectContaining({ unpaidBalance: 0, status: "ACTIVE" }) }));
+    // The whole payment is recognized as subscription revenue in the same transaction.
+    expect(tx.revenueEntry.create).toHaveBeenCalledWith({ data: expect.objectContaining({ sourceKey: "SUBSCRIPTION:NRMS_SERVICE_PAYMENT:77", entryType: "RECOGNIZED", paymentEventId: 501 }) });
+  });
+
+  it("writes no revenue when the settlement claim is lost", async () => {
+    tx.nrmsServicePaymentToken.findUnique.mockResolvedValue(tokenRow());
+    tx.nrmsBillingStatement.updateMany.mockResolvedValue({ count: 0 });
+    await expect(reconcileNrmsPayment(tx, reconcileInput)).rejects.toThrow("NRMS_STATEMENT_NOT_PAYABLE");
+    expect(tx.revenueEntry.create).not.toHaveBeenCalled();
   });
 
   it("voids every sibling token so an abandoned second attempt can never double-charge", async () => {

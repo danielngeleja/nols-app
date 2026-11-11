@@ -79,6 +79,8 @@ export type AdminPerformanceHighlights = {
   };
   topProperty: null | {
     propertyId: number;
+    /** Opaque admin reference for URLs (never put propertyId in a URL). */
+    propertyRef?: string | null;
     title: string;
     type: string;
     regionName: string;

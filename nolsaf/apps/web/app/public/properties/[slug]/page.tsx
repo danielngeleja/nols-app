@@ -4309,11 +4309,11 @@ export default function PublicPropertyDetailPage() {
                 {/* The voices */}
                 <div className="min-w-0 p-5 sm:p-6">
                   {reviewFormOpen && !isOwner ? (
-                    <div className="mb-5 rounded-2xl border border-solid border-[#02665e]/25 bg-[#02665e]/[0.03] p-4 sm:p-5">
+                    <div className="mb-5 rounded-2xl border border-solid border-slate-300 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_28px_-22px_rgba(15,23,42,0.35)] sm:p-5">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="text-[15px] font-bold text-slate-900">Share your stay</div>
-                          <div className="mt-0.5 text-xs text-slate-500">If you are not logged in, we will ask you to log in first.</div>
+                          <div className="mt-0.5 text-xs text-slate-500">Reviews come from guests who stayed here through NoLSAF. Sign in and rate it after your check-out.</div>
                         </div>
                       </div>
 
@@ -4334,7 +4334,7 @@ export default function PublicPropertyDetailPage() {
                           onChange={(e) => setReviewTitle(e.target.value)}
                           placeholder="Title (optional), e.g. Great location, friendly staff"
                           aria-label="Review title"
-                          className="box-border h-11 w-full rounded-lg border border-solid border-slate-200 bg-white px-3 text-sm focus:border-[#02665e] focus:outline-none focus:ring-2 focus:ring-[#02665e]/20"
+                          className="box-border h-11 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm text-slate-900 transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:outline-none focus:ring-2 focus:ring-[#02665e]/20"
                         />
                         <div>
                           <textarea
@@ -4343,14 +4343,14 @@ export default function PublicPropertyDetailPage() {
                             placeholder="What did you enjoy, and what could be better?"
                             aria-label="Your review"
                             rows={4}
-                            className="box-border w-full resize-y rounded-lg border border-solid border-slate-200 bg-white px-3 py-2.5 text-sm leading-relaxed focus:border-[#02665e] focus:outline-none focus:ring-2 focus:ring-[#02665e]/20"
+                            className="box-border w-full resize-y rounded-lg border border-solid border-slate-300 bg-white px-3 py-2.5 text-sm leading-relaxed text-slate-900 transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:outline-none focus:ring-2 focus:ring-[#02665e]/20"
                             style={{ fontFamily: "inherit" }}
                           />
                           <div className="mt-1 text-right text-[11px] tabular-nums text-slate-400">{reviewComment.length} characters</div>
                         </div>
                       </div>
 
-                      <div className="mt-3 border-0 border-t border-solid border-slate-200/70 pt-3">
+                      <div className="mt-3 border-0 border-t border-solid border-slate-200 pt-3">
                         <div className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">Rate by category, optional</div>
                         <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
                           {[
@@ -4471,7 +4471,7 @@ export default function PublicPropertyDetailPage() {
                   ) : (
                     <div className={`grid grid-cols-1 gap-3 ${list.length > 1 ? "lg:grid-cols-2" : ""}`}>
                       {list.slice(0, 20).map((r) => (
-                        <ReviewCard key={r.id} review={r} />
+                        <ReviewCard key={r.id} review={r} hostName={property.title} />
                       ))}
                     </div>
                   )}
@@ -5259,20 +5259,52 @@ export default function PublicPropertyDetailPage() {
 
 }
 
-function ReviewCard({ review }: { review: PropertyReview }) {
+/**
+ * True while the clamped element hides text, measured on the real layout
+ * (not by character count), so "Read more" only shows when it reveals something.
+ */
+function useClampOverflow<T extends HTMLElement>(clamped: boolean, text: string) {
+  const ref = useRef<T | null>(null);
+  const [overflows, setOverflows] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !clamped) return;
+    const measure = () => setOverflows(el.scrollHeight - el.clientHeight > 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [clamped, text]);
+  // A pair, not { ref, overflows }: an object holding a ref is treated as a ref,
+  // so reading .overflows during render trips react-hooks "refs during render".
+  return [ref, overflows] as const;
+}
+
+function reviewDate(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  return isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+}
+
+function ReviewCard({ review, hostName }: { review: PropertyReview; hostName: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [replyExpanded, setReplyExpanded] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const comment = review.comment || "";
-  const isLong = comment.length > 260;
+  const reply = review.ownerResponse || "";
+  const [commentRef, commentOverflows] = useClampOverflow<HTMLParagraphElement>(!isExpanded, comment);
+  const [replyRef, replyOverflows] = useClampOverflow<HTMLParagraphElement>(!replyExpanded, reply);
   const name = review.user?.name || "Guest";
   const initials = name
+    .replace(/\./g, "")
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0]!.toUpperCase())
     .join("");
-  const date = new Date(review.createdAt);
-  const dateLabel = isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const dateLabel = reviewDate(review.createdAt);
+  const replyDate = reviewDate(review.ownerResponseAt);
   return (
     <>
       <article className="flex flex-col rounded-2xl border border-solid border-slate-200 bg-white p-4 transition-shadow hover:shadow-md sm:p-5">
@@ -5302,12 +5334,13 @@ function ReviewCard({ review }: { review: PropertyReview }) {
         {comment ? (
           <div className="mt-1.5">
             <p
+              ref={commentRef}
               className="m-0 whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-700"
               style={isExpanded ? undefined : { display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}
             >
               {comment}
             </p>
-            {isLong ? (
+            {isExpanded || commentOverflows ? (
               <button
                 type="button"
                 onClick={() => (comment.length > 900 ? setShowModal(true) : setIsExpanded((v) => !v))}
@@ -5320,25 +5353,42 @@ function ReviewCard({ review }: { review: PropertyReview }) {
           </div>
         ) : null}
 
-        {review.ownerResponse ? (
-          <div className="mt-3 rounded-xl border-0 border-l-[3px] border-solid border-[#02665e] bg-[#02665e]/[0.04] px-3 py-2.5">
-            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#02665e]">
-              <MessageSquare className="h-3.5 w-3.5" aria-hidden />
-              Reply from the host
+        {reply ? (
+          <div className="mt-3.5 rounded-xl bg-slate-50 px-3.5 py-3 sm:ml-[52px]">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e]/10 text-[#02665e]" aria-hidden>
+                <MessageSquare className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0 truncate text-[12.5px] font-bold text-slate-900">Response from {hostName || "the host"}</span>
+              {replyDate ? <span className="flex-shrink-0 text-[11.5px] text-slate-500">· {replyDate}</span> : null}
             </div>
-            <p className="m-0 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700" style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-              {review.ownerResponse}
+            <p
+              ref={replyRef}
+              className="m-0 mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700"
+              style={replyExpanded ? undefined : { display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+            >
+              {reply}
             </p>
+            {replyExpanded || replyOverflows ? (
+              <button
+                type="button"
+                onClick={() => setReplyExpanded((v) => !v)}
+                className="mt-1 inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline"
+              >
+                {replyExpanded ? "Show less" : "Read more"}
+                {replyExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+            ) : null}
           </div>
         ) : null}
       </article>
-      {showModal && <ReviewModal review={review} onClose={() => setShowModal(false)} />}
+      {showModal && <ReviewModal review={review} hostName={hostName} onClose={() => setShowModal(false)} />}
     </>
   );
 
 }
 
-function ReviewModal({ review, onClose }: { review: PropertyReview; onClose: () => void }) {
+function ReviewModal({ review, hostName, onClose }: { review: PropertyReview; hostName: string; onClose: () => void }) {
   useEffect(() => {
     // Prevent body scroll when modal is open
     document.body.style.overflow = "hidden";
@@ -5412,7 +5462,10 @@ function ReviewModal({ review, onClose }: { review: PropertyReview; onClose: () 
                   <MessageSquare className="w-6 h-6 text-[#02665e]" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-slate-900 mb-2">Owner response</div>
+                  <div className="text-sm font-bold text-slate-900 mb-2">
+                    Response from {hostName || "the host"}
+                    {reviewDate(review.ownerResponseAt) ? <span className="font-normal text-slate-500"> · {reviewDate(review.ownerResponseAt)}</span> : null}
+                  </div>
                   <div className="text-base text-slate-700 leading-relaxed whitespace-pre-wrap">
                     {review.ownerResponse}
                   </div>
@@ -5460,9 +5513,8 @@ function StarPicker({ value, onChange }: { value: number; onChange: (n: number) 
             type="button"
             onClick={() => onChange(n)}
             className={[
-              "h-8 w-8 rounded-full border flex items-center justify-center",
-              active ? "bg-amber-50 border-amber-200 text-amber-600" : "bg-white border-slate-200 text-slate-400",
-              "hover:bg-slate-50",
+              "h-8 w-8 cursor-pointer rounded-full border border-solid flex items-center justify-center p-0 transition-colors",
+              active ? "bg-amber-50 border-amber-300 text-amber-500" : "bg-white border-slate-300 text-slate-400 hover:border-slate-400 hover:bg-slate-50",
             ].join(" ")}
             aria-label={`${n} star`}
             aria-pressed={active}
@@ -5471,14 +5523,16 @@ function StarPicker({ value, onChange }: { value: number; onChange: (n: number) 
           </button>
         );
       })}
-      <button
-        type="button"
-        onClick={() => onChange(0)}
-        className="ml-2 text-xs font-semibold text-slate-600 hover:underline"
-        aria-label="Clear rating"
-      >
-        Clear
-      </button>
+      {v > 0 ? (
+        <button
+          type="button"
+          onClick={() => onChange(0)}
+          className="ml-2 cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-slate-500 hover:text-slate-800 hover:underline"
+          aria-label="Clear rating"
+        >
+          Clear
+        </button>
+      ) : null}
     </div>
   );
 }

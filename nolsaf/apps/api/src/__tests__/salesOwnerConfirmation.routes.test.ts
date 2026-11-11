@@ -14,11 +14,11 @@ const h = vi.hoisted(() => {
     auditLog: { create: fn() },
   };
   db.$transaction = vi.fn(async (operation: (tx: any) => unknown) => operation(db));
-  return { db, notifyUser: vi.fn(async () => undefined), sendMail: vi.fn(async () => undefined), sendSms: vi.fn(async () => ({ success: true })) };
+  return { db, notifyUser: vi.fn(async () => undefined), notifyAdmins: vi.fn(async () => undefined), sendMail: vi.fn(async () => undefined), sendSms: vi.fn(async () => ({ success: true })) };
 });
 
 vi.mock("@nolsaf/prisma", () => ({ prisma: h.db, typedPrisma: h.db }));
-vi.mock("../lib/notifications.js", () => ({ notifyUser: h.notifyUser }));
+vi.mock("../lib/notifications.js", () => ({ notifyUser: h.notifyUser, notifyAdmins: h.notifyAdmins }));
 vi.mock("../lib/mailer.js", () => ({ sendMail: h.sendMail }));
 vi.mock("../lib/sms.js", () => ({ sendSms: h.sendSms }));
 vi.mock("../lib/publicLinkSecrets.js", () => ({ publicLinkSigningSecret: () => "test-secret" }));
@@ -111,11 +111,14 @@ describe("answers", () => {
       .post("/api/owner/sales-confirmations/50/answer")
       .set(owner)
       .set("user-agent", "TestPhone/1.0")
-      .send({ answer: "CONFIRMED" });
+      .send({ answer: "CONFIRMED", contactChannel: "INSTAGRAM", note: "Found me through my page" });
     expect(res.status).toBe(200);
     const update = h.db.salesOwnerConfirmation.updateMany.mock.calls[0][0];
     expect(update.where.id.in).toEqual([50, 51]);
-    expect(update.data).toMatchObject({ status: "CONFIRMED", activeKey: null, respondedById: 7, responseUserAgent: "TestPhone/1.0", responseSessionId: "sess-1" });
+    expect(update.data).toMatchObject({
+      status: "CONFIRMED", activeKey: null, respondedById: 7, responseUserAgent: "TestPhone/1.0", responseSessionId: "sess-1",
+      contactChannel: "INSTAGRAM", responseNote: "Found me through my page",
+    });
     expect(update.data.responseIpHash).toMatch(/^[a-f0-9]{64}$/);
     expect(h.notifyUser).toHaveBeenCalledWith(101, "sales_partner_owner_confirmed", expect.any(Object));
   });
@@ -128,11 +131,73 @@ describe("answers", () => {
       data: expect.objectContaining({ status: "DISPUTED" }),
     }));
     expect(h.notifyUser).toHaveBeenCalledWith(101, "sales_partner_owner_disputed", expect.any(Object));
+    // The admin inbox hears about every "no": the claim is frozen until someone reviews it.
+    expect(h.notifyAdmins).toHaveBeenCalledWith("sales_partner_owner_disputed", expect.objectContaining({ answer: "UNKNOWN_PARTNER", attributionIds: [90, 91] }));
   });
 
   it("rejects answers outside the three choices", async () => {
     const res = await request(app).post("/api/owner/sales-confirmations/50/answer").set(owner).send({ answer: "APPROVED" });
     expect(res.status).toBe(400);
+  });
+
+  it("a yes needs to say how the partner reached the owner, from the known channels", async () => {
+    const send = (body: object) => request(app).post("/api/owner/sales-confirmations/50/answer").set(owner).send(body);
+    expect((await send({ answer: "CONFIRMED" })).status).toBe(400);
+    expect((await send({ answer: "CONFIRMED", contactChannel: "CARRIER_PIGEON" })).status).toBe(400);
+    expect(h.db.salesOwnerConfirmation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a no carries no contact channel", async () => {
+    const res = await request(app).post("/api/owner/sales-confirmations/50/answer").set(owner).send({ answer: "DENIED", contactChannel: "WHATSAPP" });
+    expect(res.status).toBe(400);
+    expect(h.db.salesOwnerConfirmation.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("what the owner sees", () => {
+  const partner = (cardOverrides: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => ({
+    agentCode: "NSA-DAR-0001",
+    region: "Dar es Salaam",
+    territory: "Kinondoni",
+    status: "ACTIVE",
+    createdAt: new Date("2026-08-01T08:00:00Z"),
+    user: { name: "Pavel", fullName: "Pavel D. Ngeleja", suspendedAt: null, isDisabled: false },
+    contracts: [{ status: "ACTIVE", startsAt: new Date(Date.now() - 30 * DAY), expiresAt: new Date(Date.now() + 300 * DAY) }],
+    idCards: [{ id: 3, salt: "a".repeat(32), cardNumber: "NSA-C-0003", photoUrl: "https://res.cloudinary.com/x/photo.jpg", status: "ACTIVE", expiresAt: new Date(Date.now() + 200 * DAY), ...cardOverrides }],
+    ledTeam: null,
+    ...extra,
+  });
+  const row = (salesPartner: object, overrides: Record<string, unknown> = {}) => ({
+    id: 50, status: "PENDING", requestedAt: new Date(), expiresAt: new Date(Date.now() + 5 * DAY), respondedAt: null,
+    responseNote: null, contactChannel: null, propertyId: 4, salesPartnerId: 11, property: { title: "Minza Executive Lodge" }, salesPartner, ...overrides,
+  });
+
+  it("shows the partner's full name, code, area and a working link to their ID card, never earnings or contacts", async () => {
+    h.db.salesOwnerConfirmation.findMany.mockResolvedValueOnce([row(partner())]).mockResolvedValueOnce([]);
+    const res = await request(app).get("/api/owner/sales-confirmations").set(owner);
+    expect(res.status).toBe(200);
+    const shown = res.body.pending[0].partner;
+    expect(shown).toMatchObject({ name: "Pavel D. Ngeleja", agentCode: "NSA-DAR-0001", region: "Dar es Salaam", territory: "Kinondoni", teamLead: false });
+    expect(shown.card).toMatchObject({ valid: true, validity: "VALID", cardNumber: "NSA-C-0003", photoUrl: "https://res.cloudinary.com/x/photo.jpg" });
+    expect(shown.card.verifyUrl).toMatch(/\/verify\/sales\/[A-Za-z0-9_-]{40,60}$/);
+    expect(JSON.stringify(res.body)).not.toMatch(/salt|phone|email|commission|earn/i);
+  });
+
+  it("warns about a card that is no longer valid and hides a photo NoLSAF has not approved", async () => {
+    h.db.salesOwnerConfirmation.findMany
+      .mockResolvedValueOnce([row(partner({ status: "REVOKED" })), row(partner({ status: "PENDING_REVIEW" }), { id: 52, salesPartnerId: 12 })])
+      .mockResolvedValueOnce([]);
+    const res = await request(app).get("/api/owner/sales-confirmations").set(owner);
+    expect(res.body.pending[0].partner.card).toMatchObject({ valid: false, validity: "REVOKED" });
+    expect(res.body.pending[1].partner.card).toMatchObject({ valid: false, validity: "PHOTO_REVIEW", photoUrl: null });
+  });
+
+  it("says when a partner has no card, and returns the channel and note with an answer", async () => {
+    h.db.salesOwnerConfirmation.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([row(partner({}, { idCards: [] }), { status: "CONFIRMED", respondedAt: new Date(), contactChannel: "FACE_TO_FACE", responseNote: "Visited the lodge" })]);
+    const res = await request(app).get("/api/owner/sales-confirmations").set(owner);
+    expect(res.body.answered[0]).toMatchObject({ contactChannel: "FACE_TO_FACE", note: "Visited the lodge", partner: { card: null } });
   });
 });
 

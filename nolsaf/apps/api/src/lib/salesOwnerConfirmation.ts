@@ -34,6 +34,12 @@ const REMINDER_BEFORE_MS = 2 * DAY_MS;
 export const OWNER_ANSWERS = ["CONFIRMED", "DENIED", "UNKNOWN_PARTNER"] as const;
 export type OwnerAnswer = (typeof OWNER_ANSWERS)[number];
 
+/** How the partner first reached the owner. Asked with a "yes" only. */
+export const OWNER_CONTACT_CHANNELS = [
+  "FACE_TO_FACE", "PHONE_CALL", "WHATSAPP", "INSTAGRAM", "FACEBOOK", "TIKTOK", "REFERRAL", "EVENT", "OTHER",
+] as const;
+export type OwnerContactChannel = (typeof OWNER_CONTACT_CHANNELS)[number];
+
 export class OwnerConfirmationError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -221,7 +227,7 @@ export async function latestOwnerConfirmation(tx: any, attributionId: number) {
   return tx.salesOwnerConfirmation.findFirst({
     where: { attributionId },
     orderBy: { id: "desc" },
-    select: { id: true, status: true, expiresAt: true, respondedAt: true, responseNote: true },
+    select: { id: true, status: true, expiresAt: true, respondedAt: true, responseNote: true, contactChannel: true },
   });
 }
 
@@ -234,12 +240,15 @@ export async function answerOwnerConfirmation(tx: any, input: {
   userId: number;
   answer: OwnerAnswer;
   note?: string | null;
+  /** Required with CONFIRMED, refused with any other answer. */
+  contactChannel?: OwnerContactChannel | null;
   ipHash: string | null;
   userAgent: string | null;
   sessionId: string | null;
   now?: Date;
 }) {
   const now = input.now ?? new Date();
+  const channel = input.contactChannel ?? null;
   const current = await tx.salesOwnerConfirmation.findUnique({
     where: { id: input.confirmationId },
     select: {
@@ -259,6 +268,10 @@ export async function answerOwnerConfirmation(tx: any, input: {
   }
   if (current.status !== "PENDING") throw new OwnerConfirmationError("This request has already been answered", 409);
   if (current.expiresAt <= now) throw new OwnerConfirmationError("This request has expired. NoLSAF will review it.", 409);
+  // Checked after ownership, so a request that is not yours still reads as not found.
+  if (input.answer === "CONFIRMED" && !channel) throw new OwnerConfirmationError("Tell us how this partner reached you", 400);
+  if (input.answer !== "CONFIRMED" && channel) throw new OwnerConfirmationError("Only a confirmed partner has a contact channel", 400);
+  if (channel && !(OWNER_CONTACT_CHANNELS as readonly string[]).includes(channel)) throw new OwnerConfirmationError("Choose how this partner reached you", 400);
 
   const group = await tx.salesOwnerConfirmation.findMany({
     where: {
@@ -279,6 +292,7 @@ export async function answerOwnerConfirmation(tx: any, input: {
       respondedAt: now,
       respondedById: input.userId,
       responseNote: input.note || null,
+      contactChannel: channel,
       responseIpHash: input.ipHash,
       responseUserAgent: input.userAgent ? input.userAgent.slice(0, 255) : null,
       responseSessionId: input.sessionId ? input.sessionId.slice(0, 64) : null,
@@ -312,7 +326,7 @@ export async function answerOwnerConfirmation(tx: any, input: {
       entity: "SALES_OWNER_CONFIRMATION",
       entityId: current.id,
       beforeJson: { status: "PENDING" },
-      afterJson: { status: input.answer, confirmationIds: ids, attributionIds, note: input.note || null },
+      afterJson: { status: input.answer, confirmationIds: ids, attributionIds, note: input.note || null, contactChannel: channel },
     },
   });
   return {

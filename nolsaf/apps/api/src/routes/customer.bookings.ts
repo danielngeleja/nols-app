@@ -1,7 +1,7 @@
 import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { AuthedRequest, blockImpersonated, requireAuth } from "../middleware/auth.js";
 import { generateCustomerBookingReceiptPdf } from "../lib/pdfDocuments.js";
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { makeQR } from "../lib/qr.js";
@@ -16,8 +16,28 @@ import {
   isCustomerBookingReference,
   matchesCustomerBookingReference,
 } from "../lib/customerBookingReference.js";
+import { z } from "zod";
+import { StayReviewError, createStayReview, guestReviewSelect, guestReviewView, isFinishedStay } from "../lib/stayReviews.js";
 
 export const router = Router();
+
+const stayReviewSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  title: z.string().max(200).transform((v) => v.replace(/<[^>]*>/g, "")).optional().nullable(),
+  comment: z.string().max(5000).transform((v) => v.replace(/<[^>]*>/g, "")).optional().nullable(),
+  categoryRatings: z.record(z.string(), z.unknown()).optional().nullable(),
+});
+
+/**
+ * Where a guest stands on reviewing a stay:
+ *  - REVIEWED:   they already reviewed this property (from this stay or an earlier one)
+ *  - CAN_REVIEW: the stay is finished and they have not reviewed the property yet
+ *  - null:       not yet (stay not finished) or not applicable
+ */
+function stayReviewState(booking: { status: string; checkOut: Date; code?: unknown }, reviewed: boolean, now: Date) {
+  if (reviewed) return "REVIEWED" as const;
+  return isFinishedStay(booking, now) ? ("CAN_REVIEW" as const) : null;
+}
 router.use(requireAuth as RequestHandler);
 
 /** Hours an unpaid booking draft stays payable before it flips to EXPIRED.
@@ -274,6 +294,15 @@ router.get("/", (async (req: AuthedRequest, res) => {
 
     // Calculate if bookings are valid (not expired)
     const now = new Date();
+    // Properties this guest has already reviewed, for the "Rate your stay" prompt.
+    const reviewedPropertyIds = new Set<number>(
+      (
+        await prisma.propertyReview.findMany({
+          where: { userId, propertyId: { in: [...new Set(bookings.map((b) => b.propertyId))] } },
+          select: { propertyId: true },
+        })
+      ).map((row) => row.propertyId),
+    );
     type BookingRow = (typeof bookings)[number];
     const bookingsWithValidity = await Promise.all(bookings.map(async (booking: BookingRow) => {
       const checkOut = new Date(booking.checkOut);
@@ -355,6 +384,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
         paymentCase: booking.paymentReconciliationCase || null,
         paymentReportEligibility: paymentReportEligibility(booking, now),
         codeStatus: booking.code?.status || null,
+        reviewState: stayReviewState(booking, reviewedPropertyIds.has(booking.propertyId), now),
         invoice: invoice,
         dashboardBucket,
         draftExpiresAt,
@@ -493,15 +523,56 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
       invoice?.status === "PAID" ||
       (invoice?.status === "CUSTOMER_PAID" && Boolean((invoice as any)?.receiptNumber));
 
+    const myReview = await prisma.propertyReview.findFirst({
+      where: { userId, propertyId: booking.propertyId },
+      select: guestReviewSelect,
+      orderBy: { createdAt: "desc" },
+    });
+
     return res.json({
       ...booking,
       bookingReference: customerBookingReference(booking.id),
       isValid,
       isPaid,
+      review: {
+        state: stayReviewState(booking, Boolean(myReview), now),
+        mine: guestReviewView(myReview),
+      },
     });
   } catch (error: any) {
     console.error("GET /customer/bookings/:id error:", error);
     return res.status(500).json({ error: "Failed to fetch booking" });
+  }
+}) as RequestHandler);
+
+/**
+ * POST /api/customer/bookings/:reference/review
+ * Rate a finished stay. The review is tied to this booking, so it shows as a verified stay.
+ */
+router.post("/:id/review", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const parsed = stayReviewSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Choose a star rating from 1 to 5" });
+
+    const userContact = await getUserContact(userId);
+    const tail9 = getTail9Digits(userContact.phone);
+    const legacyBookingIds = tail9 ? await findLegacyBookingIdsByPhoneTail(tail9) : [];
+    const bookingId = await resolveCustomerBookingId(req.params.id, userId, legacyBookingIds);
+    if (!bookingId) return res.status(404).json({ error: "Booking not found" });
+
+    const booking = await prisma.booking.findFirst({
+      where: { id: bookingId, ...buildCustomerBookingWhere({ id: userId }, legacyBookingIds), status: { notIn: ["CANCELED"] } },
+      select: { id: true, propertyId: true, status: true, checkOut: true, code: { select: { id: true } } },
+    });
+    if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+    const created = await createStayReview({ userId, booking, review: parsed.data });
+    return res.status(201).json({ review: guestReviewView(created) });
+  } catch (error: any) {
+    if (error instanceof StayReviewError) return res.status(error.status).json({ error: error.message });
+    console.error("POST /customer/bookings/:id/review error:", error);
+    return res.status(500).json({ error: "Your review was not saved. Please try again." });
   }
 }) as RequestHandler);
 

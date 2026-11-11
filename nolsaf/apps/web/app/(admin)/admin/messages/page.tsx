@@ -20,7 +20,7 @@ import {
   Settings2,
   RefreshCw,
   ShieldAlert,
-  Trash2,
+  CheckCircle2,
   Truck,
   Wallet,
   X,
@@ -36,6 +36,15 @@ type Message = {
   createdAt?: string;
   unread: boolean;
   meta?: any;
+  /** From the server registry (lib/adminNotificationKinds.ts). */
+  category?: string;
+  severity?: "critical" | "attention" | "info";
+  requiresAction?: boolean;
+  state?: "unread" | "open" | "resolved";
+  readBy?: string | null;
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  clearsAt?: string | null;
 };
 
 type Category = "system" | "privacy" | "money" | "bookings" | "properties" | "transport" | "other";
@@ -54,6 +63,11 @@ const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Bell; text:
 
 /** Groups the inbox by what the notification is about, from its type and template. */
 function categoryOf(m: Message): Category {
+  // The server's registry decides when it knows the kind.
+  const server = String(m.category || "");
+  if (server === "security" || server === "system") return "system";
+  if (["privacy", "money", "bookings", "properties", "transport"].includes(server)) return server as Category;
+  if (server) return "other";
   const kind = String(m.meta?.notificationKind || "");
   const type = String(m.type || "");
   // Customer data copies: legal, dispute and locked-download alerts live together.
@@ -135,7 +149,7 @@ export default function Page() {
   const [viewed, setViewed] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
+  const [resolvingIds, setResolvingIds] = useState<Set<string>>(() => new Set());
   const [openId, setOpenId] = useState<string | null>(null);
   const [category, setCategory] = useState<Category | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
@@ -198,55 +212,45 @@ export default function Page() {
     }
   }, []);
 
-  // No bulk endpoint exists, so this walks the per-item route one at a time.
+  // One server call covers every unread alert in the inbox. Alerts that ask for
+  // action stay listed as "to resolve"; the rest are settled.
   const markAllRead = useCallback(async () => {
-    const targets = (category ? unread.filter((m) => categoryOf(m) === category) : unread).slice();
-    if (!targets.length) return;
+    if (!unread.length) return;
     setMarkingAll(true);
-    let done = 0;
-    for (const m of targets) {
-      try {
-        const r = await fetch(`/api/admin/notifications/${m.id}/mark-read`, { method: "POST", credentials: "include" });
-        if (!r.ok) continue;
-        done += 1;
-        setUnread((u) => u.filter((x) => x.id !== m.id));
-        setViewed((v) => [{ ...m, unread: false }, ...v.filter((x) => x.id !== m.id)]);
-      } catch {
-        // keep going; the count below reports what actually changed
-      }
-    }
-    setMarkingAll(false);
-    if (done === targets.length) toast("success", "All caught up", `${done} ${done === 1 ? "notification" : "notifications"} marked as read.`);
-    else toast("error", "Some were not marked", `${done} of ${targets.length} marked as read. Refresh and try again.`);
-  }, [category, unread]);
-
-  const deleteViewed = useCallback(async (message: Message) => {
-    if (message.unread || deletingIds.has(message.id)) return;
-    const originalIndex = viewed.findIndex((item) => item.id === message.id);
-    setDeletingIds((current) => new Set(current).add(message.id));
-    setViewed((current) => current.filter((item) => item.id !== message.id));
-    setOpenId((current) => (current === message.id ? null : current));
     try {
-      const response = await fetch(`/api/admin/notifications/${message.id}`, { method: "DELETE", credentials: "include" });
-      if (!response.ok) throw new Error(`Delete failed ${response.status}`);
-      toast("success", "Notification deleted", "The viewed notification was removed.");
-    } catch (error) {
-      console.error("delete notification failed", error);
-      setViewed((current) => {
-        if (current.some((item) => item.id === message.id)) return current;
-        const restored = [...current];
-        restored.splice(Math.max(0, originalIndex), 0, message);
-        return restored;
-      });
-      toast("error", "Could not delete notification", "The notification was restored. Please try again.");
+      const r = await fetch("/api/admin/notifications/mark-all-read", { method: "POST", credentials: "include" });
+      if (!r.ok) throw new Error(`Mark all read failed ${r.status}`);
+      const data = await r.json().catch(() => ({}));
+      toast("success", "All caught up", `${data.marked ?? unread.length} marked as read.${data.stillOpen ? ` ${data.stillOpen} still need resolving.` : ""}`);
+    } catch {
+      toast("error", "Not all were marked", "Refresh and try again.");
     } finally {
-      setDeletingIds((current) => {
+      setMarkingAll(false);
+      refresh();
+    }
+  }, [unread.length, refresh]);
+
+  // Admin alerts are never deleted. Resolving records who handled it; the
+  // alert then clears itself 7 days later.
+  const resolve = useCallback(async (message: Message) => {
+    if (resolvingIds.has(message.id)) return;
+    setResolvingIds((current) => new Set(current).add(message.id));
+    try {
+      const response = await fetch(`/api/admin/notifications/${message.id}/resolve`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (!response.ok) throw new Error(`Resolve failed ${response.status}`);
+      toast("success", "Resolved", "Recorded with your name. It clears automatically in 7 days.");
+      refresh();
+    } catch (error) {
+      console.error("resolve notification failed", error);
+      toast("error", "Could not resolve", "Please try again.");
+    } finally {
+      setResolvingIds((current) => {
         const next = new Set(current);
         next.delete(message.id);
         return next;
       });
     }
-  }, [deletingIds, viewed]);
+  }, [resolvingIds, refresh]);
 
   const currentItems = tab === "unread" ? unread : viewed;
   const counts = useMemo(() => {
@@ -559,17 +563,19 @@ export default function Page() {
                           <Check className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Mark read</span>
                         </button>
                       )}
-                      {!m.unread && (
+                      {m.requiresAction && m.state !== "resolved" && (
                         <button
                           type="button"
-                          onClick={() => void deleteViewed(m)}
-                          disabled={deletingIds.has(m.id)}
-                          aria-label={`Delete ${m.title}`}
-                          title="Delete"
-                          className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-neutral-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                          onClick={() => void resolve(m)}
+                          disabled={resolvingIds.has(m.id)}
+                          title="The action is done"
+                          className="inline-flex h-8 items-center gap-1 rounded-lg border border-solid border-emerald-200 bg-white px-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
                         >
-                          {deletingIds.has(m.id) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          {resolvingIds.has(m.id) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Resolve
                         </button>
+                      )}
+                      {m.state === "resolved" && m.requiresAction && (
+                        <span className="hidden text-[11px] font-semibold text-emerald-700 sm:inline">Resolved{m.resolvedBy ? ` by ${m.resolvedBy}` : ""}</span>
                       )}
                       <button
                         type="button"

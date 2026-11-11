@@ -6,6 +6,7 @@ import { prisma } from "@nolsaf/prisma";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { safeJsonResponse } from "../lib/serializePrisma.js";
+import { maskOtpDestination, otpAuditSearchRefs, type OtpAuditDestinationType } from "../lib/otpAudit.js";
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
@@ -86,6 +87,26 @@ function sanitizeProvider(value: unknown): string | null {
   return null;
 }
 
+// Entities are `OTP:<type>:<keyed destination ref>:<keyed code ref>`. Rows
+// written before that change embedded the raw destination and a bare code hash,
+// so a query also matches the literal text for those older rows.
+function otpSearchWhere(q: string): any {
+  const terms = [q, ...otpAuditSearchRefs(q)];
+  return { OR: terms.map((term) => ({ entity: { contains: term } })) };
+}
+
+// Never expose the full destination, or any digits of a code that may still be
+// usable. Older rows stored both; newer rows store neither.
+function presentOtpRow(after: any, status: string) {
+  const type = String(after.destinationType || "") as OtpAuditDestinationType;
+  const destination = after.destinationMasked
+    ?? (after.destination ? maskOtpDestination(type, String(after.destination)) : null);
+  return {
+    destination,
+    codeMasked: status === "valid" ? null : (after.codeMasked ?? null),
+  };
+}
+
 function retentionCutoff(now = new Date()): Date {
   return new Date(now.getTime() - OTP_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 }
@@ -115,7 +136,7 @@ router.get(
     const { q, date, page, pageSize, status } = parsed.data;
 
     // We encode OTP correlation in AuditLog.entity as:
-    // `OTP:${destinationType}:${destination}:${codeHash}`
+    // `OTP:${destinationType}:${destinationRef}:${codeRef}` (keyed HMACs, see lib/otpAudit.ts)
     // NOTE: AuditLog.entity is non-nullable, so do not filter by `not: null`.
     const cutoff = retentionCutoff();
     const baseWhere: any = {
@@ -136,9 +157,7 @@ router.get(
       ? {
           AND: [
             baseWhere,
-            {
-              entity: { contains: q },
-            },
+            otpSearchWhere(q),
           ],
         }
       : baseWhere;
@@ -183,9 +202,9 @@ router.get(
         id: row.id,
         role: after.userRole ?? row.actorRole ?? null,
         name: after.userName ?? null,
-        codeMasked: after.codeMasked ?? null,
+        codeMasked: presentOtpRow(after, computedStatus).codeMasked,
         destinationType: after.destinationType ?? null,
-        destination: after.destination ?? null,
+        destination: presentOtpRow(after, computedStatus).destination,
         requestedAt: row.createdAt,
         expiresAt,
         status: computedStatus,
@@ -242,9 +261,7 @@ router.get(
       ? {
           AND: [
             baseWhere,
-            {
-              entity: { contains: q },
-            },
+            otpSearchWhere(q),
           ],
         }
       : baseWhere;
@@ -285,9 +302,9 @@ router.get(
           id: row.id,
           role: after.userRole ?? row.actorRole ?? null,
           name: after.userName ?? null,
-          codeMasked: after.codeMasked ?? null,
+          codeMasked: presentOtpRow(after, computedStatus).codeMasked,
           destinationType: after.destinationType ?? null,
-          destination: after.destination ?? null,
+          destination: presentOtpRow(after, computedStatus).destination,
           requestedAt: row.createdAt,
           expiresAt,
           status: computedStatus,
