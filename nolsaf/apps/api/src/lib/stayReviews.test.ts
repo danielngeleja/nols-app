@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
+// vi.mock calls are hoisted above every import, so this static import already
+// receives the mocks (no top-level await, which the API tsconfig rejects).
 vi.mock("@nolsaf/prisma", () => ({ prisma: {} }));
 vi.mock("./notifications.js", () => ({ notifyOwner: vi.fn() }));
 vi.mock("./mailer.js", () => ({ sendMail: vi.fn() }));
 
-const { isFinishedStay, getStayReviewRequestEmail } = await import("./stayReviews.js");
+import { getStayReviewRequestEmail, isFinishedStay } from "./stayReviews.js";
 
 const NOW = new Date("2026-11-11T09:00:00.000Z");
 const yesterday = new Date(NOW.getTime() - 86_400_000);

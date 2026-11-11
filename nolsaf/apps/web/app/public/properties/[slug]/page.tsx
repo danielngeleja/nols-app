@@ -5276,7 +5276,9 @@ function useClampOverflow<T extends HTMLElement>(clamped: boolean, text: string)
     observer.observe(el);
     return () => observer.disconnect();
   }, [clamped, text]);
-  return { ref, overflows };
+  // A pair, not { ref, overflows }: an object holding a ref is treated as a ref,
+  // so reading .overflows during render trips react-hooks "refs during render".
+  return [ref, overflows] as const;
 }
 
 function reviewDate(value: string | null | undefined) {
@@ -5291,8 +5293,8 @@ function ReviewCard({ review, hostName }: { review: PropertyReview; hostName: st
   const [showModal, setShowModal] = useState(false);
   const comment = review.comment || "";
   const reply = review.ownerResponse || "";
-  const commentClamp = useClampOverflow<HTMLParagraphElement>(!isExpanded, comment);
-  const replyClamp = useClampOverflow<HTMLParagraphElement>(!replyExpanded, reply);
+  const [commentRef, commentOverflows] = useClampOverflow<HTMLParagraphElement>(!isExpanded, comment);
+  const [replyRef, replyOverflows] = useClampOverflow<HTMLParagraphElement>(!replyExpanded, reply);
   const name = review.user?.name || "Guest";
   const initials = name
     .replace(/\./g, "")
@@ -5332,13 +5334,13 @@ function ReviewCard({ review, hostName }: { review: PropertyReview; hostName: st
         {comment ? (
           <div className="mt-1.5">
             <p
-              ref={commentClamp.ref}
+              ref={commentRef}
               className="m-0 whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-700"
               style={isExpanded ? undefined : { display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}
             >
               {comment}
             </p>
-            {isExpanded || commentClamp.overflows ? (
+            {isExpanded || commentOverflows ? (
               <button
                 type="button"
                 onClick={() => (comment.length > 900 ? setShowModal(true) : setIsExpanded((v) => !v))}
@@ -5361,13 +5363,13 @@ function ReviewCard({ review, hostName }: { review: PropertyReview; hostName: st
               {replyDate ? <span className="flex-shrink-0 text-[11.5px] text-slate-500">· {replyDate}</span> : null}
             </div>
             <p
-              ref={replyClamp.ref}
+              ref={replyRef}
               className="m-0 mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700"
               style={replyExpanded ? undefined : { display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}
             >
               {reply}
             </p>
-            {replyExpanded || replyClamp.overflows ? (
+            {replyExpanded || replyOverflows ? (
               <button
                 type="button"
                 onClick={() => setReplyExpanded((v) => !v)}
