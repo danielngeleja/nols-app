@@ -226,6 +226,10 @@
     "20261108090000_add_sales_payout_withdrawal": "de77f6df20e0ccf37359165daf09c1b27bc9839389a40e0e8909217004895976",
     "20261108120000_add_sales_team_invites": "0bc2d9513d31ee8fb0b1e802188344f37471702f6af34d2cb47021bf94101a12",
     "20261109120000_add_sales_owner_confirmation_contact_channel": "071aa6c872c86009df7061115135ed47df8cbca5c2cae5743a71f6e7f98d5205",
-    "20261111120000_add_admin_notification_lifecycle": "de28042b208435be1058454ba7095d30effd2a46a1e7096a5fd67f281c379942"
+    "20261111120000_add_admin_notification_lifecycle": "de28042b208435be1058454ba7095d30effd2a46a1e7096a5fd67f281c379942",
+    "20261111150000_add_sales_agency_desk": "fac01b6ea2d715ee202599d09c3bb57ce2f3e173c0d450779e3a544b81ead41c",
+    "20261111170000_add_sales_agency_desk_phase2": "0b099ed43bc17a7d2f9784476b93587bcf15cb1c7ef8ab360f5a465b7172c47c",
+    "20261111190000_add_group_stay_refund_tracking": "ad15d493070a4b8f9352a99fa36811f94efcc2725d13b3f6553dba1a844ec9d2",
+    "20261112090000_add_sales_agency_tour_referrals": "34cc6cdfcad246f71e0f6cf6acfb399002f80aa0b77e6a8ce9ebd99f3d4881e5"
   }
 }
