@@ -255,7 +255,7 @@ describe("shortlist", () => {
   });
 
   it("refuses the partner's own property", async () => {
-    h.db.groupBookingClaim.findMany.mockResolvedValue([{ propertyId: 40, totalAmount: "1000000", property: { publicKey: "cm1abc23xyz", services: null } }]);
+    h.db.groupBookingClaim.findMany.mockResolvedValue([{ propertyId: 40, totalAmount: "1000000", property: { nrmsBookingKey: "cm1abc23xyz", services: null } }]);
     h.db.property.findUnique.mockResolvedValue({ owner: { id: 501, email: "partner@example.com", phone: null } });
     const res = await request(app).post("/api/sales/agency/groups/gr_0123456789abcdef0123/shortlist").send({ propertyKeys: ["cm1abc23xyz"] });
     expect(res.status).toBe(400);
@@ -263,14 +263,14 @@ describe("shortlist", () => {
   });
 
   it("publishes a normal shortlist to the client", async () => {
-    h.db.groupBookingClaim.findMany.mockResolvedValue([{ propertyId: 40, totalAmount: "1000000", property: { publicKey: "cm1abc23xyz", services: null } }]);
+    h.db.groupBookingClaim.findMany.mockResolvedValue([{ propertyId: 40, totalAmount: "1000000", property: { nrmsBookingKey: "cm1abc23xyz", services: null } }]);
     const res = await request(app).post("/api/sales/agency/groups/gr_0123456789abcdef0123/shortlist").send({ propertyKeys: ["cm1abc23xyz"] });
     expect(res.body.shortlistStatus).toBe("PUBLISHED");
     expect(h.db.groupBooking.update.mock.calls[0][0].data).toEqual({ recommendedPropertyIds: [40] });
   });
 
   it("holds a large group's shortlist for admin review, showing the client nothing yet", async () => {
-    h.db.groupBookingClaim.findMany.mockResolvedValue([{ propertyId: 40, totalAmount: "20000000", property: { publicKey: "cm1abc23xyz", services: null } }]);
+    h.db.groupBookingClaim.findMany.mockResolvedValue([{ propertyId: 40, totalAmount: "20000000", property: { nrmsBookingKey: "cm1abc23xyz", services: null } }]);
     const res = await request(app).post("/api/sales/agency/groups/gr_0123456789abcdef0123/shortlist").send({ propertyKeys: ["cm1abc23xyz"] });
     expect(res.body.shortlistStatus).toBe("PENDING_REVIEW");
     expect(h.db.groupBooking.update.mock.calls[0][0].data).toEqual({ recommendedPropertyIds: [] });
@@ -280,7 +280,7 @@ describe("shortlist", () => {
 
   it("refuses shortlist, invites and property flags on a cancelled group", async () => {
     h.db.groupBooking.findUnique.mockResolvedValue({ ...group, status: "CANCELED" });
-    h.db.groupBookingClaim.findMany.mockResolvedValue([{ propertyId: 40, totalAmount: "1000000", property: { publicKey: "cm1abc23xyz", services: null } }]);
+    h.db.groupBookingClaim.findMany.mockResolvedValue([{ propertyId: 40, totalAmount: "1000000", property: { nrmsBookingKey: "cm1abc23xyz", services: null } }]);
     const base = "/api/sales/agency/groups/gr_0123456789abcdef0123";
     expect((await request(app).post(`${base}/shortlist`).send({ propertyKeys: ["cm1abc23xyz"] })).status).toBe(409);
     expect((await request(app).post(`${base}/invite`).send({ propertyUrls: ["https://www.nolsaf.com/public/properties/cm1abc23xyz"] })).status).toBe(409);
@@ -351,5 +351,19 @@ describe("partner notices on agency groups", () => {
     h.db.salesAgencyGroupRequest.findUnique.mockRejectedValue(new Error("db down"));
     await expect(notifyAgencyPartnerAboutGroup(h.db, 4400, "paid")).resolves.toBeUndefined();
     expect(h.notifyUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("group detail reads real property columns", () => {
+  it("asks for nrmsBookingKey, never a publicKey the Property model does not have", async () => {
+    h.db.salesAgencyGroupRequest.findFirst.mockResolvedValue({ id: 9, reference: "gr_0123456789abcdef0123", salesPartnerId: 77, status: "CONFIRMED", groupBookingId: 4400, payload: { toRegion: "Dodoma", headcount: 10 }, shortlistStatus: "NONE", biddingDays: 3, clientName: "Paul", clientPhone: "0712345678" });
+    h.db.groupBooking.findUnique.mockResolvedValue({ id: 4400, status: "PENDING", isOpenForClaims: true, depositPaid: false, currency: "TZS", recommendedPropertyIds: [40], confirmedProperty: null });
+    h.db.groupBookingClaim.findMany.mockResolvedValue([]);
+    h.db.property.findMany.mockResolvedValue([{ nrmsBookingKey: "cm1abc23xyz" }]);
+    const res = await request(app).get("/api/sales/agency/groups/gr_0123456789abcdef0123");
+    expect(res.status).toBe(200);
+    const json = JSON.stringify([h.db.groupBooking.findUnique.mock.calls, h.db.groupBookingClaim.findMany.mock.calls, h.db.property.findMany.mock.calls]);
+    expect(json).not.toContain("publicKey");
+    expect(json).toContain("nrmsBookingKey");
   });
 });

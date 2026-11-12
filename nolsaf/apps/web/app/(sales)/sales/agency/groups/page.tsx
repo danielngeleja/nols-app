@@ -13,6 +13,8 @@ import SalesPageHeader from "@/components/sales/SalesPageHeader";
 import AgencyTabs from "@/components/sales/AgencyTabs";
 import DatePicker from "@/components/ui/DatePicker";
 import InfoTip from "@/components/sales/InfoTip";
+import GroupDestinationFields, { EMPTY_DESTINATION, destinationPayload, type Destination } from "@/components/sales/GroupDestinationFields";
+import GuestListEditor, { guestPhoneProblem, guestsToRoster, type Guest } from "@/components/sales/GuestListEditor";
 
 type Row = {
   reference: string;
@@ -71,23 +73,9 @@ const FILTERS: Array<{ key: "open" | Bucket | "all"; label: string }> = [
   { key: "all", label: "All" },
 ];
 
-/** "First Last, 0712..." per line. */
-function parseRoster(text: string) {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [namePart, phone] = line.split(",").map((s) => s.trim());
-      const [firstname, ...rest] = (namePart || "").split(/\s+/);
-      return { firstname: firstname || "", lastname: rest.join(" ") || "-", ...(phone ? { phone: phone.slice(0, 20) } : {}) };
-    })
-    .filter((p) => p.firstname);
-}
-
 const emptyForm = {
-  clientRef: "", clientName: "", clientPhone: "", groupType: "event", toRegion: "", toDistrict: "", accommodationType: "hotel", minHotelStarLabel: "moderate",
-  headcount: "", roomSize: "2", checkIn: "", checkOut: "", meals: false, pickup: false, transport: false, guide: false, notes: "", roster: "", biddingDays: "3",
+  clientRef: "", clientName: "", clientPhone: "", groupType: "event", accommodationType: "hotel", minHotelStarLabel: "moderate",
+  headcount: "", roomSize: "2", checkIn: "", checkOut: "", meals: false, pickup: false, transport: false, guide: false, notes: "", biddingDays: "3",
 };
 
 export default function AgencyGroupsPage() {
@@ -98,6 +86,8 @@ export default function AgencyGroupsPage() {
   const [unavailable, setUnavailable] = useState(false);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [destination, setDestination] = useState<Destination>(EMPTY_DESTINATION);
+  const [guests, setGuests] = useState<Guest[]>([]);
   const [dateOpen, setDateOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -143,14 +133,13 @@ export default function AgencyGroupsPage() {
     setError("");
     setNotice("");
     try {
-      const roster = parseRoster(form.roster);
+      const roster = guestsToRoster(guests);
       const body: any = {
         ...(form.clientRef ? { clientRef: form.clientRef } : { clientName: form.clientName.trim(), clientPhone: form.clientPhone.trim() }),
         biddingDays: Number(form.biddingDays) || 3,
         request: {
           groupType: form.groupType,
-          toRegion: form.toRegion.trim(),
-          toDistrict: form.toDistrict.trim() || null,
+          ...destinationPayload(destination),
           accommodationType: form.accommodationType,
           minHotelStarLabel: form.accommodationType === "hotel" ? form.minHotelStarLabel : null,
           headcount: Number(form.headcount),
@@ -168,6 +157,8 @@ export default function AgencyGroupsPage() {
       const res = await apiClient.post("/api/sales/agency/groups", body);
       setNotice(res.data?.smsSent ? "Sent. Your client got an SMS to confirm the request from their own phone." : "Saved, but the SMS did not go out. Use Resend on the request.");
       setForm(emptyForm);
+      setDestination(EMPTY_DESTINATION);
+      setGuests([]);
       setCreating(false);
       router.push(`/sales/agency/groups/${res.data.reference}`);
     } catch (cause: any) {
@@ -178,9 +169,10 @@ export default function AgencyGroupsPage() {
     }
   };
 
+  const guestProblems = guests.some((g) => (g.name.trim() || g.phone.trim()) && (!g.name.trim() || guestPhoneProblem(g.phone)));
   const canSubmit =
     (form.clientRef || (form.clientName.trim().length >= 2 && form.clientPhone.trim().length >= 9)) &&
-    form.toRegion.trim() && Number(form.headcount) > 0 && rooms > 0;
+    !!destination.region && Number(form.headcount) > 0 && rooms > 0 && !guestProblems;
 
   return (
     <SalesShell>
@@ -219,13 +211,15 @@ export default function AgencyGroupsPage() {
                     </div>
                   </FormSection>
 
-                  <FormSection title="Where and when">
-                    <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <FormSection title="Where" tip={<>Owners in this region, and district if you pick one, can send offers. Add a ward and street only when the group must stay near a specific venue.</>}>
+                    <GroupDestinationFields value={destination} onChange={setDestination} />
+                  </FormSection>
+
+                  <FormSection title="What and when">
+                    <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       <label className={field}>Group type
                         <select value={form.groupType} onChange={(e) => setForm({ ...form, groupType: e.target.value })} className={input}>{GROUP_TYPES.map((t) => <option key={t} value={t}>{words(t)}</option>)}</select>
                       </label>
-                      <label className={field}>Region<input value={form.toRegion} onChange={(e) => setForm({ ...form, toRegion: e.target.value })} placeholder="Mwanza" className={input} /></label>
-                      <label className={field}>District (optional)<input value={form.toDistrict} onChange={(e) => setForm({ ...form, toDistrict: e.target.value })} className={input} /></label>
                       <label className={field}>Accommodation
                         <select value={form.accommodationType} onChange={(e) => setForm({ ...form, accommodationType: e.target.value })} className={input}>{ACCOMMODATION.map((t) => <option key={t} value={t}>{words(t)}</option>)}</select>
                       </label>
@@ -273,7 +267,7 @@ export default function AgencyGroupsPage() {
                     </div>
                   </FormSection>
 
-                  <FormSection title="Extras and guests" tip={<>The guest list is optional. One person per line as &quot;First Last, phone&quot;. Leave it empty if you do not have it yet.</>}>
+                  <FormSection title="Extras">
                     <div className="flex flex-wrap gap-2">
                       {(["meals", "pickup", "transport", "guide"] as const).map((k) => (
                         <label key={k} className={`inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-md border border-solid px-3 text-sm ${form[k] ? "border-[#02665e] bg-[#02665e]/[0.06] text-[#02665e]" : "border-slate-300 bg-white text-slate-700"}`}>
@@ -281,15 +275,23 @@ export default function AgencyGroupsPage() {
                         </label>
                       ))}
                     </div>
-                    <div className="mt-3 grid min-w-0 gap-3 lg:grid-cols-2">
-                      <label className={field}>Notes for owners (optional)<textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={4} className={`${input} py-2`} /></label>
-                      <label className={field}>Guest list (optional)<textarea value={form.roster} onChange={(e) => setForm({ ...form, roster: e.target.value })} rows={4} placeholder={"Asha Mushi, 0712345678\nJuma Ali, 0754123456"} className={`${input} py-2`} /></label>
-                    </div>
+                    <label className={`${field} mt-3`}>Notes for owners (optional)
+                      <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} maxLength={1000}
+                        placeholder="Conference hall nearby, late check-in on the first night" className={`${input} py-2`} />
+                    </label>
+                  </FormSection>
+
+                  <FormSection title="Guests" tip={<>Optional. Add each person with their phone, or paste a list from WhatsApp. You can leave it empty and share names later.</>}>
+                    <GuestListEditor guests={guests} onChange={setGuests} headcount={Number(form.headcount) || 0} />
                   </FormSection>
 
                   <div className="flex flex-wrap items-center gap-3 border-0 border-t border-solid border-slate-300 bg-slate-50 px-4 py-3">
                     <button type="submit" className={primary} disabled={busy || !canSubmit}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}Send to client to confirm</button>
-                    {!canSubmit ? <span className="text-xs text-slate-500">Needs a client, a region and the number of people.</span> : null}
+                    {!canSubmit ? (
+                      <span className="text-xs text-slate-500">
+                        {guestProblems ? "Fix the highlighted guest rows: each needs a name, and phones need 9 to 15 digits." : "Needs a client, a region and the number of people."}
+                      </span>
+                    ) : null}
                   </div>
                 </form>
               </article>

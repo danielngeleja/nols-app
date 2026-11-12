@@ -178,7 +178,7 @@ describe("links", () => {
     h.db.property.findFirst.mockResolvedValue(null);
     const res = await request(app).post("/api/sales/agency/links").send({ label: "Lodge", propertyUrl: "https://www.nolsaf.com/public/properties/lodge-cm1abc23xyz" });
     expect(res.status).toBe(400);
-    expect(h.db.property.findFirst.mock.calls[0][0].where).toMatchObject({ publicKey: "cm1abc23xyz", status: "APPROVED" });
+    expect(h.db.property.findFirst.mock.calls[0][0].where).toMatchObject({ nrmsBookingKey: "cm1abc23xyz", status: "APPROVED" });
   });
 
   it("creates a link whose stored hash is the hash of the shown token", async () => {

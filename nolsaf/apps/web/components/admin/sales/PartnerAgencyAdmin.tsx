@@ -9,7 +9,7 @@
  * a reason and is audited on the server.
  */
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, CheckCircle2, Circle, Handshake, Link2, Loader2, PauseCircle, PlayCircle, ShieldAlert, Users, Wallet, X, XCircle } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Handshake, Link2, Loader2, PauseCircle, PlayCircle, ShieldAlert, Users, Wallet, X, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type Capability = {
@@ -66,6 +66,52 @@ const words = (v: string | null | undefined) => {
   const t = String(v || "").replace(/_/g, " ").toLowerCase();
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : "-";
 };
+
+/** Same colour per measure as the partner's own Agency Desk overview. */
+const TONE_HEX = { blue: "#2a78d6", orange: "#eb6834", violet: "#6250d6", amber: "#eda100" } as const;
+const TONE_CHIP: Record<keyof typeof TONE_HEX, string> = {
+  blue: "bg-[#2a78d6]/10 text-[#2a78d6]",
+  orange: "bg-[#eb6834]/10 text-[#d1531f]",
+  violet: "bg-[#6250d6]/10 text-[#6250d6]",
+  amber: "bg-[#eda100]/15 text-[#a86f00]",
+};
+
+/**
+ * A figure with a thin segmented bar under it: how the number splits (stays vs
+ * tours, paid vs not yet paid), or how much of a limit is used. Segments with
+ * a value are listed in a legend so colour is never the only cue.
+ */
+function AgencyFigure({ icon: Icon, tone, label, value, sub, bar, barTotal }: {
+  icon: typeof Wallet; tone: keyof typeof TONE_HEX; label: string; value: React.ReactNode; sub: string;
+  bar: Array<{ value: number; color: string; label: string }>; barTotal?: number;
+}) {
+  const sum = bar.reduce((s, b) => s + Math.max(0, b.value), 0);
+  const total = Math.max(1, barTotal ?? sum);
+  const shown = bar.filter((b) => b.value > 0);
+  return (
+    <div className="flex min-w-0 flex-col bg-white px-4 py-3.5 transition-colors hover:bg-neutral-50/70">
+      <p className="m-0 flex min-w-0 items-center gap-1.5 text-[12px] font-medium text-neutral-500">
+        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${TONE_CHIP[tone]}`}><Icon className="h-3.5 w-3.5" aria-hidden /></span>
+        <span className="truncate">{label}</span>
+      </p>
+      <p className="m-0 mt-2 truncate text-xl font-bold tabular-nums text-neutral-900">{value}</p>
+      <p className="m-0 truncate text-[11px] text-neutral-500" title={sub}>{sub}</p>
+      <div className="mt-auto pt-3">
+        <div className="flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-neutral-100" role="img" aria-label={`${label}: ${shown.map((b) => `${b.label} ${b.value}`).join(", ") || "none yet"}`}>
+          {shown.map((b) => (
+            <span key={b.label} className="h-full first:rounded-l-full last:rounded-r-full" style={{ width: `${(b.value / total) * 100}%`, background: b.color }} title={`${b.label}: ${b.value}`} />
+          ))}
+        </div>
+        <p className="m-0 mt-1 flex min-h-[14px] flex-wrap gap-x-2.5 text-[10px] text-neutral-500">
+          {shown.length > 1 || barTotal ? shown.map((b) => (
+            <span key={b.label} className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-sm" style={{ background: b.color }} aria-hidden />{b.label}</span>
+          )) : null}
+          {!shown.length ? <span>Nothing yet</span> : null}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 /** Worked example used in the grant panel: a TSh 2.4M group at a 10% NoLSAF commission, about 12% tax and processing. */
 const EXAMPLE_GROUP = 2_400_000;
@@ -196,37 +242,64 @@ export default function PartnerAgencyAdmin({ partnerId, agentCode }: { partnerId
 
       {/* Where the desk stands */}
       <section className={card}>
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3.5">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700"><Handshake className="h-5 w-5" /></span>
+        <div className="flex flex-wrap items-start gap-3 px-4 py-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100"><Handshake className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
-            <p className="m-0 text-[15px] font-bold text-neutral-900">Agency Desk for {agentCode}</p>
-            <p className="m-0 mt-0.5 text-[12px] text-neutral-500">
-              {!cap
-                ? "Not granted. Only NoLSAF selects partners for the desk; nobody can apply."
-                : cap.status === "REVOKED"
-                  ? `Ended ${eatDate(cap.revokedAt)}. It can be granted again.`
-                  : `${cap.stayRate}% of NoLSAF's net revenue on stays and groups they bring. Up to ${cap.maxActiveLinks} live links.`}
+            <p className="m-0 flex flex-wrap items-center gap-2 text-[15px] font-bold text-neutral-900">
+              Agency Desk
+              <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 font-mono text-[12px] font-semibold text-neutral-700">{agentCode}</span>
             </p>
+            {!cap ? (
+              <p className="m-0 mt-1 text-[12px] text-neutral-500">Not granted. Only NoLSAF selects partners for the desk; nobody can apply.</p>
+            ) : cap.status === "REVOKED" ? (
+              <p className="m-0 mt-1 text-[12px] text-neutral-500">Ended {eatDate(cap.revokedAt)}. It can be granted again.</p>
+            ) : (
+              <div className="mt-2 flex flex-wrap gap-1.5 text-[12px]">
+                <span className="inline-flex items-center gap-1 rounded-md border border-solid border-neutral-200 bg-white px-2 py-1 text-neutral-600"><Wallet className="h-3.5 w-3.5 text-[#2a78d6]" aria-hidden /><span className="font-semibold tabular-nums text-neutral-900">{cap.stayRate}%</span> of NoLSAF net revenue</span>
+                <span className="inline-flex items-center gap-1 rounded-md border border-solid border-neutral-200 bg-white px-2 py-1 text-neutral-600"><Link2 className="h-3.5 w-3.5 text-[#b07600]" aria-hidden />Up to <span className="font-semibold tabular-nums text-neutral-900">{cap.maxActiveLinks}</span> live links</span>
+                <span className="inline-flex items-center gap-1 rounded-md border border-solid border-neutral-200 bg-white px-2 py-1 text-neutral-600">Stays, groups and tours</span>
+              </div>
+            )}
           </div>
-          {cap ? <span className={`rounded-md px-2 py-1 text-[12px] font-semibold ${STATUS[cap.status].tone}`}>{STATUS[cap.status].label}</span> : <span className="rounded-md bg-neutral-100 px-2 py-1 text-[12px] font-semibold text-neutral-600">Not granted</span>}
+          {cap ? (
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold ring-1 ring-inset ${STATUS[cap.status].tone} ${cap.status === "ACTIVE" ? "ring-emerald-200" : cap.status === "PENDING_ACCEPTANCE" ? "ring-amber-200" : cap.status === "SUSPENDED" ? "ring-orange-200" : "ring-rose-200"}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${cap.status === "ACTIVE" ? "animate-pulse bg-emerald-500" : cap.status === "PENDING_ACCEPTANCE" ? "bg-amber-500" : cap.status === "SUSPENDED" ? "bg-orange-500" : "bg-rose-500"}`} aria-hidden />
+              {STATUS[cap.status].label}
+            </span>
+          ) : <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[12px] font-semibold text-neutral-600">Not granted</span>}
         </div>
+
         {held ? (
-          <ol className="m-0 grid list-none grid-cols-1 gap-px border-0 border-t border-solid border-neutral-100 bg-neutral-100 p-0 sm:grid-cols-3">
-            {steps.map((s) => (
-              <li key={s.label} className="flex items-start gap-2.5 bg-white px-4 py-3">
-                {s.done ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-neutral-300" />}
-                <div className="min-w-0">
-                  <p className={`m-0 text-[13px] font-semibold ${s.done ? "text-neutral-900" : "text-neutral-500"}`}>{s.label}</p>
-                  <p className="m-0 text-[11px] text-neutral-500">{s.at ? eatDate(s.at) : s.done ? "Now" : "Not yet"}{s.sub ? ` ${s.sub}` : ""}</p>
-                </div>
-              </li>
-            ))}
+          <ol className="m-0 grid list-none grid-cols-1 border-0 border-t border-solid border-neutral-100 p-0 px-4 py-4 sm:grid-cols-3" aria-label="Desk lifecycle">
+            {steps.map((s, i) => {
+              const next = steps[i + 1];
+              return (
+                <li key={s.label} className="relative flex items-start gap-3 pb-4 last:pb-0 sm:block sm:pb-0 sm:pr-4">
+                  {/* Connector to the next step: down on phones, across on wider screens */}
+                  {next ? (
+                    <>
+                      <span className={`absolute left-[13px] top-7 h-[calc(100%-1.25rem)] w-0.5 sm:hidden ${next.done ? "bg-emerald-500" : "bg-neutral-200"}`} aria-hidden />
+                      <span className={`absolute left-8 right-1 top-[13px] hidden h-0.5 sm:block ${next.done ? "bg-emerald-500" : "bg-neutral-200"}`} aria-hidden />
+                    </>
+                  ) : null}
+                  <span className={`relative z-[1] grid h-7 w-7 shrink-0 place-items-center rounded-full text-[12px] font-bold ${s.done ? "bg-emerald-600 text-white" : "border-2 border-solid border-neutral-300 bg-white text-neutral-400"}`}>
+                    {s.done ? <Check className="h-4 w-4" aria-hidden /> : i + 1}
+                  </span>
+                  <div className="min-w-0 sm:mt-2">
+                    <p className={`m-0 text-[13px] font-semibold ${s.done ? "text-neutral-900" : "text-neutral-500"}`}>{s.label}</p>
+                    <p className="m-0 text-[11px] text-neutral-500">{s.at ? eatDate(s.at) : s.done ? "Now" : "Not yet"}{s.sub ? ` ${s.sub}` : ""}</p>
+                  </div>
+                </li>
+              );
+            })}
           </ol>
         ) : null}
+
         {cap?.statusReason || cap?.grantReason ? (
-          <p className="m-0 border-0 border-t border-solid border-neutral-100 px-4 py-2.5 text-[12px] text-neutral-600">
-            <span className="font-semibold text-neutral-700">Last reason:</span> {cap.statusReason || cap.grantReason}
-          </p>
+          <div className="flex items-start gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-4 py-2.5 text-[12px] text-neutral-600">
+            <span className="shrink-0 font-semibold text-neutral-700">Last reason</span>
+            <q className="min-w-0 italic text-neutral-700 [overflow-wrap:anywhere]">{cap.statusReason || cap.grantReason}</q>
+          </div>
         ) : null}
       </section>
 
@@ -235,19 +308,19 @@ export default function PartnerAgencyAdmin({ partnerId, agentCode }: { partnerId
           {/* What the partner has done with it */}
           {a ? (
             <>
-              <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 lg:grid-cols-4">
-                {[
-                  { icon: Link2, label: "Booking links", value: `${a.linksLive} live`, sub: `${a.linksTotal} made in total` },
-                  { icon: CheckCircle2, label: "Stays and tours credited", value: String(a.bookingsCredited + (a.toursCredited ?? 0)), sub: `${a.bookingsCredited} stays · ${a.toursCredited ?? 0} tours${a.bookingsVoided ? ` · ${a.bookingsVoided} voided` : ""}` },
-                  { icon: Users, label: "Group stays", value: String(a.groupsConfirmed), sub: `${a.groupsWaitingClient} waiting for client · ${a.clients} clients` },
-                  { icon: Wallet, label: "Agency earnings", value: money(a.earnedLive), sub: `paid ${money(a.earnedPaid)}${a.earnedReversed ? ` · reversed ${money(a.earnedReversed)}` : ""}` },
-                ].map((k) => (
-                  <div key={k.label} className="bg-white px-4 py-3">
-                    <p className="m-0 flex items-center gap-1.5 text-[12px] text-neutral-500"><k.icon className="h-3.5 w-3.5" />{k.label}</p>
-                    <p className="m-0 mt-0.5 text-lg font-bold tabular-nums text-neutral-900">{k.value}</p>
-                    <p className="m-0 truncate text-[11px] text-neutral-500">{k.sub}</p>
-                  </div>
-                ))}
+              <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 lg:grid-cols-4" aria-label="Agency activity">
+                <AgencyFigure icon={Link2} tone="amber" label="Booking links" value={<>{a.linksLive} <span className="text-[13px] font-semibold text-neutral-400">/ {cap?.maxActiveLinks ?? "-"} live</span></>}
+                  sub={`${a.linksTotal} made in total`}
+                  bar={[{ value: a.linksLive, color: TONE_HEX.amber, label: "Live" }]} barTotal={Math.max(1, cap?.maxActiveLinks ?? a.linksLive)} />
+                <AgencyFigure icon={CheckCircle2} tone="orange" label="Credited" value={a.bookingsCredited + (a.toursCredited ?? 0)}
+                  sub={`${a.bookingsCredited} stays · ${a.toursCredited ?? 0} tours${a.bookingsVoided ? ` · ${a.bookingsVoided} voided` : ""}`}
+                  bar={[{ value: a.bookingsCredited, color: TONE_HEX.orange, label: "Stays" }, { value: a.toursCredited ?? 0, color: "#f4a582", label: "Tours" }, { value: a.bookingsBlocked, color: "#e34948", label: "Blocked" }]} />
+                <AgencyFigure icon={Users} tone="violet" label="Group stays" value={a.groupsConfirmed}
+                  sub={`${a.groupsWaitingClient} waiting · ${a.clients} client${a.clients === 1 ? "" : "s"}`}
+                  bar={[{ value: a.groupsConfirmed, color: TONE_HEX.violet, label: "Confirmed" }, { value: a.groupsWaitingClient, color: "#a99cf0", label: "Waiting" }, { value: a.groupsCancelled, color: "#d4d4d4", label: "Cancelled" }]} />
+                <AgencyFigure icon={Wallet} tone="blue" label="Agency earnings" value={money(a.earnedLive)}
+                  sub={`Paid ${money(a.earnedPaid)}${a.earnedReversed ? ` · reversed ${money(a.earnedReversed)}` : ""}`}
+                  bar={[{ value: a.earnedPaid, color: TONE_HEX.blue, label: "Paid" }, { value: Math.max(0, a.earnedLive - a.earnedPaid), color: "#9cc3f0", label: "Not paid yet" }]} />
               </section>
 
               {a.bookingsBlocked ? (

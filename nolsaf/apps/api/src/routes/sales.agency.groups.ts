@@ -385,7 +385,7 @@ router.get("/agency/groups/:ref", limitSalesLeadRead, requireAgencyDesk(), async
       select: {
         id: true, status: true, paymentMode: true, isOpenForClaims: true, totalAmount: true, depositPaid: true, depositPaidAt: true,
         checkedInAt: true, currency: true, roomsNeeded: true, checkIn: true, checkOut: true, recommendedPropertyIds: true,
-        confirmedProperty: { select: { title: true, publicKey: true } },
+        confirmedProperty: { select: { title: true, nrmsBookingKey: true } },
       },
     });
     if (gb) {
@@ -397,7 +397,7 @@ router.get("/agency/groups/:ref", limitSalesLeadRead, requireAgencyDesk(), async
         checkedIn: !!gb.checkedInAt,
         total: gb.totalAmount != null ? Number(gb.totalAmount) : null,
         currency: gb.currency,
-        chosenProperty: gb.confirmedProperty ? { title: gb.confirmedProperty.title, key: gb.confirmedProperty.publicKey } : null,
+        chosenProperty: gb.confirmedProperty ? { title: gb.confirmedProperty.title, key: gb.confirmedProperty.nrmsBookingKey } : null,
       };
       const claims = await db.groupBookingClaim.findMany({
         where: { groupBookingId: gb.id, status: { not: "WITHDRAWN" } },
@@ -405,24 +405,24 @@ router.get("/agency/groups/:ref", limitSalesLeadRead, requireAgencyDesk(), async
         take: 50,
         select: {
           status: true, totalAmount: true, offeredPricePerNight: true, discountPercent: true, specialOffers: true, currency: true, createdAt: true,
-          property: { select: { title: true, publicKey: true, regionName: true, district: true, type: true, services: true } },
+          property: { select: { title: true, nrmsBookingKey: true, regionName: true, district: true, type: true, services: true } },
         },
       });
       const shortlisted = new Set<string>();
       const ids = Array.isArray(gb.recommendedPropertyIds) ? (gb.recommendedPropertyIds as any[]).map(Number) : [];
       if (ids.length) {
-        const props = await db.property.findMany({ where: { id: { in: ids } }, select: { publicKey: true } });
-        props.forEach((p: any) => shortlisted.add(p.publicKey));
+        const props = await db.property.findMany({ where: { id: { in: ids } }, select: { nrmsBookingKey: true } });
+        props.forEach((p: any) => shortlisted.add(p.nrmsBookingKey));
       }
       bids = await Promise.all(claims.map(async (c: any) => {
         const pct = await getEffectiveCommissionPercent(c.property?.services);
         return {
-          property: { key: c.property.publicKey, title: c.property.title, type: c.property.type, area: [c.property.district, c.property.regionName].filter(Boolean).join(", ") },
+          property: { key: c.property.nrmsBookingKey, title: c.property.title, type: c.property.type, area: [c.property.district, c.property.regionName].filter(Boolean).join(", ") },
           clientTotal: customerTotalFor(Number(c.totalAmount), pct),
           currency: c.currency,
           specialOffers: c.specialOffers,
           status: c.status,
-          shortlisted: shortlisted.has(c.property.publicKey),
+          shortlisted: shortlisted.has(c.property.nrmsBookingKey),
           receivedAt: c.createdAt,
         };
       }));
@@ -513,7 +513,7 @@ router.post("/agency/groups/:ref/invite", blockImpersonated as RequestHandler, l
 
   const keys = [...new Set(parsed.data.propertyUrls.map(propertyKeyFromInput).filter(Boolean) as string[])];
   const properties = keys.length
-    ? await db.property.findMany({ where: { publicKey: { in: keys }, status: "APPROVED" }, select: { id: true, ownerId: true, title: true } })
+    ? await db.property.findMany({ where: { nrmsBookingKey: { in: keys }, status: "APPROVED" }, select: { id: true, ownerId: true, title: true } })
     : [];
   const identity = await loadPartnerIdentity(db, r.salesPartnerId);
   const invited: string[] = [];
@@ -554,8 +554,8 @@ router.post("/agency/groups/:ref/shortlist", blockImpersonated as RequestHandler
   if (!parsed.success) return res.status(400).json({ error: `Choose 1 to ${GROUP_SHORTLIST_MAX} bids` });
   const keys = [...new Set(parsed.data.propertyKeys)];
   const claims = await db.groupBookingClaim.findMany({
-    where: { groupBookingId: gb.id, status: "PENDING", property: { publicKey: { in: keys } } },
-    select: { propertyId: true, totalAmount: true, property: { select: { publicKey: true, services: true } } },
+    where: { groupBookingId: gb.id, status: "PENDING", property: { nrmsBookingKey: { in: keys } } },
+    select: { propertyId: true, totalAmount: true, property: { select: { nrmsBookingKey: true, services: true } } },
   });
   if (claims.length !== keys.length) return res.status(400).json({ error: "Only open bids on this group can be shortlisted" });
   const identity = await loadPartnerIdentity(db, r.salesPartnerId);
@@ -566,7 +566,7 @@ router.post("/agency/groups/:ref/shortlist", blockImpersonated as RequestHandler
   }
   const totals = await Promise.all(claims.map(async (c: any) => customerTotalFor(Number(c.totalAmount), await getEffectiveCommissionPercent(c.property.services))));
   // Keep the partner's order.
-  const ordered = keys.map((k) => claims.find((c: any) => c.property.publicKey === k)!.propertyId);
+  const ordered = keys.map((k) => claims.find((c: any) => c.property.nrmsBookingKey === k)!.propertyId);
   const review = shortlistNeedsReview({ roomsNeeded: gb.roomsNeeded, customerTotals: totals });
   const now = new Date();
   await db.$transaction(async (tx: any) => {

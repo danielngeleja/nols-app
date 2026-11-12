@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Building2, Footprints, ListChecks, Loader2, Search, Send } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Building2, ChevronsUpDown, Footprints, ListChecks, Loader2, Search, Send } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 export type PartnerFileData = {
@@ -227,35 +227,411 @@ function LeadsSection({ leads, ctx }: { leads: PartnerFileData["leads"]; ctx: Fi
           </div>
         </div>
         {shown.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1000px] border-collapse">
-              <thead className="bg-white"><tr>{["Property", "Stage", "Product", "Area", "Contact", "Activity", "Next follow-up", "Protected until", "Updated"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {shown.map((l) => (
-                  <tr key={l.ref} className="border-0 border-t border-solid border-neutral-100">
-                    <td className={td}>
-                      <span className="font-semibold text-neutral-900">{l.propertyName}</span>
-                      {l.possibleDuplicate ? <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-800">Possible duplicate</span> : null}
-                      {l.lostReason ? <p className="m-0 mt-0.5 text-[11px] text-neutral-500">Lost: {l.lostReason}</p> : null}
-                    </td>
-                    <td className={td}><Pill value={l.status} />{l.conversionRequestedAt && !l.convertedAt ? <p className="m-0 mt-0.5 text-[11px] text-amber-800">Conversion asked {day(l.conversionRequestedAt)}</p> : null}</td>
-                    <td className={td}>{humanize(l.product)}</td>
-                    <td className={td}>{l.area || "-"}</td>
-                    <td className={td}>{l.contact || "-"}</td>
-                    <td className={td}>{l.activities} notes · {l.visits} visits</td>
-                    <td className={`${td} ${overdue(l) ? "font-semibold text-amber-700" : ""}`}>{day(l.nextFollowUpAt)}{overdue(l) ? <span className="block text-[11px] font-normal">Overdue</span> : null}</td>
-                    <td className={`${td} ${expiring(l) ? "font-semibold text-amber-700" : ""}`}>{day(l.protectedUntil)}{expiring(l) ? <span className="block text-[11px] font-normal">Ending soon</span> : null}</td>
-                    <td className={td}>{day(l.updatedAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <LeadTable leads={shown} overdue={overdue} expiring={expiring} />
         ) : (
           <Empty text="No leads match this filter." />
         )}
       </section>
     </div>
+  );
+}
+
+type Lead = PartnerFileData["leads"][number];
+type LeadSortKey = "property" | "stage" | "activity" | "followUp" | "protection" | "updated";
+
+/** "UBUNGO, DAR-ES-SALAAM" -> "Ubungo, Dar es Salaam". Mixed-case text is left alone. */
+function readable(value: string | null | undefined): string {
+  const v = String(value || "").trim();
+  if (!v || v !== v.toUpperCase() || !/[A-Z]/.test(v)) return v;
+  const small = new Set(["es", "wa", "ya", "na", "la", "of", "and"]);
+  return v
+    .toLowerCase()
+    .replace(/-/g, " ")
+    .split(/(\s+|,\s*)/)
+    .map((part, i) => (/^\s|,/.test(part) || (i > 0 && small.has(part)) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join("");
+}
+
+/** "in 3 days", "2 days overdue", "today". */
+function relative(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const days = Math.round((new Date(v).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days === -1) return "Yesterday";
+  return days > 0 ? `In ${days} days` : `${-days} days ago`;
+}
+
+/** "Overdue today", "1 day overdue", "4 days overdue". */
+function overdueText(v: string): string {
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(v).setHours(0, 0, 0, 0)) / 86_400_000);
+  return days <= 0 ? "Overdue today" : `${days} day${days === 1 ? "" : "s"} overdue`;
+}
+
+const STAGE_TONE: Record<string, { dot: string; pill: string }> = {
+  NEW: { dot: "bg-sky-500", pill: "bg-sky-50 text-sky-800 ring-sky-200" },
+  CONTACTED: { dot: "bg-indigo-500", pill: "bg-indigo-50 text-indigo-800 ring-indigo-200" },
+  MEETING_SCHEDULED: { dot: "bg-indigo-500", pill: "bg-indigo-50 text-indigo-800 ring-indigo-200" },
+  PROPOSAL_SENT: { dot: "bg-violet-500", pill: "bg-violet-50 text-violet-800 ring-violet-200" },
+  DOCUMENTS_PENDING: { dot: "bg-violet-500", pill: "bg-violet-50 text-violet-800 ring-violet-200" },
+  TRIAL_STARTED: { dot: "bg-teal-500", pill: "bg-teal-50 text-teal-800 ring-teal-200" },
+  CONVERSION_REQUESTED: { dot: "bg-amber-500", pill: "bg-amber-50 text-amber-800 ring-amber-200" },
+  CONVERTED: { dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
+  LOST: { dot: "bg-rose-500", pill: "bg-rose-50 text-rose-700 ring-rose-200" },
+  CANCELLED: { dot: "bg-neutral-400", pill: "bg-neutral-100 text-neutral-600 ring-neutral-200" },
+};
+
+function StagePill({ value }: { value: string }) {
+  const t = STAGE_TONE[String(value).toUpperCase()] || STAGE_TONE.CANCELLED;
+  return (
+    <span className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${t.pill}`}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.dot}`} aria-hidden />
+      <span className="truncate">{humanize(value)}</span>
+    </span>
+  );
+}
+
+function LeadTable({ leads, overdue, expiring }: { leads: Lead[]; overdue: (l: Lead) => boolean; expiring: (l: Lead) => boolean }) {
+  const [sort, setSort] = useState<{ key: LeadSortKey; dir: "asc" | "desc" }>({ key: "updated", dir: "desc" });
+
+  const time = (v: string | null | undefined) => (v ? new Date(v).getTime() : null);
+  const value = (l: Lead, key: LeadSortKey): string | number | null => {
+    switch (key) {
+      case "property": return l.propertyName.toLowerCase();
+      case "stage": { const i = STAGE_ORDER.indexOf(l.status); return i < 0 ? 99 : i; }
+      case "activity": return l.activities + l.visits;
+      case "followUp": return time(l.nextFollowUpAt);
+      case "protection": return time(l.protectedUntil);
+      default: return time(l.updatedAt);
+    }
+  };
+  const rows = [...leads].sort((a, b) => {
+    const x = value(a, sort.key);
+    const y = value(b, sort.key);
+    if (x == null && y == null) return 0;
+    if (x == null) return 1; // empty dates always last
+    if (y == null) return -1;
+    const c = x < y ? -1 : x > y ? 1 : 0;
+    return sort.dir === "asc" ? c : -c;
+  });
+  const by = (key: LeadSortKey) =>
+    setSort((cur) => (cur.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "updated" || key === "activity" ? "desc" : "asc" }));
+
+  const Head = ({ k, label, className = "" }: { k: LeadSortKey; label: string; className?: string }) => {
+    const active = sort.key === k;
+    const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
+    return (
+      <th className={`${th} ${className}`} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+        <button type="button" onClick={() => by(k)}
+          className={`group inline-flex items-center gap-1 rounded border-0 bg-transparent p-0 text-[11px] font-semibold ${active ? "text-neutral-900" : "text-neutral-500 hover:text-neutral-800"}`}>
+          {label}
+          <Icon className={`h-3 w-3 ${active ? "text-emerald-700" : "text-neutral-300 group-hover:text-neutral-500"}`} aria-hidden />
+        </button>
+      </th>
+    );
+  };
+
+  const contactParts = (c: string | null) => {
+    const [name, phone] = String(c || "").split(" · ");
+    const looksPhone = (s: string) => /^\+?[\d\s-]{7,}$/.test(s.trim());
+    if (!phone && looksPhone(name || "")) return { name: null, phone: name.trim() };
+    return { name: name ? readable(name) : null, phone: phone ? phone.trim() : null };
+  };
+
+  const FollowUp = ({ l }: { l: Lead }) => {
+    if (!l.nextFollowUpAt) return <span className="text-neutral-400">Not set</span>;
+    const late = overdue(l);
+    return (
+      <span className={late ? "font-semibold text-amber-700" : "text-neutral-800"}>
+        {late ? overdueText(l.nextFollowUpAt) : relative(l.nextFollowUpAt)}
+        <span className="block text-[11px] font-normal text-neutral-500">{day(l.nextFollowUpAt)}</span>
+      </span>
+    );
+  };
+
+  const Protection = ({ l }: { l: Lead }) => {
+    if (!l.protectedUntil) return <span className="text-neutral-400">-</span>;
+    const ending = expiring(l);
+    const lapsed = new Date(l.protectedUntil).getTime() < Date.now();
+    return (
+      <span className={ending ? "font-semibold text-amber-700" : lapsed ? "text-rose-700" : "text-neutral-800"}>
+        {day(l.protectedUntil)}
+        <span className="block text-[11px] font-normal text-neutral-500">{lapsed ? "Lapsed" : ending ? "Ending soon" : relative(l.protectedUntil)}</span>
+      </span>
+    );
+  };
+
+  return (
+    <>
+      {/* Wide screens: fixed columns, nothing scrolls sideways */}
+      <table className="hidden w-full table-fixed border-collapse lg:table">
+        <colgroup>
+          <col className="w-[27%]" /><col className="w-[15%]" /><col className="w-[19%]" /><col className="w-[9%]" /><col className="w-[11%]" /><col className="w-[10%]" /><col className="w-[9%]" />
+        </colgroup>
+        <thead className="border-0 border-b border-solid border-neutral-200 bg-white">
+          <tr>
+            <Head k="property" label="Property" className="pl-4" />
+            <Head k="stage" label="Stage" />
+            <th className={th}>Contact</th>
+            <Head k="activity" label="Activity" />
+            <Head k="followUp" label="Next follow-up" />
+            <Head k="protection" label="Protected until" />
+            <Head k="updated" label="Updated" className="pr-4" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((l) => {
+            const c = contactParts(l.contact);
+            return (
+              <tr key={l.ref} className="border-0 border-t border-solid border-neutral-100 transition-colors first:border-t-0 hover:bg-emerald-50/40">
+                <td className={`${td} pl-4`}>
+                  <span className="block truncate font-semibold text-neutral-900" title={readable(l.propertyName)}>{readable(l.propertyName)}</span>
+                  <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-neutral-500">
+                    <span className="truncate" title={readable(l.area)}>{readable(l.area) || "No area"}</span>
+                    <span className="shrink-0 rounded bg-neutral-100 px-1 py-px text-[10px] font-semibold text-neutral-600">{humanize(l.product)}</span>
+                  </span>
+                  {l.possibleDuplicate ? <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">Possible duplicate</span> : null}
+                  {l.lostReason ? <span className="mt-1 block truncate text-[11px] text-rose-700" title={l.lostReason}>Lost: {l.lostReason}</span> : null}
+                </td>
+                <td className={td}>
+                  <StagePill value={l.status} />
+                  {l.conversionRequestedAt && !l.convertedAt ? <span className="mt-1 block text-[11px] text-amber-800">Asked {day(l.conversionRequestedAt)}</span> : null}
+                </td>
+                <td className={td}>
+                  {c.name ? <span className="block truncate text-neutral-900" title={c.name}>{c.name}</span> : null}
+                  {c.phone ? <a href={`tel:${c.phone.replace(/\s/g, "")}`} className="block truncate text-[12px] tabular-nums text-emerald-800 no-underline hover:underline">{c.phone}</a> : null}
+                  {!c.name && !c.phone ? <span className="text-neutral-400">-</span> : null}
+                </td>
+                <td className={td}>
+                  <span className="flex flex-col gap-0.5 text-[12px] tabular-nums">
+                    <span title="Notes logged" className={l.activities ? "text-neutral-800" : "text-neutral-400"}><ListChecks className="mr-1 inline h-3 w-3 align-[-1px]" aria-hidden />{l.activities}</span>
+                    <span title="Field visits" className={l.visits ? "text-neutral-800" : "text-neutral-400"}><Footprints className="mr-1 inline h-3 w-3 align-[-1px]" aria-hidden />{l.visits}</span>
+                  </span>
+                </td>
+                <td className={td}><FollowUp l={l} /></td>
+                <td className={td}><Protection l={l} /></td>
+                <td className={`${td} pr-4 text-neutral-600`}>
+                  {relative(l.updatedAt)}
+                  <span className="block text-[11px] text-neutral-400">{day(l.updatedAt)}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {/* Smaller screens: one row per lead, sorted the same way */}
+      <div className="lg:hidden">
+        <div className="flex items-center gap-2 border-0 border-b border-solid border-neutral-100 px-4 py-2 text-[12px] text-neutral-500">
+          Sort by
+          <select value={`${sort.key}:${sort.dir}`} onChange={(e) => { const [key, dir] = e.target.value.split(":"); setSort({ key: key as LeadSortKey, dir: dir as "asc" | "desc" }); }}
+            className="h-7 rounded-md border border-solid border-neutral-200 bg-white px-2 text-[12px] text-neutral-800">
+            <option value="updated:desc">Recently updated</option>
+            <option value="followUp:asc">Next follow-up</option>
+            <option value="protection:asc">Protection ending</option>
+            <option value="stage:asc">Stage</option>
+            <option value="property:asc">Property A to Z</option>
+            <option value="activity:desc">Most activity</option>
+          </select>
+        </div>
+        <ul className="m-0 list-none p-0">
+          {rows.map((l) => {
+            const c = contactParts(l.contact);
+            return (
+              <li key={l.ref} className="border-0 border-t border-solid border-neutral-100 px-4 py-3 first:border-t-0 hover:bg-emerald-50/40">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="min-w-0 text-[13px] font-semibold text-neutral-900 [overflow-wrap:anywhere]">{readable(l.propertyName)}</span>
+                  <StagePill value={l.status} />
+                </div>
+                <p className="m-0 mt-0.5 text-[12px] text-neutral-500 [overflow-wrap:anywhere]">{[readable(l.area), humanize(l.product), c.name, c.phone].filter(Boolean).join(" · ")}</p>
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+                  <span><span className="text-neutral-500">Follow-up </span><FollowUp l={l} /></span>
+                  <span className="text-neutral-500">{l.activities} notes · {l.visits} visits</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </>
+  );
+}
+
+type Attributed = PartnerFileData["properties"][number];
+type PropSortKey = "property" | "product" | "status" | "attributed" | "window" | "earned";
+
+/** A clickable column header with the sort state shown as an arrow. */
+function SortHead<K extends string>({ k, label, sort, onSort, className = "", align = "left" }: {
+  k: K; label: string; sort: { key: K; dir: "asc" | "desc" }; onSort: (k: K) => void; className?: string; align?: "left" | "right";
+}) {
+  const active = sort.key === k;
+  const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th className={`${th} ${align === "right" ? "text-right" : ""} ${className}`} aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button type="button" onClick={() => onSort(k)}
+        className={`group inline-flex items-center gap-1 rounded border-0 bg-transparent p-0 text-[11px] font-semibold ${active ? "text-neutral-900" : "text-neutral-500 hover:text-neutral-800"}`}>
+        {label}
+        <Icon className={`h-3 w-3 ${active ? "text-emerald-700" : "text-neutral-300 group-hover:text-neutral-500"}`} aria-hidden />
+      </button>
+    </th>
+  );
+}
+
+const productLabel = (v: string) => (String(v).toUpperCase() === "NRMS" ? "NRMS" : humanize(v));
+
+const ATTR_TONE: Record<string, { dot: string; pill: string }> = {
+  ACTIVE: { dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
+  PENDING: { dot: "bg-amber-500", pill: "bg-amber-50 text-amber-800 ring-amber-200" },
+  DISPUTED: { dot: "bg-rose-500", pill: "bg-rose-50 text-rose-700 ring-rose-200" },
+  REVOKED: { dot: "bg-neutral-400", pill: "bg-neutral-100 text-neutral-600 ring-neutral-200" },
+  EXPIRED: { dot: "bg-neutral-400", pill: "bg-neutral-100 text-neutral-600 ring-neutral-200" },
+};
+
+function AttrPill({ value }: { value: string }) {
+  const t = ATTR_TONE[String(value).toUpperCase()] || ATTR_TONE.EXPIRED;
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${t.pill}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${t.dot}`} aria-hidden />{humanize(value)}
+    </span>
+  );
+}
+
+/** How far through the earning window the property is, as a bar and a line. */
+function EarningWindow({ p }: { p: Attributed }) {
+  if (!p.earningFrom) return <span className="text-neutral-400">Not started</span>;
+  const start = new Date(p.earningFrom).getTime();
+  const end = p.earningUntil ? new Date(p.earningUntil).getTime() : null;
+  const now = Date.now();
+  const notYet = now < start;
+  const pct = end && end > start ? Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100)) : 0;
+  const daysLeft = end ? Math.ceil((end - now) / 86_400_000) : null;
+  const ended = daysLeft != null && daysLeft <= 0;
+  const status = notYet ? `Starts ${day(p.earningFrom)}` : ended ? "Window ended" : daysLeft != null ? `${daysLeft} days left` : "Open ended";
+  return (
+    <span className="block min-w-0">
+      <span className="flex items-baseline justify-between gap-2 text-[12px]">
+        <span className={`font-medium ${ended ? "text-neutral-500" : notYet ? "text-amber-700" : daysLeft != null && daysLeft <= 30 ? "text-amber-700" : "text-neutral-800"}`}>{status}</span>
+      </span>
+      {end ? (
+        <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-neutral-100" aria-hidden>
+          <span className={`block h-full rounded-full ${ended ? "bg-neutral-300" : "bg-emerald-500"}`} style={{ width: `${notYet ? 0 : pct}%` }} />
+        </span>
+      ) : null}
+      <span className="mt-1 block truncate text-[11px] text-neutral-500">{day(p.earningFrom)} to {p.earningUntil ? day(p.earningUntil) : "open"}</span>
+    </span>
+  );
+}
+
+function PropertyTable({ properties }: { properties: Attributed[] }) {
+  const [sort, setSort] = useState<{ key: PropSortKey; dir: "asc" | "desc" }>({ key: "attributed", dir: "desc" });
+  const time = (v: string | null | undefined) => (v ? new Date(v).getTime() : null);
+  const STATUS_ORDER = ["ACTIVE", "PENDING", "DISPUTED", "REVOKED", "EXPIRED"];
+  const value = (p: Attributed, key: PropSortKey): string | number | null => {
+    switch (key) {
+      case "property": return p.title.toLowerCase();
+      case "product": return productLabel(p.product);
+      case "status": { const i = STATUS_ORDER.indexOf(String(p.status).toUpperCase()); return i < 0 ? 99 : i; }
+      case "window": return time(p.earningUntil);
+      case "earned": return p.earned;
+      default: return time(p.attributedAt);
+    }
+  };
+  const rows = [...properties].sort((a, b) => {
+    const x = value(a, sort.key);
+    const y = value(b, sort.key);
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    const c = x < y ? -1 : x > y ? 1 : 0;
+    return sort.dir === "asc" ? c : -c;
+  });
+  const onSort = (key: PropSortKey) =>
+    setSort((cur) => (cur.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "earned" || key === "attributed" ? "desc" : "asc" }));
+  // The same property can be attributed for more than one product; mark the repeats.
+  const titleCount = new Map<string, number>();
+  properties.forEach((p) => titleCount.set(p.ref, (titleCount.get(p.ref) || 0) + 1));
+
+  return (
+    <>
+      <table className="hidden w-full table-fixed border-collapse lg:table">
+        <colgroup><col className="w-[27%]" /><col className="w-[11%]" /><col className="w-[13%]" /><col className="w-[14%]" /><col className="w-[21%]" /><col className="w-[14%]" /></colgroup>
+        <thead className="border-0 border-b border-solid border-neutral-200 bg-white">
+          <tr>
+            <SortHead k="property" label="Property" sort={sort} onSort={onSort} className="pl-4" />
+            <SortHead k="product" label="Product" sort={sort} onSort={onSort} />
+            <SortHead k="status" label="Attribution" sort={sort} onSort={onSort} />
+            <SortHead k="attributed" label="Attributed" sort={sort} onSort={onSort} />
+            <SortHead k="window" label="Earning window" sort={sort} onSort={onSort} />
+            <SortHead k="earned" label="Earned" sort={sort} onSort={onSort} align="right" className="pr-4" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr key={`${p.ref}-${p.product}`} className="border-0 border-t border-solid border-neutral-100 transition-colors first:border-t-0 hover:bg-emerald-50/40">
+              <td className={`${td} pl-4`}>
+                <span className="block truncate font-semibold text-neutral-900" title={readable(p.title)}>{readable(p.title)}</span>
+                <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-neutral-500">
+                  <span className="truncate">{readable(p.area) || "No area"}</span>
+                  {p.listingStatus ? (
+                    <span className={`shrink-0 rounded px-1 py-px text-[10px] font-semibold ${String(p.listingStatus).toUpperCase() === "APPROVED" ? "bg-emerald-50 text-emerald-800" : "bg-neutral-100 text-neutral-600"}`}>
+                      Listing {humanize(p.listingStatus).toLowerCase()}
+                    </span>
+                  ) : null}
+                </span>
+                {(titleCount.get(p.ref) || 0) > 1 ? <span className="mt-1 block text-[11px] text-neutral-400">Also attributed for another product</span> : null}
+              </td>
+              <td className={td}>
+                <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${String(p.product).toUpperCase() === "NRMS" ? "bg-sky-50 text-sky-800 ring-sky-200" : "bg-violet-50 text-violet-800 ring-violet-200"}`}>{productLabel(p.product)}</span>
+              </td>
+              <td className={td}>
+                <AttrPill value={p.status} />
+                {p.disputeReason ? <span className="mt-1 block truncate text-[11px] text-rose-700" title={p.disputeReason}>{p.disputeReason}</span> : null}
+                {p.revokedAt ? <span className="mt-1 block text-[11px] text-neutral-500">Revoked {day(p.revokedAt)}</span> : null}
+              </td>
+              <td className={td}>
+                <span className="text-neutral-800">{day(p.attributedAt)}</span>
+                <span className={`mt-0.5 block text-[11px] ${p.verifiedAt ? "text-emerald-700" : "text-amber-700"}`}>{p.verifiedAt ? `Verified ${day(p.verifiedAt)}` : "Not verified yet"}</span>
+              </td>
+              <td className={td}><EarningWindow p={p} /></td>
+              <td className={`${td} pr-4 text-right`}>
+                <span className={`font-semibold tabular-nums ${p.earned ? "text-neutral-900" : "text-neutral-400"}`}>{money(p.earned)}</span>
+                {!p.earned && p.status === "ACTIVE" ? <span className="block text-[11px] text-neutral-400">No paid stays yet</span> : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="lg:hidden">
+        <div className="flex items-center gap-2 border-0 border-b border-solid border-neutral-100 px-4 py-2 text-[12px] text-neutral-500">
+          Sort by
+          <select value={`${sort.key}:${sort.dir}`} onChange={(e) => { const [key, dir] = e.target.value.split(":"); setSort({ key: key as PropSortKey, dir: dir as "asc" | "desc" }); }}
+            className="h-7 rounded-md border border-solid border-neutral-200 bg-white px-2 text-[12px] text-neutral-800">
+            <option value="attributed:desc">Recently attributed</option>
+            <option value="earned:desc">Most earned</option>
+            <option value="window:asc">Window ending soonest</option>
+            <option value="status:asc">Attribution status</option>
+            <option value="property:asc">Property A to Z</option>
+          </select>
+        </div>
+        <ul className="m-0 list-none p-0">
+          {rows.map((p) => (
+            <li key={`${p.ref}-${p.product}`} className="border-0 border-t border-solid border-neutral-100 px-4 py-3 first:border-t-0 hover:bg-emerald-50/40">
+              <div className="flex items-start justify-between gap-2">
+                <span className="min-w-0 text-[13px] font-semibold text-neutral-900 [overflow-wrap:anywhere]">{readable(p.title)}</span>
+                <span className={`shrink-0 text-[13px] font-semibold tabular-nums ${p.earned ? "text-neutral-900" : "text-neutral-400"}`}>{money(p.earned)}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500">
+                <AttrPill value={p.status} />
+                <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 font-semibold text-neutral-700">{productLabel(p.product)}</span>
+                <span>{readable(p.area)}</span>
+              </div>
+              <div className="mt-2"><EarningWindow p={p} /></div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
   );
 }
 
@@ -378,24 +754,7 @@ export default function PartnerFileSection({ section, data, error, ctx }: { sect
         ]}
       />
       <Frame title="Attributed properties" note={`${data.properties.length} on file`} link={{ href: "/admin/sales", label: "Conversion review" }}>
-        {data.properties.length ? (
-          <table className="w-full min-w-[1000px] border-collapse">
-            <thead className="bg-white"><tr>{["Property", "Product", "Attribution", "Listing", "Attributed", "Earning window", "Earned"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
-            <tbody>
-              {data.properties.map((p) => (
-                <tr key={`${p.ref}-${p.product}`} className="border-0 border-t border-solid border-neutral-100">
-                  <td className={td}><span className="font-semibold text-neutral-900">{p.title}</span><p className="m-0 mt-0.5 text-[11px] text-neutral-500">{p.area || "-"}</p></td>
-                  <td className={td}>{humanize(p.product)}</td>
-                  <td className={td}><Pill value={p.status} />{p.disputeReason ? <p className="m-0 mt-0.5 text-[11px] text-rose-700">{p.disputeReason}</p> : null}</td>
-                  <td className={td}>{humanize(p.listingStatus)}</td>
-                  <td className={td}>{day(p.attributedAt)}{p.verifiedAt ? <p className="m-0 mt-0.5 text-[11px] text-neutral-500">Verified {day(p.verifiedAt)}</p> : null}</td>
-                  <td className={td}>{p.earningFrom ? `${day(p.earningFrom)} to ${p.earningUntil ? day(p.earningUntil) : "open"}` : "Not started"}</td>
-                  <td className={`${td} font-semibold tabular-nums`}>{money(p.earned)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <Empty text="No properties attributed yet." />}
+        {data.properties.length ? <PropertyTable properties={data.properties} /> : <Empty text="No properties attributed yet." />}
       </Frame>
       </div>
     );

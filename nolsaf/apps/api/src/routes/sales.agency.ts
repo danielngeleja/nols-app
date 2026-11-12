@@ -132,7 +132,7 @@ router.post("/agency/addendum/accept", blockImpersonated as RequestHandler, limi
 
 export function serializeLink(link: any, property: any | null, now: Date, tour?: { title: string; operatorPublicKey: string; packageId: string; travelers?: number | null } | null) {
   const live = !link.revokedAt && new Date(link.expiresAt).getTime() > now.getTime() && (link.maxUses == null || link.useCount < link.maxUses);
-  const slug = property ? buildPropertySlug(property.title, property.publicKey) : null;
+  const slug = property ? buildPropertySlug(property.title, property.nrmsBookingKey) : null;
   let url: string | null = null;
   if (live) {
     const token = agencyLinkToken(link);
@@ -180,7 +180,7 @@ export async function toursForLinks(dbc: any, links: any[]) {
 async function propertiesById(ids: number[]) {
   const unique = [...new Set(ids.filter((id) => Number.isInteger(id)))];
   if (!unique.length) return new Map<number, any>();
-  const rows = await db.property.findMany({ where: { id: { in: unique } }, select: { id: true, title: true, publicKey: true } });
+  const rows = await db.property.findMany({ where: { id: { in: unique } }, select: { id: true, title: true, nrmsBookingKey: true } });
   return new Map<number, any>(rows.map((p: any) => [p.id, p]));
 }
 
@@ -213,7 +213,7 @@ router.post("/agency/links", blockImpersonated as RequestHandler, limitSalesLead
   if (input.propertyUrl) {
     const key = propertyKeyFromInput(input.propertyUrl);
     if (!key) return res.status(400).json({ error: "Paste the NoLSAF property page link" });
-    property = await db.property.findFirst({ where: { publicKey: key, status: "APPROVED" }, select: { id: true, title: true, publicKey: true } });
+    property = await db.property.findFirst({ where: { nrmsBookingKey: key, status: "APPROVED" }, select: { id: true, title: true, nrmsBookingKey: true } });
     if (!property) return res.status(400).json({ error: "That property is not available for booking" });
   }
 
