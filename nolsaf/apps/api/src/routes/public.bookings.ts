@@ -20,6 +20,7 @@ import { getTransportAvailability } from "../lib/serviceAvailability.js";
 import { effectiveRoomSelectionCode, matchingRoomSelectionCodes, roomsSpecEntries } from "../lib/roomSelectionCode.js";
 import { bedsPerSellableUnit } from "../lib/roomSpecBeds.js";
 import { guestOccupancyPricing } from "../lib/guestOccupancyPricing.js";
+import { recordAgencyAttribution } from "../lib/salesAgency.js";
 
 /**
  * Both booking transactions take a `SELECT ... FOR UPDATE` lock on the property
@@ -345,6 +346,9 @@ const createBookingSchema = z.object({
   transportCompany: z.string().max(100).optional().nullable(),
   arrivalTime: z.string().datetime().optional().nullable(),
   pickupLocation: z.string().max(255).optional().nullable(),
+  // Agency Desk link token. Only ever credits the booking to a partner after it
+  // is created; it never changes price, availability or who pays.
+  agencyRef: z.string().max(64).optional().nullable(),
 }).superRefine((data, ctx) => {
   if (data.roomCode && isExplicitRoomUnitCode(data.roomCode) && (data.rooms ?? 1) > 1) {
     ctx.addIssue({
@@ -1408,6 +1412,14 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         transportBookingForOffer,
       };
     }, BOOKING_TX_OPTIONS);
+
+    // Agency Desk credit. Validated entirely on the server (link, partner gate,
+    // self-booking) and isolated: any failure leaves the booking untouched.
+    if (data.agencyRef) {
+      await recordAgencyAttribution(prisma, { bookingId: result.bookingId, token: data.agencyRef }).catch((error: any) => {
+        console.warn("[sales-agency] attribution skipped:", error?.message || String(error));
+      });
+    }
 
     // NOTE: do not broadcast transport offers here.
     // The transport auto-dispatch worker issues targeted offers (top drivers) based on live locations.

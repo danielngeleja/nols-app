@@ -39,6 +39,9 @@ function sourceLabel(sourceKey: string, type: string) {
   const key = String(sourceKey || "");
   if (key.startsWith("NRMS_STATEMENT:")) return "NRMS monthly statement";
   if (key.startsWith("INVOICE:")) return type === "MARKETPLACE_BOOKING" ? "Marketplace booking invoice" : "Invoice";
+  if (key.startsWith("AGENCY_INVOICE:")) return "Agency Desk booking";
+  if (key.startsWith("AGENCY_GROUP:")) return "Agency Desk group stay";
+  if (key.startsWith("AGENCY_TOUR:")) return "Agency Desk tour";
   if (key.startsWith("BONUS:")) return "Performance bonus";
   if (key.startsWith("ADJUSTMENT:REVERSAL-")) return "Reversal of an earlier earning";
   if (key.startsWith("ADJUSTMENT:")) return "Adjustment by NoLSAF";
@@ -187,6 +190,9 @@ router.get("/earnings/summary", asyncHandler(async (req: SalesAuthedRequest, res
     byStream: {
       NRMS_USAGE: 0,
       MARKETPLACE_BOOKING: 0,
+      AGENCY_STAY: 0,
+      AGENCY_GROUP: 0,
+      AGENCY_TOUR: 0,
       PERFORMANCE_BONUS: 0,
       MANUAL_ADJUSTMENT: 0,
     } as Record<string, number>,
@@ -204,7 +210,11 @@ router.get("/earnings/summary", asyncHandler(async (req: SalesAuthedRequest, res
     summary.eligibleNetRevenue += number(row._sum.eligibleNetRevenue);
     summary.byStatus[row.status] = (summary.byStatus[row.status] || 0) + amount;
     summary.statusCounts[row.status] = (summary.statusCounts[row.status] || 0) + row._count.id;
-    summary.byStream[row.type] = (summary.byStream[row.type] || 0) + amount;
+    // Per stream counts what was earned, like totalEarned: reversed and cancelled
+    // rows are not earnings, so a stream can never add up to more than the total.
+    if (!["CANCELLED", "REVERSED"].includes(row.status)) {
+      summary.byStream[row.type] = (summary.byStream[row.type] || 0) + amount;
+    }
     if (PENDING_BALANCE_STATUSES.includes(row.status)) summary.pending += amount;
     // AVAILABLE rows already locked to a payout are excluded by the separate
     // withdrawable aggregate above.

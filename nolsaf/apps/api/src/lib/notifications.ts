@@ -212,6 +212,18 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Group stay deposit paid",
           body: `The deposit of ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} for group stay ${data.reference || ""}${data.destination ? ` to ${data.destination}` : ""} was paid by ${data.provider || "the payment provider"}. The booking is confirmed.`
         },
+        sales_agency_shortlist_review: {
+          title: "Agency group shortlist needs approval",
+          body: `A sales partner shortlisted offers for a large group stay (request ${data.reference || ""}${data.rooms ? `, ${data.rooms} rooms` : ""}). Check the offers and release them to the client.`
+        },
+        sales_agency_group_lead_fast_track: {
+          title: "Unlisted property waiting for a group",
+          body: `A sales partner flagged ${data.propertyName || "a property"} for a group stay (request ${data.reference || ""}). Fast-track its onboarding if it qualifies.`
+        },
+        group_stay_owner_payout_due: {
+          title: "Group stay owner payout due",
+          body: `A fully prepaid group stay ${data.reference || ""} has checked in. Pay the owner ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} and record the transfer.`
+        },
         group_stay_request_created: {
           title: "New group stay request",
           body: `${data.customerName || "A customer"} asked for a group stay for ${data.headcount || "a group of"} people${data.destination ? ` in ${data.destination}` : ""}${data.checkIn ? `, arriving ${data.checkIn}` : ""}. Review it and invite owners to bid.`
@@ -722,6 +734,38 @@ export async function notifyUser(userId: number, template: string, data: any) {
       sales_partner_workspace_reinstated: {
         title: "Sales workspace open again",
         body: "Your NoLSAF sales workspace is open again and your ID card verifies, as long as it has not expired."
+      },
+      sales_partner_agency_granted: {
+        title: "Agency Desk ready for your review",
+        body: "NoLSAF has selected you for the Agency Desk. Read and accept the agency addendum in your sales workspace to start."
+      },
+      sales_partner_agency_suspended: {
+        title: "Agency Desk paused",
+        body: "Your Agency Desk access is paused and your booking links no longer credit new bookings. Your sales workspace still works. Contact NoLSAF support for details."
+      },
+      sales_partner_agency_group_confirmed: {
+        title: "Your client confirmed the group stay",
+        body: `Group stay request ${data.reference || ""} is confirmed and open for owner offers. Invite owners and shortlist the best offers for your client.`
+      },
+      sales_partner_agency_group_offer: {
+        title: "A new owner offer",
+        body: `An owner sent an offer for your client's group stay${data.clientName ? ` (${data.clientName})` : ""}. Shortlist up to three for your client to choose from.`
+      },
+      sales_partner_agency_group_chosen: {
+        title: "Your client chose an offer",
+        body: `Your client${data.clientName ? ` ${data.clientName}` : ""} chose a property. They have until ${data.dueAt || "the deadline"} to pay NoLSAF in full. Follow up so the dates are not lost.`
+      },
+      sales_partner_agency_group_paid: {
+        title: "Your client paid in full",
+        body: `The group stay${data.clientName ? ` for ${data.clientName}` : ""} is paid in full to NoLSAF. Your earning is recorded shortly.`
+      },
+      sales_partner_agency_group_expired: {
+        title: "Payment window ended",
+        body: `Your client${data.clientName ? ` ${data.clientName}` : ""} did not pay in time, so the held dates were released. Prepare a new request if they still want to travel.`
+      },
+      sales_partner_agency_revoked: {
+        title: "Agency Desk closed",
+        body: "Your Agency Desk access has ended and your booking links are closed. Bookings already credited to you are unaffected."
       },
       sales_partner_contract_expiring: {
         title: "Your agreement is expiring soon",

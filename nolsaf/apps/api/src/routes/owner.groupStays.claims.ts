@@ -3,6 +3,7 @@ import { Router, type Request, type Response } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole, type AuthedRequest } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
+import { notifyAgencyPartnerAboutGroup } from "../lib/salesAgencyGroups.js";
 import type { RequestHandler } from "express";
 
 const router = Router();
@@ -528,6 +529,9 @@ router.post("/", asyncHandler(async (req: Request, res: Response) => {
 
       return claim;
     });
+
+    // Agency groups: the sales partner shortlists, so tell them an offer is in.
+    void notifyAgencyPartnerAboutGroup(prisma, result.groupBookingId, "offer");
 
     return res.json({
       success: true,

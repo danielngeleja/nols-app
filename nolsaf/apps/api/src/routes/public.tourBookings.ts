@@ -29,6 +29,7 @@ import { verifyTourDocumentToken, type TourDocumentKind } from "../lib/tourDocum
 import { loadTourReceiptDocument, loadTourVoucherDocument } from "../lib/tourDocuments.js";
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
+import { recordAgencyTourAttribution } from "../lib/salesAgencyTours.js";
 
 const router = Router();
 
@@ -241,6 +242,9 @@ const createTourBookingSchema = z
     notes: z.string().max(2000).optional().default(""),
     cancellationPolicyAccepted: z.literal(true),
     metadata: z.record(z.string(), z.unknown()).optional(),
+    // Agency Desk link token. Only ever credits the booking to a sales partner
+    // after it exists; it never changes price, operator or who pays.
+    agencyRef: z.string().max(64).optional().nullable(),
   })
   .strict();
 
@@ -486,6 +490,14 @@ router.post(
       },
     });
     const bookingAccessToken = signTourBookingAccessToken(booking.id);
+
+    // Agency Desk credit: validated entirely on the server and isolated, so any
+    // failure leaves the booking untouched. The operator is never told.
+    if (data.agencyRef) {
+      await recordAgencyTourAttribution(prisma, { tourBookingId: booking.id, token: data.agencyRef }).catch((error: any) => {
+        console.warn("[sales-agency] tour attribution skipped:", error?.message || String(error));
+      });
+    }
 
     return res.status(201).json({
       ok: true,

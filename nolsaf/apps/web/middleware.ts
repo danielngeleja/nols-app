@@ -247,7 +247,12 @@ export function middleware(req: NextRequest) {
 
     if (!isAccountAuthRoute && !isSignedTourDocument) {
       if (!token) {
+        // Keep the destination (for example the group stay confirmation link a
+        // client opens from SMS) so sign-in lands them back on it.
+        const next = path + (req.nextUrl.search || "");
         url.pathname = "/account/login";
+        url.search = "";
+        if (path !== "/account") url.searchParams.set("next", next);
         return NextResponse.redirect(url);
       }
       // Role-guard the agent portal — non-agents are bounced to their home

@@ -85,6 +85,9 @@ const STREAMS = [
   { key: "", label: "All streams" },
   { key: "NRMS_USAGE", label: "NRMS usage" },
   { key: "MARKETPLACE_BOOKING", label: "Marketplace bookings" },
+  { key: "AGENCY_STAY", label: "Agency stays" },
+  { key: "AGENCY_GROUP", label: "Agency group stays" },
+  { key: "AGENCY_TOUR", label: "Agency tours" },
   { key: "PERFORMANCE_BONUS", label: "Performance bonus" },
   { key: "MANUAL_ADJUSTMENT", label: "Adjustments" },
 ];
@@ -185,8 +188,9 @@ export default function SalesEarningsPage() {
     const rows = [
       { key: "NRMS_USAGE", label: "NRMS", amount: s.byStream.NRMS_USAGE || 0, bar: "bg-[#02665e]" },
       { key: "MARKETPLACE_BOOKING", label: "Marketplace", amount: s.byStream.MARKETPLACE_BOOKING || 0, bar: "bg-sky-500" },
+      { key: "AGENCY", label: "Agency Desk", amount: (s.byStream.AGENCY_STAY || 0) + (s.byStream.AGENCY_GROUP || 0) + (s.byStream.AGENCY_TOUR || 0), bar: "bg-violet-500" },
       { key: "OTHER", label: "Bonus and adjustments", amount: (s.byStream.PERFORMANCE_BONUS || 0) + (s.byStream.MANUAL_ADJUSTMENT || 0), bar: "bg-amber-400" },
-    ];
+    ].filter((r) => r.key !== "AGENCY" || r.amount > 0);
     const sum = rows.reduce((t, r) => t + Math.max(0, r.amount), 0);
     return rows.map((r) => ({ ...r, share: sum > 0 ? Math.max(0, r.amount) / sum : 0 }));
   }, [s]);
@@ -339,7 +343,8 @@ export default function SalesEarningsPage() {
                 onChange={(e) => { setStream(e.target.value); setPage(1); setOpen(null); }}
                 className="h-8 rounded-md border border-solid border-slate-200 bg-white px-2 text-[12px] font-medium text-slate-700 outline-none focus:border-[#02665e]"
               >
-                {STREAMS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                {/* Agency streams only appear to partners who have agency earnings: the desk is never advertised. */}
+                {STREAMS.filter((o) => !o.key.startsWith("AGENCY_") || Number(s?.byStream?.[o.key] || 0) > 0).map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
               </select>
               <button type="button" onClick={() => { void loadSummary(); void loadList(); }} disabled={loading} aria-label="Refresh" title="Refresh" className="grid h-8 w-8 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50">
                 <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />

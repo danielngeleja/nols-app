@@ -4,7 +4,7 @@ import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole, type AuthedRequest } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { sanitizeText } from "../lib/sanitize.js";
-import { notifyUser, notifyOwner } from "../lib/notifications.js";
+import { notifyAdmins, notifyUser, notifyOwner } from "../lib/notifications.js";
 import { limitOwnerGroupStayMessages } from "../middleware/rateLimit.js";
 import { z } from "zod";
 import type { RequestHandler } from "express";
@@ -186,6 +186,12 @@ router.get("/:id", asyncHandler(async (req: Request, res: Response) => {
         totalAmount: true,
         depositAmount: true,
         currency: true,
+        // FULL: the guest prepaid everything to NoLSAF; the owner collects nothing
+        // at the property and NoLSAF pays ownerAmount after check-in.
+        paymentMode: true,
+        ownerAmount: true,
+        ownerPayoutStatus: true,
+        ownerPayoutPaidAt: true,
         // Arrangement fields
         arrPickup: true,
         arrTransport: true,
@@ -702,6 +708,8 @@ router.post("/:id/check-in", asyncHandler(async (req: Request, res: Response) =>
       checkedInAt: true,
       totalAmount: true,
       depositAmount: true,
+      ownerAmount: true,
+      paymentMode: true,
       currency: true,
     },
   });
@@ -716,18 +724,33 @@ router.post("/:id/check-in", asyncHandler(async (req: Request, res: Response) =>
     return res.status(409).json({ error: "This group stay is already checked in.", alreadyCheckedIn: true });
   }
 
-  // The owner collects this balance from the guest at the property (NoLSAF keeps the deposit).
+  // DEPOSIT groups: the owner collects this balance from the guest at the property
+  // (NoLSAF keeps the deposit). FULL groups: the guest paid everything to NoLSAF,
+  // so the owner collects nothing and NoLSAF owes the owner their offer amount.
+  const prepaid = (booking as any).paymentMode === "FULL";
   const total = Number(booking.totalAmount || 0);
   const deposit = Number(booking.depositAmount || 0);
-  const ownerCollects = Math.max(0, Math.round(total - deposit));
+  const ownerCollects = prepaid ? 0 : Math.max(0, Math.round(total - deposit));
+  const ownerPayout = prepaid ? Math.max(0, Math.round(Number((booking as any).ownerAmount || 0))) : 0;
   const currency = booking.currency || "TZS";
   const now = new Date();
 
   const updated = await prisma.groupBooking.update({
     where: { id: booking.id },
-    data: { checkedInAt: now },
+    data: {
+      checkedInAt: now,
+      ...(prepaid ? { ownerPayoutAmount: ownerPayout, ownerPayoutStatus: "PENDING" } : {}),
+    } as any,
     select: { id: true, checkedInAt: true },
   });
+  if (prepaid) {
+    void notifyAdmins("group_stay_owner_payout_due", {
+      reference: `#${booking.id}`,
+      amount: ownerPayout,
+      currency,
+      href: "/admin/group-stays/assignments",
+    }).catch(() => undefined);
+  }
 
   // Audit (best-effort, outside any transaction)
   try {
@@ -748,7 +771,9 @@ router.post("/:id/check-in", asyncHandler(async (req: Request, res: Response) =>
   try {
     await notifyUser(ownerId, "group_stay_update", {
       title: "Check-in recorded",
-      body: `Thanks for confirming check-in for group stay #${booking.id}. Remember to collect your balance of ${currency} ${ownerCollects.toLocaleString("en-US")} from the guest at the property.`,
+      body: prepaid
+        ? `Thanks for confirming check-in for group stay #${booking.id}. The guest paid in full through NoLSAF, so do not collect anything at the property. NoLSAF will pay you ${currency} ${ownerPayout.toLocaleString("en-US")}.`
+        : `Thanks for confirming check-in for group stay #${booking.id}. Remember to collect your balance of ${currency} ${ownerCollects.toLocaleString("en-US")} from the guest at the property.`,
       groupBookingId: booking.id,
     });
   } catch { /* non-fatal */ }
@@ -757,6 +782,7 @@ router.post("/:id/check-in", asyncHandler(async (req: Request, res: Response) =>
     success: true,
     checkedInAt: updated.checkedInAt,
     ownerCollects,
+    ...(prepaid ? { paidInFull: true, nolsafPaysOwner: ownerPayout } : {}),
     currency,
   });
 }));

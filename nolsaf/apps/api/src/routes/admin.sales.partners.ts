@@ -26,6 +26,7 @@ import {
 } from "../lib/salesPartnerContract.js";
 import { storeSalesContractPdf } from "../lib/salesContractStorage.js";
 import { approveInviteInPromotion, joinTeamOnActivation } from "../lib/salesTeamInvites.js";
+import { earningRef, leadRef, propertyRef } from "../lib/salesReference.js";
 import { clearBoardCache } from "../lib/salesLeaderboard.js";
 import { CARD_PENDING_REVIEW, CARD_PHOTO_REJECTED, cardExpiry, cardToken, hashCardToken, newCardSalt } from "../lib/salesPartnerCard.js";
 import {
@@ -584,6 +585,195 @@ router.get("/partners/:id", asyncHandler(async (req: AuthedRequest, res: Respons
       leadsTeam: ledTeam?.status === "ACTIVE" ? ledTeam.name : null,
       suspension,
     },
+  });
+}) as RequestHandler);
+
+/**
+ * GET /admin/sales/partners/:id/file
+ * The partner's whole file for review, read only: account, leads, field
+ * visits, attributed properties, commission ledger, withdrawals and the audit
+ * history. Actions stay in the sections that own them (conversion review,
+ * finance, agreements); this only opens the data. Rows carry opaque
+ * references, never database ids.
+ */
+router.get("/partners/:id/file", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid partner id" });
+  const partner = await db.salesPartnerProfile.findUnique({
+    where: { id },
+    select: {
+      id: true, taxIdNumber: true, levelUpdatedAt: true, payoutName: true,
+      user: { select: { id: true, createdAt: true, emailVerifiedAt: true, phoneVerifiedAt: true, avatarUrl: true } },
+    },
+  });
+  if (!partner) return res.status(404).json({ error: "Partner not found" });
+
+  const [leads, attributions, commissionTotals, commissions, payouts, visits, history] = await Promise.all([
+    db.salesLead.findMany({
+      where: { salesPartnerId: id },
+      orderBy: { updatedAt: "desc" },
+      take: 300,
+      select: {
+        id: true, propertyName: true, status: true, proposedProduct: true, region: true, district: true, contactPerson: true, contactPhone: true,
+        createdAt: true, updatedAt: true, nextFollowUpAt: true, protectionExpiresAt: true, duplicateReviewStatus: true, conversionRequestedAt: true, convertedAt: true, lostReason: true,
+        _count: { select: { activities: true, visits: true } },
+      },
+    }),
+    db.propertySalesAttribution.findMany({
+      where: { salesPartnerId: id },
+      orderBy: { attributedAt: "desc" },
+      take: 300,
+      select: {
+        propertyId: true, productType: true, status: true, attributedAt: true, verifiedAt: true, commissionStartsAt: true, commissionEndsAt: true, disputeReason: true, revokedAt: true,
+        property: { select: { title: true, regionName: true, district: true, status: true } },
+      },
+    }),
+    db.salesCommission.groupBy({ by: ["type", "status"], where: { salesPartnerId: id }, _sum: { commissionAmount: true }, _count: { _all: true } }),
+    db.salesCommission.findMany({
+      where: { salesPartnerId: id },
+      orderBy: { earnedAt: "desc" },
+      take: 200,
+      select: {
+        id: true, type: true, status: true, propertyId: true, commissionAmount: true, eligibleNetRevenue: true, commissionRate: true, currency: true, earnedAt: true, eligibleAt: true, paidAt: true,
+        reversalReason: true, description: true, property: { select: { title: true } },
+      },
+    }),
+    db.salesPayoutRequest.findMany({
+      where: { salesPartnerId: id },
+      orderBy: { requestedAt: "desc" },
+      take: 100,
+      select: {
+        referenceNumber: true, status: true, lane: true, requestedAmount: true, approvedAmount: true, deductionAmount: true, withholdingTaxAmount: true, netPaidAmount: true,
+        currency: true, payoutMethod: true, payoutAccount: true, requestedAt: true, approvedAt: true, paidAt: true, rejectedAt: true, rejectionReason: true, paymentReference: true,
+      },
+    }),
+    db.salesLeadVisit.findMany({
+      where: { salesPartnerId: id },
+      orderBy: { capturedAt: "desc" },
+      take: 100,
+      select: { id: true, status: true, metWith: true, note: true, capturedAt: true, distanceMeters: true, accuracyMeters: true, flags: true, reviewedAt: true, reviewNote: true, lead: { select: { id: true, propertyName: true } } },
+    }),
+    db.auditLog.findMany({
+      where: { entity: "SALES_PARTNER", entityId: id },
+      orderBy: { id: "desc" },
+      take: 150,
+      select: { action: true, actorId: true, actorRole: true, afterJson: true, createdAt: true },
+    }),
+  ]);
+
+  const actorIds = [...new Set(history.map((h: any) => h.actorId).filter((v: any) => Number.isInteger(v)))];
+  const actors = actorIds.length ? await db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true, fullName: true } }) : [];
+  const actorName = new Map<number, string>(actors.map((a: any) => [a.id, a.fullName || a.name || "Admin"]));
+  // Lifetime earned per attributed property, from the whole ledger (not just the rows shown).
+  const propertyIds = attributions.map((a: any) => a.propertyId);
+  const perProperty = propertyIds.length
+    ? await db.salesCommission.groupBy({
+        by: ["propertyId"],
+        where: { salesPartnerId: id, propertyId: { in: propertyIds }, status: { notIn: ["REVERSED", "CANCELLED"] } },
+        _sum: { commissionAmount: true },
+      })
+    : [];
+  const earnedByProperty = new Map<number, number>(perProperty.map((r: any) => [r.propertyId, Number(r._sum.commissionAmount || 0)]));
+  const num = (v: unknown) => (v == null ? null : Number(v));
+
+  return res.json({
+    account: {
+      taxIdNumber: partner.taxIdNumber ?? null,
+      payoutName: partner.payoutName ?? null,
+      levelUpdatedAt: partner.levelUpdatedAt ?? null,
+      registeredAt: partner.user?.createdAt ?? null,
+      emailVerified: Boolean(partner.user?.emailVerifiedAt),
+      phoneVerified: Boolean(partner.user?.phoneVerifiedAt),
+      hasPhoto: Boolean(partner.user?.avatarUrl),
+      lastLoginAt: (partner.user as any)?.lastLoginAt ?? null,
+    },
+    leads: leads.map((l: any) => ({
+      ref: leadRef(l.id),
+      propertyName: l.propertyName,
+      status: l.status,
+      product: l.proposedProduct,
+      area: [l.district, l.region].filter(Boolean).join(", "),
+      contact: [l.contactPerson, l.contactPhone].filter(Boolean).join(" · ") || null,
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt,
+      nextFollowUpAt: l.nextFollowUpAt,
+      protectedUntil: l.protectionExpiresAt,
+      possibleDuplicate: l.duplicateReviewStatus === "POSSIBLE_DUPLICATE",
+      conversionRequestedAt: l.conversionRequestedAt,
+      convertedAt: l.convertedAt,
+      lostReason: l.lostReason,
+      activities: l._count.activities,
+      visits: l._count.visits,
+    })),
+    properties: attributions.map((a: any) => ({
+      ref: propertyRef(a.propertyId),
+      title: a.property?.title ?? "Property",
+      area: [a.property?.district, a.property?.regionName].filter(Boolean).join(", "),
+      listingStatus: a.property?.status ?? null,
+      product: a.productType,
+      status: a.status,
+      attributedAt: a.attributedAt,
+      verifiedAt: a.verifiedAt,
+      earningFrom: a.commissionStartsAt,
+      earningUntil: a.commissionEndsAt,
+      disputeReason: a.disputeReason,
+      revokedAt: a.revokedAt,
+      earned: earnedByProperty.get(a.propertyId) ?? 0,
+    })),
+    earnings: {
+      totals: commissionTotals.map((t: any) => ({ type: t.type, status: t.status, amount: Number(t._sum.commissionAmount || 0), count: t._count._all })),
+      rows: commissions.map((c: any) => ({
+        ref: earningRef(c.id),
+        type: c.type,
+        status: c.status,
+        amount: Number(c.commissionAmount),
+        basis: num(c.eligibleNetRevenue),
+        rate: num(c.commissionRate),
+        currency: c.currency,
+        property: c.property?.title ?? null,
+        description: c.description,
+        earnedAt: c.earnedAt,
+        eligibleAt: c.eligibleAt,
+        paidAt: c.paidAt,
+        reversalReason: c.reversalReason,
+      })),
+    },
+    withdrawals: payouts.map((p: any) => ({
+      reference: p.referenceNumber,
+      status: p.status,
+      lane: p.lane,
+      requested: num(p.requestedAmount),
+      approved: num(p.approvedAmount),
+      deduction: num(p.deductionAmount),
+      withholdingTax: num(p.withholdingTaxAmount),
+      netPaid: num(p.netPaidAmount),
+      currency: p.currency,
+      destination: `${p.payoutMethod} ending ${maskPayoutAccount(p.payoutAccount) || "-"}`,
+      requestedAt: p.requestedAt,
+      approvedAt: p.approvedAt,
+      paidAt: p.paidAt,
+      rejectedAt: p.rejectedAt,
+      rejectionReason: p.rejectionReason,
+      paymentReference: p.paymentReference,
+    })),
+    visits: visits.map((v: any) => ({
+      lead: v.lead ? { ref: leadRef(v.lead.id), propertyName: v.lead.propertyName } : null,
+      status: v.status,
+      metWith: v.metWith,
+      note: v.note,
+      capturedAt: v.capturedAt,
+      distanceMeters: v.distanceMeters,
+      accuracyMeters: v.accuracyMeters,
+      flags: Array.isArray(v.flags) ? v.flags : [],
+      reviewedAt: v.reviewedAt,
+      reviewNote: v.reviewNote,
+    })),
+    history: history.map((h: any) => ({
+      action: h.action,
+      by: h.actorId ? actorName.get(h.actorId) || "Admin" : h.actorRole === "SYSTEM" ? "System" : h.actorRole || "System",
+      reason: (h.afterJson as any)?.reason ?? null,
+      at: h.createdAt,
+    })),
   });
 }) as RequestHandler);
 

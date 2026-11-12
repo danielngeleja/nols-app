@@ -8,13 +8,15 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle, ArrowRight, BadgeCheck, CheckCircle2, FileSignature, IdCard, Loader2, Lock, MapPin, PauseCircle, PlayCircle, ShieldAlert,
-  ShieldCheck, Users, Wallet, X,
+  AlertTriangle, ArrowRight, BadgeCheck, Building2, CheckCircle2, Coins, FileSignature, Footprints, Handshake, History, IdCard, ListChecks, Loader2, Lock, MapPin,
+  PauseCircle, PlayCircle, Send, ShieldAlert, ShieldCheck, Users, Wallet, X,
 } from "lucide-react";
 import AdminReasonDialog from "./AdminReasonDialog";
 import apiClient from "@/lib/apiClient";
 import PartnerIdCardAdmin, { type AdminIdCard, type CardReadiness, cardGapText } from "./PartnerIdCardAdmin";
 import PartnerTeamAdmin from "./PartnerTeamAdmin";
+import PartnerAgencyAdmin from "./PartnerAgencyAdmin";
+import PartnerFileSection, { PartnerAccountFacts, usePartnerFile, type FileSection } from "./PartnerFile";
 
 export type RecordPartner = {
   id: number;
@@ -64,7 +66,7 @@ export type RecordAttention = {
 };
 type Access = { status: string; expiresAt: string | null } | null;
 
-type Tab = "overview" | "agreements" | "team" | "card";
+type Tab = "overview" | "agreements" | FileSection | "team" | "card" | "agency";
 
 const field = "h-10 w-full min-w-0 rounded-md border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-emerald-400";
 const STATUS_TONE: Record<string, string> = {
@@ -134,6 +136,8 @@ export default function PartnerRecord({
     setResumeReason("");
   }, [partner?.id]);
 
+  // The partner's whole file (leads, visits, properties, ledger, withdrawals, history), reloaded with the record.
+  const file = usePartnerFile(partner?.id ?? null, partner);
   const name = partner ? partner.user.fullName || partner.user.name || partner.user.email || "Partner" : "Partner";
   const now = Date.now();
   const signed = partner?.contracts.find((c) => c.status === "SIGNED") ?? null;
@@ -214,20 +218,45 @@ export default function PartnerRecord({
       "Withdrawals resumed. The partner has been told.", () => setResumeReason(""));
   };
 
-  const TABS: Array<{ key: Tab; label: string; icon: typeof Users; count?: number }> = [
-    { key: "overview", label: "Overview", icon: ShieldCheck },
-    { key: "agreements", label: "Agreements", icon: FileSignature, count: partner?.contracts.length },
-    { key: "team", label: "Team and target", icon: Users },
-    { key: "card", label: "ID card", icon: IdCard },
+  // The file's sections, grouped the way admins review a partner. Counts show
+  // only when there is something; an amber dot marks a section with a decision waiting.
+  type NavItem = { key: Tab; label: string; icon: typeof Users; count?: number; alert?: boolean };
+  const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
+    {
+      label: "Partner",
+      items: [
+        { key: "overview", label: "Overview", icon: ShieldCheck, alert: partner?.status === "SUSPENDED" || paused },
+        { key: "agreements", label: "Agreements", icon: FileSignature, count: partner?.contracts.length, alert: Boolean(signed || deadInvite) },
+        { key: "card", label: "ID card", icon: IdCard, alert: Boolean(attention?.card?.photoPending) },
+        { key: "team", label: "Team and target", icon: Users },
+      ],
+    },
+    {
+      label: "Pipeline",
+      items: [
+        { key: "leads", label: "Leads", icon: ListChecks, count: partner?._count.leads },
+        { key: "visits", label: "Field visits", icon: Footprints, count: file.data?.visits.length, alert: Boolean(attention?.flaggedVisits) },
+        { key: "properties", label: "Properties", icon: Building2, count: partner?._count.attributions, alert: Boolean(attention?.disputedProperties) },
+      ],
+    },
+    {
+      label: "Money",
+      items: [
+        { key: "earnings", label: "Earnings", icon: Coins, count: partner?._count.commissions },
+        { key: "withdrawals", label: "Withdrawals", icon: Send, count: partner?._count.payoutRequests, alert: Boolean(attention?.payoutsUnderReview) || paused },
+      ],
+    },
+    { label: "Distribution", items: [{ key: "agency", label: "Agency Desk", icon: Handshake }] },
+    { label: "Record", items: [{ key: "history", label: "History", icon: History, count: file.data?.history.length }] },
   ];
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-neutral-950/45 p-3 sm:p-6" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-[1000] flex items-stretch justify-center bg-neutral-950/45 p-0 sm:p-3" onMouseDown={onClose}>
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="sales-partner-record-title"
-        className="flex max-h-[calc(100dvh-24px)] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-48px)]"
+        className="flex h-[100dvh] w-full max-w-[1440px] flex-col overflow-hidden border border-solid border-neutral-200 bg-white shadow-2xl sm:h-[calc(100dvh-24px)] sm:rounded-lg"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Record header */}
@@ -255,20 +284,48 @@ export default function PartnerRecord({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="mt-3 flex gap-1 overflow-x-auto border-0 border-t border-solid border-white/10 px-3" role="tablist" aria-label="Partner record">
-            {TABS.map(({ key, label, icon: Icon, count }) => {
+          {/* Phones: one scrollable row, in rail order. */}
+          <div className="mt-3 flex gap-1 overflow-x-auto border-0 border-t border-solid border-white/10 px-3 lg:hidden" role="tablist" aria-label="Partner record">
+            {NAV_GROUPS.flatMap((g) => g.items).map(({ key, label, icon: Icon, count, alert }) => {
               const on = tab === key;
               return (
                 <button key={key} type="button" role="tab" aria-selected={on} onClick={() => setTab(key)}
-                  className={`relative inline-flex h-10 shrink-0 items-center gap-2 border-0 bg-transparent px-3 text-[13px] font-semibold ${on ? "text-white" : "text-white/50 hover:text-white/80"}`}>
+                  className={`relative inline-flex h-10 shrink-0 items-center gap-1.5 border-0 bg-transparent px-2.5 text-[13px] font-semibold ${on ? "text-white" : "text-white/55 hover:text-white/85"}`}>
                   <Icon className="h-4 w-4" /> {label}
-                  {typeof count === "number" ? <span className={`rounded px-1.5 text-[11px] tabular-nums ${on ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-white/60"}`}>{count}</span> : null}
+                  {count ? <span className="rounded bg-white/10 px-1.5 text-[11px] tabular-nums text-white/70">{count}</span> : null}
+                  {alert ? <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-label="Needs attention" /> : null}
                   {on ? <span className="absolute inset-x-2 bottom-0 h-0.5 bg-emerald-400" aria-hidden /> : null}
                 </button>
               );
             })}
           </div>
         </header>
+
+        <div className="flex min-h-0 flex-1">
+        {/* Desktop: the file's sections, grouped, always visible. */}
+        <nav aria-label="Partner record" className="hidden w-60 shrink-0 overflow-y-auto border-0 border-r border-solid border-neutral-200 bg-neutral-50 px-3 py-4 lg:block">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className="mb-4 last:mb-0">
+              <p className="m-0 mb-1 px-2 text-[11px] font-semibold text-neutral-400">{group.label}</p>
+              <ul className="m-0 list-none space-y-0.5 p-0">
+                {group.items.map(({ key, label, icon: Icon, count, alert }) => {
+                  const on = tab === key;
+                  return (
+                    <li key={key}>
+                      <button type="button" aria-current={on ? "page" : undefined} onClick={() => setTab(key)}
+                        className={`flex h-9 w-full items-center gap-2.5 rounded-md border-0 px-2 text-left text-[13px] font-semibold ${on ? "bg-white text-neutral-900 shadow-[0_1px_2px_rgba(15,23,42,0.08)] ring-1 ring-inset ring-neutral-200" : "bg-transparent text-neutral-600 hover:bg-white/70 hover:text-neutral-900"}`}>
+                        <Icon className={`h-4 w-4 shrink-0 ${on ? "text-emerald-700" : "text-neutral-400"}`} />
+                        <span className="min-w-0 flex-1 truncate">{label}</span>
+                        {alert ? <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-label="Needs attention" /> : null}
+                        {count ? <span className="shrink-0 rounded bg-neutral-200/70 px-1.5 text-[11px] tabular-nums text-neutral-600">{count}</span> : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loading ? (
@@ -282,7 +339,8 @@ export default function PartnerRecord({
               {error ? <p className="m-0 flex items-start gap-2 rounded-md border border-solid border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-800" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p> : null}
               {notice ? <p className="m-0 flex items-start gap-2 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-900" role="status"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{notice}</p> : null}
 
-              {/* Needs your decision */}
+              {/* Needs your decision: on Overview only; the rail's amber dots point here from other sections. */}
+              {tab === "overview" ? (
               <section className="overflow-hidden rounded-lg border border-solid border-neutral-200">
                 <p className="m-0 border-0 border-b border-solid border-neutral-100 bg-neutral-50 px-4 py-2 text-[12px] font-semibold text-neutral-700">
                   {decisions.filter((d) => d.tone !== "sky").length ? "Needs your decision" : "Status"}
@@ -330,22 +388,24 @@ export default function PartnerRecord({
                   </ul>
                 )}
               </section>
+              ) : null}
 
               {tab === "overview" ? (
                 <>
                   <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-4">
                     {[
-                      { label: "Leads", value: partner._count.leads },
-                      { label: "Properties attributed", value: partner._count.attributions },
-                      { label: "Commission entries", value: partner._count.commissions },
-                      { label: "Withdrawals", value: partner._count.payoutRequests },
+                      { label: "Leads", value: partner._count.leads, to: "leads" as Tab },
+                      { label: "Properties attributed", value: partner._count.attributions, to: "properties" as Tab },
+                      { label: "Commission entries", value: partner._count.commissions, to: "earnings" as Tab },
+                      { label: "Withdrawals", value: partner._count.payoutRequests, to: "withdrawals" as Tab },
                     ].map((f) => (
-                      <div key={f.label} className="bg-white px-4 py-3">
-                        <p className="m-0 text-[12px] text-neutral-500">{f.label}</p>
+                      <button key={f.label} type="button" onClick={() => setTab(f.to)} className="group border-0 bg-white px-4 py-3 text-left hover:bg-neutral-50">
+                        <p className="m-0 flex items-center justify-between text-[12px] text-neutral-500">{f.label}<ArrowRight className="h-3.5 w-3.5 text-neutral-300 group-hover:text-emerald-700" /></p>
                         <p className="m-0 mt-0.5 text-xl font-bold tabular-nums text-neutral-900">{f.value.toLocaleString("en-US")}</p>
-                      </div>
+                      </button>
                     ))}
                   </section>
+                  <PartnerAccountFacts data={file.data} />
                   <section className="grid gap-x-6 rounded-lg border border-solid border-neutral-200 px-4 py-1 sm:grid-cols-2">
                     {[
                       ["Region", partner.region || "Not set"],
@@ -456,9 +516,23 @@ export default function PartnerRecord({
               ) : null}
 
               {tab === "team" ? <PartnerTeamAdmin partnerId={partner.id} partnerActive={partner.status === "ACTIVE"} /> : null}
+              {tab === "agency" ? <PartnerAgencyAdmin partnerId={partner.id} agentCode={partner.agentCode} /> : null}
+              {tab === "leads" || tab === "visits" || tab === "properties" || tab === "earnings" || tab === "withdrawals" || tab === "history" ? (
+                <PartnerFileSection
+                  section={tab}
+                  data={file.data}
+                  error={file.error}
+                  ctx={{
+                    status: partner.status,
+                    liveAgreement: partner.contracts.some((c) => ["ACTIVE", "EXPIRING"].includes(c.status) && new Date(c.startsAt).getTime() <= Date.now() && new Date(c.expiresAt).getTime() > Date.now()),
+                    joinedAt: partner.activatedAt || partner.createdAt,
+                  }}
+                />
+              ) : null}
               {tab === "card" ? <PartnerIdCardAdmin partnerId={partner.id} cards={partner.idCards} readiness={attention?.card} holder={{ name, agentCode: partner.agentCode, region: partner.region ?? null, territory: (partner as any).territory ?? null }} onChanged={onReload} /> : null}
             </div>
           )}
+        </div>
         </div>
       </section>
 

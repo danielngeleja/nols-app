@@ -898,6 +898,21 @@ export const limitOwnerSalesConfirmation = rateLimit({
   },
 });
 
+/** A client confirming an Agency Desk group request: few legitimate tries, so a tight cap. */
+export const limitAgencyGroupConfirm = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many attempts. Please wait and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `agency-group-confirm:${userId}`
+      : `agency-group-confirm:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
 /** Owner replies to guest reviews: public text, so a sane cap per owner. */
 export const limitOwnerReviewReply = rateLimit({
   windowMs: 15 * 60_000,

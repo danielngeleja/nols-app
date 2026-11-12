@@ -53,6 +53,7 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   owner_payout_recovery_overdue: act("attention", "money"),
   payout_claim_submitted: act("attention", "money"),
   transport_payout_claim_submitted: act("attention", "money"),
+  group_stay_owner_payout_due: act("attention", "money"),
 
   // Bookings and cancellations
   booking_created: info("bookings"),
@@ -91,6 +92,8 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   sales_team_invite_review: act("attention", "sales"),
   sales_partner_owner_disputed: act("attention", "sales"),
   sales_partner_nrms_claim_lapsed: info("sales"),
+  sales_agency_shortlist_review: act("attention", "sales"),
+  sales_agency_group_lead_fast_track: act("attention", "sales"),
 
   // People
   partner_account_registered: act("attention", "people"),

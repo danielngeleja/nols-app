@@ -26,6 +26,7 @@ import {
   ChevronRight,
   FileSignature,
   FileText,
+  Handshake,
   Headphones,
   IdCard,
   Trophy,
@@ -59,6 +60,7 @@ const NAV = [
   { href: "/sales/properties", label: "Properties", Icon: Building2 },
   { href: "/sales/leaderboard", label: "Leaderboard", Icon: Trophy },
   { href: "/sales/team", label: "My team", Icon: Users, teamLeadOnly: true },
+  { href: "/sales/agency", label: "Agency Desk", Icon: Handshake, agencyOnly: true },
   { href: "/sales/earnings", label: "Earnings", Icon: WalletCards },
   { href: "/sales/payouts", label: "Payouts", Icon: Send },
   { href: "/sales/statements", label: "Statements", Icon: FileText },
@@ -70,9 +72,9 @@ const NAV = [
 ];
 
 const NAV_GROUPS = [
-  { label: "Workspace", items: NAV.slice(0, 5) },
-  { label: "Finance", items: NAV.slice(5, 8) },
-  { label: "Resources", items: NAV.slice(8) },
+  { label: "Workspace", items: NAV.slice(0, 6) },
+  { label: "Finance", items: NAV.slice(6, 9) },
+  { label: "Resources", items: NAV.slice(9) },
 ];
 
 /** Status pill colours, per doc section 9.7. */
@@ -184,6 +186,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
   const [isTeamLead, setIsTeamLead] = useState(false);
   // Last month's winning team, when it is this partner's team.
   const [topTeamMonth, setTopTeamMonth] = useState<string | null>(null);
+  const [hasAgencyDesk, setHasAgencyDesk] = useState(false);
   useEffect(() => {
     let alive = true;
     apiClient
@@ -192,6 +195,13 @@ export default function SalesShell({ children }: { children: ReactNode }) {
         if (!alive) return;
         setIsTeamLead(Boolean(data?.isTeamLead));
         setTopTeamMonth(data?.topTeam?.mine ? String(data.topTeam.month) : null);
+      })
+      .catch(() => undefined);
+    // Agency Desk appears only when the server answers; everyone else gets a 404.
+    apiClient
+      .get("/api/sales/agency/status")
+      .then(({ data }) => {
+        if (alive) setHasAgencyDesk(Boolean(data?.status));
       })
       .catch(() => undefined);
     return () => {
@@ -352,7 +362,9 @@ export default function SalesShell({ children }: { children: ReactNode }) {
               <div className="mx-auto mb-2 h-px w-6 bg-white/10" aria-hidden />
             ) : null}
             <div className="space-y-0.5">
-              {group.items.filter((item) => !("teamLeadOnly" in item) || isTeamLead).map((item) => {
+              {group.items
+                .filter((item) => (!("teamLeadOnly" in item) || isTeamLead) && (!("agencyOnly" in item) || hasAgencyDesk))
+                .map((item) => {
                 const active = item.href === "/sales" ? pathname === "/sales" : pathname?.startsWith(item.href);
                 const pending = navigation
                   ? item.href === "/sales"

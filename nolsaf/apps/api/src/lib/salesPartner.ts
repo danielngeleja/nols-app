@@ -187,6 +187,12 @@ export type SalesMaterialCategory = (typeof SALES_MATERIAL_CATEGORIES)[number];
 export const COMMISSION_TYPES = [
   "NRMS_USAGE",
   "MARKETPLACE_BOOKING",
+  /** Agency Desk: a stay a hand-picked partner brought in (demand side). */
+  "AGENCY_STAY",
+  /** Agency Desk: a fully prepaid group stay the partner coordinated. */
+  "AGENCY_GROUP",
+  /** Agency Desk: a listed operator tour the partner sent a client to. */
+  "AGENCY_TOUR",
   "PERFORMANCE_BONUS",
   "MANUAL_ADJUSTMENT",
 ] as const;
@@ -289,7 +295,7 @@ export const CONTRACT_TERM_DAYS = 365;
  * of a double payout, so every writer must go through this function.
  */
 export function commissionSourceKey(
-  source: "NRMS_STATEMENT" | "INVOICE" | "BONUS" | "ADJUSTMENT",
+  source: "NRMS_STATEMENT" | "INVOICE" | "AGENCY_INVOICE" | "AGENCY_GROUP" | "AGENCY_TOUR" | "BONUS" | "ADJUSTMENT",
   id: number | string,
 ): string {
   return `${source}:${id}`;

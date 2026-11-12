@@ -152,7 +152,13 @@ export async function buildSalesStatement(db: any, partnerId: number, month: str
         ? "NRMS commission"
         : String(type || "").toUpperCase() === "MARKETPLACE_BOOKING"
           ? "Marketplace share"
-          : String(type || "").replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) || "Other";
+          : String(type || "").toUpperCase() === "AGENCY_STAY"
+            ? "Agency Desk booking"
+            : String(type || "").toUpperCase() === "AGENCY_GROUP"
+              ? "Agency Desk group stay"
+              : String(type || "").toUpperCase() === "AGENCY_TOUR"
+                ? "Agency Desk tour"
+                : String(type || "").replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) || "Other";
 
     const earnings = earnedRows.map((r: any) => ({
       id: r.id,
