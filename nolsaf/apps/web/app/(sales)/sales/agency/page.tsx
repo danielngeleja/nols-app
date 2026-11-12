@@ -64,6 +64,7 @@ type GroupRow = {
   destination: string | null;
   headcount: number | null;
   linkExpiresAt: string | null;
+  createdAt?: string | null;
   shortlistStatus: string;
   booking: { status: string; paid: boolean; checkedIn: boolean; bids: number } | null;
 };
@@ -83,16 +84,100 @@ const day = (value: string | null | undefined) =>
 const money = (value: number, currency = "TZS") => `${currency === "TZS" ? "TSh" : currency} ${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
 const daysLeft = (value: string | null | undefined) => (value ? Math.ceil((new Date(value).getTime() - Date.now()) / DAY) : null);
 
-function Figure({ icon: Icon, label, value, note, tip, children }: { icon: typeof Wallet; label: string; value: string | number; note?: string; tip?: ReactNode; children?: ReactNode }) {
+/** One colour per figure, so each tile reads as its own measure. Text stays in normal ink. */
+const FIGURE_TONE = {
+  blue: { line: "#2a78d6", chip: "bg-[#2a78d6]/10 text-[#2a78d6]" },
+  orange: { line: "#eb6834", chip: "bg-[#eb6834]/10 text-[#d1531f]" },
+  violet: { line: "#6250d6", chip: "bg-[#6250d6]/10 text-[#6250d6]" },
+  amber: { line: "#eda100", chip: "bg-[#eda100]/15 text-[#a86f00]" },
+} as const;
+type FigureTone = keyof typeof FIGURE_TONE;
+
+const TREND_DAYS = 30;
+
+/** Running total per day for the last TREND_DAYS days, from dated events. */
+function dailyRunning(events: Array<{ at: string | null | undefined; value: number }>): number[] {
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  const start = today.getTime() - (TREND_DAYS - 1) * DAY;
+  const out = new Array<number>(TREND_DAYS).fill(0);
+  let before = 0;
+  for (const e of events) {
+    if (!e.at) continue;
+    const t = new Date(e.at).getTime();
+    if (!Number.isFinite(t) || t > today.getTime()) continue;
+    if (t < start - DAY) { before += e.value; continue; }
+    const i = Math.min(TREND_DAYS - 1, Math.max(0, Math.floor((t - (start - DAY)) / DAY)));
+    out[i] += e.value;
+  }
+  let run = before;
+  return out.map((v) => (run += v));
+}
+
+/** A small single-series line with a hover readout. Flat at zero until there is data. */
+function Sparkline({ values, color, format, label }: { values: number[]; color: string; format: (v: number) => string; label: string }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 100;
+  const H = 28;
+  const max = Math.max(...values, 0);
+  const min = Math.min(...values, 0);
+  const span = max - min || 1;
+  const x = (i: number) => (values.length > 1 ? (i / (values.length - 1)) * W : 0);
+  const y = (v: number) => H - 2 - ((v - min) / span) * (H - 6);
+  const line = values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(2)} ${y(v).toFixed(2)}`).join(" ");
+  const i = hover ?? values.length - 1;
+  const when = new Date(Date.now() - (values.length - 1 - i) * DAY);
+  const pick = (clientX: number, el: Element) => {
+    const b = el.getBoundingClientRect();
+    setHover(Math.max(0, Math.min(values.length - 1, Math.round(((clientX - b.left) / b.width) * (values.length - 1)))));
+  };
+  return (
+    <div className="relative mt-2">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block h-7 w-full touch-none" role="img"
+        aria-label={`${label}, last ${values.length} days: ${format(values[values.length - 1] ?? 0)} now`}
+        onPointerMove={(e) => pick(e.clientX, e.currentTarget)} onPointerDown={(e) => pick(e.clientX, e.currentTarget)} onPointerLeave={() => setHover(null)}>
+        <line x1="0" x2={W} y1={H - 1} y2={H - 1} stroke="#e2e8f0" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+        <path d={`${line} L${W} ${H - 1} L0 ${H - 1} Z`} fill={color} opacity="0.1" />
+        <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        {hover != null ? <line x1={x(i)} x2={x(i)} y1="0" y2={H - 1} stroke="#94a3b8" strokeWidth="1" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" /> : null}
+      </svg>
+      <span className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white" style={{ left: `${x(i)}%`, top: `${(y(values[i] ?? 0) / H) * 100}%`, background: color }} aria-hidden />
+      {hover != null ? (
+        <span className="pointer-events-none absolute -top-6 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-solid border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-slate-800 shadow-sm"
+          style={{ left: `${Math.min(85, Math.max(15, x(i)))}%` }}>
+          {when.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Dar_es_Salaam" })} · {format(values[i] ?? 0)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function Figure({ icon: Icon, label, value, note, tip, tone, trend, meter, children }: {
+  icon: typeof Wallet; label: string; value: ReactNode; note?: string; tip?: ReactNode; tone: FigureTone;
+  trend?: { values: number[]; format: (v: number) => string }; meter?: { used: number; limit: number }; children?: ReactNode;
+}) {
+  const t = FIGURE_TONE[tone];
   return (
     <div className="flex min-w-0 flex-col bg-white p-4">
       <p className="m-0 flex min-w-0 items-center gap-1.5 text-[12px] font-medium text-slate-500">
-        <Icon className="h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden /><span className="min-w-0 truncate">{label}</span>
+        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${t.chip}`}><Icon className="h-3.5 w-3.5" aria-hidden /></span>
+        <span className="min-w-0 truncate">{label}</span>
         {tip ? <InfoTip label={label}>{tip}</InfoTip> : null}
       </p>
-      <p className="m-0 mt-1.5 truncate text-[22px] font-bold tracking-tight tabular-nums text-slate-900">{value}</p>
+      <p className="m-0 mt-2 truncate text-[22px] font-bold tracking-tight tabular-nums text-slate-900">{value}</p>
       {note ? <p className="m-0 mt-0.5 truncate text-[12px] text-slate-500">{note}</p> : null}
       {children}
+      <div className="mt-auto">
+        {trend ? <Sparkline values={trend.values} color={t.line} format={trend.format} label={label} /> : null}
+        {meter ? (
+          <div className="mt-3" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={meter.limit} aria-valuenow={meter.used}>
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full" style={{ width: `${Math.min(100, (meter.used / Math.max(1, meter.limit)) * 100)}%`, background: t.line }} />
+            </div>
+            <p className="m-0 mt-1 text-[11px] text-slate-500">{Math.max(0, meter.limit - meter.used)} left before the limit</p>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -196,7 +281,26 @@ export default function SalesAgencyPage() {
     const tourSum = tours.reduce((sum, t) => sum + (t.commission && live(t.commission.status) ? t.commission.amount : 0), 0);
     return { stays, tours: tourSum };
   }, [bookings, tours]);
-  const groupsInProgress = groups.filter((g) => g.status === "AWAITING_CLIENT" || (g.status === "CONFIRMED" && !g.booking?.checkedIn && !["CANCELED", "CANCELLED", "EXPIRED"].includes(String(g.booking?.status || "").toUpperCase()))).length;
+  const inProgress = (g: GroupRow) => g.status === "AWAITING_CLIENT" || (g.status === "CONFIRMED" && !g.booking?.checkedIn && !["CANCELED", "CANCELLED", "EXPIRED"].includes(String(g.booking?.status || "").toUpperCase()));
+  const groupsInProgress = groups.filter(inProgress).length;
+  // Last 30 days as running totals, from dates the page already has.
+  const trends = useMemo(() => {
+    const live = (s: string) => !["REVERSED", "CANCELLED"].includes(s);
+    return {
+      earnings: dailyRunning([
+        ...bookings.map((b) => ({ at: b.creditedAt, value: b.commission && live(b.commission.status) ? b.commission.amount : 0 })),
+        ...tours.map((t) => ({ at: t.creditedAt, value: t.commission && live(t.commission.status) ? t.commission.amount : 0 })),
+      ]),
+      credited: dailyRunning([
+        ...bookings.filter((b) => b.status === "ACTIVE").map((b) => ({ at: b.creditedAt, value: 1 })),
+        ...tours.filter((t) => t.status === "ACTIVE").map((t) => ({ at: t.creditedAt, value: 1 })),
+      ]),
+      groups: dailyRunning(groups.filter((g) => g.status === "AWAITING_CLIENT" || g.status === "CONFIRMED").filter((g) => {
+        const b = String(g.booking?.status || "").toUpperCase();
+        return !g.booking?.checkedIn && !["CANCELED", "CANCELLED", "EXPIRED"].includes(b);
+      }).map((g) => ({ at: g.createdAt, value: 1 }))),
+    };
+  }, [bookings, tours, groups]);
   const shownLinks = links.filter((l) => linkFilter === "ALL" || l.status === "LIVE");
   // Counted from the list itself so creating or closing a link updates it at once.
   const liveCount = links.filter((l) => l.status === "LIVE").length;
@@ -443,14 +547,19 @@ export default function SalesAgencyPage() {
 
             {/* Key figures */}
             <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-slate-300 bg-slate-200 lg:grid-cols-4" aria-label="Agency figures">
-              <Figure icon={Wallet} label="Agency earnings" value={money(earnings.stays + earnings.tours)} note={`Stay rate ${status.stayRate}%`}
-                tip="Stays earn after checkout, tours after the tour is completed, then a short checking window before you can withdraw. Refunded or cancelled bookings are reversed.">
-                <Link href="/sales/earnings" className="mt-1.5 inline-flex w-fit items-center gap-1 text-[12px] font-semibold text-[#02665e] no-underline hover:underline">See earnings <ArrowRight className="h-3 w-3" /></Link>
+              <Figure icon={Wallet} tone="blue" label="Agency earnings" value={money(earnings.stays + earnings.tours)} note={`Stay rate ${status.stayRate}%`}
+                trend={{ values: trends.earnings, format: (v) => money(v) }}
+                tip="Stays earn after checkout, tours after the tour is completed, then a short checking window before you can withdraw. Refunded or cancelled bookings are reversed. The line follows the booking date over the last 30 days.">
+                <Link href="/sales/earnings" className="mt-1 inline-flex w-fit items-center gap-1 text-[12px] font-semibold text-[#02665e] no-underline hover:underline">See earnings <ArrowRight className="h-3 w-3" /></Link>
               </Figure>
-              <Figure icon={CheckCircle2} label="Credited" value={bookings.filter((b) => b.status === "ACTIVE").length + tours.filter((t) => t.status === "ACTIVE").length} note={`${bookings.filter((b) => b.status === "ACTIVE").length} stays · ${tours.filter((t) => t.status === "ACTIVE").length} tours`}
-                tip="Bookings your links brought in. Blocked or voided credits are not counted." />
-              <Figure icon={Users} label="Groups in progress" value={groupsInProgress} note={`${clients.filter((c) => c.status === "ACTIVE").length} clients in your book`} />
-              <Figure icon={Link2} label="Live links" value={`${liveCount} / ${status.maxActiveLinks}`} note={liveCount >= status.maxActiveLinks ? "Limit reached" : "Stay and tour links"}
+              <Figure icon={CheckCircle2} tone="orange" label="Credited" value={bookings.filter((b) => b.status === "ACTIVE").length + tours.filter((t) => t.status === "ACTIVE").length} note={`${bookings.filter((b) => b.status === "ACTIVE").length} stays · ${tours.filter((t) => t.status === "ACTIVE").length} tours`}
+                trend={{ values: trends.credited, format: (v) => `${Math.round(v)} credited` }}
+                tip="Bookings your links brought in. Blocked or voided credits are not counted. The line is the running total over the last 30 days." />
+              <Figure icon={Users} tone="violet" label="Groups in progress" value={groupsInProgress} note={`${clients.filter((c) => c.status === "ACTIVE").length} clients in your book`}
+                trend={{ values: trends.groups, format: (v) => `${Math.round(v)} open` }} />
+              <Figure icon={Link2} tone="amber" label="Live links" value={<>{liveCount} <span className="text-[14px] font-semibold text-slate-400">/ {status.maxActiveLinks}</span></>}
+                note={liveCount >= status.maxActiveLinks ? "Limit reached: close an old link" : "Stay and tour links"}
+                meter={{ used: liveCount, limit: status.maxActiveLinks }}
                 tip="NoLSAF sets how many links you can have live at once. Close links you no longer use to make room." />
             </section>
 
