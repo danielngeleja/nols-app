@@ -40,6 +40,10 @@ type Earning = {
   totalAmount: number;
   commissionAmount: number;
   ownerCollects: number;
+  /** FULL: the guest prepaid everything to NoLSAF, which pays the owner after check-in. */
+  paymentMode?: "FULL" | "DEPOSIT";
+  nolsafPaysOwner?: number;
+  ownerPayoutStatus?: string | null;
   assignedOwner: { id: number; name: string; email: string | null; phone: string | null } | null;
   confirmedProperty: { id: number; title: string } | null;
   guestReview: { rating: number; title: string | null; comment: string | null; ownerResponse: string | null; createdAt: string } | null;
@@ -50,9 +54,19 @@ type EarningsSummary = {
   totalAmount: number;
   commissionAmount: number;
   ownerCollects: number;
+  nolsafPaysOwners?: number;
 };
 
-const EMPTY_SUMMARY: EarningsSummary = { bookingCount: 0, totalAmount: 0, commissionAmount: 0, ownerCollects: 0 };
+const EMPTY_SUMMARY: EarningsSummary = { bookingCount: 0, totalAmount: 0, commissionAmount: 0, ownerCollects: 0, nolsafPaysOwners: 0 };
+
+/** What the owner gets on this stay, and how: collected at the property, or paid by NoLSAF for a prepaid group. */
+function ownerShare(e: { paymentMode?: string; ownerCollects: number; nolsafPaysOwner?: number; ownerPayoutStatus?: string | null }) {
+  if (e.paymentMode === "FULL") {
+    const status = String(e.ownerPayoutStatus || "NONE").toUpperCase();
+    return { amount: e.nolsafPaysOwner || 0, note: status === "PAID" ? "Paid by NoLSAF" : status === "PENDING" ? "NoLSAF pays, due" : "NoLSAF pays after check-in" };
+  }
+  return { amount: e.ownerCollects, note: "Collected at the property" };
+}
 
 function tidyName(value: string | null | undefined) {
   const text = String(value || "").trim();
@@ -220,7 +234,13 @@ export default function AdminGroupStayEarningsPage() {
           { icon: Building2, tone: "bg-neutral-100 text-neutral-600", label: filter === "CHECKED_IN" ? "Checked-in stays" : "Confirmed stays", value: (summary.bookingCount || total).toLocaleString(), sub: selectedOwner ? tidyName(selectedOwner.name) : "All owners" },
           { icon: Coins, tone: "bg-blue-50 text-blue-700", label: "Booking total", value: money(summary.totalAmount), sub: "What guests pay in full" },
           { icon: TrendingUp, tone: "bg-emerald-50 text-emerald-700", label: "NoLSAF commission", value: money(summary.commissionAmount), sub: summary.totalAmount > 0 ? `${commissionShare}% of booking total, kept from deposit` : "Kept from the deposit" },
-          { icon: HandCoins, tone: "bg-violet-50 text-violet-700", label: "Owners collect", value: money(summary.ownerCollects), sub: "Balance paid at the property" },
+          {
+            icon: HandCoins,
+            tone: "bg-violet-50 text-violet-700",
+            label: "Owners collect",
+            value: money(summary.ownerCollects),
+            sub: summary.nolsafPaysOwners ? `At the property, plus ${money(summary.nolsafPaysOwners)} NoLSAF pays on prepaid groups` : "Balance paid at the property",
+          },
         ];
         return (
           <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
@@ -255,12 +275,12 @@ export default function AdminGroupStayEarningsPage() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h3 className="m-0 text-sm font-bold text-neutral-900">Booking split</h3>
             <span className="inline-flex items-center gap-1 text-xs text-neutral-400">
-              <Info className="h-3.5 w-3.5" /> NoLSAF keeps the deposit; the owner collects the balance at the property
+              <Info className="h-3.5 w-3.5" /> NoLSAF keeps the deposit; the owner collects the balance at the property{summary.nolsafPaysOwners ? ". On prepaid groups NoLSAF holds the full payment and pays the owner" : ""}
             </span>
           </div>
           <div className="mt-2.5 flex h-2 w-full overflow-hidden rounded-full bg-neutral-100">
             <div className="h-full bg-emerald-500" style={{ width: `${Math.max(commissionShare, 2)}%` }} title={`NoLSAF ${money(summary.commissionAmount)}`} />
-            <div className="h-full bg-violet-500" style={{ width: `${Math.max(100 - commissionShare, 2)}%` }} title={`Owners ${money(summary.ownerCollects)}`} />
+            <div className="h-full bg-violet-500" style={{ width: `${Math.max(100 - commissionShare, 2)}%` }} title={`Owners ${money(summary.ownerCollects + (summary.nolsafPaysOwners || 0))}`} />
           </div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-500">
             <span className="inline-flex items-center gap-1.5"><span className="h-1 w-3 rounded-full bg-emerald-500" /> NoLSAF {commissionShare}%</span>
@@ -375,7 +395,10 @@ export default function AdminGroupStayEarningsPage() {
                     <div className="flex items-center gap-2">
                       <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] text-neutral-700">{gsRef(earning.id)}</span>
                       <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900">{earning.assignedOwner ? tidyName(earning.assignedOwner.name) : "Unassigned"}</span>
-                      <span className="flex-shrink-0 text-sm font-semibold tabular-nums text-violet-700">{money(earning.ownerCollects, earning.currency)}</span>
+                      <span className="flex-shrink-0 text-right text-sm font-semibold tabular-nums text-violet-700">
+                        {money(ownerShare(earning).amount, earning.currency)}
+                        {earning.paymentMode === "FULL" ? <span className="block text-[11px] font-normal text-neutral-500">{ownerShare(earning).note}</span> : null}
+                      </span>
                     </div>
                     <p className="m-0 mt-1 truncate text-xs text-neutral-500">
                       {[earning.confirmedProperty ? tidyName(earning.confirmedProperty.title) : "Property pending", fmtDay(earning.checkIn)].filter(Boolean).join(" · ")}
@@ -467,7 +490,10 @@ export default function AdminGroupStayEarningsPage() {
                             <div className="tabular-nums text-neutral-800">{money(earning.commissionAmount, earning.currency)}</div>
                             <div className="mt-0.5 text-xs text-neutral-400">{share != null ? `${share}% of total` : " "}</div>
                           </td>
-                          <td className="whitespace-nowrap px-4 py-3.5 text-right font-semibold tabular-nums text-violet-700">{money(earning.ownerCollects, earning.currency)}</td>
+                          <td className="whitespace-nowrap px-4 py-3.5 text-right">
+                            <div className="font-semibold tabular-nums text-violet-700">{money(ownerShare(earning).amount, earning.currency)}</div>
+                            {earning.paymentMode === "FULL" ? <div className="mt-0.5 text-xs text-neutral-500">{ownerShare(earning).note}</div> : null}
+                          </td>
                           <td className="px-4 py-3.5 text-right sm:pr-5">
                             <ChevronDown className={`ml-auto h-4 w-4 text-neutral-400 transition-transform ${expanded ? "rotate-180" : ""}`} aria-label={expanded ? "Hide details" : "Show details"} />
                           </td>

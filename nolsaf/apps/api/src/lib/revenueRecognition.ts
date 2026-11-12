@@ -223,6 +223,28 @@ export async function recognizeGroupStayRevenue(db: any, groupBookingId: number,
   });
 }
 
+/** A refund paid on a cancelled group stay (GroupBooking refundStatus REFUNDED). */
+export async function reverseGroupStayRefund(db: any, groupBookingId: number): Promise<LedgerResult> {
+  const gb = await db.groupBooking.findUnique({
+    where: { id: groupBookingId },
+    select: { id: true, refundStatus: true, refundAmount: true, refundedAt: true },
+  });
+  if (!gb) return skipped("NOT_FOUND");
+  if (gb.refundStatus !== "REFUNDED") return skipped("NOT_REFUNDED");
+  const returned = n(gb.refundAmount);
+  if (!(returned > 0)) return skipped("ZERO_AMOUNT");
+  const original = await recognizeGroupStayRevenue(db, gb.id, { paymentEventId: undefined });
+  if (!original.entry) return skipped("NOT_RECOGNIZED");
+  return reverseRevenue(db, {
+    original: { stream: "GROUP_STAY", sourceType: "GROUP_BOOKING", sourceId: gb.id },
+    sourceType: "GROUP_STAY_REFUND",
+    sourceId: gb.id,
+    gross: returned,
+    reason: `Refund on cancelled group stay ${gb.id}`,
+    recognizedAt: gb.refundedAt ?? new Date(),
+  });
+}
+
 // ── Transport ────────────────────────────────────────────────────────────────
 
 /**

@@ -318,9 +318,13 @@ router.get("/earnings", async (req, res) => {
         take,
       }),
       (prisma as any).groupBooking.count({ where }),
-      (prisma as any).groupBooking.aggregate({
+      // Per payment mode: a DEPOSIT group's deposit is NoLSAF's commission and the
+      // owner collects the rest at the property; a FULL (prepaid) group's payment
+      // is everything, NoLSAF keeps total minus ownerAmount and pays the owner.
+      (prisma as any).groupBooking.groupBy({
+        by: ["paymentMode"],
         where,
-        _sum: { totalAmount: true, depositAmount: true },
+        _sum: { totalAmount: true, depositAmount: true, ownerAmount: true },
       }),
     ]);
 
@@ -343,6 +347,8 @@ router.get("/earnings", async (req, res) => {
     const mapped = items.map((b: any) => {
       const totalAmount = b.totalAmount != null ? Number(b.totalAmount) : 0;
       const depositAmount = b.depositAmount != null ? Number(b.depositAmount) : 0;
+      const prepaid = b.paymentMode === "FULL";
+      const ownerAmount = b.ownerAmount != null ? Number(b.ownerAmount) : 0;
       const review = reviewByKey.get(`${b.confirmedPropertyId}:${b.userId}`) || null;
       return {
         id: b.id,
@@ -353,9 +359,13 @@ router.get("/earnings", async (req, res) => {
         checkedInAt: b.checkedInAt || null,
         currency: b.currency || "TZS",
         totalAmount,
-        // NoLSAF commission is the deposit; the owner collects the rest at the property.
-        commissionAmount: Math.round(depositAmount),
-        ownerCollects: Math.max(0, Math.round(totalAmount - depositAmount)),
+        paymentMode: prepaid ? "FULL" : "DEPOSIT",
+        // DEPOSIT: NoLSAF commission is the deposit and the owner collects the rest at
+        // the property. FULL: NoLSAF keeps total minus the owner's amount and pays the owner.
+        commissionAmount: prepaid ? Math.max(0, Math.round(totalAmount - ownerAmount)) : Math.round(depositAmount),
+        ownerCollects: prepaid ? 0 : Math.max(0, Math.round(totalAmount - depositAmount)),
+        nolsafPaysOwner: prepaid ? Math.round(ownerAmount) : 0,
+        ownerPayoutStatus: prepaid ? b.ownerPayoutStatus || "NONE" : null,
         assignedOwner: b.assignedOwner
           ? { id: b.assignedOwner.id, name: b.assignedOwner.name || "Owner", email: b.assignedOwner.email, phone: b.assignedOwner.phone }
           : null,
@@ -372,8 +382,23 @@ router.get("/earnings", async (req, res) => {
       };
     });
 
-    const totalAmount = Number(aggregate?._sum?.totalAmount || 0);
-    const commissionAmount = Number(aggregate?._sum?.depositAmount || 0);
+    let totalAmount = 0;
+    let commissionAmount = 0;
+    let ownerCollects = 0;
+    let nolsafPaysOwners = 0;
+    for (const row of (aggregate as any[]) || []) {
+      const t = Number(row?._sum?.totalAmount || 0);
+      const d = Number(row?._sum?.depositAmount || 0);
+      const o = Number(row?._sum?.ownerAmount || 0);
+      totalAmount += t;
+      if (row?.paymentMode === "FULL") {
+        commissionAmount += Math.max(0, t - o);
+        nolsafPaysOwners += o;
+      } else {
+        commissionAmount += d;
+        ownerCollects += Math.max(0, t - d);
+      }
+    }
     return res.json({
       total,
       page: Number(page) || 1,
@@ -383,7 +408,8 @@ router.get("/earnings", async (req, res) => {
         bookingCount: total,
         totalAmount: Math.round(totalAmount),
         commissionAmount: Math.round(commissionAmount),
-        ownerCollects: Math.max(0, Math.round(totalAmount - commissionAmount)),
+        ownerCollects: Math.round(ownerCollects),
+        nolsafPaysOwners: Math.round(nolsafPaysOwners),
       },
     });
   } catch (err: any) {
@@ -552,11 +578,16 @@ router.patch("/:id", async (req: any, res) => {
     // Get current booking to track changes
     const currentBooking = await (prisma as any).groupBooking.findUnique({
       where: { id: bookingId },
-      select: { id: true, status: true, userId: true },
+      select: { id: true, status: true, userId: true, paymentMode: true, depositPaid: true },
     });
 
     if (!currentBooking) {
       return res.status(404).json({ error: "Booking not found" });
+    }
+    // A fully prepaid group holds the guest's whole payment: cancelling it here
+    // would record no refund. It goes through the Agency Desk cancel and refund flow.
+    if (status === "CANCELED" && currentBooking.paymentMode === "FULL" && currentBooking.depositPaid) {
+      return res.status(409).json({ error: "This group was prepaid in full. Cancel it from Sales, Agency Desk so the refund is recorded." });
     }
 
     const updateData: any = {};

@@ -13,6 +13,7 @@
  */
 import { prisma } from "@nolsaf/prisma";
 import { notifyUser } from "../lib/notifications.js";
+import { notifyAgencyPartnerAboutGroup } from "../lib/salesAgencyGroups.js";
 
 type StartOptions = {
   /** How often the cleanup runs. Default: 15 minutes. */
@@ -38,6 +39,7 @@ async function expireGroupBookingDeposits(): Promise<void> {
       confirmedPropertyId: true,
       toRegion: true,
       toDistrict: true,
+      paymentMode: true,
     },
   });
 
@@ -60,11 +62,15 @@ async function expireGroupBookingDeposits(): Promise<void> {
 
       const destination = [booking.toDistrict, booking.toRegion].filter(Boolean).join(", ");
 
+      const isAgencyFull = (booking as any).paymentMode === "FULL";
       await notifyUser(booking.userId, "group_stay_update", {
         title: "Group stay offer expired",
-        body: `Your 24-hour window to pay the deposit for group stay #${booking.id}${destination ? ` to ${destination}` : ""} has expired. Please request a new group stay if you'd still like to book.`,
+        body: isAgencyFull
+          ? `The payment window for your group stay${destination ? ` to ${destination}` : ""} has ended and the held dates were released. Your NoLSAF sales partner can prepare a new request if you still want to travel.`
+          : `Your 24-hour window to pay the deposit for group stay #${booking.id}${destination ? ` to ${destination}` : ""} has expired. Please request a new group stay if you'd still like to book.`,
         groupBookingId: booking.id,
       }).catch(() => {});
+      if (isAgencyFull) await notifyAgencyPartnerAboutGroup(prisma, booking.id, "expired");
 
       if (booking.assignedOwnerId) {
         await notifyUser(booking.assignedOwnerId, "group_stay_update", {

@@ -53,6 +53,11 @@ type GroupStayDetail = {
   totalAmount?: number | null;
   depositAmount?: number | null;
   currency?: string | null;
+  /** FULL: the guest prepaid everything to NoLSAF, which pays the owner after check-in. */
+  paymentMode?: "FULL" | "DEPOSIT" | null;
+  ownerAmount?: number | string | null;
+  ownerPayoutStatus?: string | null;
+  ownerPayoutPaidAt?: string | null;
   // Arrangement fields
   arrPickup?: boolean;
   arrTransport?: boolean;
@@ -277,8 +282,12 @@ export default function GroupStayDetail() {
 
   const isCheckedIn = !!groupStay.checkedInAt;
   const heroCurrency = groupStay.currency || "TZS";
+  // Prepaid groups: the guest paid NoLSAF everything, so nothing is collected at the property.
+  const prepaid = groupStay.paymentMode === "FULL";
   const ownerCollectsAmount = Math.max(0, Math.round(Number(groupStay.totalAmount || 0) - Number(groupStay.depositAmount || 0)));
   const ownerCollectsText = groupStay.totalAmount != null ? `${heroCurrency} ${ownerCollectsAmount.toLocaleString("en-US")}` : null;
+  const nolsafPaysText = `${heroCurrency} ${Math.round(Number(groupStay.ownerAmount || 0)).toLocaleString("en-US")}`;
+  const ownerPayoutPaid = String(groupStay.ownerPayoutStatus || "").toUpperCase() === "PAID";
 
   const handleCheckIn = async () => {
     if (checkingIn) return;
@@ -287,7 +296,14 @@ export default function GroupStayDetail() {
       const response = await api.post(`/api/owner/group-stays/${idParam}/check-in`, {});
       if (response.data?.success) {
         window.dispatchEvent(new CustomEvent("nols:toast", {
-          detail: { type: "success", title: "Check-in recorded", message: "Remember to collect the stay balance from the guest at the property.", duration: 4000 },
+          detail: {
+            type: "success",
+            title: "Check-in recorded",
+            message: prepaid
+              ? "The guest paid in full through NoLSAF. Do not collect anything at the property. NoLSAF will pay you."
+              : "Remember to collect the stay balance from the guest at the property.",
+            duration: 4000,
+          },
         }));
         try {
           const updated = await api.get(`/api/owner/group-stays/${idParam}`);
@@ -472,12 +488,21 @@ export default function GroupStayDetail() {
             <UserCheck className="h-4 w-4" aria-hidden /> {checkingIn ? "Recording..." : "Mark group checked in"}
           </button>
         )}
-        {(isConfirmed || isCheckedIn) && ownerCollectsText && (
+        {(isConfirmed || isCheckedIn) && prepaid ? (
+          <p className="m-0 mt-3 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
+            <Wallet className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />
+            {ownerPayoutPaid ? (
+              <>NoLSAF paid you <strong className="tabular-nums text-slate-900">{nolsafPaysText}</strong>{groupStay.ownerPayoutPaidAt ? ` on ${formatDate(groupStay.ownerPayoutPaidAt)}` : ""}</>
+            ) : (
+              <>Prepaid in full. Collect nothing at the property. NoLSAF pays you <strong className="tabular-nums text-slate-900">{nolsafPaysText}</strong> after check-in</>
+            )}
+          </p>
+        ) : (isConfirmed || isCheckedIn) && ownerCollectsText ? (
           <p className="m-0 mt-3 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
             <Wallet className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />
             You collect <strong className="tabular-nums text-slate-900">{ownerCollectsText}</strong> at the property
           </p>
-        )}
+        ) : null}
       </section>
 
       <section className={`${card} p-5`}>
@@ -836,7 +861,11 @@ export default function GroupStayDetail() {
                 icon={<Wallet className="h-5 w-5 text-teal-600" />}
                 tone="teal"
                 title="How you get paid"
-                body="The guest pays the deposit online. You collect the stay balance directly from the guest at the property. NoLSAF does not collect anything further from that balance, so there is no separate payout to wait for."
+                body={
+                  prepaid
+                    ? "The guest paid the whole stay to NoLSAF in advance. Do not collect any money at the property. After you mark the group checked in, NoLSAF pays you your offer amount."
+                    : "The guest pays the deposit online. You collect the stay balance directly from the guest at the property. NoLSAF does not collect anything further from that balance, so there is no separate payout to wait for."
+                }
               />
               <PolicyItem
                 icon={<CalendarX className="h-5 w-5 text-rose-600" />}

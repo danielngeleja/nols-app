@@ -1,7 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { captureAgencyRefFromUrl } from "@/lib/agencyRef";
 import { AnimatePresence, motion } from "framer-motion";
 import PublicHeader from "@/components/PublicHeader";
 import PublicFooter from "@/components/PublicFooter";
@@ -10,6 +11,11 @@ import { CurrencyProvider } from "@/contexts/CurrencyContext";
 
 export default function PublicLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+
+  // Agency Desk booking links land on public pages with ?ag=...
+  useEffect(() => {
+    captureAgencyRefFromUrl();
+  }, [pathname]);
 
   return (
     <CurrencyProvider>

@@ -23,6 +23,7 @@ import { sendMail } from "../lib/mailer.js";
 import { getBookingReceivedEmail, getTourBookingConfirmedEmail, getGroupStayConfirmedEmail, getOwnerNewBookingEmail, getOperatorTourBookedEmail } from "../lib/bookingEmailTemplates.js";
 import { generateBookingReservationPdf } from "../lib/bookingPdfGen.js";
 import { notifyAdmins, notifyUser } from "../lib/notifications.js";
+import { notifyAgencyPartnerAboutGroup } from "../lib/salesAgencyGroups.js";
 import { allocateReceiptNumber } from "../lib/documentSequence.js";
 import crypto from "crypto";
 import { generateBookingCodeForBooking } from "../lib/bookingCodeService.js";
@@ -754,6 +755,7 @@ export async function markGroupBookingDepositPaid(
     destination: [groupBooking.toDistrict, groupBooking.toRegion].filter(Boolean).join(", ") || null,
     href: "/admin/group-stays/bookings",
   }).catch(() => undefined);
+  void notifyAgencyPartnerAboutGroup(prisma, groupBooking.id, "paid");
 
   // Now that the deposit is in, finalize the winning owner's claim as ACCEPTED.
   // Before this point the claim sits in REVIEWING so the owner never sees a premature

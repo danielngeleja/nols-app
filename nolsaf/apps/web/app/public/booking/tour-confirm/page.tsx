@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import DatePickerField from "@/components/DatePickerField";
+import { readAgencyRef } from "@/lib/agencyRef";
 import { TANZANIA_LOCATIONS } from "@/lib/tanzania-locations";
 import {
   ChevronLeft,
@@ -275,6 +276,7 @@ export default function TourConfirmPage() {
                 }
               : null,
           },
+          agencyRef: readAgencyRef(),
         }),
       });
 

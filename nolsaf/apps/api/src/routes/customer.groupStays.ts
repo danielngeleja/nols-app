@@ -22,6 +22,7 @@ import { describeGroupStayDeposit, loadGroupStayDepositReceipt, loadGroupStayDep
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { signGroupStayReceiptToken } from "../lib/groupStayReceiptToken.js";
 import { getEffectiveCommissionPercent, roundMoney } from "../lib/accommodationPayout.js";
+import { DEPOSIT_PAYMENT_WINDOW_MS, FULL_PAYMENT_WINDOW_MS, notifyAgencyPartnerAboutGroup } from "../lib/salesAgencyGroups.js";
 import { mapGroupStayLifecycle } from "../lib/serviceLifecycle.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
@@ -428,6 +429,7 @@ router.post("/:id/auction-confirm", async (req, res) => {
         roomsNeeded: true,
         toRegion: true,
         toDistrict: true,
+        paymentMode: true,
       },
     });
 
@@ -467,8 +469,11 @@ router.post("/:id/auction-confirm", async (req, res) => {
     const commissionPercent = await getEffectiveCommissionPercent(claim.property?.services);
     const commissionAmount = roundMoney(ownerAmount * (commissionPercent / 100));
     const totalAmount = roundMoney(ownerAmount + commissionAmount);
-    const depositAmount = commissionAmount;
-    const depositDueAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    // Agency Desk groups are prepaid in full to NoLSAF, which pays the owner after
+    // check-in. Every other group pays NoLSAF's commission now and the owner at the property.
+    const isFull = (booking as any).paymentMode === "FULL";
+    const depositAmount = isFull ? totalAmount : commissionAmount;
+    const depositDueAt = new Date(now.getTime() + (isFull ? FULL_PAYMENT_WINDOW_MS : DEPOSIT_PAYMENT_WINDOW_MS));
 
     await (prisma as any).groupBooking.update({
       where: { id: bookingId },
@@ -575,6 +580,8 @@ router.post("/:id/auction-confirm", async (req, res) => {
       // audit is best-effort
     }
 
+    if (isFull) void notifyAgencyPartnerAboutGroup(prisma, bookingId, "chosen", { dueAt: depositDueAt });
+
     return res.json({ ok: true, bookingId, propertyId, ownerAmount, commissionPercent, totalAmount, depositAmount, depositDueAt, status: "AWAITING_DEPOSIT" });
   } catch (error: any) {
     console.error("POST /customer/group-stays/:id/auction-confirm error:", error);
@@ -607,6 +614,7 @@ router.get("/:id/deposit-status", async (req, res) => {
         depositPaid: true,
         depositPaidAt: true,
         depositDueAt: true,
+        paymentMode: true,
       },
     });
 
@@ -617,6 +625,8 @@ router.get("/:id/deposit-status", async (req, res) => {
     return res.json({
       ok: true,
       status: booking.status,
+      // FULL: everything is paid to NoLSAF now and nothing is paid at the property.
+      paymentMode: (booking as any).paymentMode === "FULL" ? "FULL" : "DEPOSIT",
       totalAmount: booking.totalAmount != null ? Number(booking.totalAmount) : null,
       ownerAmount: booking.ownerAmount != null ? Number(booking.ownerAmount) : null,
       commissionPercent: booking.commissionPercent != null ? Number(booking.commissionPercent) : null,

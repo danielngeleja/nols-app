@@ -423,7 +423,7 @@ export async function evaluateSalesWithdrawalPolicy(input: {
     add("MANUAL_CREDIT", "REVIEW", "Includes a credit added by an admin.");
   }
 
-  const bookingIds = input.commissions.filter((c) => c.type === "MARKETPLACE_BOOKING" && c.sourceBookingId).map((c) => c.sourceBookingId!);
+  const bookingIds = input.commissions.filter((c) => (c.type === "MARKETPLACE_BOOKING" || c.type === "AGENCY_STAY") && c.sourceBookingId).map((c) => c.sourceBookingId!);
   if (bookingIds.length) {
     const cancelled = await db.booking.findFirst({
       where: {

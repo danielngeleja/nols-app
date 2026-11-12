@@ -103,6 +103,7 @@ type DashboardData = {
 const STREAMS = [
   { key: "NRMS_USAGE", label: "NRMS commission", color: "#16a34a" },
   { key: "MARKETPLACE_BOOKING", label: "Marketplace share", color: "#02665e" },
+  { key: "AGENCY", label: "Agency Desk", color: "#7c3aed" },
   { key: "OTHER", label: "Other earnings", color: "#d4a017" },
 ] as const;
 
@@ -250,7 +251,11 @@ export default function SalesOverviewDashboard() {
   const { me, summary, properties, notifications, standing } = data;
   const conversionRate = data.totalLeads > 0 ? Math.round((data.convertedLeads / data.totalLeads) * 100) : 0;
   const otherEarnings = Number(summary.byStream?.PERFORMANCE_BONUS || 0) + Number(summary.byStream?.MANUAL_ADJUSTMENT || 0);
-  const streams = STREAMS.map((stream) => ({ ...stream, value: stream.key === "OTHER" ? otherEarnings : Number(summary.byStream?.[stream.key] || 0) }));
+  const agencyEarnings = Number(summary.byStream?.AGENCY_STAY || 0) + Number(summary.byStream?.AGENCY_GROUP || 0) + Number(summary.byStream?.AGENCY_TOUR || 0);
+  // The Agency Desk stream only shows for partners who have agency earnings.
+  const streams = STREAMS
+    .map((stream) => ({ ...stream, value: stream.key === "OTHER" ? otherEarnings : stream.key === "AGENCY" ? agencyEarnings : Number(summary.byStream?.[stream.key] || 0) }))
+    .filter((stream) => stream.key !== "AGENCY" || stream.value > 0);
   const streamTotal = streams.reduce((sum, s) => sum + s.value, 0);
   const canWithdraw = Number(summary.available || 0) > 0;
   const productMix = [data.nrmsProperties ? `NRMS ${data.nrmsProperties}` : null, data.marketplaceProperties ? `Marketplace ${data.marketplaceProperties}` : null].filter(Boolean).join(" · ");

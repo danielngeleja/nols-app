@@ -578,6 +578,7 @@ router.get("/", async (req: Request, res: Response) => {
           paymentRef: true,
           payerPhone: true,
           paymentProvider: true,
+          paymentMode: true,
           confirmedAt: true,
           checkedInAt: true,
           ownerPayoutAmount: true,

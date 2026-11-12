@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { readAgencyRef } from "@/lib/agencyRef";
 import {
   MapPin,
   Calendar,
@@ -739,8 +740,9 @@ export default function BookingConfirmPage() {
               ? new Date(arrivalDate).toISOString()
               : null,
         pickupLocation: requiresArrivalInfo && pickupLocation.trim() ? pickupLocation.trim() : null,
+        agencyRef: readAgencyRef(),
       };
-      
+
       // Create booking
       const bookingResponse = await fetch(`/api/public/bookings`, {
         method: "POST",

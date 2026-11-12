@@ -55,6 +55,7 @@ type DepositStatus = {
   commissionPercent?: number | null;
   currency?: string | null;
   depositAmount?: number | null;
+  paymentMode?: "FULL" | "DEPOSIT";
   depositPaid?: boolean | null;
   depositDueAt?: string | null;
 };
@@ -271,7 +272,9 @@ export default function GroupStayDepositPage() {
   const totalAmount = Number(deposit?.totalAmount || 0);
   const currency = deposit?.currency || "TZS";
   const commissionPercent = deposit?.commissionPercent ?? null;
-  const remainingBalance = Number(deposit?.ownerAmount ?? Math.max(0, totalAmount - depositAmount));
+  // Agency Desk groups are prepaid in full: nothing is left to pay at the property.
+  const paidInFull = deposit?.paymentMode === "FULL";
+  const remainingBalance = paidInFull ? 0 : Number(deposit?.ownerAmount ?? Math.max(0, totalAmount - depositAmount));
   const depositSharePercent = Math.min(100, Math.max(0, totalAmount > 0 ? (depositAmount / totalAmount) * 100 : 0));
   const msUntilDue = deposit?.depositDueAt ? new Date(deposit.depositDueAt).getTime() - now : null;
   const fmtMoney = (v: number) => `${currency} ${Math.round(v).toLocaleString()}`;
@@ -400,16 +403,16 @@ export default function GroupStayDepositPage() {
           <MapPin className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0">
-          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Deposit summary</div>
-          <h2 className="m-0 mt-0.5 text-[17px] font-bold leading-snug text-slate-950">Group stay deposit</h2>
-          <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">Paying this secures your rooms.</p>
+          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{paidInFull ? "Payment summary" : "Deposit summary"}</div>
+          <h2 className="m-0 mt-0.5 text-[17px] font-bold leading-snug text-slate-950">{paidInFull ? "Group stay payment" : "Group stay deposit"}</h2>
+          <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">{paidInFull ? "You pay NoLSAF in full. Nothing is paid at the property." : "Paying this secures your rooms."}</p>
         </div>
       </div>
       <div className="px-5 py-4">
         {/* The figure that matters, first */}
         <div className="flex items-end justify-between gap-3">
           <div className="min-w-0 leading-tight">
-            <span className="block text-[12.5px] font-semibold text-slate-500">Deposit due now</span>
+            <span className="block text-[12.5px] font-semibold text-slate-500">{paidInFull ? "Total due now" : "Deposit due now"}</span>
             <span className="mt-1 block text-[26px] font-black leading-none tabular-nums text-[#02665e]">{fmtMoney(depositAmount)}</span>
           </div>
           {totalAmount > 0 ? (
@@ -439,7 +442,7 @@ export default function GroupStayDepositPage() {
               </div>
               <div className="min-w-0 text-right">
                 <span className="flex items-center justify-end gap-1.5 text-[11.5px] text-slate-500">
-                  <span className="h-2 w-2 flex-shrink-0 rounded-full bg-slate-300" aria-hidden /> Balance later
+                  <span className="h-2 w-2 flex-shrink-0 rounded-full bg-slate-300" aria-hidden /> {paidInFull ? "At the property" : "Balance later"}
                 </span>
                 <span className="mt-0.5 block truncate text-[13.5px] font-bold tabular-nums text-slate-900">{fmtMoney(remainingBalance)}</span>
               </div>

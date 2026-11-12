@@ -1268,6 +1268,21 @@ model GroupBooking {
   payerPhone        String?   @db.VarChar(40)
   /// Payment provider used for the deposit (e.g. AZAMPAY)
   paymentProvider   String?   @db.VarChar(40)
+  /// DEPOSIT: guest pays NoLSAF's commission online and the owner collects the
+  /// rest at the property. FULL: guest pays everything to NoLSAF (Agency Desk
+  /// groups) and NoLSAF pays the owner after check-in.
+  paymentMode       String    @default("DEPOSIT") @db.VarChar(10)
+  /// Refund owed to the guest when a paid group stay is cancelled by NoLSAF:
+  /// NONE, DUE (recorded, transfer not yet made), REFUNDED.
+  refundStatus         String    @default("NONE") @db.VarChar(20)
+  /// What goes back to the guest: amount paid minus refundRetainedAmount.
+  refundAmount         Decimal?  @db.Decimal(12, 2)
+  /// What NoLSAF keeps, never more than its own commission on the group.
+  refundRetainedAmount Decimal?  @db.Decimal(12, 2)
+  refundReason         String?   @db.VarChar(300)
+  refundedAt           DateTime?
+  /// Bank or mobile money reference of the refund transfer.
+  refundRef            String?   @db.VarChar(120)
 
   // ==================== Owner Payout (group stay) ====================
   /// Timestamp when the assigned owner marked the group as checked in (triggers the payout obligation)
@@ -8452,6 +8467,12 @@ model SalesPartnerProfile {
   months         SalesPartnerMonth[]
   payoutRequests SalesPayoutRequest[]
   payoutChallenges SalesPayoutChallenge[]
+  capabilities        SalesPartnerCapability[]
+  agencyLinks         SalesAgencyLink[]
+  channelAttributions BookingChannelAttribution[]
+  clientAccounts      SalesClientAccount[]
+  agencyGroupRequests SalesAgencyGroupRequest[]
+  tourAttributions    TourBookingAttribution[]
 
   @@index([status])
   @@index([level])
@@ -9217,6 +9238,278 @@ model SalesMaterial {
 
   @@index([category, isPublished, sortOrder])
   @@map("sales_material")
+}
+
+/// Agency Desk: demand-side tools for a hand-picked sales partner.
+///
+/// Never public and never requested. Only an administrator grants it (with a
+/// finance OTP grant), only to an existing sales partner, and it only takes
+/// effect once the partner accepts the agency addendum in their own session.
+/// The gate re-checks partner status, contract window and payout hold on every
+/// request, so losing any of them closes the desk at once.
+///
+/// Admin actors are plain Int pointers (like SalesCommission source ids) so the
+/// User model does not gain more relation fields.
+///
+/// capability: AGENCY
+/// status: PENDING_ACCEPTANCE, ACTIVE, SUSPENDED, REVOKED
+model SalesPartnerCapability {
+  id             Int    @id @default(autoincrement())
+  salesPartnerId Int
+  capability     String @db.VarChar(20)
+  status         String @default("PENDING_ACCEPTANCE") @db.VarChar(20)
+
+  /// Share of NoLSAF's eligible net revenue on an agency booking. Snapshotted
+  /// onto each commission. Changing it sends the partner back to acceptance.
+  stayRate       Decimal @db.Decimal(5, 2)
+  /// Cap on live booking links, so a leaked account cannot mint links at scale.
+  maxActiveLinks Int     @default(20)
+
+  grantReason String   @db.VarChar(300)
+  grantedById Int
+  grantedAt   DateTime @default(now())
+
+  /// Addendum acceptance evidence, written once per grant or rate change.
+  termsVersion      String    @db.VarChar(20)
+  acceptedTermsHash String?   @db.VarChar(64)
+  acceptedName      String?   @db.VarChar(160)
+  acceptedIpAddress String?   @db.VarChar(64)
+  acceptedUserAgent String?   @db.VarChar(255)
+  acceptedAt        DateTime?
+
+  suspendedAt  DateTime?
+  revokedAt    DateTime?
+  revokedById  Int?
+  statusReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesPartner SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Cascade)
+
+  @@unique([salesPartnerId, capability])
+  @@index([capability, status])
+  @@map("sales_partner_capability")
+}
+
+/// A booking link issued by an Agency Desk partner. The token in the link is
+/// HMAC(secret, id, salt): never stored, recomputed for display, and only its
+/// SHA-256 is kept for lookup. It carries no partner id. Revoking or expiring a
+/// link stops new attributions; bookings already attributed keep theirs.
+/// propertyId pins the link to one property when set.
+model SalesAgencyLink {
+  id             Int    @id @default(autoincrement())
+  /// Opaque handle shown in the UI and used in URLs (al_...).
+  reference      String @unique @db.VarChar(32)
+  salesPartnerId Int
+  salt           String @db.Char(32)
+  tokenHash      String @unique @db.Char(64)
+
+  label       String  @db.VarChar(120)
+  propertyId  Int?
+  clientName  String? @db.VarChar(160)
+  clientPhone String? @db.VarChar(40)
+  /// Tour links: pinned to one operator's package. A tour link never credits a
+  /// stay, and a property link never credits a tour.
+  operatorAgentId Int?
+  tourPackageId   String? @db.VarChar(120)
+
+  expiresAt    DateTime
+  maxUses      Int?
+  useCount     Int       @default(0)
+  lastUsedAt   DateTime?
+  revokedAt    DateTime?
+  revokeReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesPartner     SalesPartnerProfile         @relation(fields: [salesPartnerId], references: [id], onDelete: Cascade)
+  attributions     BookingChannelAttribution[]
+  tourAttributions TourBookingAttribution[]
+
+  @@index([salesPartnerId, revokedAt, expiresAt])
+  @@map("sales_agency_link")
+}
+
+/// A tour booking credited to an Agency Desk partner. Written once, by the
+/// server, when a tour booking is created from a valid agency link; one row per
+/// tour booking at most. The operator is never told which partner it was.
+/// tourBookingId is a plain pointer, like BookingChannelAttribution.bookingId.
+/// status: ACTIVE, BLOCKED (recorded for review, earns nothing), VOID (admin)
+model TourBookingAttribution {
+  id             Int     @id @default(autoincrement())
+  tourBookingId  Int     @unique
+  salesPartnerId Int
+  linkId         Int?
+  status         String  @default("ACTIVE") @db.VarChar(20)
+  blockedReason  String? @db.VarChar(300)
+
+  voidedAt   DateTime?
+  voidedById Int?
+  voidReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesPartner SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Restrict)
+  link         SalesAgencyLink?    @relation(fields: [linkId], references: [id], onDelete: SetNull)
+
+  @@index([salesPartnerId, createdAt])
+  @@index([linkId])
+  @@index([status])
+  @@map("tour_booking_attribution")
+}
+
+/// Which demand-side channel brought a booking. Written once, by the server,
+/// when a booking is created from a valid agency link. Never written or edited
+/// by a partner, and one row per booking at most (unique bookingId), so a
+/// booking cannot be claimed twice or re-claimed later.
+/// bookingId is a plain pointer, like SalesCommission.sourceBookingId.
+/// channel: AGENCY_LINK
+/// status: ACTIVE, BLOCKED (recorded for review, earns nothing), VOID (admin)
+model BookingChannelAttribution {
+  id             Int     @id @default(autoincrement())
+  bookingId      Int     @unique
+  salesPartnerId Int
+  linkId         Int?
+  channel        String  @db.VarChar(20)
+  status         String  @default("ACTIVE") @db.VarChar(20)
+  blockedReason  String? @db.VarChar(300)
+
+  voidedAt   DateTime?
+  voidedById Int?
+  voidReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesPartner SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Restrict)
+  link         SalesAgencyLink?    @relation(fields: [linkId], references: [id], onDelete: SetNull)
+
+  @@index([salesPartnerId, createdAt])
+  @@index([linkId])
+  @@index([status])
+  @@map("booking_channel_attribution")
+}
+
+/// Agency Desk client book: an organiser or institution a partner serves
+/// (school, church, NGO, company, bank, event organiser, individual organiser).
+/// The account belongs to NoLSAF; the partner manages it while protected.
+/// Duplicate checks run across all partners on the normalised phone, email and
+/// name, and a partner only ever sees a generic warning.
+/// type: ORGANISER, SCHOOL, CHURCH, NGO, COMPANY, BANK, GOVERNMENT, EVENT, OTHER
+/// status: ACTIVE, ARCHIVED
+model SalesClientAccount {
+  id             Int    @id @default(autoincrement())
+  /// Opaque handle for the UI and URLs (sc_...).
+  reference      String @unique @db.VarChar(32)
+  salesPartnerId Int
+
+  type            String  @db.VarChar(20)
+  name            String  @db.VarChar(200)
+  nameNormalized  String  @db.VarChar(200)
+  contactName     String? @db.VarChar(160)
+  phone           String? @db.VarChar(40)
+  phoneKey        String? @db.VarChar(20)
+  email           String? @db.VarChar(190)
+  emailNormalized String? @db.VarChar(190)
+  region          String? @db.VarChar(120)
+  notes           String? @db.Text
+
+  status                String    @default("ACTIVE") @db.VarChar(20)
+  duplicateReviewStatus String    @default("CLEAR") @db.VarChar(30)
+  /// Claim window: while open, no other partner can register this client.
+  protectionExpiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesPartner  SalesPartnerProfile       @relation(fields: [salesPartnerId], references: [id], onDelete: Restrict)
+  activities    SalesClientActivity[]
+  groupRequests SalesAgencyGroupRequest[]
+
+  @@index([salesPartnerId, status])
+  @@index([phoneKey])
+  @@index([emailNormalized])
+  @@index([nameNormalized])
+  @@index([protectionExpiresAt])
+  @@map("sales_client_account")
+}
+
+/// Append-only timeline on a client account.
+/// type: NOTE, CALL, MEETING, EMAIL, FOLLOW_UP, GROUP_REQUEST, SYSTEM
+model SalesClientActivity {
+  id          Int      @id @default(autoincrement())
+  clientId    Int
+  createdById Int
+  type        String   @db.VarChar(20)
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+
+  client SalesClientAccount @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+  @@map("sales_client_activity")
+}
+
+/// A group stay an Agency Desk partner prepares for a client.
+///
+/// The partner fills in the request; it becomes a real GroupBooking only when
+/// the client confirms it from a link sent to their own phone, signed in to an
+/// account whose phone matches. The link token is stored as a SHA-256 only.
+/// Agency groups are open to all owners for competitive bidding; the partner
+/// shortlists up to three bids, large groups need an admin to release the
+/// shortlist, and the client chooses and pays the full amount to NoLSAF.
+///
+/// status: AWAITING_CLIENT, CONFIRMED, EXPIRED, CANCELLED
+/// shortlistStatus: NONE, PENDING_REVIEW, PUBLISHED
+model SalesAgencyGroupRequest {
+  id             Int    @id @default(autoincrement())
+  /// Opaque handle for the UI and URLs (gr_...).
+  reference      String @unique @db.VarChar(32)
+  salesPartnerId Int
+  clientId       Int?
+
+  clientName     String @db.VarChar(160)
+  clientPhone    String @db.VarChar(40)
+  clientPhoneKey String @db.VarChar(20)
+
+  /// The validated group stay request (same shape as the customer form).
+  payload Json
+
+  status          String    @default("AWAITING_CLIENT") @db.VarChar(20)
+  tokenHash       String    @unique @db.Char(64)
+  tokenExpiresAt  DateTime
+  sentAt          DateTime  @default(now())
+  confirmedAt     DateTime?
+  confirmedUserId Int?
+  /// The group booking created on confirmation. One request, one booking.
+  groupBookingId  Int?      @unique
+  biddingDays     Int       @default(3)
+
+  shortlistPropertyIds  Json?
+  shortlistStatus       String    @default("NONE") @db.VarChar(20)
+  shortlistReviewedAt   DateTime?
+  shortlistReviewedById Int?
+
+  /// Sales leads the partner registered for unlisted properties this group could use.
+  pendingLeadIds Json?
+
+  cancelledAt  DateTime?
+  cancelReason String?   @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesPartner SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Restrict)
+  client       SalesClientAccount? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([salesPartnerId, status])
+  @@index([clientId])
+  @@index([shortlistStatus])
+  @@index([status, tokenExpiresAt])
+  @@map("sales_agency_group_request")
 }
 
 // Levels are not a table. They live in apps/api/src/lib/salesPartnerLevel.ts

@@ -521,29 +521,26 @@ const updateGroupBookingStatus: RequestHandler = async (req, res) => {
         error: "Group booking not found",
       });
     }
-    
-    // Prepare update data
-    const updateData: any = {
-      status: validatedInput.status,
-      adminNotes: validatedInput.adminNotes || existing.adminNotes,
-    };
-    
-    // Handle cancellation
-    if (validatedInput.status === "CANCELED") {
-      updateData.cancelReason = validatedInput.cancelReason;
-      updateData.canceledAt = new Date();
+
+    // A guest may only withdraw their own unpaid request. Confirming, completing
+    // or reopening is NoLSAF's and the owner's job, and once money is paid a
+    // cancellation must go through NoLSAF so any refund is recorded.
+    if (validatedInput.status !== "CANCELED") {
+      return (res as Response).status(403).json({ success: false, error: "Only NoLSAF can change this booking's status" });
     }
-    
-    // Handle confirmation
-    if (validatedInput.status === "CONFIRMED" && existing.status !== "CONFIRMED") {
-      updateData.confirmedAt = new Date();
+    if (existing.depositPaid || !["PENDING", "AWAITING_DEPOSIT", "EXPIRED"].includes(String(existing.status).toUpperCase())) {
+      return (res as Response).status(409).json({ success: false, error: "This group stay is paid or in progress. Contact NoLSAF support to cancel it." });
     }
-    
-    // Update booking
-    const updated = await (prisma as any).groupBooking.update({
-      where: { id: bookingId },
-      data: updateData,
+
+    // Guarded write: a payment landing between the read and here wins.
+    const moved = await (prisma as any).groupBooking.updateMany({
+      where: { id: bookingId, userId: r.user!.id, depositPaid: false, status: existing.status },
+      data: { status: "CANCELED", cancelReason: validatedInput.cancelReason ?? null, canceledAt: new Date(), isOpenForClaims: false },
     });
+    if (moved.count !== 1) {
+      return (res as Response).status(409).json({ success: false, error: "This group stay changed. Refresh and try again." });
+    }
+    const updated = await (prisma as any).groupBooking.findUnique({ where: { id: bookingId } });
     
     console.log(`[GroupBooking] Updated booking #${bookingId} status to ${validatedInput.status}`);
     
@@ -620,15 +617,19 @@ const deleteGroupBooking: RequestHandler = async (req, res) => {
       });
     }
     
-    // Soft delete by updating status to CANCELED
-    await (prisma as any).groupBooking.update({
-      where: { id: bookingId },
+    // Soft delete by updating status to CANCELED. Guarded so a paid booking is never withdrawn here.
+    const moved = await (prisma as any).groupBooking.updateMany({
+      where: { id: bookingId, userId: r.user!.id, status: "PENDING", depositPaid: false },
       data: {
         status: "CANCELED",
         cancelReason: "Deleted by user",
         canceledAt: new Date(),
+        isOpenForClaims: false,
       },
     });
+    if (moved.count !== 1) {
+      return (res as Response).status(409).json({ success: false, error: "This group stay changed. Refresh and try again." });
+    }
     
     console.log(`[GroupBooking] Deleted booking #${bookingId}`);
     

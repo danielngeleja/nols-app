@@ -301,6 +301,7 @@ const salesDetails: Item[] = [
   { href: "/admin/sales/teams", label: "Team health", Icon: Trophy },
   { href: "/admin/sales/leaderboard", label: "Leaderboard", Icon: Trophy },
   { href: "/admin/sales/finance", label: "Finance", Icon: Wallet },
+  { href: "/admin/sales/agency", label: "Agency Desk", Icon: Briefcase },
   { href: "/admin/sales/materials", label: "Learning materials", Icon: FileText },
 ];
 

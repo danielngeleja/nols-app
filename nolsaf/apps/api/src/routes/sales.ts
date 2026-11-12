@@ -23,6 +23,11 @@ import salesPayoutsRouter from "./sales.payouts.js";
 import salesWorkspaceRouter from "./sales.workspace.js";
 import salesStatementsRouter from "./sales.statements.js";
 import salesJoinRouter from "./sales.join.js";
+import salesAgencyRouter from "./sales.agency.js";
+import salesAgencyGroupsRouter from "./sales.agency.groups.js";
+import salesAgencyToursRouter from "./sales.agency.tours.js";
+import agencyGroupConfirmRouter from "./agency.groupConfirm.js";
+import adminSalesAgencyRouter from "./admin.sales.agency.js";
 
 export function registerSalesRoutes(app: Express): void {
   // Workspace discovery and selection live under /api/me/* because they are
@@ -44,6 +49,12 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/sales", salesEarningsRouter as RequestHandler);
   app.use("/api/sales", salesPayoutsRouter as RequestHandler);
   app.use("/api/sales", salesStatementsRouter as RequestHandler);
+  // Agency Desk: admin-granted only, 404 to everyone else (see sales.agency.ts).
+  app.use("/api/sales", salesAgencyRouter as RequestHandler);
+  app.use("/api/sales", salesAgencyGroupsRouter as RequestHandler);
+  app.use("/api/sales", salesAgencyToursRouter as RequestHandler);
+  // The client confirming a partner's group request: any signed-in customer, phone must match.
+  app.use("/api/agency-group", agencyGroupConfirmRouter as RequestHandler);
 
   app.use("/admin/sales", adminSalesPartnersRouter);
   app.use("/admin/sales", adminSalesAttributionsRouter);
@@ -54,4 +65,5 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/admin/sales", adminSalesMaterialsRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesFinanceRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesTeamsRouter as RequestHandler);
+  app.use("/api/admin/sales", adminSalesAgencyRouter as RequestHandler);
 }
