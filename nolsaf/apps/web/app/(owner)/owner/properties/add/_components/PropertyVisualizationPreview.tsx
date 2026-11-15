@@ -56,8 +56,9 @@ const ROOM_TYPE_TONES = [
   { tile: "bg-orange-50 text-orange-700", bar: "bg-orange-500", view: "bg-orange-50 text-orange-700 group-hover:bg-orange-600", ring: "hover:border-orange-300" },
 ] as const;
 
-// Distribute rooms across floors based on building type and floor distribution
-function distributeRoomsToFloors(
+// Distribute rooms across floors based on building type and floor distribution.
+// Exported so the phone floor switcher on the public page agrees with this chart.
+export function distributeRoomsToFloors(
   rooms: Room[],
   totalFloors: number,
   buildingType: string

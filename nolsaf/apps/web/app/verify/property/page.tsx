@@ -2,8 +2,8 @@
 
 // Public property certificate (no login required). Rendered as an NRMS
 // document on a fixed A5 sheet (507px content inside 7mm print margins), using
-// the NRMS report language: cover with reference barcode, uppercase meta
-// labels, numbered sections, control checks, verification card and footer.
+// the NRMS report language: cover with reference barcode, meta grid, numbered
+// sections, control checks, a live QR check, a fingerprint and footer.
 // On narrow screens the whole sheet scales down like a PDF viewer instead of
 // reflowing, and it prints on one A5 page.
 
@@ -13,17 +13,22 @@ import BrandMark from "@/components/BrandMark";
 
 type Certificate = {
   issuer: string;
+  /** Unguessable reference (never a row id), with a check character. */
+  reference: string;
+  /** Hash of every printed field: a printout must match the live page. */
+  fingerprint: string;
   property: {
-    id: number;
     title: string;
     type: string;
     location: string;
+    /** The operating business, when NoLSAF holds an active record of it. */
+    operator: string | null;
   };
   verification: {
     status: "VERIFIED";
     verifiedAt: string | null;
     verifiedBy: string;
-    verifiedByRole: string;
+    reviewerCode: string | null;
     method: string;
     note: string;
     checklist: string[];
@@ -90,6 +95,28 @@ function softenCaps(value: string, allWords = false) {
   });
 }
 
+/** "DAR-ES-Salaam, Kivukoni" -> "Dar es Salaam, Kivukoni": place names read as written locally. */
+function placeCase(value: string) {
+  const small = new Set(["es", "wa", "ya", "na", "la"]);
+  return value
+    .split(",")
+    .map((part) =>
+      part
+        .trim()
+        .replace(/([A-Za-z])-(?=[A-Za-z])/g, "$1 ")
+        .split(/\s+/)
+        .map((w, i) => {
+          const lower = w.toLowerCase();
+          if (i > 0 && small.has(lower)) return lower;
+          if (w === w.toUpperCase() && w.length <= 3 && w.length > 1) return w; // CBD
+          return lower.charAt(0).toUpperCase() + lower.slice(1);
+        })
+        .join(" "),
+    )
+    .filter(Boolean)
+    .join(", ");
+}
+
 /** Scales the fixed A5 sheet to fit narrow screens, like a PDF viewer. */
 function useSheetScale() {
   const [scale, setScale] = useState(1);
@@ -149,24 +176,24 @@ const DOC_CSS = `
   .pdf-company { margin-top: 4px !important; color: #213e38; font-size: 9px; font-weight: 700; }
   .pdf-tagline { margin-top: 1px !important; color: #687c75; font-size: 7.5px; font-style: italic; }
   .pdf-barcode-block { display: flex; flex: none; flex-direction: column; align-items: center; gap: 3px; text-align: center; }
-  .pdf-barcode-label { color: #51716a; font-size: 7px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; }
+  .pdf-barcode-label { color: #51716a; font-size: 7.5px; font-weight: 700; }
   .pdf-report-number { color: #0f1f1c; font-family: Consolas, "Courier New", monospace; font-size: 8.5px; font-weight: 700; letter-spacing: 2.2px; white-space: nowrap; }
   .pdf-barcode { display: block; max-width: none; height: 36px; min-width: 150px; background: #fff; }
 
   /* Title band: what the document is and who it is for. */
   .pdf-title-band { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 11px 16px 10px; background: linear-gradient(180deg, #ffffff 0%, #f7fbf9 100%); color: #17201e; }
-  .pdf-kicker { color: #00785a; font-size: 7.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; }
+  .pdf-kicker { color: #00785a; font-size: 8px; font-weight: 700; }
   .pdf-cover h1 { margin-top: 2px; font-size: 17px; line-height: 1.15; letter-spacing: -.3px; }
   .pdf-title-property { min-width: 0; text-align: right; }
   .pdf-title-property strong { display: block; color: #17201e; font-size: 12px; overflow-wrap: anywhere; }
   .pdf-title-property .pdf-state { display: inline-block; margin-top: 3px; }
-  .pdf-state { flex: none; border-radius: 4px; padding: 2px 7px; background: #dff7ed; color: #006b4f; font-size: 7px; font-weight: 900; letter-spacing: .55px; text-transform: uppercase; }
+  .pdf-state { flex: none; border-radius: 4px; padding: 2px 7px; background: #dff7ed; color: #006b4f; font-size: 7.5px; font-weight: 800; }
   .pdf-state-failed { background: #ffe2e2; color: #a61b1b; }
   .pdf-meta { display: grid; grid-template-columns: repeat(3, 1fr); background: #f5faf8; border-top: 1px solid #dfeae6; }
   .pdf-meta div { min-width: 0; padding: 8px 12px; border-right: 1px solid #dfeae6; border-top: 1px solid #dfeae6; }
   .pdf-meta div:nth-child(-n+3) { border-top: 0; }
   .pdf-meta div:nth-child(3n) { border-right: 0; }
-  .pdf-meta dt, .pdf-sign-label, .pdf-seal p { display: block; color: #56625e; font-size: 7px; font-weight: 800; letter-spacing: .65px; text-transform: uppercase; }
+  .pdf-meta dt, .pdf-sign-label, .pdf-seal p { display: block; color: #56625e; font-size: 7.5px; font-weight: 700; }
   .pdf-meta dd { display: block; margin-top: 2px; color: #111816; font-size: 9.5px; font-weight: 800; overflow-wrap: anywhere; }
   .pdf-meta .ok { color: #00785a; }
 
@@ -183,7 +210,9 @@ const DOC_CSS = `
   .pdf-control-check { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 5px 11px; border-top: 1px solid #edf0ef; }
   .pdf-control-check:first-child { border-top: 0; }
   .pdf-control-check span { color: #4e5855; }
-  .pdf-control-check b { color: #00785a; font-size: 7px; text-transform: uppercase; }
+  .pdf-control-check b { display: inline-flex; align-items: center; gap: 3px; color: #00785a; font-size: 7.5px; font-weight: 700; }
+  .pdf-panel-head .pdf-done { color: #00785a; font-size: 7.8px; font-weight: 700; }
+  .pdf-fingerprint { font-family: Consolas, "Courier New", monospace; letter-spacing: .6px; color: #3f4a46; }
 
   .pdf-disclaimer-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 10px; align-items: stretch; }
   .pdf-disclaimer { padding: 11px 13px; border: 1px solid #e4dfc4; border-radius: 6px; background: #fffbed; color: #5f5739; font-size: 8.3px; line-height: 1.55; }
@@ -191,7 +220,7 @@ const DOC_CSS = `
   .pdf-disclaimer p + p { margin-top: 5px; }
   .pdf-verification-card { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px; border: 1px solid #dce5e2; border-radius: 6px; background: #fff; text-align: center; }
   .pdf-qr { display: block; width: 64px; height: 64px; padding: 3px; border: 1px solid #d7e2de; border-radius: 4px; background: #fff; }
-  .pdf-verification-card strong { margin-top: 6px; color: #073c35; font-size: 7.5px; text-transform: uppercase; }
+  .pdf-verification-card strong { margin-top: 6px; color: #073c35; font-size: 8px; }
   .pdf-verification-card p { margin-top: 2px; color: #6f7c78; font-size: 6.8px; line-height: 1.35; }
 
   .pdf-signoff { display: grid; grid-template-columns: 60px 1fr 1fr; gap: 18px; align-items: end; margin-top: 10px; padding: 8px 16px 10px; border: 1px solid #e1e6e4; border-radius: 6px; }
@@ -249,7 +278,7 @@ export default function PropertyVerificationPage() {
         } else {
           setState({
             status: "invalid",
-            reason: "This property certificate could not be verified. The link may be altered, expired, or the property is no longer publicly approved.",
+            reason: "This property certificate could not be verified. The link may have been altered, or the property is no longer approved on NoLSAF.",
           });
         }
       })
@@ -337,7 +366,7 @@ function Masthead({ children }: { children: React.ReactNode }) {
         <div>
           <p className="pdf-wordmark">NoLSAF</p>
           <p className="pdf-company">NoLS Africa Co Ltd</p>
-          <p className="pdf-tagline">Quality Stay For Every Wallet</p>
+          <p className="pdf-tagline">Quality stay for every wallet</p>
         </div>
       </div>
       {children}
@@ -367,11 +396,11 @@ function Seal() {
 
 function ValidView({ certificate }: { certificate: Certificate }) {
   const { property, verification } = certificate;
-  const certId = `NLS-P-${property.id}`;
+  const certId = certificate.reference;
   const title = softenCaps(property.title, true);
-  const location = property.location ? softenCaps(property.location) : "Location not listed";
+  const location = property.location ? placeCase(property.location) : "Location not listed";
   const checklist = (verification.checklist || []).filter(Boolean);
-  const verifiedBy = verification.verifiedBy || "NoLSAF Admin";
+  const verifiedBy = verification.verifiedBy || "NoLSAF Verification Team";
   const verifiedOn = formatDate(verification.verifiedAt);
 
   const [checkedAt] = useState(() => formatDateTime(new Date()));
@@ -430,11 +459,11 @@ function ValidView({ certificate }: { certificate: Certificate }) {
         </div>
         <dl className="pdf-meta">
           <div><dt>Verified on</dt><dd>{verifiedOn}</dd></div>
-          <div><dt>Verified by</dt><dd>{verifiedBy}</dd></div>
+          <div><dt>Valid</dt><dd className="ok">While approved on NoLSAF</dd></div>
           <div><dt>Property type</dt><dd>{formatType(property.type)}</dd></div>
           <div><dt>Location</dt><dd>{location}</dd></div>
-          <div><dt>Method</dt><dd>{verification.method || "Site visit and listing review"}</dd></div>
-          <div><dt>Checked</dt><dd>{checkedAt}</dd></div>
+          <div>{property.operator ? <><dt>Operated by</dt><dd>{softenCaps(property.operator, true)}</dd></> : <><dt>Method</dt><dd>{verification.method || "Site visit and listing review"}</dd></>}</div>
+          <div><dt>Checked live</dt><dd>{checkedAt}</dd></div>
         </dl>
       </header>
 
@@ -447,10 +476,17 @@ function ValidView({ certificate }: { certificate: Certificate }) {
           </div>
         </div>
         <div className="pdf-panel">
+          <div className="pdf-panel-head">
+            <div>
+              <strong>{verification.method || "Site visit and listing review"}</strong>
+              <p>{checklist.length} check{checklist.length === 1 ? "" : "s"}{verification.reviewerCode ? ` · reviewer ${verification.reviewerCode}` : ""}</p>
+            </div>
+            <span className="pdf-done">All passed {verifiedOn}</span>
+          </div>
           {checklist.map((item) => (
             <div className="pdf-control-check" key={item}>
               <span>{item}</span>
-              <b>Pass</b>
+              <b>✓ Passed</b>
             </div>
           ))}
         </div>
@@ -468,7 +504,8 @@ function ValidView({ certificate }: { certificate: Certificate }) {
           <div className="pdf-disclaimer">
             <h3>About this certificate</h3>
             <p>{verification.note || "This stay is listed publicly only after NoLSAF verification and approval."}</p>
-            <p>It confirms the listing was verified by NoLSAF. It is not a business licence, tax clearance or safety inspection. Always confirm a printed copy by scanning the QR code.</p>
+            <p>It confirms the listing was verified by NoLSAF and stays valid for as long as the property remains approved; the QR code always shows its current status. It is not a business licence, tax clearance or safety inspection.</p>
+            <p>A printed copy is genuine only if scanning the QR code shows the same reference and fingerprint: <span className="pdf-fingerprint">{certificate.fingerprint}</span>.</p>
           </div>
           <aside className="pdf-verification-card">
             {codes.qr ? (
@@ -477,8 +514,8 @@ function ValidView({ certificate }: { certificate: Certificate }) {
             ) : (
               <div className="pdf-qr" />
             )}
-            <strong>Verify certificate</strong>
-            <p>Scan to confirm it is genuine and still active.</p>
+            <strong>Check it live</strong>
+            <p>Scan with a phone camera. It opens this certificate on nolsaf.com and shows if it is still valid.</p>
           </aside>
         </div>
       </section>
@@ -491,7 +528,7 @@ function ValidView({ certificate }: { certificate: Certificate }) {
         <div className="pdf-sign">
           <p className="pdf-sign-name">{verifiedBy}</p>
           <div className="pdf-sign-line" />
-          <p className="pdf-sign-label">Verified by</p>
+          <p className="pdf-sign-label">Verified by{verification.reviewerCode ? ` · ${verification.reviewerCode}` : ""}</p>
         </div>
         <div className="pdf-sign">
           <p className="pdf-sign-name">{verifiedOn}</p>
@@ -502,8 +539,8 @@ function ValidView({ certificate }: { certificate: Certificate }) {
 
       <div className="pdf-footer-spacer" />
       <footer className="pdf-footer">
-        <span>Issued by {certificate.issuer}. No login is required to view this page.</span>
-        <strong>{title} · {certId}</strong>
+        <span>Issued by {certificate.issuer}. Fingerprint {certificate.fingerprint}.</span>
+        <strong>{certId}</strong>
       </footer>
     </article>
   );

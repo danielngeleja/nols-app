@@ -9,6 +9,13 @@ import { REAL_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { calculateAvailability } from "../lib/availabilityCalculator.js";
 import { publicAvailabilityRoomFilter } from "../lib/publicAvailabilityFilter.js";
 import { signPropertyVerificationToken, verifyPropertyVerificationToken } from "../lib/propertyVerificationToken.js";
+import {
+  certificateChecklist,
+  certificateFingerprint,
+  certificateLocation,
+  certificateReference,
+  reviewerCode,
+} from "../lib/propertyCertificate.js";
 import { buildMenuUrl } from "../lib/nrmsOrderPoints.js";
 import { rateLimitWithRedis } from "../lib/redisRateLimitStore.js";
 
@@ -82,13 +89,6 @@ function resolveWebOrigin(req?: any): string {
   const proto = String(req?.headers?.["x-forwarded-proto"] || req?.protocol || "http").split(",")[0].trim();
   const host = String(req?.headers?.["x-forwarded-host"] || req?.headers?.host || "localhost:3000").split(",")[0].trim();
   return `${proto}://${host}`.replace(/\/+$/, "");
-}
-
-function formatPublicLocation(p: any): string {
-  return [p?.street, p?.ward, p?.district, p?.regionName, p?.country]
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean)
-    .join(", ");
 }
 
 function parseCsv(v: any): string[] {
@@ -1509,8 +1509,7 @@ router.get("/verification", limitPropertyCertificate as RequestHandler, (async (
           pv.\`method\`,
           pv.\`note\`,
           pv.\`checklist\`,
-          u.\`fullName\` AS \`verifierFullName\`,
-          u.\`name\` AS \`verifierName\`,
+          pv.\`verifiedBy\` AS \`verifierId\`,
           p.\`id\` AS \`propertyId\`,
           p.\`title\`,
           p.\`type\`,
@@ -1523,7 +1522,6 @@ router.get("/verification", limitPropertyCertificate as RequestHandler, (async (
           p.\`updatedAt\`
         FROM \`property_verification\` pv
         INNER JOIN \`property\` p ON p.\`id\` = pv.\`propertyId\`
-        LEFT JOIN \`user\` u ON u.\`id\` = pv.\`verifiedBy\`
         WHERE pv.\`id\` = ${payload.verificationId}
           AND pv.\`propertyId\` = ${payload.propertyId}
           AND pv.\`status\` = 'VERIFIED'
@@ -1540,10 +1538,7 @@ router.get("/verification", limitPropertyCertificate as RequestHandler, (async (
           method: row.method,
           note: row.note,
           checklist: row.checklist,
-          verifier: {
-            fullName: row.verifierFullName,
-            name: row.verifierName,
-          },
+          verifierId: row.verifierId != null ? Number(row.verifierId) : null,
           property: {
             id: row.propertyId,
             title: row.title,
@@ -1562,31 +1557,60 @@ router.get("/verification", limitPropertyCertificate as RequestHandler, (async (
     if (!record?.property) return res.json({ ok: true, valid: false });
 
     const property = record.property;
-    const checklist = Array.isArray(record.checklist)
+    const rawChecklist = Array.isArray(record.checklist)
       ? record.checklist.map((item: any) => String(item || "").trim()).filter(Boolean)
       : [];
+    const method = record.method || DEFAULT_PROPERTY_VERIFICATION_METHOD;
+    const checklist = certificateChecklist(rawChecklist, method);
+    const verifiedAt = record.verifiedAt ? new Date(record.verifiedAt) : null;
+    const reference = certificateReference(Number(property.id), Number(record.id));
+    const location = certificateLocation(property);
+
+    // The operating business, only when its record is active. Never personal data.
+    let operator: string | null = null;
+    try {
+      const link = await prisma.merchantPropertyLink.findFirst({
+        where: { propertyId: Number(property.id), effectiveTo: null, merchant: { status: "ACTIVE" } },
+        orderBy: { effectiveFrom: "desc" },
+        select: { merchant: { select: { legalName: true, tradingName: true } } },
+      });
+      operator = link?.merchant ? (link.merchant.tradingName || link.merchant.legalName || "").trim() || null : null;
+    } catch {
+      operator = null;
+    }
+
+    const printed = {
+      reference,
+      title: property.title,
+      type: property.type,
+      location,
+      operator,
+      verifiedAt: verifiedAt ? verifiedAt.toISOString().slice(0, 10) : null,
+      method,
+      checklist,
+    };
 
     return res.json({
       ok: true,
       valid: true,
       certificate: {
         issuer: "NoLS Africa Co Ltd",
+        reference,
+        fingerprint: certificateFingerprint(printed),
         property: {
-          id: property.id,
           title: property.title,
           type: property.type,
-          location: formatPublicLocation(property),
+          location,
+          operator,
         },
         verification: {
           status: "VERIFIED",
-          verifiedAt: record.verifiedAt ? new Date(record.verifiedAt).toISOString() : null,
-          verifiedBy: record.verifier?.fullName || record.verifier?.name || "NoLSAF Admin",
-          verifiedByRole: "ADMIN",
-          method: record.method || DEFAULT_PROPERTY_VERIFICATION_METHOD,
+          verifiedAt: verifiedAt ? verifiedAt.toISOString() : null,
+          verifiedBy: "NoLSAF Verification Team",
+          reviewerCode: reviewerCode(record.verifierId),
+          method,
           note: record.note || "This stay is listed publicly only after NoLSAF verification and approval.",
-          checklist: checklist.length
-            ? checklist
-            : ["Property details reviewed", "Location and listing information checked", "Photos and stay information reviewed", "Host listing approved"],
+          checklist,
           lastRefreshedAt: property.updatedAt ? new Date(property.updatedAt).toISOString() : null,
         },
       },
