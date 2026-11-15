@@ -105,9 +105,10 @@ function normalizeRoomsSpecInput(roomsSpec: any): any[] {
   return [];
 }
 
+/** Public pages name the team, never the staff member who did the review. */
 function publicVerifierName(actor: any): string | null {
   if (!actor || typeof actor !== "object") return null;
-  return safeString(actor.fullName) || safeString(actor.name) || "NoLSAF Admin";
+  return "NoLSAF Verification Team";
 }
 
 function buildPhysicalVerification(p: any): PublicPropertyDetail["physicalVerification"] | undefined {

@@ -108,6 +108,7 @@ import DatePicker from "../../../../components/ui/DatePicker";
 import { PropertyVisualizationPreview } from "@/app/(owner)/owner/properties/add/_components/PropertyVisualizationPreview";
 import "@/styles/photo-tour.css";
 import { parseFloorUses } from "@/app/(owner)/owner/properties/add/_components/floorUses";
+import FloorSwitcherMobile from "./_components/FloorSwitcherMobile";
 
 import { 
 
@@ -964,6 +965,34 @@ function getOrdinal(n: number): string {
   const v = n % 100;
   return s[(v - 20) % 10] || s[v] || s[0];
 
+}
+
+/**
+ * Owners often type names in capitals ("ALEGETA MOONLIGHT HOTEL"). Show those in
+ * normal capitalisation; a name with any lowercase is the owner's choice and is
+ * left alone. Short all-caps words such as "BnB" or "VIP" keep their capitals.
+ */
+function displayTitle(title: string | null | undefined): string {
+  const t = String(title || "").trim();
+  if (!t || t !== t.toUpperCase() || !/[A-Z]/.test(t)) return t;
+  const keep = new Set(["VIP", "BNB", "B&B", "CBD", "UN", "II", "III", "IV"]);
+  const small = new Set(["and", "of", "the", "at", "in", "on", "by", "na", "wa", "ya", "la"]);
+  return t
+    .toLowerCase()
+    .split(/(\s+|-)/)
+    .map((w, i) => {
+      if (/^\s+$|^-$/.test(w) || !w) return w;
+      if (keep.has(w.toUpperCase())) return w.toUpperCase();
+      if (i > 0 && small.has(w)) return w;
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    })
+    .join("");
+}
+
+/** "GUEST_HOUSE" -> "Guest house"; falls back to "Place to stay". */
+function propertyTypeLabel(type: string | null | undefined): string {
+  const t = String(type || "").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : "Place to stay";
 }
 
 function getFloorName(floorNum: number): string {
@@ -2937,9 +2966,9 @@ export default function PublicPropertyDetailPage() {
   }
   return (
     <main className="min-h-screen bg-white text-slate-900 header-offset">
-      <div className="public-container py-8">
+      <div className="public-container pb-8 pt-3 sm:py-8">
         {/* Property header card */}
-        <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-white border border-solid border-slate-100 shadow-[0_4px_24px_rgba(2,102,94,0.10)]">
+        <div className="relative overflow-hidden rounded-xl bg-white border border-solid border-slate-200 shadow-[0_2px_12px_rgba(2,102,94,0.06)]">
           <div className="relative px-5 sm:px-8 pt-5 sm:pt-6 pb-6 sm:pb-7">
             {/* Subtle radial tint */}
             <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse 80% 60% at 100% 0%,rgba(2,180,245,0.05),transparent 65%)' }} aria-hidden />
@@ -2949,7 +2978,7 @@ export default function PublicPropertyDetailPage() {
                 <button
                   type="button"
                   onClick={() => router.back()}
-                  className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
                   style={{ color: '#02665e', background: 'rgba(2,102,94,0.07)', border: '1px solid rgba(2,102,94,0.15)' }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(2,102,94,0.13)')}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(2,102,94,0.07)')}
@@ -3013,7 +3042,7 @@ export default function PublicPropertyDetailPage() {
                       }
                     }}
                     disabled={favoriteLoading}
-                    className="inline-flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center justify-center w-9 h-9 rounded-md transition-colors duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{
                       background: isFavorite ? 'rgba(244,63,94,0.10)' : 'rgba(2,102,94,0.07)',
                       border: isFavorite ? '1px solid rgba(244,63,94,0.25)' : '1px solid rgba(2,102,94,0.15)',
@@ -3031,7 +3060,7 @@ export default function PublicPropertyDetailPage() {
                     <button
                       type="button"
                       onClick={() => setShowShareMenu(!showShareMenu)}
-                      className="inline-flex items-center justify-center w-9 h-9 rounded-full transition-all duration-200 hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
+                      className="inline-flex items-center justify-center w-9 h-9 rounded-md transition-colors duration-200 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
                       style={{
                         background: showShareMenu ? 'rgba(2,102,94,0.12)' : 'rgba(2,102,94,0.07)',
                         border: '1px solid rgba(2,102,94,0.15)',
@@ -3187,11 +3216,12 @@ export default function PublicPropertyDetailPage() {
               {/* Title + location */}
               <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
                 <div className="min-w-0">
-                  <p className="text-[10px] sm:text-xs font-bold tracking-[0.20em] uppercase mb-2" style={{ color: '#02665e' }}>
-                    Property
+                  <p className="m-0 mb-1.5 inline-flex items-center gap-1.5 text-[12px] font-semibold sm:mb-2 sm:text-xs" style={{ color: '#02665e' }}>
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#02665e]" aria-hidden />
+                    {propertyTypeLabel(property.type)}
                   </p>
-                  <h1 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-bold tracking-tight leading-[1.1] text-slate-900 break-words">
-                    {property.title}
+                  <h1 className="m-0 text-[26px] font-bold leading-[1.15] tracking-tight text-slate-900 [overflow-wrap:anywhere] [text-wrap:balance] sm:text-4xl sm:leading-[1.1] lg:text-[2.75rem]" title={property.title}>
+                    {displayTitle(property.title)}
                   </h1>
                   {(() => {
                     const avg = Number(reviewsData?.stats?.averageRating ?? 0);
@@ -3204,7 +3234,7 @@ export default function PublicPropertyDetailPage() {
                             <span className="font-medium text-slate-500 truncate">{location}</span>
                           </span>
                         )}
-                        {location && <span aria-hidden className="h-3.5 w-px bg-slate-200" />}
+                        {location && <span aria-hidden className="hidden h-3.5 w-px bg-slate-200 sm:block" />}
                         {count > 0 ? (
                           <span className="inline-flex items-center gap-1 text-slate-600">
                             <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden />
@@ -3222,8 +3252,8 @@ export default function PublicPropertyDetailPage() {
                 </div>
 
                 {/* Verification seal: fills the right side and replaces the old full-width strip */}
-                <div className="relative box-border flex w-full flex-none items-center gap-3.5 overflow-hidden rounded-xl border border-solid border-[#02665e]/15 bg-white px-4 py-3 shadow-[0_10px_28px_-18px_rgba(2,40,36,0.45)] sm:w-auto lg:min-w-[340px]">
-                  <span className="relative flex h-11 w-11 flex-none items-center justify-center rounded-full bg-[#02665e]/[0.08] ring-1 ring-inset ring-[#02665e]/15">
+                <div className="relative box-border flex w-full flex-none items-center gap-3.5 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white px-4 py-3 sm:w-auto lg:min-w-[340px]">
+                  <span className="relative flex h-10 w-10 flex-none items-center justify-center rounded-md bg-[#02665e]/[0.08] ring-1 ring-inset ring-[#02665e]/15">
                     <ShieldCheck className="h-5 w-5 text-[#02665e]" aria-hidden />
                     <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-white">
                       <Check className="h-2.5 w-2.5 text-white" strokeWidth={3.5} aria-hidden />
@@ -3410,16 +3440,25 @@ export default function PublicPropertyDetailPage() {
               ).filter(Boolean) as Array<{ Icon: any; text: string }>;
               if (!facts.length) return null;
               return (
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-2.5 rounded-2xl border border-solid border-slate-200 bg-white px-5 py-3.5">
-                  {facts.map(({ Icon, text }) => (
-                    <span key={text} className="inline-flex items-center gap-2 text-[14px] text-slate-700">
-                      <Icon className="h-[18px] w-[18px] flex-none text-brand" strokeWidth={1.8} aria-hidden />
-                      <span>
-                        <span className="font-semibold text-slate-900">{text.split(" ")[0]}</span> {text.split(" ").slice(1).join(" ")}
-                      </span>
-                    </span>
-                  ))}
-                </div>
+                <dl
+                  className="m-0 grid gap-px overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-200"
+                  style={{ gridTemplateColumns: `repeat(${facts.length}, minmax(0, 1fr))` }}
+                >
+                  {facts.map(({ Icon, text }) => {
+                    const [n, ...rest] = text.split(" ");
+                    return (
+                      <div key={text} className="flex min-w-0 items-center gap-2.5 bg-white px-3 py-3 sm:px-4">
+                        <span className="grid h-8 w-8 flex-none place-items-center rounded-md bg-[#02665e]/[0.07] text-[#02665e]">
+                          <Icon className="h-4 w-4" strokeWidth={1.9} aria-hidden />
+                        </span>
+                        <div className="flex min-w-0 flex-col">
+                          <dt className="order-2 m-0 mt-1 truncate text-[12px] text-slate-500">{rest.join(" ")}</dt>
+                          <dd className="order-1 m-0 text-[17px] font-bold leading-none tabular-nums text-slate-900">{n}</dd>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </dl>
               );
             })()}
             {/* Description */}
@@ -3871,12 +3910,42 @@ export default function PublicPropertyDetailPage() {
                 const effectiveBuildingType =
                   (property.buildingType && String(property.buildingType).trim()) ||
                   (effectiveTotalFloors > 1 ? "multi_storey" : "single_storey");
+                const vizRooms = roomsSpec.map((r: any) => {
+                  let floorDist: Record<number, number> | undefined = undefined;
+                  const dist = r?.floorDistribution;
+                  if (typeof dist === "string") {
+                    try {
+                      const parsed = JSON.parse(dist);
+                      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) floorDist = parsed;
+                    } catch {}
+                  } else if (dist && typeof dist === "object" && !Array.isArray(dist)) {
+                    floorDist = dist;
+                  }
+                  return {
+                    roomType: String(r?.roomType || r?.name || r?.label || "Room"),
+                    roomsCount: Number(r?.roomsCount ?? r?.count ?? r?.quantity ?? 0) || 0,
+                    floorDistribution: floorDist,
+                  };
+                });
+                const vizFloorUses = parseFloorUses((property as any).services);
                 return (
+                  <>
+                  {/* Phones: a floor switcher over a plain room list, no building diagram */}
+                  <div className="md:hidden">
+                    <FloorSwitcherMobile
+                      rooms={vizRooms}
+                      totalFloors={effectiveTotalFloors}
+                      buildingType={effectiveBuildingType}
+                      floorUses={vizFloorUses}
+                      onRoomTypeClick={({ roomType, floor }) => setRoomQuickView({ roomType, floor })}
+                    />
+                  </div>
+                  <div className="hidden min-w-0 md:block">
                   <PropertyVisualizationPreview
                     title={property.title || "Property"}
                     buildingType={effectiveBuildingType}
                     totalFloors={effectiveTotalFloors}
-                    floorUses={parseFloorUses((property as any).services)}
+                    floorUses={vizFloorUses}
                     showHeader={false}
                     sectionEyebrow="Property structure"
                     sectionTitle="Building layout"
@@ -3889,30 +3958,11 @@ export default function PublicPropertyDetailPage() {
                         Owner-declared
                       </span>
                     }
-                    rooms={roomsSpec.map((r: any) => {
-                      // floorDistribution may arrive as JSON string or object
-                      let floorDist: Record<number, number> | undefined = undefined;
-                      const dist = r?.floorDistribution;
-                      if (dist) {
-                        if (typeof dist === "string") {
-                          try {
-                            const parsed = JSON.parse(dist);
-                            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                              floorDist = parsed;
-                            }
-                          } catch {}
-                        } else if (typeof dist === "object" && dist !== null && !Array.isArray(dist)) {
-                          floorDist = dist;
-                        }
-                      }
-                      return {
-                        roomType: String(r?.roomType || r?.name || r?.label || "Room"),
-                        roomsCount: Number(r?.roomsCount ?? r?.count ?? r?.quantity ?? 0) || 0,
-                        floorDistribution: floorDist,
-                      };
-                    })}
+                    rooms={vizRooms}
                     onRoomTypeClick={({ roomType, floor }) => setRoomQuickView({ roomType, floor })}
                   />
+                  </div>
+                  </>
                 );
               })()}
             </div>

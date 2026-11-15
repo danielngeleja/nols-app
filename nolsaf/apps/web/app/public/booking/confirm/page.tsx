@@ -10,6 +10,11 @@ import {
   Users,
   ChevronLeft,
   CheckCircle2,
+  Bike,
+  Bus,
+  CarFront,
+  CarTaxiFront,
+  Ship,
   AlertCircle,
   ShieldCheck,
   Info,
@@ -1020,6 +1025,16 @@ export default function BookingConfirmPage() {
   
   const roomsQty = Math.max(1, Number(bookingData?.rooms ?? 1));
   const guestCount = Number(bookingData?.adults || 1) + Number(bookingData?.children || 0);
+
+  // A ride must fit the group: if the guest count grows past the chosen vehicle,
+  // move to the vehicle that fits (car up to 4, van beyond).
+  useEffect(() => {
+    const seats: Record<TransportVehicleType, number> = { BODA: 1, BAJAJI: 3, CAR: 4, XL: 7, PREMIUM: 4 };
+    const riders = Math.max(1, guestCount);
+    if (seats[transportVehicleType] < riders && !(riders > 7 && transportVehicleType === "XL")) {
+      setTransportVehicleType(riders <= 4 ? "CAR" : "XL");
+    }
+  }, [guestCount, transportVehicleType]);
   const includedGuests = Number(selectedPricingRoom?.includedGuests);
   const extraGuestFeeNet = Number(selectedPricingRoom?.extraGuestFee);
   const declaredCapacity = Number(selectedPricingRoom?.maxGuestsPerUnit);
@@ -2036,97 +2051,128 @@ export default function BookingConfirmPage() {
 
                 {/* Transportation Option */}
                 <div className="border-0 border-t border-solid border-slate-100 pt-5">
-                  {/* Whole card toggles the ride; the switch mirrors its state */}
+                  {transportLocked ? (
+                    /* No drivers here: a calm note, not a switch that cannot be used */
+                    <div className="flex items-start gap-3 rounded-lg border border-solid border-slate-200 bg-slate-50/70 px-4 py-3" role="note">
+                      <span className="grid h-9 w-9 flex-none place-items-center rounded-md bg-white text-slate-400 ring-1 ring-inset ring-slate-200">
+                        <Car className="h-[18px] w-[18px]" aria-hidden />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[14px] font-semibold text-slate-800">Rides aren&apos;t available here yet</span>
+                        <span className="mt-0.5 block text-[12.5px] leading-snug text-slate-500">
+                          {transportGate?.reason || "Your stay books as normal. Plan your own way to the property for now."}
+                        </span>
+                      </span>
+                      <Info className="mt-0.5 h-4 w-4 flex-none text-slate-300" aria-hidden />
+                    </div>
+                  ) : (
+                  /* Whole card toggles the ride; the switch mirrors its state */
                   <button
                     type="button"
                     role="switch"
                     aria-checked={includeTransport}
-                    aria-disabled={transportLocked}
-                    disabled={transportLocked}
                     onClick={() => {
-                      if (transportLocked) return;
                       setError(null);
                       setIncludeTransport((value) => !value);
                     }}
-                    className={`group box-border block w-full overflow-hidden rounded-xl border border-solid p-0 text-left transition-all disabled:cursor-not-allowed ${
-                      transportLocked
-                        ? "border-slate-200 bg-slate-50"
-                        : includeTransport
-                          ? "border-[#02665e] bg-[#02665e]/[0.04] shadow-[0_10px_24px_-18px_rgba(2,102,94,0.7)]"
-                          : "border-slate-200 bg-white hover:border-[#02665e]/40 hover:shadow-[0_10px_24px_-20px_rgba(15,23,42,0.4)]"
+                    className={`group box-border block w-full overflow-hidden rounded-lg border border-solid p-0 text-left transition-colors ${
+                      includeTransport
+                        ? "border-[#02665e] bg-[#02665e]/[0.04]"
+                        : "border-slate-200 bg-white hover:border-[#02665e]/40 hover:bg-slate-50/50"
                     }`}
                   >
-                    <span className="flex items-center gap-3.5 px-4 py-3.5">
+                    <span className="flex items-center gap-3 px-4 py-3">
                       <span
-                        className={`relative flex h-11 w-11 flex-none items-center justify-center rounded-xl transition-colors ${
-                          transportLocked ? "bg-slate-200 text-slate-400" : includeTransport ? "bg-[#02665e] text-white" : "bg-[#02665e]/10 text-[#02665e]"
+                        className={`grid h-9 w-9 flex-none place-items-center rounded-md transition-colors ${
+                          includeTransport ? "bg-[#02665e] text-white" : "bg-[#02665e]/10 text-[#02665e]"
                         }`}
                       >
-                        <Car className="h-5 w-5" aria-hidden />
+                        <Car className="h-[18px] w-[18px]" aria-hidden />
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="text-[15px] font-semibold text-slate-900">Need a ride to the property?</span>
-                          {transportLocked ? (
-                            <span className="rounded-md bg-slate-200 px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-slate-500">Not here yet</span>
-                          ) : includeTransport ? (
-                            <span className="rounded-md bg-[#02665e] px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-white">Added</span>
+                          <span className="text-[14px] font-semibold text-slate-900">Add a ride to the property</span>
+                          {includeTransport ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-[#02665e]/10 px-1.5 py-0.5 text-[11px] font-semibold text-[#02665e]">
+                              <span className="h-1.5 w-1.5 rounded-full bg-[#02665e]" aria-hidden />Added
+                            </span>
                           ) : null}
                         </span>
                         <span className="mt-0.5 block text-[12.5px] leading-snug text-slate-500">
-                          {transportLocked
-                            ? transportGate?.reason || "We don't have drivers in this area yet. You can continue with the stay booking only."
-                            : includeTransport
-                              ? "Set your ride and pickup below. The fare is added to your total."
-                              : "Book a driver with your stay, from your location or your arrival point."}
+                          {includeTransport
+                            ? "Set your ride and pickup below. The fare is added to your total."
+                            : "A NoLSAF driver from your location or arrival point, paid with your stay."}
                         </span>
                       </span>
-                      <span className="flex flex-none items-center gap-2">
-                        <span className={`hidden text-[12px] font-semibold sm:inline ${includeTransport ? "text-[#02665e]" : "text-slate-400"}`}>
-                          {includeTransport ? "On" : "Off"}
-                        </span>
-                        <span
-                          aria-hidden
-                          className={`relative block h-7 w-12 rounded-full transition-colors duration-200 ${
-                            includeTransport ? "bg-[#02665e]" : transportLocked ? "bg-slate-200" : "bg-slate-300 group-hover:bg-slate-400"
-                          }`}
-                        >
-                          <span className={`absolute top-1 block h-5 w-5 rounded-full bg-white shadow transition-all duration-200 ${includeTransport ? "left-6" : "left-1"}`} />
-                        </span>
+                      <span
+                        aria-hidden
+                        className={`relative block h-6 w-11 flex-none rounded-full transition-colors duration-200 ${
+                          includeTransport ? "bg-[#02665e]" : "bg-slate-300 group-hover:bg-slate-400"
+                        }`}
+                      >
+                        <span className={`absolute top-0.5 block h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${includeTransport ? "left-[22px]" : "left-0.5"}`} />
                       </span>
                     </span>
 
                     {/* What you get, shown before switching on */}
-                    {!transportLocked && !includeTransport && (
-                      <span className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-0 border-t border-dashed border-slate-200 bg-slate-50/60 px-4 py-2.5 text-[12px] text-slate-600">
-                        <span className="inline-flex items-center gap-1" aria-hidden>
-                          <span>🏍️</span>
-                          <span>🛺</span>
-                          <span>🚗</span>
-                          <span>🚐</span>
-                        </span>
+                    {!includeTransport && (
+                      <span className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-4 py-2 text-[12px] text-slate-600">
                         <span className="inline-flex items-center gap-1.5">
                           <Navigation className="h-3.5 w-3.5 text-[#02665e]" aria-hidden />
-                          Pickup from your location
+                          From your location
                         </span>
                         <span className="inline-flex items-center gap-1.5">
                           <Plane className="h-3.5 w-3.5 text-[#02665e]" aria-hidden />
                           Airport, bus or ferry
                         </span>
+                        <span className="text-slate-400">Motorbike, bajaji, car or van</span>
                       </span>
                     )}
                   </button>
+                  )}
 
                   {includeTransport && !transportLocked && (
                     <div className="mt-3 box-border rounded-xl border border-solid border-slate-200 bg-white p-4 sm:p-5">
                       {(() => {
+                        // Seats per vehicle decide what fits this booking's group.
                         const vehicles = [
-                          { value: "BODA" as TransportVehicleType, icon: "🏍️", label: "Boda", tier: "Budget" },
-                          { value: "BAJAJI" as TransportVehicleType, icon: "🛺", label: "Bajaji", tier: "Economy" },
-                          { value: "CAR" as TransportVehicleType, icon: "🚗", label: "Car", tier: "Standard" },
-                          { value: "XL" as TransportVehicleType, icon: "🚐", label: "XL / Van", tier: "Roomy" },
-                          { value: "PREMIUM" as TransportVehicleType, icon: "🚘", label: "Premium", tier: "Luxury" },
+                          { value: "BODA" as TransportVehicleType, Icon: Bike, label: "Boda", seats: 1, fits: "1 rider, a small bag" },
+                          { value: "BAJAJI" as TransportVehicleType, Icon: CarTaxiFront, label: "Bajaji", seats: 3, fits: "Up to 3, small bags" },
+                          { value: "CAR" as TransportVehicleType, Icon: Car, label: "Car", seats: 4, fits: "Up to 4, 2 suitcases" },
+                          { value: "XL" as TransportVehicleType, Icon: Bus, label: "XL / Van", seats: 7, fits: "Up to 7, big bags" },
+                          { value: "PREMIUM" as TransportVehicleType, Icon: CarFront, label: "Premium", seats: 4, fits: "Up to 4, extra comfort" },
                         ];
+                        const riders = Math.max(1, guestCount);
+                        const propertyLat: number | null = property?.latitude ?? null;
+                        const propertyLng: number | null = property?.longitude ?? null;
+                        const bestFit: TransportVehicleType = riders <= 4 ? "CAR" : "XL";
+                        // A live price per vehicle once the pickup is known (same calculator as the total).
+                        const pickupReady =
+                          transportOriginLat !== null && transportOriginLng !== null && propertyLat !== null && propertyLng !== null &&
+                          (pickupMode !== "current" || currentPickupConfirmed);
+                        const fareAt = (() => {
+                          if (!(requiresArrivalInfo && arrivalDate)) return undefined;
+                          const d = new Date(arrivalDate);
+                          if (isNaN(d.getTime())) return undefined;
+                          if (arrivalTimeHour) d.setHours(parseInt(arrivalTimeHour) || 0);
+                          if (arrivalTimeMinute) d.setMinutes(parseInt(arrivalTimeMinute) || 0);
+                          return d;
+                        })();
+                        const quote = (type: TransportVehicleType) => {
+                          if (!pickupReady) return null;
+                          try {
+                            const f = calculateTransportFare(
+                              { latitude: transportOriginLat!, longitude: transportOriginLng! },
+                              { latitude: propertyLat!, longitude: propertyLng! },
+                              property?.currency || "TZS",
+                              fareAt,
+                              type,
+                            );
+                            return f.distance > MAX_RIDE_KM ? null : f;
+                          } catch {
+                            return null;
+                          }
+                        };
                         const modes = [
                           { mode: "current" as const, icon: <Navigation className="h-4 w-4" />, title: "My location", desc: "Use GPS now" },
                           { mode: "arrival" as const, icon: <Plane className="h-4 w-4" />, title: "Arrival point", desc: "Airport, bus or ferry" },
@@ -2164,31 +2210,67 @@ export default function BookingConfirmPage() {
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-baseline justify-between gap-2">
                                   <p className="m-0 text-[14px] font-semibold text-slate-900"><span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#02665e] align-[1px] text-[11px] font-bold text-white sm:hidden">1</span>Choose your ride</p>
-                                  <p className="m-0 hidden text-[11.5px] text-slate-400 sm:block">Fare depends on the vehicle</p>
+                                  <p className="m-0 text-[11.5px] text-slate-500">
+                                    For {riders} guest{riders === 1 ? "" : "s"}
+                                    {pickupReady ? null : <span className="hidden text-slate-400 sm:inline"> · prices show once pickup is set</span>}
+                                  </p>
                                 </div>
-                                <div className="mt-2.5 grid grid-cols-5 gap-1 sm:gap-2" role="radiogroup" aria-label="Vehicle type">
+                                <div className="mt-2.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2" role="radiogroup" aria-label="Vehicle type">
                                   {vehicles.map((v) => {
                                     const on = transportVehicleType === v.value;
+                                    // Over 7 guests the van stays bookable for the first group.
+                                    const tooSmall = v.seats < riders && !(riders > 7 && v.value === "XL");
+                                    const best = !tooSmall && v.value === bestFit;
+                                    const q = tooSmall ? null : quote(v.value);
                                     return (
                                       <button
                                         key={v.value}
                                         type="button"
                                         role="radio"
                                         aria-checked={on}
+                                        aria-disabled={tooSmall}
+                                        disabled={tooSmall}
+                                        title={tooSmall ? `Fits ${v.seats}, you are ${riders}` : undefined}
                                         onClick={() => setTransportVehicleType(v.value)}
-                                        className={`box-border flex min-w-0 flex-col items-center gap-0.5 rounded-lg border border-solid px-0.5 py-2 transition-all sm:rounded-xl sm:px-1 sm:py-2.5 ${
-                                          on
-                                            ? "border-[#02665e] bg-[#02665e]/[0.06] shadow-[0_6px_16px_-10px_rgba(2,102,94,0.6)]"
-                                            : "border-slate-200 bg-white hover:border-[#02665e]/40"
+                                        className={`group box-border flex min-w-0 items-center gap-3 rounded-lg border border-solid px-3 py-2.5 text-left transition-colors ${
+                                          tooSmall
+                                            ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-60"
+                                            : on
+                                              ? "border-[#02665e] bg-[#02665e]/[0.05]"
+                                              : "border-slate-200 bg-white hover:border-[#02665e]/40 hover:bg-slate-50/60"
                                         }`}
                                       >
-                                        <span className="text-[20px] leading-none sm:text-[22px]">{v.icon}</span>
-                                        <span className={`mt-1 w-full truncate text-center text-[11px] font-semibold sm:text-[12px] ${on ? "text-[#02665e]" : "text-slate-800"}`}>{v.label}</span>
-                                        <span className={`hidden w-full truncate text-center text-[10.5px] sm:block ${on ? "text-[#02665e]/80" : "text-slate-400"}`}>{v.tier}</span>
+                                        <span className={`grid h-9 w-9 flex-none place-items-center rounded-md ${on ? "bg-[#02665e] text-white" : "bg-[#02665e]/[0.08] text-[#02665e]"}`}>
+                                          <v.Icon className="h-[18px] w-[18px]" strokeWidth={1.9} aria-hidden />
+                                        </span>
+                                        <span className="min-w-0 flex-1">
+                                          <span className="flex items-center gap-1.5">
+                                            <span className={`truncate text-[13.5px] font-semibold ${on ? "text-[#02665e]" : "text-slate-900"}`}>{v.label}</span>
+                                            {best ? <span className="flex-none rounded bg-emerald-50 px-1.5 py-px text-[10.5px] font-semibold text-emerald-700">Best fit</span> : null}
+                                          </span>
+                                          <span className="block truncate text-[11.5px] text-slate-500">{tooSmall ? `Fits ${v.seats}, too small for ${riders}` : v.fits}</span>
+                                        </span>
+                                        <span className="flex-none text-right">
+                                          {q ? (
+                                            <>
+                                              <span className="block text-[13px] font-semibold tabular-nums text-slate-900">{q.total.toLocaleString("en-US")} <span className="text-[11px] font-medium text-slate-500">{q.currency}</span></span>
+                                              <span className="block text-[11px] tabular-nums text-slate-400">about {q.estimatedTime} min</span>
+                                            </>
+                                          ) : null}
+                                        </span>
+                                        <span className={`grid h-4 w-4 flex-none place-items-center rounded-full border-2 border-solid ${on ? "border-[#02665e]" : "border-slate-300"}`} aria-hidden>
+                                          {on ? <span className="h-2 w-2 rounded-full bg-[#02665e]" /> : null}
+                                        </span>
                                       </button>
                                     );
                                   })}
                                 </div>
+                                {riders > 7 ? (
+                                  <p className="m-0 mt-2 flex items-start gap-1.5 text-[12px] text-amber-800">
+                                    <AlertCircle className="mt-px h-3.5 w-3.5 flex-none" aria-hidden />
+                                    {riders} guests is more than one van carries. Book the van for the first group; others can follow by their own transport.
+                                  </p>
+                                ) : null}
                               </div>
                             </li>
 
@@ -2218,8 +2300,8 @@ export default function BookingConfirmPage() {
                                             }}
                                             className={`group relative box-border flex min-w-0 flex-col items-center gap-1 rounded-lg border border-solid px-1 py-2.5 text-center sm:gap-1.5 sm:rounded-xl sm:px-2 sm:py-3 transition-all sm:flex-row sm:items-center sm:gap-2.5 sm:px-3 sm:text-left ${
                                               on
-                                                ? "border-[#02665e] bg-[#02665e]/[0.06] shadow-[0_6px_16px_-10px_rgba(2,102,94,0.6)]"
-                                                : "border-slate-200 bg-white hover:-translate-y-px hover:border-[#02665e]/40 hover:shadow-[0_6px_16px_-12px_rgba(15,23,42,0.3)]"
+                                                ? "border-[#02665e] bg-[#02665e]/[0.05]"
+                                                : "border-slate-200 bg-white hover:border-[#02665e]/40 hover:bg-slate-50/60"
                                             }`}
                                           >
                                             <span
@@ -2233,9 +2315,9 @@ export default function BookingConfirmPage() {
                                               <span className={`block truncate text-[12px] font-semibold sm:text-[13px] ${on ? "text-[#02665e]" : "text-slate-900"}`}>{m.title}</span>
                                               <span className="hidden truncate text-[11.5px] text-slate-500 sm:block">{m.desc}</span>
                                             </span>
-                                            {on && (
-                                              <CheckCircle2 className="absolute right-1.5 top-1.5 h-4 w-4 text-[#02665e] sm:static sm:flex-none" aria-hidden />
-                                            )}
+                                            <span className={`absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full border-2 border-solid sm:static sm:flex-none ${on ? "border-[#02665e]" : "border-slate-300"}`} aria-hidden>
+                                              {on ? <span className="h-2 w-2 rounded-full bg-[#02665e]" /> : null}
+                                            </span>
                                           </button>
                                         );
                                       })}
@@ -2260,14 +2342,29 @@ export default function BookingConfirmPage() {
                                               </button>
                                             )}
                                             {currentPickupConfirmed && (
-                                              <button
-                                                type="button"
-                                                onClick={resetPickup}
-                                                className="inline-flex items-center gap-1.5 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline"
-                                              >
-                                                <Navigation className="h-3.5 w-3.5" />
-                                                Detect my location again
-                                              </button>
+                                              /* Say where the driver will come, not just that GPS worked */
+                                              <div className="flex items-center gap-3 rounded-lg border border-solid border-[#02665e]/30 bg-[#02665e]/[0.04] px-3 py-2.5">
+                                                <span className="grid h-8 w-8 flex-none place-items-center rounded-md bg-[#02665e] text-white">
+                                                  <MapPin className="h-4 w-4" aria-hidden />
+                                                </span>
+                                                <span className="min-w-0 flex-1">
+                                                  <span className="block text-[11px] font-semibold text-[#02665e]">Pickup set</span>
+                                                  <span className="block truncate text-[13.5px] font-medium text-slate-900" title={transportOriginAddress || undefined}>
+                                                    {transportOriginAddress.trim() ||
+                                                      (transportOriginLat !== null && transportOriginLng !== null
+                                                        ? `${transportOriginLat.toFixed(4)}, ${transportOriginLng.toFixed(4)}`
+                                                        : "Your current location")}
+                                                  </span>
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={resetPickup}
+                                                  className="inline-flex h-8 flex-none items-center gap-1 rounded-md border border-solid border-slate-200 bg-white px-2.5 text-[12px] font-semibold text-[#02665e] hover:bg-slate-50"
+                                                >
+                                                  <Navigation className="h-3.5 w-3.5" aria-hidden />
+                                                  Redo
+                                                </button>
+                                              </div>
                                             )}
                                             {currentPickupNeedsConfirm && transportOriginAddress.trim() && (
                                               <div className="rounded-xl border border-solid border-slate-200 bg-slate-50 p-3">
@@ -2311,10 +2408,10 @@ export default function BookingConfirmPage() {
                                               {pickupPresetId && TANZANIA_LOCATIONS.find((p) => p.id === pickupPresetId) ? (
                                                 (() => {
                                                   const preset = TANZANIA_LOCATIONS.find((p) => p.id === pickupPresetId)!;
-                                                  const glyph = preset.category === "airport" ? "✈" : preset.category === "bus_terminal" ? "🚌" : "⛴";
+                                                  const Glyph = preset.category === "airport" ? Plane : preset.category === "bus_terminal" ? Bus : Ship;
                                                   return (
                                                     <>
-                                                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-[#02665e]/10 text-base">{glyph}</span>
+                                                      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-md bg-[#02665e]/10 text-[#02665e]"><Glyph className="h-4 w-4" aria-hidden /></span>
                                                       <span className="min-w-0 flex-1">
                                                         <span className="line-clamp-2 block text-[14px] font-semibold leading-snug text-slate-900 sm:truncate">{preset.label}</span>
                                                         <span className="block text-[12px] text-slate-500">
@@ -2420,7 +2517,7 @@ export default function BookingConfirmPage() {
                                     <span className="flex h-5 w-4 justify-center" aria-hidden>
                                       <span className="h-full w-0 border-0 border-l-2 border-dotted border-slate-300" />
                                     </span>
-                                    <span className="col-span-2 text-[11.5px] text-slate-400">{vehicle ? `${vehicle.label} · ${vehicle.tier}` : ""}</span>
+                                    <span className="col-span-2 text-[11.5px] text-slate-400">{vehicle ? `${vehicle.label} · ${vehicle.fits}` : ""}</span>
                                     <span className="flex h-4 w-4 items-center justify-center">
                                       <MapPin className="h-4 w-4 text-[#02665e]" aria-hidden />
                                     </span>
@@ -2887,11 +2984,31 @@ export default function BookingConfirmPage() {
           {/* Sidebar: price details that mirror the stay on the left */}
           <div className="lg:col-span-1">
             {(() => {
-              const titleCase = (s: string) =>
-                s && s === s.toUpperCase() ? s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : s;
+              // Word by word: "NoLSAF VILLA" -> "NoLSAF Villa", "DAR-ES-SALAAM" -> "Dar es Salaam".
+              // Mixed-case words (brand names) and short codes (CBD, VIP) are left as typed.
+              const titleCase = (s: string, joinHyphens = false) => {
+                const small = new Set(["es", "wa", "ya", "na", "la", "of", "and", "the"]);
+                const codes = new Set(["CBD", "VIP", "BNB", "B&B", "UN", "TZ", "II", "III", "IV"]);
+                const text = joinHyphens ? String(s || "").replace(/(\p{L})-(?=\p{L})/gu, "$1 ") : String(s || "");
+                const allCaps = text === text.toUpperCase();
+                let index = 0;
+                return text
+                  .split(/(\s+)/)
+                  .map((w) => {
+                    if (!/\p{L}/u.test(w)) return w;
+                    const first = index++ === 0;
+                    const lower = w.toLowerCase();
+                    const cap = lower.charAt(0).toUpperCase() + lower.slice(1);
+                    if (small.has(lower)) return first ? cap : lower;
+                    if (w !== w.toUpperCase()) return w; // mixed case is deliberate (NoLSAF)
+                    if (codes.has(w)) return w; // CBD, VIP stay
+                    return w.length <= 3 && !allCaps ? w : cap; // VILLA -> Villa, DAR -> Dar
+                  })
+                  .join("");
+              };
               const name = titleCase(property?.title || "Your stay");
               const place = [property?.city, property?.regionName]
-                .map((p) => titleCase(String(p || "").trim()))
+                .map((p) => titleCase(String(p || "").trim(), true))
                 .filter((p, i, arr) => p && arr.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i)
                 .join(", ");
               const inDate = bookingData?.checkIn ? new Date(bookingData.checkIn) : null;
@@ -2925,7 +3042,7 @@ export default function BookingConfirmPage() {
               };
 
               return (
-                <div className="box-border overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-[0_18px_40px_-28px_rgba(2,40,36,0.35)] lg:sticky lg:top-24">
+                <div className="box-border overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-[0_8px_24px_-20px_rgba(2,40,36,0.35)] lg:sticky lg:top-24">
                   {/* Photo header with the stay's name, so this card clearly belongs to that property */}
                   <div className="relative h-32 overflow-hidden" style={{ background: "linear-gradient(135deg, #013d38 0%, #02665e 70%, #037a70 100%)" }}>
                     {property?.primaryImage && (
@@ -2934,8 +3051,8 @@ export default function BookingConfirmPage() {
                     )}
                     <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-[#011a18]/90 via-[#011a18]/40 to-transparent" />
                     <div className="absolute inset-x-0 bottom-0 px-5 pb-3.5 text-white">
-                      <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.14em] text-emerald-200">Price details</p>
-                      <p className="m-0 mt-0.5 truncate text-[17px] font-bold leading-tight">{name}</p>
+                      <p className="m-0 text-[11.5px] font-semibold text-emerald-200">Price details</p>
+                      <p className="m-0 mt-0.5 truncate text-[17px] font-bold leading-tight" title={property?.title || undefined}>{name}</p>
                       {place && (
                         <p className="m-0 mt-0.5 flex items-center gap-1 truncate text-[12px] text-white/75">
                           <MapPin className="h-3 w-3 flex-none" aria-hidden />
@@ -2946,17 +3063,22 @@ export default function BookingConfirmPage() {
                   </div>
 
                   {/* Stay strip */}
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-0 border-b border-solid border-slate-100 px-5 py-3">
+                  {/* Stay strip: the two dates joined by a line that carries the length of the stay */}
+                  <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-0 border-b border-solid border-slate-100 px-5 py-3">
                     <div className="min-w-0">
-                      <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">Check-in</p>
-                      <p className="m-0 truncate text-[13px] font-semibold text-slate-900">{short(inDate)}</p>
+                      <p className="m-0 text-[11.5px] text-slate-500">Check-in</p>
+                      <p className="m-0 truncate text-[13.5px] font-semibold text-slate-900">{short(inDate)}</p>
                     </div>
-                    <span className="rounded-full bg-[#02665e]/10 px-2 py-0.5 text-[11.5px] font-bold text-[#02665e]">
-                      {nights > 0 ? `${nights}N` : "–"}
-                    </span>
+                    <div className="flex min-w-0 items-center gap-1.5" aria-label={nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : undefined}>
+                      <span className="h-px flex-1 bg-slate-200" aria-hidden />
+                      <span className="flex-none whitespace-nowrap rounded-md border border-solid border-[#02665e]/20 bg-[#02665e]/[0.06] px-2 py-0.5 text-[11.5px] font-semibold text-[#02665e]">
+                        {nights > 0 ? `${nights} night${nights === 1 ? "" : "s"}` : "Add dates"}
+                      </span>
+                      <span className="h-px flex-1 bg-slate-200" aria-hidden />
+                    </div>
                     <div className="min-w-0 text-right">
-                      <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.08em] text-slate-400">Check-out</p>
-                      <p className="m-0 truncate text-[13px] font-semibold text-slate-900">{short(outDate)}</p>
+                      <p className="m-0 text-[11.5px] text-slate-500">Check-out</p>
+                      <p className="m-0 truncate text-[13.5px] font-semibold text-slate-900">{short(outDate)}</p>
                     </div>
                   </div>
                   <p className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 border-0 border-b border-solid border-slate-100 px-5 py-2 text-[12px] text-slate-500">
