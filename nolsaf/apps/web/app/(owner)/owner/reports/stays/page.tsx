@@ -1141,19 +1141,19 @@ export default function StaysReportPage() {
     <div className="space-y-5">
       <ReportsFilter onChangeAction={setFilters} exportHref={null} />
 
-      <div className="relative rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="relative rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         {/* Cross-hatch bg */}
         <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%), repeating-linear-gradient(-45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%)', backgroundSize: '20px 20px' }} />
         <div className="relative bg-white/95 px-5 py-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="min-w-0">
-          <div className="inline-flex items-center gap-2 rounded-full bg-[#02665e]/10 border border-[#02665e]/20 px-3 py-1 text-xs font-bold text-[#02665e]">
+          <div className="inline-flex items-center gap-2 rounded-md bg-[#02665e]/10 border border-[#02665e]/20 px-3 py-1 text-xs font-bold text-[#02665e]">
             <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
             Operational Export
           </div>
           <h2 className="mt-2.5 text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
             {propertyDisplay}
             {data && (
-              <span className="ml-2 align-middle inline-flex items-center rounded-full bg-[#02665e]/8 px-2.5 py-0.5 text-xs font-bold text-[#02665e]">
+              <span className="ml-2 align-middle inline-flex items-center rounded-md bg-[#02665e]/8 px-2.5 py-0.5 text-xs font-bold text-[#02665e]">
                 {data.stats.nolsafBookings + data.stats.externalReservations} entries
               </span>
             )}
@@ -1167,7 +1167,7 @@ export default function StaysReportPage() {
             disabled={!canUseReportActions}
             onClick={exportCsv}
             className={
-              "inline-flex items-center justify-center h-9 px-4 rounded-xl border shadow-sm text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 " +
+              "inline-flex items-center justify-center h-9 px-4 rounded-md border shadow-sm text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 " +
               (canUseReportActions ? "bg-white border-[#02665e]/20 text-[#02665e] hover:bg-[#02665e]/5 hover:border-[#02665e]/30" : "bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed")
             }
           >
@@ -1179,7 +1179,7 @@ export default function StaysReportPage() {
             disabled={!canUseReportActions}
             onClick={printReport}
             className={
-              "inline-flex items-center justify-center h-9 px-4 rounded-xl bg-[#02665e] text-white shadow-sm shadow-[#02665e]/20 hover:bg-[#034e47] transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 " +
+              "inline-flex items-center justify-center h-9 px-4 rounded-md bg-[#02665e] text-white shadow-sm shadow-[#02665e]/20 hover:bg-[#034e47] transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 " +
               (!canUseReportActions ? "opacity-40 cursor-not-allowed" : "")
             }
           >
@@ -1212,7 +1212,7 @@ export default function StaysReportPage() {
       </div>
 
       {/* Quick visualization */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-gray-900">Booking sources</div>
@@ -1253,7 +1253,7 @@ export default function StaysReportPage() {
 
       {/* Tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
             <div className="h-7 w-1 rounded-full bg-emerald-500" />
             <div>
@@ -1264,7 +1264,7 @@ export default function StaysReportPage() {
           <div className="p-4 overflow-x-auto">
             <table className="min-w-[720px] w-full text-sm">
               <thead>
-                <tr className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50/70 border-b border-gray-100">
+                <tr className="text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-gray-100">
                   <th className="text-left py-2.5 px-3">Guest</th>
                   <th className="text-left py-2.5 px-3">Check-in</th>
                   <th className="text-left py-2.5 px-3">Check-out</th>
@@ -1299,7 +1299,7 @@ export default function StaysReportPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
             <div className="h-7 w-1 rounded-full bg-amber-500" />
             <div>
@@ -1310,7 +1310,7 @@ export default function StaysReportPage() {
           <div className="p-4 overflow-x-auto">
             <table className="min-w-[760px] w-full text-sm">
               <thead>
-                <tr className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50/70 border-b border-gray-100">
+                <tr className="text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-gray-100">
                   <th className="text-left py-2.5 px-3">Source</th>
                   <th className="text-left py-2.5 px-3">Guest</th>
                   <th className="text-left py-2.5 px-3">Nationality</th>
@@ -1350,7 +1350,7 @@ export default function StaysReportPage() {
 
       {/* Group stays + auction section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
             <div className="h-7 w-1 rounded-full bg-indigo-500" />
             <div>
@@ -1361,7 +1361,7 @@ export default function StaysReportPage() {
           <div className="p-4 overflow-x-auto">
             <table className="min-w-[820px] w-full text-sm">
               <thead>
-                <tr className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50/70 border-b border-gray-100">
+                <tr className="text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-gray-100">
                   <th className="text-left py-2.5 px-3">Type</th>
                   <th className="text-left py-2.5 px-3">Destination</th>
                   <th className="text-left py-2.5 px-3">Check-in</th>
@@ -1394,7 +1394,7 @@ export default function StaysReportPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
             <div className="h-7 w-1 rounded-full bg-violet-500" />
             <div>
@@ -1405,7 +1405,7 @@ export default function StaysReportPage() {
           <div className="p-4 overflow-x-auto">
             <table className="min-w-[960px] w-full text-sm">
               <thead>
-                <tr className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 bg-gray-50/70 border-b border-gray-100">
+                <tr className="text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-gray-100">
                   <th className="text-left py-2.5 px-3">Group stay</th>
                   <th className="text-left py-2.5 px-3">Property</th>
                   <th className="text-right py-2.5 px-3">Offer / night</th>
@@ -1476,10 +1476,10 @@ export default function StaysReportPage() {
 
 function Kpi({ title, value, sub, loading, accent }: { title: string; value: string; sub?: string; loading: boolean; accent?: string; borderColor?: string }) {
   return (
-    <div className="relative rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="relative rounded-md border border-slate-200 shadow-sm overflow-hidden">
       <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%), repeating-linear-gradient(-45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%)', backgroundSize: '20px 20px' }} />
       <div className="relative bg-white/95 p-4 flex flex-col justify-between">
-        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 leading-tight">{title}</div>
+        <div className="text-[10px] font-bold text-slate-400 leading-tight">{title}</div>
         {loading ? (
           <div className="mt-2 space-y-1.5">
             <div className="h-6 w-3/4 rounded-md bg-slate-100 animate-pulse" />

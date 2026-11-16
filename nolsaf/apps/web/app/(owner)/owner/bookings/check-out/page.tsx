@@ -207,17 +207,17 @@ export default function OwnerCheckoutPage() {
     return (
       <div id="owner-departures" className="w-full min-w-0 space-y-5 px-3 pb-12 sm:px-5 lg:px-6" aria-busy="true" aria-label="Loading check-outs">
         <style>{styles}</style>
-        <div className="rounded-3xl bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
+        <div className="rounded-lg bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="space-y-2.5">
             <div className="od-sk-dark h-3 w-24 rounded-full" />
             <div className="od-sk-dark h-8 w-44 rounded-lg" />
             <div className="od-sk-dark h-3.5 w-72 rounded-full" />
           </div>
           <div className="mt-6 grid grid-cols-3 gap-3">
-            {[0, 1, 2].map((i) => <div key={i} className="od-sk-dark h-[76px] rounded-2xl" />)}
+            {[0, 1, 2].map((i) => <div key={i} className="od-sk-dark h-[76px] rounded-lg" />)}
           </div>
         </div>
-        {[0, 1, 2].map((i) => <div key={i} className="od-sk h-[92px] rounded-2xl" />)}
+        {[0, 1, 2].map((i) => <div key={i} className="od-sk h-[92px] rounded-lg" />)}
       </div>
     );
   }
@@ -228,12 +228,12 @@ export default function OwnerCheckoutPage() {
       {/* Confirm modal (rating required) */}
       {confirmOpen && confirmTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-[3px]">
-          <div className="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-2xl ring-1 ring-black/8 overflow-hidden">
+          <div className="w-full max-w-sm rounded-lg bg-white border border-slate-200 shadow-2xl ring-1 ring-black/8 overflow-hidden">
 
             {/* Header */}
             <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-4 py-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">Confirm Check-out</div>
+                <div className="text-[11px] font-bold text-slate-400">Confirm Check-out</div>
                 <div className="text-sm font-bold text-white truncate mt-0.5">{confirmTarget.property?.title ?? "—"}</div>
                 <div className="text-[11px] text-slate-300 mt-0.5">
                   Guest: <span className="font-semibold text-white">{confirmTarget.guestName ?? "—"}</span>
@@ -254,8 +254,8 @@ export default function OwnerCheckoutPage() {
             <div className="px-4 py-3 space-y-2.5 min-w-0 overflow-hidden">
 
               {/* Rating */}
-              <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 space-y-2">
-                <div className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">Rate this guest <span className="text-rose-400">*</span></div>
+              <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2.5 space-y-2">
+                <div className="text-[11px] font-bold text-slate-400">Rate this guest <span className="text-rose-400">*</span></div>
                 <div className="flex items-center gap-1">
                   {[1,2,3,4,5].map((v) => (
                     <button
@@ -280,19 +280,19 @@ export default function OwnerCheckoutPage() {
 
               {/* Feedback */}
               <div className="space-y-1">
-                <div className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">Note (optional)</div>
+                <div className="text-[11px] font-bold text-slate-400">Note (optional)</div>
                 <textarea
                   value={feedback}
                   onChange={(e) => setFeedback(e.target.value)}
                   rows={2}
-                  className="w-full box-border rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300 transition-all duration-200 resize-none"
+                  className="w-full box-border rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300 transition-all duration-200 resize-none"
                   placeholder="Short note about the guest (optional)…"
                   aria-label="Guest rating feedback"
                 />
               </div>
 
               {/* Terms – toggle switch */}
-              <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-600 cursor-pointer select-none transition-colors hover:border-[#02665e]/20">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-600 cursor-pointer select-none transition-colors hover:border-[#02665e]/20">
                 <span>I agree to the{" "}
                   <Link href="/terms" target="_blank" className="font-semibold text-[#02665e] underline underline-offset-2 hover:text-[#034e47]">Terms of Service</Link>.
                 </span>
@@ -320,7 +320,7 @@ export default function OwnerCheckoutPage() {
               <button
                 type="button"
                 onClick={() => openAudit(confirmTarget)}
-                className="h-8 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all duration-150 focus:outline-none inline-flex items-center gap-1.5"
+                className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all duration-150 focus:outline-none inline-flex items-center gap-1.5"
               >
                 <History className="h-3.5 w-3.5" aria-hidden />
                 Audit History
@@ -329,7 +329,7 @@ export default function OwnerCheckoutPage() {
                 type="button"
                 onClick={() => confirmCheckout(confirmTarget.id)}
                 disabled={confirmingId === confirmTarget.id || !agreeToTerms}
-                className="h-8 rounded-xl bg-emerald-700 text-white px-4 text-xs font-bold hover:bg-emerald-800 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-emerald-500/30 inline-flex items-center gap-1.5"
+                className="h-8 rounded-md bg-emerald-700 text-white px-4 text-xs font-bold hover:bg-emerald-800 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-emerald-500/30 inline-flex items-center gap-1.5"
               >
                 {confirmingId === confirmTarget.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />}
                 Confirm Check-out
@@ -343,10 +343,10 @@ export default function OwnerCheckoutPage() {
       {/* Audit modal */}
       {auditOpen && auditTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="w-full max-w-2xl rounded-3xl bg-white border border-slate-200 shadow-xl ring-1 ring-black/10 overflow-hidden">
+          <div className="w-full max-w-2xl rounded-lg bg-white border border-slate-200 shadow-xl ring-1 ring-black/10 overflow-hidden">
             <div className="p-5 sm:p-6 border-b border-slate-200 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Audit History</div>
+                <div className="text-xs font-bold text-slate-500">Audit History</div>
                 <div className="text-lg font-bold text-slate-900 truncate">{auditTarget.property?.title ?? "—"}</div>
                 <div className="text-xs text-slate-600 mt-1">
                   Booking reference <span className="font-mono font-semibold text-slate-900">{(auditTarget as any).bookingReference ?? `#${auditTarget.id}`}</span>
@@ -355,7 +355,7 @@ export default function OwnerCheckoutPage() {
               <button
                 type="button"
                 onClick={() => { setAuditOpen(false); setAuditTarget(null); setAuditItems([]); }}
-                className="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.99] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 inline-flex items-center justify-center"
+                className="h-10 w-10 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.99] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 inline-flex items-center justify-center"
                 aria-label="Close audit dialog"
                 title="Close"
               >
@@ -369,7 +369,7 @@ export default function OwnerCheckoutPage() {
                   Loading audit history…
                 </div>
               ) : auditItems.length === 0 ? (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
                   No audit history found yet for this booking.
                 </div>
               ) : (
@@ -377,11 +377,11 @@ export default function OwnerCheckoutPage() {
                   <table className="min-w-[700px] w-full text-sm">
                     <thead className="bg-slate-50 border border-slate-200">
                       <tr>
-                        <th className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 text-left">Action</th>
-                        <th className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 text-left">By</th>
-                        <th className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 text-left">Confirmed At</th>
-                        <th className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 text-left">Rating</th>
-                        <th className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-600 text-left">Feedback</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-600 text-left">Action</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-600 text-left">By</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-600 text-left">Confirmed At</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-600 text-left">Rating</th>
+                        <th className="px-4 py-3 text-xs font-bold text-slate-600 text-left">Feedback</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 border border-slate-200 border-t-0">
@@ -408,7 +408,7 @@ export default function OwnerCheckoutPage() {
       ) : null}
 
       {/* ── Header band ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -417,7 +417,7 @@ export default function OwnerCheckoutPage() {
         <div className="relative px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Front desk</p>
+              <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Front desk</p>
               <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Departures</h1>
               <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">
                 Guests due to leave within the next 7 hours, or already past their check-out. Confirm each one once the guest has gone.
@@ -428,13 +428,13 @@ export default function OwnerCheckoutPage() {
                 type="button"
                 onClick={() => load({ silent: true })}
                 disabled={refreshing}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
               >
                 <RotateCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden /> Refresh
               </button>
               <Link
                 href="/owner/bookings/checked-out"
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-3.5 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1]"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#5eead4] px-3.5 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1]"
               >
                 <History className="h-4 w-4" aria-hidden /> History
               </Link>
@@ -447,8 +447,8 @@ export default function OwnerCheckoutPage() {
               { label: "Within 1 hour", value: stats.urgent, Icon: AlarmClock, tone: "text-amber-300", ring: stats.urgent ? "border-amber-300/40 bg-amber-300/[0.07]" : "border-white/10 bg-white/[0.04]" },
               { label: "Past check-out", value: stats.overdue, Icon: AlertTriangle, tone: "text-rose-300", ring: stats.overdue ? "border-rose-300/40 bg-rose-400/[0.08]" : "border-white/10 bg-white/[0.04]" },
             ].map((s) => (
-              <div key={s.label} className={`min-w-0 rounded-2xl border border-solid px-4 py-3 ${s.ring}`}>
-                <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+              <div key={s.label} className={`min-w-0 rounded-lg border border-solid px-4 py-3 ${s.ring}`}>
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white/55">
                   <s.Icon className={`h-3.5 w-3.5 ${s.tone}`} aria-hidden />
                   <span className="truncate">{s.label}</span>
                 </span>
@@ -460,13 +460,13 @@ export default function OwnerCheckoutPage() {
       </header>
 
       {error ? (
-        <div className="rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+        <div className="rounded-lg border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
       ) : null}
 
       {list.length === 0 ? (
-        <section className="grid overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)] md:grid-cols-2">
+        <section className="grid overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)] md:grid-cols-2">
           <div className="p-7">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+            <span className="grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-400">
               <DoorOpen className="h-6 w-6" aria-hidden />
             </span>
             <p className="m-0 mt-4 text-lg font-bold text-slate-900">No departures in the next 7 hours</p>
@@ -477,7 +477,7 @@ export default function OwnerCheckoutPage() {
           <div className="flex flex-col justify-center gap-2.5 border-0 border-t border-solid border-slate-200 bg-slate-50 p-7 md:border-l md:border-t-0">
             <Link
               href="/owner/bookings/checked-in"
-              className="group inline-flex h-12 items-center justify-between gap-2 rounded-xl bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
+              className="group inline-flex h-12 items-center justify-between gap-2 rounded-md bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
             >
               See guests in house
               <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]">
@@ -486,7 +486,7 @@ export default function OwnerCheckoutPage() {
             </Link>
             <Link
               href="/owner/bookings/checked-out"
-              className="inline-flex h-12 items-center justify-between gap-2 rounded-xl border border-solid border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-100"
+              className="inline-flex h-12 items-center justify-between gap-2 rounded-md border border-solid border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-100"
             >
               Check-out history
               <ArrowRight className="h-4 w-4 text-slate-400" aria-hidden />
@@ -506,7 +506,7 @@ export default function OwnerCheckoutPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search guest, phone or property"
-                className="h-10 w-full rounded-xl border border-solid border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+                className="h-10 w-full rounded-md border border-solid border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
               />
             </label>
           </div>
@@ -530,12 +530,12 @@ export default function OwnerCheckoutPage() {
                 return (
                   <li
                     key={b.id}
-                    className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 rounded-2xl border border-solid border-slate-300/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] sm:p-5 lg:grid-cols-[auto_minmax(0,1fr)_auto] ${clock.bar}`}
+                    className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 rounded-lg border border-solid border-slate-300/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] sm:p-5 lg:grid-cols-[auto_minmax(0,1fr)_auto] ${clock.bar}`}
                   >
                     {/* Countdown */}
-                    <div className={`flex w-[92px] flex-col items-center justify-center rounded-xl px-2 py-2.5 text-center ${clock.box}`}>
+                    <div className={`flex w-[92px] flex-col items-center justify-center rounded-md px-2 py-2.5 text-center ${clock.box}`}>
                       <span className="text-lg font-bold leading-tight tabular-nums">{clock.big}</span>
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.1em] opacity-80">{clock.small}</span>
+                      <span className="text-[11px] font-semibold opacity-80">{clock.small}</span>
                     </div>
 
                     {/* Who and when */}
@@ -543,7 +543,7 @@ export default function OwnerCheckoutPage() {
                       <div className="flex min-w-0 items-center gap-2.5">
                         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-[11px] font-bold text-slate-700">{initials}</span>
                         <p className="m-0 truncate text-base font-bold text-slate-900">{name}</p>
-                        {overdue ? <span className="shrink-0 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-inset ring-rose-200">Overdue</span> : null}
+                        {overdue ? <span className="shrink-0 rounded-md bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-inset ring-rose-200">Overdue</span> : null}
                       </div>
                       <p className="m-0 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
                         <span className="inline-flex items-center gap-1"><BedDouble className="h-3.5 w-3.5 text-slate-400" aria-hidden />{b.property?.title ?? "Your property"}</span>
@@ -557,7 +557,7 @@ export default function OwnerCheckoutPage() {
                       <a
                         href={phone ? `tel:${phone}` : undefined}
                         aria-disabled={!phone}
-                        className={`inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid px-3 text-sm font-semibold no-underline transition ${phone ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "pointer-events-none border-slate-200 bg-slate-50 text-slate-300"}`}
+                        className={`inline-flex h-10 items-center gap-1.5 rounded-md border border-solid px-3 text-sm font-semibold no-underline transition ${phone ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "pointer-events-none border-slate-200 bg-slate-50 text-slate-300"}`}
                         title={phone ? "Call guest" : "No phone number"}
                       >
                         <PhoneCall className="h-4 w-4" aria-hidden /> Call
@@ -565,7 +565,7 @@ export default function OwnerCheckoutPage() {
                       <a
                         href={email ? `mailto:${email}` : undefined}
                         aria-disabled={!email}
-                        className={`grid h-10 w-10 place-items-center rounded-xl border border-solid no-underline transition ${email ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "pointer-events-none border-slate-200 bg-slate-50 text-slate-300"}`}
+                        className={`grid h-10 w-10 place-items-center rounded-md border border-solid no-underline transition ${email ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "pointer-events-none border-slate-200 bg-slate-50 text-slate-300"}`}
                         title={email ? "Email guest" : "No email"}
                         aria-label="Email guest"
                       >
@@ -574,7 +574,7 @@ export default function OwnerCheckoutPage() {
                       <button
                         type="button"
                         onClick={() => openAudit(b)}
-                        className="grid h-10 w-10 place-items-center rounded-xl border border-solid border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50"
+                        className="grid h-10 w-10 place-items-center rounded-md border border-solid border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50"
                         title="Audit history"
                         aria-label="Audit history"
                       >
@@ -583,7 +583,7 @@ export default function OwnerCheckoutPage() {
                       {b.property?.nrmsActivatedAt ? (
                         <Link
                           href="/owner/nrms"
-                          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#012a26] px-4 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
+                          className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#012a26] px-4 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
                           title="NRMS manages check-out for this property"
                         >
                           Check out in NRMS <ArrowRight className="h-4 w-4" aria-hidden />
@@ -592,7 +592,7 @@ export default function OwnerCheckoutPage() {
                         <button
                           type="button"
                           onClick={() => { setConfirmTarget(b); setConfirmOpen(true); setError(null); setRating(0); setFeedback(""); setAgreeToTerms(false); }}
-                          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-[#012a26] bg-[#012a26] px-4 text-sm font-bold text-white transition hover:bg-[#02665e]"
+                          className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-[#012a26] bg-[#012a26] px-4 text-sm font-bold text-white transition hover:bg-[#02665e]"
                         >
                           <CheckCircle2 className="h-4 w-4" aria-hidden /> Confirm check-out
                         </button>

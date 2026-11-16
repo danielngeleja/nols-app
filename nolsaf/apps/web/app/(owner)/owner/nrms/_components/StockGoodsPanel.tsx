@@ -130,7 +130,7 @@ export default function StockGoodsPanel({ propertyId }: { propertyId: number }) 
   const totalValue = (data?.items ?? []).reduce((sum, good) => sum + (good.stockValue ?? 0), 0);
 
   if (loading && !data) return <div className="flex min-h-[30vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>;
-  if (!data) return error ? <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-700">{error}</div> : null;
+  if (!data) return error ? <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-700">{error}</div> : null;
 
   const stats = [
     { icon: Package, label: "Goods tracked", value: String(activeGoods.length), tone: "text-brand" },
@@ -159,7 +159,7 @@ export default function StockGoodsPanel({ propertyId }: { propertyId: number }) 
         ))}
       </div>
 
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-700">{error}</div>}
 
       {data.canManageCatalog && data.legacy.length > 0 && (
         <div className={`${cardClass} flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5`}>
@@ -489,7 +489,7 @@ function HistoryModal({ propertyId, good, outlet, currency, canReverse, onClose,
                 <div className="min-w-0">
                   <p className="m-0 text-[15px] font-bold text-neutral-900">
                     {MOVEMENT_LABELS[row.type] ?? row.type}
-                    {row.reversed && <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-bold text-neutral-500">Reversed</span>}
+                    {row.reversed && <span className="ml-2 rounded-md bg-neutral-100 px-2 py-0.5 text-xs font-bold text-neutral-500">Reversed</span>}
                   </p>
                   <p className="m-0 mt-0.5 text-[13px] text-neutral-500">
                     {new Date(row.occurredAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}

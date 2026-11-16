@@ -154,18 +154,18 @@ export default function CheckedIn() {
     return (
       <div id="owner-inhouse" className={shell} aria-busy="true" aria-label="Loading checked-in guests">
         <style>{styles}</style>
-        <div className="rounded-3xl bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
+        <div className="rounded-lg bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="space-y-2.5">
             <div className="ih-sk-dark h-3 w-28 rounded-full" />
             <div className="ih-sk-dark h-8 w-48 rounded-lg" />
             <div className="ih-sk-dark h-3.5 w-64 rounded-full" />
           </div>
           <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => <div key={i} className="ih-sk-dark h-[76px] rounded-2xl" />)}
+            {[0, 1, 2, 3].map((i) => <div key={i} className="ih-sk-dark h-[76px] rounded-lg" />)}
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {[0, 1, 2].map((i) => <div key={i} className="ih-sk h-[220px] rounded-2xl" />)}
+          {[0, 1, 2].map((i) => <div key={i} className="ih-sk h-[220px] rounded-lg" />)}
         </div>
       </div>
     );
@@ -188,9 +188,9 @@ export default function CheckedIn() {
       {justCheckedIn && (
         <div
           role="status"
-          className="ih-banner flex items-start gap-3.5 rounded-2xl border border-solid border-emerald-200 bg-white p-4 shadow-[0_12px_32px_-24px_rgba(1,42,38,0.5)] sm:items-center sm:p-5"
+          className="ih-banner flex items-start gap-3.5 rounded-lg border border-solid border-emerald-200 bg-white p-4 shadow-[0_12px_32px_-24px_rgba(1,42,38,0.5)] sm:items-center sm:p-5"
         >
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200">
             <UserCheck className="h-5 w-5" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
@@ -209,7 +209,7 @@ export default function CheckedIn() {
           {payoutFlowOn !== null && (
             <Link
               href={payoutFlowOn ? "/owner/payouts/in-progress" : `/owner/invoices/new?booking=${encodeURIComponent(justCheckedIn)}`}
-              className="hidden shrink-0 items-center gap-1.5 rounded-xl bg-[#012a26] px-3.5 py-2 text-xs font-bold text-white no-underline transition hover:bg-[#02665e] sm:inline-flex"
+              className="hidden shrink-0 items-center gap-1.5 rounded-md bg-[#012a26] px-3.5 py-2 text-xs font-bold text-white no-underline transition hover:bg-[#02665e] sm:inline-flex"
             >
               {payoutFlowOn ? "See it in My Payouts" : "Create the invoice"} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
             </Link>
@@ -234,7 +234,7 @@ export default function CheckedIn() {
       )}
 
       {/* ── Header band ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -243,7 +243,7 @@ export default function CheckedIn() {
         <div className="relative px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
-              <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">
+              <p className="m-0 flex items-center gap-2 text-[11px] font-semibold text-[#9fd8cc]">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#5eead4] opacity-60" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-[#5eead4]" />
@@ -259,7 +259,7 @@ export default function CheckedIn() {
             </div>
             <Link
               href="/owner/bookings/validate"
-              className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-xl bg-[#5eead4] px-3.5 py-2 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1] sm:self-auto"
+              className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-[#5eead4] px-3.5 py-2 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1] sm:self-auto"
             >
               <ScanLine className="h-4 w-4" aria-hidden /> Check in a guest
             </Link>
@@ -275,11 +275,11 @@ export default function CheckedIn() {
                   type="button"
                   onClick={() => { setView(s.key); setPage(1); }}
                   aria-pressed={on}
-                  className={`min-w-0 rounded-2xl border border-solid px-4 py-3 text-left text-white transition ${
+                  className={`min-w-0 rounded-lg border border-solid px-4 py-3 text-left text-white transition ${
                     on ? "border-[#5eead4] bg-[#5eead4]/10" : alert ? "border-amber-300/40 bg-amber-300/[0.07] hover:bg-amber-300/10" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.07]"
                   }`}
                 >
-                  <span className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${alert ? "text-amber-200" : "text-white/50"}`}>
+                  <span className={`flex items-center gap-1.5 text-[11px] font-semibold ${alert ? "text-amber-200" : "text-white/50"}`}>
                     <s.Icon className={`h-3.5 w-3.5 ${alert ? "text-amber-300" : "text-[#5eead4]"}`} aria-hidden />
                     <span className="truncate">{s.label}</span>
                   </span>
@@ -293,9 +293,9 @@ export default function CheckedIn() {
 
       {list.length === 0 ? (
         /* ── Empty: point to what the owner can do next ── */
-        <section className="grid overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)] md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <section className="grid overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)] md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="p-7">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+            <span className="grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-400">
               <BedDouble className="h-6 w-6" aria-hidden />
             </span>
             <p className="m-0 mt-4 text-lg font-bold text-slate-900">No one is in house right now</p>
@@ -306,7 +306,7 @@ export default function CheckedIn() {
           <div className="flex flex-col justify-center gap-2.5 border-0 border-t border-solid border-slate-200 bg-slate-50 p-7 md:border-l md:border-t-0">
             <Link
               href="/owner/bookings/validate"
-              className="group inline-flex h-12 items-center justify-between gap-2 rounded-xl bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
+              className="group inline-flex h-12 items-center justify-between gap-2 rounded-md bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
             >
               Check in an arriving guest
               <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]">
@@ -315,7 +315,7 @@ export default function CheckedIn() {
             </Link>
             <Link
               href="/owner/bookings?tab=waiting"
-              className="inline-flex h-12 items-center justify-between gap-2 rounded-xl border border-solid border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-100"
+              className="inline-flex h-12 items-center justify-between gap-2 rounded-md border border-solid border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-100"
             >
               See who is arriving
               <ArrowRight className="h-4 w-4 text-slate-400" aria-hidden />
@@ -347,7 +347,7 @@ export default function CheckedIn() {
           </div>
 
           {filtered.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500">
               No guests in this view.{" "}
               <button type="button" onClick={() => setView("all")} className="border-0 bg-transparent p-0 font-semibold text-[#02665e] underline">
                 Show everyone in house
@@ -361,7 +361,7 @@ export default function CheckedIn() {
 
           {/* ── Pagination ── */}
           {filtered.length > 0 && (
-            <div className="flex flex-col gap-3 rounded-2xl border border-solid border-slate-300/80 bg-white px-4 py-3 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="flex flex-col gap-3 rounded-lg border border-solid border-slate-300/80 bg-white px-4 py-3 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div className="flex items-center gap-3">
                 <span>
                   Showing <span className="font-semibold tabular-nums text-slate-900">{(safePage - 1) * pageSize + 1}</span> to{" "}
@@ -452,10 +452,10 @@ function GuestCard({ b, now, kind }: { b: CheckedInBooking; now: number; kind: s
     <li>
       <Link
         href={`/owner/bookings/checked-in/${encodeURIComponent(b.bookingReference)}`}
-        className="group flex h-full flex-col rounded-2xl border border-solid border-slate-300/80 bg-white p-5 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_18px_40px_-24px_rgba(1,42,38,0.45)]"
+        className="group flex h-full flex-col rounded-lg border border-solid border-slate-300/80 bg-white p-5 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_18px_40px_-24px_rgba(1,42,38,0.45)]"
       >
         <div className="flex items-start gap-3">
-          <span className="relative grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#02665e] to-[#012a26] text-base font-bold text-white">
+          <span className="relative grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[#02665e] to-[#012a26] text-base font-bold text-white">
             {initials}
             <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-solid border-white bg-[#5eead4]" aria-hidden />
           </span>
@@ -467,7 +467,7 @@ function GuestCard({ b, now, kind }: { b: CheckedInBooking; now: number; kind: s
               {b.roomType ? ` · ${b.roomType}` : ""}
             </p>
           </div>
-          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${leave.cls}`}>{leave.text}</span>
+          <span className={`shrink-0 rounded-md px-2.5 py-1 text-[10px] font-bold ${leave.cls}`}>{leave.text}</span>
         </div>
 
         <div className="mt-4">
@@ -491,7 +491,7 @@ function GuestCard({ b, now, kind }: { b: CheckedInBooking; now: number; kind: s
             {validatedAt ? <p className="m-0">Checked in {fmtTime(validatedAt)}</p> : null}
           </div>
           <div className="shrink-0 text-right">
-            <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Your amount</p>
+            <p className="m-0 text-[11px] font-semibold text-slate-400">Your amount</p>
             <p className="m-0 text-base font-bold tabular-nums text-slate-900">{fmtTzs(amountFor(b))}</p>
           </div>
         </div>

@@ -381,10 +381,10 @@ export default function NrmsStaffPage() {
   ];
 
   return <div className="mx-auto w-full min-w-0 max-w-[1440px] space-y-4 px-1 pb-8 sm:px-0">
-    <section className="min-w-0 overflow-hidden rounded-2xl bg-white shadow-[0_18px_45px_-36px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
+    <section className="min-w-0 overflow-hidden rounded-lg bg-white shadow-[0_18px_45px_-36px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[linear-gradient(135deg,#ffffff_0%,#f2faf7_100%)] px-4 py-3 shadow-[inset_0_-1px_0_0_#e5e7eb] sm:px-5">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100">
             <UsersRound className="h-4 w-4" />
           </span>
           <div className="min-w-0">
@@ -392,7 +392,7 @@ export default function NrmsStaffPage() {
             <p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">Invite by email, they confirm, access activates.</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50/70 px-2.5 py-1 ring-1 ring-emerald-100">
+        <div className="flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50/70 px-2.5 py-1 ring-1 ring-emerald-100">
           <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
           <span className="text-xs font-bold text-emerald-800">{activeCount} active</span>
           <span className="text-xs font-medium text-emerald-700/60">of {staff.length}</span>
@@ -417,14 +417,14 @@ export default function NrmsStaffPage() {
       </form>
     </section>
 
-    {error && <div className="flex gap-2 rounded-xl bg-red-50 px-3.5 py-2.5 text-xs text-red-700 ring-1 ring-red-200"><AlertTriangle className="mt-px h-4 w-4 shrink-0" />{error}</div>}
+    {error && <div className="flex gap-2 rounded-md bg-red-50 px-3.5 py-2.5 text-xs text-red-700 ring-1 ring-red-200"><AlertTriangle className="mt-px h-4 w-4 shrink-0" />{error}</div>}
 
     {/* No account yet. Previously this was a dead end that told the owner to go
         and arrange registration somewhere else. A staff member holds an
         ordinary traveller account, so the sign-up link is the same one anyone
         uses, with their address filled in. */}
     {needsAccountFor && (
-      <div className="min-w-0 rounded-xl bg-sky-50 px-3.5 py-3 ring-1 ring-sky-200">
+      <div className="min-w-0 rounded-md bg-sky-50 px-3.5 py-3 ring-1 ring-sky-200">
         <div className="flex min-w-0 items-start gap-2">
           <UserPlus className="mt-px h-4 w-4 shrink-0 text-sky-700" />
           <div className="min-w-0">
@@ -492,13 +492,13 @@ export default function NrmsStaffPage() {
         </p>
       </div>
     )}
-    {notice && <div className="flex gap-2 rounded-xl bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800 ring-1 ring-emerald-200"><ShieldCheck className="mt-px h-4 w-4 shrink-0" />{notice}</div>}
+    {notice && <div className="flex gap-2 rounded-md bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800 ring-1 ring-emerald-200"><ShieldCheck className="mt-px h-4 w-4 shrink-0" />{notice}</div>}
 
     {/* Access review. A prompt to look at the roster, built from what the API
         already knows. It records no attestation: "someone confirmed this list
         on a date" would need a column that does not exist yet. */}
     {review && (review.expiredInvites > 0 || review.dormant > 0) && (
-      <div className="flex flex-wrap items-start gap-2 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
+      <div className="flex flex-wrap items-start gap-2 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
         <ClipboardCheck className="mt-px h-4 w-4 shrink-0 text-amber-700" />
         <div className="min-w-0">
           <p className="m-0 font-bold">This team list needs a look</p>
@@ -559,7 +559,7 @@ export default function NrmsStaffPage() {
             // person stranded at one edge and the controls at the other on a
             // wide screen; status and the action now travel together as one
             // right-hand cluster.
-            <li key={membership.id} className={`grid min-w-0 grid-cols-2 items-center gap-x-5 gap-y-2.5 px-4 py-3.5 transition hover:bg-neutral-50/70 ${view === "cards" ? "rounded-xl border border-neutral-200 bg-white shadow-sm" : `sm:grid-cols-[minmax(0,1fr)_11rem_8rem_10.5rem] sm:px-5 ${index > 0 ? "shadow-[inset_0_1px_0_0_#eef2f6]" : ""}`}`}>
+            <li key={membership.id} className={`grid min-w-0 grid-cols-2 items-center gap-x-5 gap-y-2.5 px-4 py-3.5 transition hover:bg-neutral-50/70 ${view === "cards" ? "rounded-md border border-neutral-200 bg-white shadow-sm" : `sm:grid-cols-[minmax(0,1fr)_11rem_8rem_10.5rem] sm:px-5 ${index > 0 ? "shadow-[inset_0_1px_0_0_#eef2f6]" : ""}`}`}>
               <div className="col-span-2 flex min-w-0 items-center gap-3 sm:col-span-1">
                 <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold ${status.avatar}`} aria-hidden="true">{initialsOf(displayName)}</span>
                 <div className="min-w-0">
@@ -593,7 +593,7 @@ export default function NrmsStaffPage() {
               </div>
 
               <div className="min-w-0">
-                <span className={`inline-flex w-fit max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${status.chip}`}>
+                <span className={`inline-flex w-fit max-w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-bold ${status.chip}`}>
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dot}`} aria-hidden="true" />
                   <span className="truncate">{status.label}</span>
                 </span>
@@ -658,9 +658,9 @@ export default function NrmsStaffPage() {
 
     {revokeTarget && <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
       <button type="button" aria-label="Cancel revoke" className="absolute inset-0 border-0 bg-neutral-950/45 backdrop-blur-sm" onClick={() => { if (!revokingId) setRevokeTarget(null); }} />
-      <div className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200">
+      <div className="relative w-full max-w-sm overflow-hidden rounded-lg bg-white shadow-xl ring-1 ring-neutral-200">
         <div className="flex items-start gap-3 px-5 py-4 shadow-[inset_0_-1px_0_0_#f1f5f9]">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600"><UserX className="h-4 w-4" /></span>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-600"><UserX className="h-4 w-4" /></span>
           <div className="min-w-0">
             <h3 className="m-0 text-sm font-bold text-neutral-950">Revoke access</h3>
             <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">
@@ -672,19 +672,19 @@ export default function NrmsStaffPage() {
         <div className="space-y-3 px-5 py-4">
           <label className="block text-[10px] font-bold uppercase tracking-wide text-neutral-500">
             Reason
-            <select value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} className="mt-1.5 box-border !h-10 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none transition focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-500/10">
+            <select value={revokeReason} onChange={(event) => setRevokeReason(event.target.value)} className="mt-1.5 box-border !h-10 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none transition focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-500/10">
               {REVOKE_REASONS.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
           {revokeReason === "Other" && <label className="block text-[10px] font-bold uppercase tracking-wide text-neutral-500">
             Details
-            <input type="text" value={revokeNote} onChange={(event) => setRevokeNote(event.target.value)} maxLength={300} placeholder="Short reason" className="mt-1.5 box-border !h-10 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-500/10" />
+            <input type="text" value={revokeNote} onChange={(event) => setRevokeNote(event.target.value)} maxLength={300} placeholder="Short reason" className="mt-1.5 box-border !h-10 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-500/10" />
           </label>}
           <p className="m-0 text-[10px] text-neutral-400">You can re-assign them later; they would receive a new invitation to confirm.</p>
         </div>
         <div className="flex flex-wrap justify-end gap-2 bg-neutral-50/70 px-5 py-3 shadow-[inset_0_1px_0_0_#f1f5f9]">
-          <button type="button" onClick={() => setRevokeTarget(null)} disabled={revokingId !== null} className="inline-flex h-9 items-center rounded-xl border border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-600 transition hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
-          <button type="button" onClick={() => void confirmRevoke()} disabled={revokingId !== null || (revokeReason === "Other" && revokeNote.trim().length < 3)} className="inline-flex h-9 items-center gap-1.5 rounded-xl border-0 bg-red-600 px-3.5 text-xs font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">
+          <button type="button" onClick={() => setRevokeTarget(null)} disabled={revokingId !== null} className="inline-flex h-9 items-center rounded-md border border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-600 transition hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={() => void confirmRevoke()} disabled={revokingId !== null || (revokeReason === "Other" && revokeNote.trim().length < 3)} className="inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-red-600 px-3.5 text-xs font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">
             {revokingId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}Revoke access
           </button>
         </div>

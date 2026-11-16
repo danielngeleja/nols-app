@@ -96,7 +96,7 @@ export default function PayoutsHistoryPage() {
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+    <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
       <div className="flex flex-col gap-2 border-0 border-b border-solid border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
         {/* One row of short filters; scrolls sideways on narrow screens instead of wrapping. */}
         <div className="-mx-1 flex min-w-0 gap-2 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -153,7 +153,7 @@ export default function PayoutsHistoryPage() {
                   <th
                     key={head || "action"}
                     scope="col"
-                    className={`px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 ${i === 4 ? "text-right" : "text-left"}`}
+                    className={`px-5 py-2.5 text-[11px] font-semibold text-slate-500 ${i === 4 ? "text-right" : "text-left"}`}
                   >
                     {head || <span className="sr-only">Document</span>}
                   </th>
@@ -166,7 +166,7 @@ export default function PayoutsHistoryPage() {
                 return (
                   <tr key={r.key} className="border-0 border-b border-solid border-slate-100 last:border-b-0 hover:bg-slate-50/60">
                     <td className="px-5 py-3 align-middle">
-                      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${meta.chip}`}>
+                      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-0.5 text-[11px] font-semibold ${meta.chip}`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden />
                         {r.stage === "SETTLED" ? "Settled" : meta.label}
                       </span>
@@ -174,7 +174,7 @@ export default function PayoutsHistoryPage() {
                     <td className="px-5 py-3 align-middle">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate font-semibold text-slate-900">{r.title}</span>
-                        {r.older && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">Older claim</span>}
+                        {r.older && <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">Older claim</span>}
                       </div>
                     </td>
                     <td className="truncate px-5 py-3 align-middle font-mono text-xs text-slate-500">{r.detail}</td>
@@ -204,11 +204,11 @@ export default function PayoutsHistoryPage() {
               <li key={r.key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 px-4 py-3.5">
                 <div className="min-w-0 space-y-1">
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.chip}`}>
+                    <span className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ${meta.chip}`}>
                       <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden />
                       {r.stage === "SETTLED" ? "Settled" : meta.label}
                     </span>
-                    {r.older && <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">Older</span>}
+                    {r.older && <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">Older</span>}
                   </div>
                   <p className="m-0 truncate text-sm font-semibold text-slate-900">{r.title}</p>
                   <p className="m-0 truncate font-mono text-[11px] text-slate-500">{r.detail}</p>

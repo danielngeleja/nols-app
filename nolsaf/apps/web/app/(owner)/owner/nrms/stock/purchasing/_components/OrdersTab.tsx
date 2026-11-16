@@ -49,7 +49,7 @@ export default function OrdersTab({ propertyId, currency, summary, refreshKey, i
           <button type="button" onClick={onNew} className={primaryButton}><ShoppingCart className="h-4 w-4" />New order</button>
         </div>
       )}
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       <div className={`${cardClass} overflow-hidden`}>
         {!rows ? (

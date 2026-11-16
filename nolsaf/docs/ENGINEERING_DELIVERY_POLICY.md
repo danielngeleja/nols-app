@@ -178,6 +178,9 @@ For every production-bound Prisma change:
 6. Require checksum agreement, migration status, and zero physical diff.
 7. Run functional tests only on staging or the clone, never production.
 8. Record results and delete only the explicitly named disposable clone.
+9. Before closing the release, run `scripts/aws-production.ps1 status` and
+   confirm its "Leftover databases" section reports none. A clone left running
+   bills by the hour.
 
 A clone mismatch is a staging issue. Create another forward migration and repeat
 qualification; never edit an applied migration or manufacture migration history.

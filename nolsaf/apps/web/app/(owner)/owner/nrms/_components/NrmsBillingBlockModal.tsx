@@ -49,15 +49,15 @@ export default function NrmsBillingBlockModal({
     <ModalFrame title={title} subtitle={subtitle} icon={<WalletCards className="h-5 w-5" />} elevated onClose={onClose}>
       <div role="alert">
         <div className="flex items-start gap-3">
-          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${tone.icon}`}><tone.Icon className="h-4 w-4" /></span>
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md ${tone.icon}`}><tone.Icon className="h-4 w-4" /></span>
           <div className="min-w-0 pt-0.5">
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-medium ring-1 ring-inset ${tone.chip}`}>{chipLabel}</span>
+            <span className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-medium ring-1 ring-inset ${tone.chip}`}>{chipLabel}</span>
             <h4 className="mb-0 mt-2.5 text-base font-semibold tracking-tight text-neutral-950">{block.title}</h4>
             <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">{block.detail}</p>
           </div>
         </div>
 
-        <div className="relative mt-5 overflow-hidden rounded-2xl bg-[#10251f] px-4 py-4 text-white shadow-[0_18px_42px_-28px_rgba(6,38,31,0.9)]">
+        <div className="relative mt-5 overflow-hidden rounded-lg bg-[#10251f] px-4 py-4 text-white shadow-[0_18px_42px_-28px_rgba(6,38,31,0.9)]">
           <span className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-emerald-400/10 blur-2xl" aria-hidden="true" />
           <div className="relative flex items-end justify-between gap-4">
             <div>
@@ -70,7 +70,7 @@ export default function NrmsBillingBlockModal({
           <div className="relative mt-3 flex items-center justify-between gap-3 text-[10px] text-emerald-100/50"><span>NRMS room-night usage</span>{block.limit > 0 && <span className="tabular-nums">{Math.round((block.outstanding / block.limit) * 100)}% of limit</span>}</div>
         </div>
 
-        <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-neutral-50 px-3.5 py-3 ring-1 ring-inset ring-neutral-100">
+        <div className="mt-4 flex items-start gap-2.5 rounded-md bg-neutral-50 px-3.5 py-3 ring-1 ring-inset ring-neutral-100">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
           <div>
             <p className="m-0 text-xs font-medium text-neutral-800">{canManageBilling ? "Your current operation stays open" : "Property owner action required"}</p>
@@ -82,15 +82,15 @@ export default function NrmsBillingBlockModal({
 
         {canManageBilling ? (
           <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
-            <Link href={actionHref} className="group inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-xs font-semibold text-white no-underline shadow-sm transition hover:-translate-y-px hover:bg-emerald-800 hover:shadow-md">
+            <Link href={actionHref} className="group inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-xs font-semibold text-white no-underline shadow-sm transition hover:-translate-y-px hover:bg-emerald-800 hover:shadow-md">
               <WalletCards className="h-4 w-4" />{actionLabel}<ArrowRight className="h-3.5 w-3.5 opacity-60 transition-transform group-hover:translate-x-0.5" />
             </Link>
-            <Link href="/owner/nrms/billing#statements" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 text-xs font-medium text-neutral-600 no-underline transition hover:bg-neutral-50 hover:text-neutral-900">
+            <Link href="/owner/nrms/billing#statements" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-neutral-200 bg-white px-4 text-xs font-medium text-neutral-600 no-underline transition hover:bg-neutral-50 hover:text-neutral-900">
               <ReceiptText className="h-4 w-4" />View statement
             </Link>
           </div>
         ) : (
-          <button type="button" onClick={onClose} className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-neutral-200 bg-white px-4 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 hover:text-neutral-950">
+          <button type="button" onClick={onClose} className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-neutral-200 bg-white px-4 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 hover:text-neutral-950">
             Close
           </button>
         )}

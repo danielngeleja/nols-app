@@ -175,20 +175,20 @@ export default function OwnerCheckedOutPage() {
     return (
       <div id="owner-history" className={shell} aria-busy="true" aria-label="Loading check-out history">
         <style>{styles}</style>
-        <div className="rounded-3xl bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
+        <div className="rounded-lg bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="space-y-2.5">
             <div className="oh-sk-dark h-3 w-24 rounded-full" />
             <div className="oh-sk-dark h-8 w-56 rounded-lg" />
             <div className="oh-sk-dark h-3.5 w-72 rounded-full" />
           </div>
           <div className="mt-6 grid grid-cols-3 gap-3">
-            {[0, 1, 2].map((i) => <div key={i} className="oh-sk-dark h-[76px] rounded-2xl" />)}
+            {[0, 1, 2].map((i) => <div key={i} className="oh-sk-dark h-[76px] rounded-lg" />)}
           </div>
         </div>
-        <div className="overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white">
+        <div className="overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white">
           {[0, 1, 2, 3, 4].map((i) => (
             <div key={i} className="flex items-center gap-4 border-0 border-b border-solid border-slate-200 px-5 py-4 last:border-b-0">
-              <div className="oh-sk h-12 w-12 shrink-0 rounded-xl" />
+              <div className="oh-sk h-12 w-12 shrink-0 rounded-md" />
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="oh-sk h-3.5 w-48 max-w-full rounded-full" />
                 <div className="oh-sk h-3 w-32 rounded-full" />
@@ -214,10 +214,10 @@ export default function OwnerCheckedOutPage() {
       {/* Audit dialog */}
       {auditOpen && auditTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/10">
+          <div className="w-full max-w-lg overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-black/10">
             <div className="flex items-start justify-between gap-3 bg-[#012a26] px-5 py-4 text-white">
               <div className="min-w-0">
-                <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9fd8cc]">Stay record</p>
+                <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Stay record</p>
                 <p className="m-0 mt-0.5 truncate text-base font-bold">{auditTarget.guestName ?? "Guest"}</p>
                 <p className="m-0 truncate text-xs text-white/60">{auditTarget.property?.title ?? ""}</p>
               </div>
@@ -274,7 +274,7 @@ export default function OwnerCheckedOutPage() {
       ) : null}
 
       {/* ── Header band ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -283,7 +283,7 @@ export default function OwnerCheckedOutPage() {
         <div className="relative px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Front desk</p>
+              <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Front desk</p>
               <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Check-out history</h1>
               <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">
                 {stats.total > 0
@@ -296,13 +296,13 @@ export default function OwnerCheckedOutPage() {
                 type="button"
                 onClick={() => load({ silent: true })}
                 disabled={refreshing}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
               >
                 <RotateCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden /> Refresh
               </button>
               <Link
                 href="/owner/bookings/check-out"
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-3.5 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1]"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#5eead4] px-3.5 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1]"
               >
                 <DoorOpen className="h-4 w-4" aria-hidden /> Departures
               </Link>
@@ -318,9 +318,9 @@ export default function OwnerCheckedOutPage() {
                   type="button"
                   onClick={() => { setRange(r.key); setPage(1); }}
                   aria-pressed={on}
-                  className={`min-w-0 rounded-2xl border border-solid px-4 py-3 text-left text-white transition ${on ? "border-[#5eead4] bg-[#5eead4]/10" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.07]"}`}
+                  className={`min-w-0 rounded-lg border border-solid px-4 py-3 text-left text-white transition ${on ? "border-[#5eead4] bg-[#5eead4]/10" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.07]"}`}
                 >
-                  <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">{r.label}</span>
+                  <span className="block truncate text-[11px] font-semibold text-white/55">{r.label}</span>
                   <span className={`mt-1 block text-2xl font-bold tabular-nums ${r.value > 0 ? "text-white" : "text-white/35"}`}>{r.value}</span>
                 </button>
               );
@@ -329,10 +329,10 @@ export default function OwnerCheckedOutPage() {
         </div>
       </header>
 
-      {error ? <div className="rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : null}
+      {error ? <div className="rounded-lg border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : null}
 
       {/* ── List ── */}
-      <section className={`overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)] transition-opacity ${refreshing ? "opacity-60" : ""}`}>
+      <section className={`overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)] transition-opacity ${refreshing ? "opacity-60" : ""}`}>
         <div className="flex flex-col gap-2.5 border-0 border-b border-solid border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <p className="m-0 text-xs text-slate-600">
             <span className="font-bold text-slate-900">{filtered.length}</span> {filtered.length === 1 ? "stay" : "stays"}, most recent first
@@ -351,7 +351,7 @@ export default function OwnerCheckedOutPage() {
 
         {filtered.length === 0 ? (
           <div className="px-6 py-14 text-center">
-            <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-400">
               <History className="h-6 w-6" aria-hidden />
             </span>
             <p className="m-0 mt-3 text-sm font-semibold text-slate-800">{list.length === 0 ? "No finished stays yet" : "Nothing matches"}</p>
@@ -376,15 +376,15 @@ export default function OwnerCheckedOutPage() {
                   <li key={b.id}>
                     {startsMonth && (
                       <div className="flex items-center gap-2 border-0 border-b border-solid border-slate-200 bg-slate-50/80 px-5 py-2">
-                        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-600">{month}</span>
-                        <span className="rounded-full bg-white px-1.5 py-px text-[10px] font-semibold tabular-nums text-slate-500 ring-1 ring-inset ring-slate-200">
+                        <span className="text-[11px] font-bold text-slate-600">{month}</span>
+                        <span className="rounded-md bg-white px-1.5 py-px text-[10px] font-semibold tabular-nums text-slate-500 ring-1 ring-inset ring-slate-200">
                           {filtered.filter((x) => monthLabel(x.checkOut) === month).length}
                         </span>
                       </div>
                     )}
                     <div className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 border-0 border-b border-solid border-slate-200 px-4 py-3.5 transition-colors hover:bg-[#f2f9f7] sm:px-5 md:grid-cols-[auto_minmax(0,1.4fr)_minmax(0,1fr)_auto_auto]">
                       {/* Check-out day */}
-                      <span className="flex w-12 shrink-0 flex-col overflow-hidden rounded-xl bg-white text-center shadow-[0_6px_14px_-10px_rgba(15,23,42,0.5)] ring-1 ring-slate-200">
+                      <span className="flex w-12 shrink-0 flex-col overflow-hidden rounded-md bg-white text-center shadow-[0_6px_14px_-10px_rgba(15,23,42,0.5)] ring-1 ring-slate-200">
                         <span className="bg-slate-700 py-0.5 text-[9px] font-bold tracking-[0.14em] text-white">
                           {out ? out.toLocaleDateString("en-GB", { timeZone: TZ, month: "short" }).toUpperCase() : ""}
                         </span>
@@ -412,7 +412,7 @@ export default function OwnerCheckedOutPage() {
                           {fmtDay(b.checkIn)} <ArrowRight className="h-3.5 w-3.5 text-slate-300" aria-hidden /> {fmtDay(b.checkOut)}
                           {nights ? <span className="ml-1 rounded-md bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-600">{nights} {nights === 1 ? "night" : "nights"}</span> : null}
                         </p>
-                        <span title={t.title} className={`mt-1.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${t.cls}`}>{t.text}</span>
+                        <span title={t.title} className={`mt-1.5 inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${t.cls}`}>{t.text}</span>
                       </div>
 
                       <span className="hidden whitespace-nowrap text-right text-[15px] font-bold tabular-nums text-slate-900 md:block">{fmtTzs(amountOf(b))}</span>
@@ -428,7 +428,7 @@ export default function OwnerCheckedOutPage() {
 
                       {/* Phones: the stay and amount under the name */}
                       <div className="col-span-3 -mt-1 flex items-center justify-between gap-2 pl-[62px] md:hidden">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${t.cls}`}>{t.text}</span>
+                        <span className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset ${t.cls}`}>{t.text}</span>
                         <span className="text-sm font-bold tabular-nums text-slate-900">{fmtTzs(amountOf(b))}</span>
                       </div>
                     </div>

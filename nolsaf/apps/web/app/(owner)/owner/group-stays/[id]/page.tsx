@@ -242,8 +242,8 @@ export default function GroupStayDetail() {
   if (loading) {
     return (
       <div className={shell} aria-busy="true" aria-label="Loading group stay">
-        <div className="h-52 rounded-3xl bg-[#012a26]" />
-        <div className="grid gap-5 md:grid-cols-2">{[0, 1].map((i) => <div key={i} className="h-48 rounded-2xl border border-solid border-slate-200 bg-white" />)}</div>
+        <div className="h-52 rounded-lg bg-[#012a26]" />
+        <div className="grid gap-5 md:grid-cols-2">{[0, 1].map((i) => <div key={i} className="h-48 rounded-lg border border-solid border-slate-200 bg-white" />)}</div>
       </div>
     );
   }
@@ -251,11 +251,11 @@ export default function GroupStayDetail() {
   if (error || !groupStay) {
     return (
       <div className={shell}>
-        <div className="flex flex-col items-center rounded-3xl border border-solid border-slate-200 bg-white px-6 py-12 text-center">
-          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-rose-50 text-rose-600"><CircleAlert className="h-6 w-6" /></span>
+        <div className="flex flex-col items-center rounded-lg border border-solid border-slate-200 bg-white px-6 py-12 text-center">
+          <span className="grid h-12 w-12 place-items-center rounded-lg bg-rose-50 text-rose-600"><CircleAlert className="h-6 w-6" /></span>
           <p className="m-0 mt-3 text-base font-bold text-slate-900">This group stay could not be opened</p>
           <p className="m-0 mt-1 max-w-md text-sm text-slate-500">{error || "It does not exist or is not assigned to you."}</p>
-          <Link href="/owner/group-stays" className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#02665e] px-4 text-sm font-bold text-white no-underline hover:bg-[#014d47]">
+          <Link href="/owner/group-stays" className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-md bg-[#02665e] px-4 text-sm font-bold text-white no-underline hover:bg-[#014d47]">
             <ArrowLeft className="h-4 w-4" /> Assigned to me
           </Link>
         </div>
@@ -320,7 +320,7 @@ export default function GroupStayDetail() {
     }
   };
 
-  const card = "rounded-2xl border border-solid border-slate-200 bg-white";
+  const card = "rounded-lg border border-solid border-slate-200 bg-white";
   const isCompleted = status === "COMPLETED";
   const isCancelled = status === "CANCELED" || status === "CANCELLED";
 
@@ -474,22 +474,22 @@ export default function GroupStayDetail() {
 
   const rail = (
     <aside className="min-w-0 space-y-4 lg:sticky lg:top-24">
-      <section className={`rounded-2xl p-5 ring-1 ring-inset ${next.tone}`}>
+      <section className={`rounded-lg p-5 ring-1 ring-inset ${next.tone}`}>
         <div className="flex items-start gap-3">
           <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-white ${next.icon}`}><next.Icon className="h-4 w-4" aria-hidden /></span>
           <div className="min-w-0">
-            <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">Next step</p>
+            <p className="m-0 text-[11px] font-bold text-slate-500">Next step</p>
             <p className="m-0 mt-0.5 text-base font-bold text-slate-900">{next.title}</p>
             <p className="m-0 mt-1 text-xs leading-5 text-slate-600">{next.body}</p>
           </div>
         </div>
         {isConfirmed && !isCheckedIn && (
-          <button type="button" onClick={handleCheckIn} disabled={checkingIn} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border-0 bg-[#02665e] text-sm font-bold text-white hover:bg-[#014d47] disabled:opacity-60">
+          <button type="button" onClick={handleCheckIn} disabled={checkingIn} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md border-0 bg-[#02665e] text-sm font-bold text-white hover:bg-[#014d47] disabled:opacity-60">
             <UserCheck className="h-4 w-4" aria-hidden /> {checkingIn ? "Recording..." : "Mark group checked in"}
           </button>
         )}
         {(isConfirmed || isCheckedIn) && prepaid ? (
-          <p className="m-0 mt-3 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
+          <p className="m-0 mt-3 flex items-center gap-2 rounded-md bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
             <Wallet className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />
             {ownerPayoutPaid ? (
               <>NoLSAF paid you <strong className="tabular-nums text-slate-900">{nolsafPaysText}</strong>{groupStay.ownerPayoutPaidAt ? ` on ${formatDate(groupStay.ownerPayoutPaidAt)}` : ""}</>
@@ -498,7 +498,7 @@ export default function GroupStayDetail() {
             )}
           </p>
         ) : (isConfirmed || isCheckedIn) && ownerCollectsText ? (
-          <p className="m-0 mt-3 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
+          <p className="m-0 mt-3 flex items-center gap-2 rounded-md bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
             <Wallet className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />
             You collect <strong className="tabular-nums text-slate-900">{ownerCollectsText}</strong> at the property
           </p>
@@ -529,14 +529,14 @@ export default function GroupStayDetail() {
       <section className={`${card} p-5`}>
         <p className="m-0 text-sm font-bold text-slate-900">Reach {guestFirstName || "the guest"}</p>
         <div className="mt-3 grid grid-cols-3 gap-2">
-          <a href={groupStay.user?.phone ? `tel:${groupStay.user.phone}` : undefined} aria-disabled={!groupStay.user?.phone} className={`flex flex-col items-center gap-1 rounded-xl px-2 py-3 text-xs font-semibold no-underline ring-1 ring-inset ${groupStay.user?.phone ? "bg-white text-slate-800 ring-slate-200 hover:bg-emerald-50" : "pointer-events-none bg-slate-50 text-slate-300 ring-slate-100"}`}><Phone className="h-4 w-4" aria-hidden />Call</a>
-          <a href={groupStay.user?.email ? `mailto:${groupStay.user.email}` : undefined} aria-disabled={!groupStay.user?.email} className={`flex flex-col items-center gap-1 rounded-xl px-2 py-3 text-xs font-semibold no-underline ring-1 ring-inset ${groupStay.user?.email ? "bg-white text-slate-800 ring-slate-200 hover:bg-emerald-50" : "pointer-events-none bg-slate-50 text-slate-300 ring-slate-100"}`}><Mail className="h-4 w-4" aria-hidden />Email</a>
-          <button type="button" onClick={goToMessaging} className="flex flex-col items-center gap-1 rounded-xl border-0 bg-[#012a26] px-2 py-3 text-xs font-semibold text-[#5eead4] hover:bg-[#033a34]"><MessageSquare className="h-4 w-4" aria-hidden />Message</button>
+          <a href={groupStay.user?.phone ? `tel:${groupStay.user.phone}` : undefined} aria-disabled={!groupStay.user?.phone} className={`flex flex-col items-center gap-1 rounded-md px-2 py-3 text-xs font-semibold no-underline ring-1 ring-inset ${groupStay.user?.phone ? "bg-white text-slate-800 ring-slate-200 hover:bg-emerald-50" : "pointer-events-none bg-slate-50 text-slate-300 ring-slate-100"}`}><Phone className="h-4 w-4" aria-hidden />Call</a>
+          <a href={groupStay.user?.email ? `mailto:${groupStay.user.email}` : undefined} aria-disabled={!groupStay.user?.email} className={`flex flex-col items-center gap-1 rounded-md px-2 py-3 text-xs font-semibold no-underline ring-1 ring-inset ${groupStay.user?.email ? "bg-white text-slate-800 ring-slate-200 hover:bg-emerald-50" : "pointer-events-none bg-slate-50 text-slate-300 ring-slate-100"}`}><Mail className="h-4 w-4" aria-hidden />Email</a>
+          <button type="button" onClick={goToMessaging} className="flex flex-col items-center gap-1 rounded-md border-0 bg-[#012a26] px-2 py-3 text-xs font-semibold text-[#5eead4] hover:bg-[#033a34]"><MessageSquare className="h-4 w-4" aria-hidden />Message</button>
         </div>
         {groupStay.user?.phone ? <p className="m-0 mt-3 truncate text-xs text-slate-500">{groupStay.user.phone}{groupStay.user.email ? ` · ${groupStay.user.email}` : ""}</p> : null}
       </section>
 
-      <button type="button" onClick={() => setShowPolicyModal(true)} className="flex w-full items-center gap-3 rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-50">
+      <button type="button" onClick={() => setShowPolicyModal(true)} className="flex w-full items-center gap-3 rounded-lg border border-solid border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-50">
         <ShieldCheck className="h-5 w-5 shrink-0 text-[#02665e]" aria-hidden />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-slate-900">Hosting policy</span>
@@ -559,25 +559,25 @@ export default function GroupStayDetail() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         <div className="min-w-0 space-y-5">
           {/* The stay pass */}
-          <article className="flex flex-col overflow-hidden rounded-3xl bg-white shadow-[0_24px_60px_-40px_rgba(1,42,38,0.7)] ring-1 ring-slate-200 md:flex-row">
+          <article className="flex flex-col overflow-hidden rounded-lg bg-white shadow-[0_24px_60px_-40px_rgba(1,42,38,0.7)] ring-1 ring-slate-200 md:flex-row">
             <div className={`relative flex flex-col justify-between gap-5 p-6 text-white md:w-[260px] md:shrink-0 ${pass.stub}`}>
               <div>
-                <p className="m-0 text-[11px] font-bold uppercase tracking-[0.16em] text-white/60">Group stay</p>
+                <p className="m-0 text-[11px] font-bold text-white/60">Group stay</p>
                 <p className="m-0 mt-1 text-sm font-semibold text-white/80">{humanize(groupStay.groupType) || "Group"}</p>
               </div>
               <div className="space-y-3">
                 <div>
-                  <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/55">Arrive</p>
+                  <p className="m-0 text-[11px] font-bold text-white/55">Arrive</p>
                   <p className="m-0 text-[34px] font-extrabold leading-none tracking-tight tabular-nums">{groupStay.checkIn ? new Date(groupStay.checkIn).toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short" }) : "?"}</p>
                   <p className="m-0 mt-0.5 text-xs text-white/60">{groupStay.checkIn ? new Date(groupStay.checkIn).toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", weekday: "long", year: "numeric" }) : "Date not set"}</p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-white/70">
                   <span className="h-px flex-1 bg-white/25" />
-                  <span className="rounded-full bg-white/15 px-2 py-0.5 font-bold">{nights ? `${nights} night${nights === 1 ? "" : "s"}` : "?"}</span>
+                  <span className="rounded-md bg-white/15 px-2 py-0.5 font-bold">{nights ? `${nights} night${nights === 1 ? "" : "s"}` : "?"}</span>
                   <span className="h-px flex-1 bg-white/25" />
                 </div>
                 <div>
-                  <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/55">Leave</p>
+                  <p className="m-0 text-[11px] font-bold text-white/55">Leave</p>
                   <p className="m-0 text-2xl font-extrabold leading-none tracking-tight tabular-nums">{groupStay.checkOut ? new Date(groupStay.checkOut).toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short" }) : "?"}</p>
                 </div>
               </div>
@@ -586,7 +586,7 @@ export default function GroupStayDetail() {
             </div>
 
             <div className="relative min-w-0 flex-1 p-6">
-              <span className={`pointer-events-none absolute right-5 top-5 rotate-[-8deg] rounded-md border-[2.5px] border-solid px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${pass.stamp}`}>{pass.stampText}</span>
+              <span className={`pointer-events-none absolute right-5 top-5 rotate-[-8deg] rounded-md border-[2.5px] border-solid px-2.5 py-1 text-[11px] font-black ${pass.stamp}`}>{pass.stampText}</span>
               <h1 className="m-0 max-w-[80%] text-[26px] font-bold leading-tight tracking-tight text-slate-900">{groupStay.headcount} {humanize(groupStay.groupType).toLowerCase() || "guests"}</h1>
               <p className="m-0 mt-1 flex items-center gap-1.5 text-sm text-slate-500"><MapPin className="h-4 w-4 shrink-0" aria-hidden />{place}</p>
 
@@ -597,7 +597,7 @@ export default function GroupStayDetail() {
                   { label: "Stay type", value: humanize(groupStay.accommodationType) || "Any" },
                 ].map((fact, index) => (
                   <div key={fact.label} className={`min-w-0 ${index > 0 ? "border-0 border-l border-dashed border-slate-200 pl-4" : ""}`}>
-                    <dt className="truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{fact.label}</dt>
+                    <dt className="truncate text-[11px] font-bold text-slate-400">{fact.label}</dt>
                     <dd className={`m-0 mt-1 break-words font-extrabold text-slate-900 ${index === 2 ? "text-[17px]" : "text-xl"}`}>{fact.value}</dd>
                   </div>
                 ))}
@@ -608,11 +608,11 @@ export default function GroupStayDetail() {
                   {(groupStay.user?.name || "G").split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
                 </span>
                 <div className="min-w-[8rem] flex-1">
-                  <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Lead guest</p>
+                  <p className="m-0 text-[11px] font-bold text-slate-400">Lead guest</p>
                   <p className="m-0 break-words text-sm font-bold text-slate-900">{groupStay.user?.name || "Not on record"}</p>
                 </div>
                 {groupStay.confirmedProperty && (
-                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-xl bg-[#012a26] px-3 py-1.5 text-xs font-semibold text-[#5eead4]"><Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden /><span className="truncate">{groupStay.confirmedProperty.title}</span></span>
+                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-[#012a26] px-3 py-1.5 text-xs font-semibold text-[#5eead4]"><Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden /><span className="truncate">{groupStay.confirmedProperty.title}</span></span>
                 )}
               </div>
             </div>
@@ -641,7 +641,7 @@ export default function GroupStayDetail() {
               <p className="m-0 mt-0.5 text-xs text-slate-500">For awareness. NoLSAF arranges transport and pickups.</p>
               <ul className="m-0 mt-4 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2 xl:grid-cols-5">
                 {allExtras.map((extra) => (
-                  <li key={extra.label} className={`flex min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2.5 py-2.5 ring-1 ring-inset xl:gap-1.5 xl:px-2 ${extra.on ? "bg-emerald-50/60 ring-emerald-200" : "bg-slate-50 ring-slate-100"}`}>
+                  <li key={extra.label} className={`flex min-w-0 items-center gap-2 overflow-hidden rounded-md px-2.5 py-2.5 ring-1 ring-inset xl:gap-1.5 xl:px-2 ${extra.on ? "bg-emerald-50/60 ring-emerald-200" : "bg-slate-50 ring-slate-100"}`}>
                     <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg xl:h-7 xl:w-7 ${extra.on ? "bg-[#012a26] text-[#5eead4]" : "bg-white text-slate-300 ring-1 ring-inset ring-slate-200"}`}><extra.Icon className="h-4 w-4" aria-hidden /></span>
                     <span className="min-w-0 flex-1">
                       <span className={`block truncate text-sm font-semibold leading-5 xl:text-xs xl:leading-4 ${extra.on ? "text-slate-900" : "text-slate-400"}`}>{extra.label}</span>
@@ -651,14 +651,14 @@ export default function GroupStayDetail() {
                 ))}
               </ul>
               {groupStay.arrPickup && (groupStay.pickupLocation || groupStay.pickupTime) && (
-                <p className="m-0 mt-4 flex items-start gap-2 rounded-xl bg-sky-50 px-3.5 py-2.5 text-sm text-sky-900">
+                <p className="m-0 mt-4 flex items-start gap-2 rounded-md bg-sky-50 px-3.5 py-2.5 text-sm text-sky-900">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                   Pickup{groupStay.pickupLocation ? ` from ${groupStay.pickupLocation}` : ""}{groupStay.pickupTime ? ` at ${groupStay.pickupTime}` : ""}
                 </p>
               )}
               {groupStay.arrangementNotes && (
-                <blockquote className="m-0 mt-4 rounded-xl bg-slate-50 px-4 py-3">
-                  <p className="m-0 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400"><FileText className="h-3.5 w-3.5" aria-hidden /> Note from {guestFirstName || "the guest"}</p>
+                <blockquote className="m-0 mt-4 rounded-md bg-slate-50 px-4 py-3">
+                  <p className="m-0 flex items-center gap-1.5 text-[11px] font-bold text-slate-400"><FileText className="h-3.5 w-3.5" aria-hidden /> Note from {guestFirstName || "the guest"}</p>
                   <p className="m-0 mt-1.5 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{groupStay.arrangementNotes}</p>
                 </blockquote>
               )}
@@ -673,7 +673,7 @@ export default function GroupStayDetail() {
                     <p className="m-0 text-sm text-slate-600"><strong className="text-slate-900">{groupStay.passengers!.length}</strong> of {groupStay.headcount} members shared</p>
                     <label className="relative">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
-                      <input value={passengerSearch} onChange={(e) => setPassengerSearch(e.target.value)} placeholder="Search name, phone, country" aria-label="Search group members" className="box-border h-9 w-56 rounded-xl border border-solid border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-[#02665e]" />
+                      <input value={passengerSearch} onChange={(e) => setPassengerSearch(e.target.value)} placeholder="Search name, phone, country" aria-label="Search group members" className="box-border h-9 w-56 rounded-md border border-solid border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-[#02665e]" />
                     </label>
                   </div>
                   <ol className="m-0 list-none p-0">
@@ -692,7 +692,7 @@ export default function GroupStayDetail() {
                 </>
               ) : (
                 <div className="flex flex-col items-center px-6 py-10 text-center">
-                  <span className="grid h-11 w-11 place-items-center rounded-2xl bg-slate-100 text-slate-500"><Users className="h-5 w-5" aria-hidden /></span>
+                  <span className="grid h-11 w-11 place-items-center rounded-lg bg-slate-100 text-slate-500"><Users className="h-5 w-5" aria-hidden /></span>
                   <p className="m-0 mt-3 text-sm font-bold text-slate-900">No member list yet</p>
                   <p className="m-0 mt-1 max-w-sm text-xs text-slate-500">The group shares names before arrival. They appear here as soon as they do.</p>
                 </div>
@@ -702,7 +702,7 @@ export default function GroupStayDetail() {
 
           {tab === "messages" && (<>
       {/* Conversation */}
-      <section id="owner-communication" className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+      <section id="owner-communication" className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
         <header className="flex items-center gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#012a26] text-sm font-bold text-[#5eead4]">
             {(groupStay.user?.name || "G").split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
@@ -711,13 +711,13 @@ export default function GroupStayDetail() {
             <p className="m-0 truncate text-sm font-bold text-slate-900">{groupStay.user?.name || "The guest"}</p>
             <p className="m-0 text-xs text-slate-500">Lead guest. The NoLSAF team can read and reply in this thread.</p>
           </div>
-          <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold tabular-nums text-slate-600">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
+          <span className="shrink-0 rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-bold tabular-nums text-slate-600">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
         </header>
 
         <div className="max-h-[460px] space-y-3 overflow-y-auto bg-[#f6f8f7] px-4 py-5 sm:px-6">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center py-8 text-center">
-              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-[#02665e] ring-1 ring-inset ring-slate-200"><MessageSquare className="h-5 w-5" aria-hidden /></span>
+              <span className="grid h-11 w-11 place-items-center rounded-lg bg-white text-[#02665e] ring-1 ring-inset ring-slate-200"><MessageSquare className="h-5 w-5" aria-hidden /></span>
               <p className="m-0 mt-3 text-sm font-bold text-slate-900">No messages yet</p>
               <p className="m-0 mt-1 max-w-xs text-xs text-slate-500">Say hello and share what the group should know before they arrive. A starter below fills the box for you.</p>
             </div>
@@ -744,10 +744,10 @@ export default function GroupStayDetail() {
                     <div className={`max-w-[82%] sm:max-w-[70%] ${mine ? "items-end" : "items-start"} flex flex-col`}>
                       <div className={`mb-1 flex items-center gap-1.5 text-[11px] ${mine ? "flex-row-reverse" : ""}`}>
                         <span className="font-bold text-slate-700">{name}</span>
-                        {team && <span className="rounded-full bg-emerald-50 px-1.5 py-px font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">Team</span>}
+                        {team && <span className="rounded-md bg-emerald-50 px-1.5 py-px font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">Team</span>}
                         {msg.messageType && msg.messageType !== "General" && <span className="text-slate-400">{msg.messageType}</span>}
                       </div>
-                      <div className={`whitespace-pre-wrap break-words px-4 py-2.5 text-sm leading-6 ${mine ? "rounded-2xl rounded-br-md bg-[#02665e] text-white" : "rounded-2xl rounded-bl-md bg-white text-slate-800 ring-1 ring-inset ring-slate-200"}`}>
+                      <div className={`whitespace-pre-wrap break-words px-4 py-2.5 text-sm leading-6 ${mine ? "rounded-lg rounded-br-md bg-[#02665e] text-white" : "rounded-lg rounded-bl-md bg-white text-slate-800 ring-1 ring-inset ring-slate-200"}`}>
                         {msg.body}
                       </div>
                       <span className="mt-1 text-[10.5px] tabular-nums text-slate-400">{timeOf(msg.createdAt)}</span>
@@ -777,7 +777,7 @@ export default function GroupStayDetail() {
               );
             })}
           </div>
-          <div className={`rounded-2xl border border-solid bg-white transition focus-within:border-[#02665e] focus-within:ring-2 focus-within:ring-[#02665e]/15 ${messageText.length > MAX_MESSAGE_LENGTH * 0.9 ? "border-amber-300" : "border-slate-300"}`}>
+          <div className={`rounded-lg border border-solid bg-white transition focus-within:border-[#02665e] focus-within:ring-2 focus-within:ring-[#02665e]/15 ${messageText.length > MAX_MESSAGE_LENGTH * 0.9 ? "border-amber-300" : "border-slate-300"}`}>
             <textarea
               value={messageText}
               onChange={(e) => {
@@ -805,7 +805,7 @@ export default function GroupStayDetail() {
                 type="button"
                 onClick={() => void sendMessage()}
                 disabled={sendingMessage || !messageText.trim()}
-                className="inline-flex h-9 items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-4 text-sm font-bold text-white hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-sm font-bold text-white hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {sendingMessage ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-solid border-white/30 border-t-white" aria-hidden /> : <Send className="h-4 w-4" aria-hidden />}
                 {sendingMessage ? "Sending..." : "Send"}
@@ -831,7 +831,7 @@ export default function GroupStayDetail() {
           aria-labelledby="policy-modal-title"
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[85vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300"
+            className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[85vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -897,7 +897,7 @@ export default function GroupStayDetail() {
             <div className="px-5 sm:px-6 py-4 border-t border-slate-200 flex-shrink-0">
               <button
                 onClick={() => setShowPolicyModal(false)}
-                className="w-full px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 text-white font-semibold text-sm hover:from-emerald-700 hover:to-green-700 transition-all duration-200"
+                className="w-full px-5 py-2.5 rounded-md bg-gradient-to-r from-emerald-600 to-green-600 text-white font-semibold text-sm hover:from-emerald-700 hover:to-green-700 transition-all duration-200"
               >
                 Got it
               </button>
@@ -921,7 +921,7 @@ export default function GroupStayDetail() {
           <div 
             ref={setModalRef}
             tabIndex={-1}
-            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300 focus:outline-none"
+            className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-300 focus:outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -1012,7 +1012,7 @@ export default function GroupStayDetail() {
                     .map((passenger, index) => (
                       <div
                         key={passenger.id || index}
-                        className="p-3 sm:p-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-brand/30 transition-all duration-200 hover:shadow-md"
+                        className="p-3 sm:p-4 rounded-md border border-slate-200 bg-slate-50 hover:bg-white hover:border-brand/30 transition-all duration-200 hover:shadow-md"
                       >
                         <div className="flex items-start gap-3">
                           <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-brand/10 flex items-center justify-center flex-shrink-0">
@@ -1072,7 +1072,7 @@ function PolicyItem({ icon, tone, title, body }: { icon: React.ReactNode; tone: 
   };
   return (
     <div className="flex items-start gap-3.5">
-      <div className={`h-10 w-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${toneClasses[tone]}`}>
+      <div className={`h-10 w-10 rounded-md border flex items-center justify-center flex-shrink-0 ${toneClasses[tone]}`}>
         {icon}
       </div>
       <div className="min-w-0">

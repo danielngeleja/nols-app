@@ -66,7 +66,7 @@ const STYLES = `
   #owner-reviews .or-sk { background: linear-gradient(90deg, #eef2f1 0%, #f8faf9 40%, #eef2f1 80%); background-size: 800px 100%; animation: or-shimmer 1.3s linear infinite; }
 `;
 
-const CARD = "rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]";
+const CARD = "rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]";
 
 function eat(value: string | null) {
   if (!value) return "";
@@ -183,17 +183,17 @@ function ReviewCard({ review, onSaved }: { review: Review; onSaved: (next: Revie
             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <span className="text-[15px] font-bold text-slate-900">{review.guest.name}</span>
               {review.isVerified ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                   <BadgeCheck className="h-3 w-3" aria-hidden /> Verified stay
                 </span>
               ) : null}
             </div>
             {review.ownerResponse ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-[#02665e]/[0.07] px-2.5 py-1 text-[11px] font-bold text-[#02665e]">
+              <span className="inline-flex items-center gap-1 rounded-md bg-[#02665e]/[0.07] px-2.5 py-1 text-[11px] font-bold text-[#02665e]">
                 <CheckCircle2 className="h-3 w-3" aria-hidden /> Replied
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+              <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800">
                 <Clock className="h-3 w-3" aria-hidden /> Awaiting reply
               </span>
             )}
@@ -234,7 +234,7 @@ function ReviewCard({ review, onSaved }: { review: Review; onSaved: (next: Revie
         {categories.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {categories.map(([key, value]) => (
-              <span key={key} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+              <span key={key} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
                 {CATEGORY_LABEL[key]}
                 <span className="inline-flex items-center gap-0.5 font-bold text-slate-900">
                   <Star className="h-3 w-3 fill-amber-400 text-amber-400" aria-hidden /> {value}
@@ -244,7 +244,7 @@ function ReviewCard({ review, onSaved }: { review: Review; onSaved: (next: Revie
           </div>
         ) : null}
 
-        {error ? <p className="m-0 mt-3 rounded-xl border border-solid border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
+        {error ? <p className="m-0 mt-3 rounded-md border border-solid border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p> : null}
 
         {/* The owner's side */}
         <div className="mt-4 border-0 border-t border-dashed border-slate-200 pt-4">
@@ -261,7 +261,7 @@ function ReviewCard({ review, onSaved }: { review: Review; onSaved: (next: Revie
                       key={text}
                       type="button"
                       onClick={() => setDraft(text)}
-                      className="max-w-full truncate rounded-full border border-solid border-slate-300 bg-white px-3 py-1 text-left text-[12px] font-medium text-slate-600 [font-family:inherit] transition hover:border-[#02665e] hover:text-[#02665e]"
+                      className="max-w-full truncate rounded-md border border-solid border-slate-300 bg-white px-3 py-1 text-left text-[12px] font-medium text-slate-600 [font-family:inherit] transition hover:border-[#02665e] hover:text-[#02665e]"
                     >
                       {text.length > 60 ? `${text.slice(0, 58)}...` : text}
                     </button>
@@ -275,7 +275,7 @@ function ReviewCard({ review, onSaved }: { review: Review; onSaved: (next: Revie
                 rows={4}
                 autoFocus
                 placeholder={`Thank ${firstName} for staying with you, and answer anything they raised.`}
-                className="mt-2 w-full resize-y rounded-xl border border-solid border-slate-300 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-slate-900 [font-family:inherit] outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+                className="mt-2 w-full resize-y rounded-md border border-solid border-slate-300 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-slate-900 [font-family:inherit] outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
               />
               <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="m-0 text-[12px] text-slate-500">Shown in public under this review. Keep it polite and leave out private booking details.</p>
@@ -284,7 +284,7 @@ function ReviewCard({ review, onSaved }: { review: Review; onSaved: (next: Revie
                     type="button"
                     onClick={() => { setEditing(false); setError(null); }}
                     disabled={Boolean(busy)}
-                    className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 [font-family:inherit] transition hover:bg-slate-50 disabled:opacity-50 sm:flex-none"
+                    className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 [font-family:inherit] transition hover:bg-slate-50 disabled:opacity-50 sm:flex-none"
                   >
                     <X className="h-4 w-4" aria-hidden /> Cancel
                   </button>
@@ -292,7 +292,7 @@ function ReviewCard({ review, onSaved }: { review: Review; onSaved: (next: Revie
                     type="button"
                     onClick={() => void save()}
                     disabled={Boolean(busy) || draft.trim().length < 2}
-                    className="group/btn inline-flex h-10 flex-1 items-center justify-between gap-3 rounded-xl border border-solid border-[#012a26] bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white [font-family:inherit] transition hover:bg-[#02665e] disabled:opacity-50 sm:flex-none"
+                    className="group/btn inline-flex h-10 flex-1 items-center justify-between gap-3 rounded-md border border-solid border-[#012a26] bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white [font-family:inherit] transition hover:bg-[#02665e] disabled:opacity-50 sm:flex-none"
                   >
                     {review.ownerResponse ? "Save changes" : "Post reply"}
                     <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]">
@@ -303,7 +303,7 @@ function ReviewCard({ review, onSaved }: { review: Review; onSaved: (next: Revie
               </div>
             </div>
           ) : review.ownerResponse ? (
-            <div className="rounded-xl bg-[#f3f8f7] p-3.5 sm:p-4">
+            <div className="rounded-md bg-[#f3f8f7] p-3.5 sm:p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="m-0 flex items-center gap-2 text-[13px] font-bold text-slate-900">
                   <span className="grid h-6 w-6 place-items-center rounded-full bg-[#012a26] text-[#5eead4]" aria-hidden>
@@ -362,7 +362,7 @@ function ReviewCard({ review, onSaved }: { review: Review; onSaved: (next: Revie
               <button
                 type="button"
                 onClick={startEdit}
-                className="group/btn inline-flex h-10 shrink-0 items-center justify-between gap-3 rounded-xl border border-solid border-[#012a26] bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white [font-family:inherit] transition hover:bg-[#02665e]"
+                className="group/btn inline-flex h-10 shrink-0 items-center justify-between gap-3 rounded-md border border-solid border-[#012a26] bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white [font-family:inherit] transition hover:bg-[#02665e]"
               >
                 Reply to {firstName}
                 <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#5eead4] text-[#012a26] transition group-hover/btn:translate-x-0.5">
@@ -489,20 +489,20 @@ export default function OwnerReviewsPage() {
       <style>{STYLES}</style>
 
       {/* Header band */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
           aria-hidden
         />
         <div className="relative px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Property owner</p>
+          <p className="m-0 text-[12px] font-semibold text-[#9fd8cc]">Property owner</p>
           <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Guest reviews</h1>
           <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">What guests say about your stays. Reply in public; your reply shows under the review on the property page.</p>
 
           <div className="mt-6 grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
-            <div className="min-w-0 rounded-2xl border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
-              <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+            <div className="min-w-0 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
+              <span className="flex items-center gap-1.5 text-[12px] font-medium text-white/60">
                 <Star className="h-3.5 w-3.5 text-[#5eead4]" aria-hidden /> Guest rating
               </span>
               {summary.averageRating ? (
@@ -519,8 +519,8 @@ export default function OwnerReviewsPage() {
               { label: "Awaiting reply", value: String(summary.unanswered), Icon: Clock, alert: summary.unanswered > 0 },
               { label: "Reply rate", value: replyRate === null ? "None yet" : `${replyRate}%`, Icon: MessageSquareReply },
             ].map((s) => (
-              <div key={s.label} className="min-w-0 rounded-2xl border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
-                <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+              <div key={s.label} className="min-w-0 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
+                <span className="flex items-center gap-1.5 text-[12px] font-medium text-white/60">
                   <s.Icon className="h-3.5 w-3.5 text-[#5eead4]" aria-hidden />
                   <span className="truncate">{s.label}</span>
                 </span>
@@ -535,7 +535,7 @@ export default function OwnerReviewsPage() {
         {/* Side panel: breakdown and properties */}
         <aside className="min-w-0 space-y-4 lg:sticky lg:top-4 lg:self-start">
           <section className={`${CARD} p-4`}>
-            <h2 className="m-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Rating breakdown</h2>
+            <h2 className="m-0 text-[12px] font-semibold text-slate-500">Rating breakdown</h2>
             <ul className="m-0 mt-3 list-none space-y-1 p-0">
               {[5, 4, 3, 2, 1].map((n) => {
                 const count = summary.distribution[String(n)] ?? 0;
@@ -565,7 +565,7 @@ export default function OwnerReviewsPage() {
 
           {properties.length > 0 ? (
             <section className={`${CARD} p-4`}>
-              <h2 className="m-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">By property</h2>
+              <h2 className="m-0 text-[12px] font-semibold text-slate-500">By property</h2>
               <ul className="m-0 mt-3 list-none space-y-1 p-0">
                 {[{ id: 0, title: "All properties", total: summary.total, averageRating: summary.averageRating, unanswered: summary.unanswered }, ...properties].map((p) => {
                   const active = (property ?? 0) === p.id;
@@ -575,7 +575,7 @@ export default function OwnerReviewsPage() {
                         type="button"
                         onClick={() => pick(() => setProperty(p.id || null))}
                         aria-pressed={active}
-                        className={`flex w-full appearance-none items-center gap-2.5 rounded-xl border-0 px-2.5 py-2 text-left [font-family:inherit] transition ${active ? "bg-[#012a26] text-white" : "bg-transparent text-slate-800 hover:bg-slate-50"}`}
+                        className={`flex w-full appearance-none items-center gap-2.5 rounded-md border-0 px-2.5 py-2 text-left [font-family:inherit] transition ${active ? "bg-[#012a26] text-white" : "bg-transparent text-slate-800 hover:bg-slate-50"}`}
                       >
                         <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${active ? "bg-white/10 text-[#5eead4]" : "bg-[#02665e]/[0.07] text-[#02665e]"}`}>
                           <Building2 className="h-4 w-4" aria-hidden />
@@ -592,7 +592,7 @@ export default function OwnerReviewsPage() {
                           </span>
                         </span>
                         {p.unanswered > 0 ? (
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ${active ? "bg-amber-300 text-[#012a26]" : "bg-amber-100 text-amber-800"}`} title={`${p.unanswered} awaiting reply`}>
+                          <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold tabular-nums ${active ? "bg-amber-300 text-[#012a26]" : "bg-amber-100 text-amber-800"}`} title={`${p.unanswered} awaiting reply`}>
                             {p.unanswered}
                           </span>
                         ) : null}
@@ -608,7 +608,7 @@ export default function OwnerReviewsPage() {
         {/* Feed */}
         <div className="min-w-0 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex max-w-full overflow-x-auto rounded-xl border border-solid border-slate-300/80 bg-white p-1" role="tablist">
+            <div className="inline-flex max-w-full overflow-x-auto rounded-md border border-solid border-slate-300/80 bg-white p-1" role="tablist">
               {tabs.map((tab) => {
                 const active = filter === tab.key;
                 return (
@@ -621,7 +621,7 @@ export default function OwnerReviewsPage() {
                     className={`inline-flex h-9 shrink-0 appearance-none items-center gap-1.5 rounded-lg border-0 px-3.5 text-[13px] font-bold [font-family:inherit] transition ${active ? "bg-[#012a26] text-white" : "bg-transparent text-slate-600 hover:text-slate-900"}`}
                   >
                     {tab.label}
-                    <span className={`rounded-full px-1.5 py-px text-[10px] tabular-nums ${active ? "bg-white/15 text-[#5eead4]" : tab.key === "unanswered" && (tab.count ?? 0) > 0 ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-500"}`}>
+                    <span className={`rounded px-1.5 py-px text-[10px] tabular-nums ${active ? "bg-white/15 text-[#5eead4]" : tab.key === "unanswered" && (tab.count ?? 0) > 0 ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-500"}`}>
                       {tab.count ?? 0}
                     </span>
                   </button>
@@ -639,9 +639,9 @@ export default function OwnerReviewsPage() {
             ) : null}
           </div>
 
-          {error && <p className="m-0 rounded-xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p>}
+          {error && <p className="m-0 rounded-md border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p>}
           {notice && (
-            <p className="m-0 flex items-center gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <p className="m-0 flex items-center gap-2 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
               <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden /> {notice}
             </p>
           )}
@@ -652,8 +652,8 @@ export default function OwnerReviewsPage() {
               <SkeletonCard />
             </ul>
           ) : reviews.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-              <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#02665e]/[0.07] text-[#02665e]">
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+              <span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-[#02665e]/[0.07] text-[#02665e]">
                 {filter === "unanswered" ? <CheckCircle2 className="h-6 w-6" aria-hidden /> : <Inbox className="h-6 w-6" aria-hidden />}
               </span>
               <p className="m-0 mt-3 text-base font-bold text-slate-900">
@@ -680,7 +680,7 @@ export default function OwnerReviewsPage() {
                     type="button"
                     onClick={() => void loadMore()}
                     disabled={loadingMore}
-                    className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 [font-family:inherit] transition hover:bg-slate-50 disabled:opacity-50"
+                    className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 [font-family:inherit] transition hover:bg-slate-50 disabled:opacity-50"
                   >
                     {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null} Show more reviews
                   </button>

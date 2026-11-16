@@ -80,7 +80,7 @@ export default function RequestModal({ propertyId, overview, prefill, onClose, o
       )}
     >
       <div className="space-y-5">
-        <section className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-4">
+        <section className="rounded-md border border-solid border-neutral-200 bg-neutral-50/70 p-4">
           <p className="m-0 mb-3 text-[11px] font-bold uppercase tracking-wide text-neutral-500">Request details</p>
           <div className="grid gap-4 md:grid-cols-2">
             <label className={labelClass}>
@@ -97,7 +97,7 @@ export default function RequestModal({ propertyId, overview, prefill, onClose, o
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-solid border-neutral-300">
+        <section className="overflow-hidden rounded-md border border-solid border-neutral-300">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr>

@@ -2298,10 +2298,10 @@ export default function AddProperty() {
             }
           }}
         >
-          <div className="bg-[#02665e] rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+          <div className="bg-[#02665e] rounded-lg shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
             {/* Header */}
             <div className="px-5 pt-5 pb-4 text-center">
-              <div className="flex items-center justify-center w-12 h-12 mx-auto mb-3 rounded-xl bg-white/20">
+              <div className="flex items-center justify-center w-12 h-12 mx-auto mb-3 rounded-md bg-white/20">
                 <CheckCircle2 className="w-6 h-6 text-white" />
               </div>
               <h2 className="text-base font-bold text-white">Submitted for Review!</h2>
@@ -2367,7 +2367,7 @@ export default function AddProperty() {
           onClick={() => setShowMismatchModal(false)}
         >
           <div
-            className="bg-[#02665e] rounded-2xl shadow-2xl max-w-sm w-full p-5 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            className="bg-[#02665e] rounded-lg shadow-2xl max-w-sm w-full p-5 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -2406,7 +2406,7 @@ export default function AddProperty() {
               </h4>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] font-semibold text-white/60 uppercase tracking-wide mb-1">Lat</label>
+                  <label className="block text-[10px] font-semibold text-white/60 mb-1">Lat</label>
                   <input
                     type="number"
                     step="any"
@@ -2417,7 +2417,7 @@ export default function AddProperty() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-semibold text-white/60 uppercase tracking-wide mb-1">Lng</label>
+                  <label className="block text-[10px] font-semibold text-white/60 mb-1">Lng</label>
                   <input
                     type="number"
                     step="any"
@@ -2470,7 +2470,7 @@ export default function AddProperty() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowSubmitConfirm(false)} />
           <div
-            className="relative w-full max-w-sm rounded-2xl bg-[#02665e] shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            className="relative w-full max-w-sm rounded-lg bg-[#02665e] shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
           >
             {/* Header */}
             <div className="px-5 pt-5 pb-4">
@@ -2519,7 +2519,7 @@ export default function AddProperty() {
           onClick={(e) => { if (e.target === e.currentTarget) setSubmitMismatch(null); }}
         >
           <div
-            className="relative w-full max-w-md rounded-2xl bg-[#02665e] shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            className="relative w-full max-w-md rounded-lg bg-[#02665e] shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
             role="dialog"
             aria-modal="true"
             aria-label="Location mismatch"

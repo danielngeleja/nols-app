@@ -186,7 +186,7 @@ export default function OwnerPage() {
           HERO
       ══════════════════════════════════════════════════════════════ */}
       <section
-        className={`relative overflow-hidden rounded-3xl transition-all duration-700 ease-out ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
+        className={`relative overflow-hidden rounded-lg transition-all duration-700 ease-out ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
         style={{ background: "linear-gradient(135deg,#020f0d 0%,#011c18 22%,#023a32 48%,#025549 72%,#02705f 90%,#048070 100%)" }}
       >
         {/* ── dot grid ── */}
@@ -254,10 +254,10 @@ export default function OwnerPage() {
             <div className="mb-6 flex flex-col items-center gap-3 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
               <div className="flex items-center justify-center gap-2 sm:justify-start">
                 <div className="h-[3px] w-5 rounded-full" style={{ background: "rgba(0,255,190,0.5)" }} />
-                <span className="text-[9px] font-black uppercase tracking-[0.26em]" style={{ color: "rgba(255,255,255,0.28)" }}>Owner Portal</span>
+                <span className="text-[12px] font-semibold" style={{ color: "rgba(255,255,255,0.5)" }}>Owner portal</span>
               </div>
               {liveAgeLabel && (
-                <div className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[9px] font-bold" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)" }}>
+                <div className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-0.5 text-[9px] font-bold" style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)" }}>
                   <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${isFreshLiveUpdate ? "bg-emerald-400 animate-pulse" : "bg-white/25"}`} />
                   {isFreshLiveUpdate ? "Live" : `${liveAgeLabel} ago`}
                 </div>
@@ -267,7 +267,7 @@ export default function OwnerPage() {
             {/* greeting + title */}
             <div className="mb-7 text-center sm:text-left">
               {ownerName && (
-                <p className="mb-2 text-[11px] font-semibold tracking-widest uppercase" style={{ color: "rgba(0,255,190,0.5)" }}>
+                <p className="mb-2 text-[11px] font-semibold" style={{ color: "rgba(0,255,190,0.5)" }}>
                   Welcome back
                 </p>
               )}
@@ -275,18 +275,18 @@ export default function OwnerPage() {
                 {ownerName ?? "Your workspace"}
               </h1>
               <p className="mx-auto mt-3 text-[12px] font-medium sm:mx-0" style={{ color: "rgba(255,255,255,0.32)", maxWidth: 320 }}>
-                Bookings, revenue & live insights all in one place.
+                Bookings, revenue and live insights in one place.
               </p>
             </div>
 
             {/* KPI tiles — stacked horizontally */}
             <div className="grid grid-cols-2 gap-2.5">
               {/* Bookings */}
-              <div className="relative overflow-hidden rounded-2xl p-4" style={{ background: "rgba(255,255,255,0.065)", border: "1px solid rgba(255,255,255,0.10)" }}>
+              <div className="relative overflow-hidden rounded-lg p-4" style={{ background: "rgba(255,255,255,0.065)", border: "1px solid rgba(255,255,255,0.10)" }}>
                 {/* shimmer top line */}
                 <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.4) 50%,transparent 100%)" }} />
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-[8.5px] font-black uppercase tracking-[0.22em]" style={{ color: "rgba(56,189,248,0.7)" }}>Bookings</span>
+                  <span className="text-[12px] font-semibold" style={{ color: "rgba(125,211,252,0.85)" }}>Bookings</span>
                   <div className="h-5 w-5 rounded-md flex items-center justify-center" style={{ background: "rgba(56,189,248,0.15)", border: "1px solid rgba(56,189,248,0.2)" }}>
                     <CalendarCheck className="h-2.5 w-2.5 text-sky-300" />
                   </div>
@@ -296,26 +296,26 @@ export default function OwnerPage() {
                 </div>
                 <div className="mt-2 flex items-center gap-1">
                   <TrendingUp className="h-2.5 w-2.5" style={{ color: "rgba(52,211,153,0.6)" }} />
-                  <span className="text-[9px] font-semibold" style={{ color: "rgba(255,255,255,0.25)" }}>Last 14 days</span>
+                  <span className="text-[11px] font-medium" style={{ color: "rgba(255,255,255,0.45)" }}>Last 14 days</span>
                 </div>
               </div>
 
               {/* Revenue */}
-              <div className="relative overflow-hidden rounded-2xl p-4" style={{ background: "rgba(255,255,255,0.065)", border: "1px solid rgba(255,255,255,0.10)" }}>
+              <div className="relative overflow-hidden rounded-lg p-4" style={{ background: "rgba(255,255,255,0.065)", border: "1px solid rgba(255,255,255,0.10)" }}>
                 <div className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.4) 50%,transparent 100%)" }} />
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-[8.5px] font-black uppercase tracking-[0.22em]" style={{ color: "rgba(52,211,153,0.7)" }}>Net Revenue</span>
+                  <span className="text-[12px] font-semibold" style={{ color: "rgba(110,231,183,0.85)" }}>Net revenue</span>
                   <div className="h-5 w-5 rounded-md flex items-center justify-center" style={{ background: "rgba(52,211,153,0.15)", border: "1px solid rgba(52,211,153,0.2)" }}>
                     <Wallet className="h-2.5 w-2.5 text-emerald-300" />
                   </div>
                 </div>
-                <div className="text-[9.5px] font-black mb-0.5" style={{ color: "rgba(255,255,255,0.28)" }}>TZS</div>
+                <div className="text-[11px] font-semibold mb-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>TZS</div>
                 <div className="text-[1.7rem] sm:text-[2rem] font-black text-white leading-none tabular-nums truncate" style={{ textShadow: "0 0 30px rgba(52,211,153,0.3)" }}>
                   {loadingOverview ? <span style={{ color: "rgba(255,255,255,0.15)" }}>—</span> : fmtTZS(kpis.net)}
                 </div>
                 <div className="mt-2 flex items-center gap-1">
                   <TrendingUp className="h-2.5 w-2.5" style={{ color: "rgba(52,211,153,0.6)" }} />
-                  <span className="text-[9px] font-semibold" style={{ color: "rgba(255,255,255,0.25)" }}>Last 14 days</span>
+                  <span className="text-[11px] font-medium" style={{ color: "rgba(255,255,255,0.45)" }}>Last 14 days</span>
                 </div>
               </div>
             </div>
@@ -325,7 +325,7 @@ export default function OwnerPage() {
           <div className="hidden lg:flex items-end justify-center w-[260px] xl:w-[300px] flex-shrink-0 pr-8 pb-0 pt-8 relative">
             {/* label */}
             <div className="absolute top-7 right-8 flex items-center gap-1.5">
-              <span className="text-[9px] font-black uppercase tracking-[0.18em]" style={{ color: "rgba(255,255,255,0.2)" }}>14-day bookings</span>
+              <span className="text-[12px] font-semibold" style={{ color: "rgba(255,255,255,0.45)" }}>14-day bookings</span>
               <div className="h-1.5 w-1.5 rounded-full" style={{ background: isFreshLiveUpdate ? "#34d399" : "rgba(255,255,255,0.2)", animation: isFreshLiveUpdate ? "pulse 2s infinite" : "none" }} />
             </div>
             {/* bar chart */}
@@ -370,9 +370,9 @@ export default function OwnerPage() {
           <Link
             key={href}
             href={href}
-            className="group flex min-w-0 items-center gap-3 rounded-2xl border border-solid border-slate-300/80 bg-white p-4 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_14px_32px_-22px_rgba(1,42,38,0.45)]"
+            className="group flex min-w-0 items-center gap-3 rounded-lg border border-solid border-slate-300/80 bg-white p-4 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_14px_32px_-22px_rgba(1,42,38,0.45)]"
           >
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4] transition group-hover:bg-[#02665e]">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#012a26] text-[#5eead4] transition group-hover:bg-[#02665e]">
               <Icon className="h-5 w-5" aria-hidden />
             </span>
             <span className="min-w-0 flex-1">
@@ -406,10 +406,10 @@ export default function OwnerPage() {
             emptyText: "No bookings in the last 14 days yet.",
           },
         ].map((c) => (
-          <section key={c.key} className="overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)]">
+          <section key={c.key} className="overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)]">
             <div className="flex items-start justify-between gap-3 border-0 border-b border-solid border-slate-200 px-5 py-4">
               <div className="min-w-0">
-                <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{c.title} · last 14 days</p>
+                <p className="m-0 text-[11px] font-semibold text-slate-500">{c.title} · last 14 days</p>
                 <p className="m-0 mt-1 truncate text-2xl font-bold tabular-nums text-slate-900">
                   {loadingOverview ? <span className="text-slate-300">...</span> : c.figure}
                 </p>

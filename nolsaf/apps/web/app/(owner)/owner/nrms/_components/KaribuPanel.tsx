@@ -94,8 +94,8 @@ export default function KaribuPanel({ propertyId, refreshKey }: { propertyId: nu
 
   return (
     <>
-      <section className="box-border flex flex-wrap items-center gap-3 rounded-2xl border border-solid border-neutral-200 bg-white px-4 py-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0b2420] text-emerald-300"><Gift className="h-5 w-5" /></span>
+      <section className="box-border flex flex-wrap items-center gap-3 rounded-lg border border-solid border-neutral-200 bg-white px-4 py-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#0b2420] text-emerald-300"><Gift className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <p className="m-0 text-sm font-bold text-neutral-900">Karibu NoLSAF</p>
           <p className="m-0 text-xs text-neutral-500">
@@ -113,7 +113,7 @@ export default function KaribuPanel({ propertyId, refreshKey }: { propertyId: nu
 
       {open && createPortal(
         <div className="fixed inset-0 z-[1000] box-border flex items-center justify-center p-3 sm:p-6 [&_*]:box-border" style={BACKDROP} onMouseDown={() => setOpen(false)}>
-          <section role="dialog" aria-modal="true" aria-labelledby="owner-karibu-title" onMouseDown={(e) => e.stopPropagation()} className="flex max-h-[calc(100dvh-24px)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-48px)]">
+          <section role="dialog" aria-modal="true" aria-labelledby="owner-karibu-title" onMouseDown={(e) => e.stopPropagation()} className="flex max-h-[calc(100dvh-24px)] w-full max-w-3xl flex-col overflow-hidden rounded-md border border-solid border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-48px)]">
             <header className="flex items-start justify-between gap-4 border-0 border-b border-solid border-neutral-200 px-5 py-4">
               <div className="min-w-0">
                 <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">Guest welcome</p>
@@ -148,7 +148,7 @@ export default function KaribuPanel({ propertyId, refreshKey }: { propertyId: nu
                 {summary.drinks.length === 0 ? (
                   <p className="m-0 mt-2 text-sm text-neutral-500">No drinks approved yet.</p>
                 ) : (
-                  <ul className="m-0 mt-2 list-none rounded-xl border border-solid border-neutral-200 p-0">
+                  <ul className="m-0 mt-2 list-none rounded-md border border-solid border-neutral-200 p-0">
                     {summary.drinks.map((d, i) => (
                       <li key={`${d.name}-${i}`} className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-100 px-3 py-2.5 last:border-b-0">
                         <Coffee className="h-4 w-4 shrink-0 text-neutral-400" />

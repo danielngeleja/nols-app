@@ -350,7 +350,7 @@ export default function SalesHome() {
       </div>
 
       {error ? (
-        <p className="m-0 flex items-start gap-2 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs leading-5 text-amber-900 ring-1 ring-amber-200">
+        <p className="m-0 flex items-start gap-2 rounded-md bg-amber-50 px-3.5 py-2.5 text-xs leading-5 text-amber-900 ring-1 ring-amber-200">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {error}
         </p>
@@ -399,7 +399,7 @@ export default function SalesHome() {
       </section>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-        <section className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+        <section className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
               <h2 className="m-0 text-sm font-black text-neutral-900">Answer these first</h2>
@@ -429,7 +429,7 @@ export default function SalesHome() {
                   <li key={inquiry.id}>
                     <Link
                       href="/owner/nrms/inquiries"
-                      className="flex items-center gap-3 rounded-xl bg-neutral-50 px-3 py-2.5 no-underline ring-1 ring-neutral-200 transition hover:bg-white hover:no-underline hover:ring-emerald-300"
+                      className="flex items-center gap-3 rounded-md bg-neutral-50 px-3 py-2.5 no-underline ring-1 ring-neutral-200 transition hover:bg-white hover:no-underline hover:ring-emerald-300"
                     >
                       <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${CHANNEL_CLS[inquiry.channel] ?? CHANNEL_CLS.WEB}`}>
                         <ChannelIcon channel={inquiry.channel} />
@@ -460,10 +460,10 @@ export default function SalesHome() {
           ) : null}
         </section>
 
-        <section className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+        <section className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="m-0 text-sm font-black text-neutral-900">Where the bookings are lost</h2>
-            <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-bold text-neutral-600">
+            <span className="shrink-0 rounded-md bg-neutral-100 px-2 py-1 text-[10px] font-bold text-neutral-600">
               {reporting ? `${reporting.periodDays} days` : "No data"}
             </span>
           </div>
@@ -493,7 +493,7 @@ export default function SalesHome() {
                   </li>
                 ))}
               </ul>
-              <p className="m-0 mt-3 rounded-xl bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-600 ring-1 ring-neutral-200">
+              <p className="m-0 mt-3 rounded-md bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-600 ring-1 ring-neutral-200">
                 {funnel.inquiries === 0
                   ? "No inquiries arrived in this period."
                   : funnel.responded < funnel.inquiries
@@ -508,7 +508,7 @@ export default function SalesHome() {
       </div>
 
       <div className="grid gap-3 xl:grid-cols-2">
-        <section className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+        <section className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
               <h2 className="m-0 text-sm font-black text-neutral-900">Group cut-offs</h2>
@@ -537,13 +537,13 @@ export default function SalesHome() {
                   <li key={block.id}>
                     <Link
                       href="/owner/nrms/groups"
-                      className="block rounded-xl bg-neutral-50 px-3 py-2.5 no-underline ring-1 ring-neutral-200 transition hover:bg-white hover:no-underline hover:ring-emerald-300"
+                      className="block rounded-md bg-neutral-50 px-3 py-2.5 no-underline ring-1 ring-neutral-200 transition hover:bg-white hover:no-underline hover:ring-emerald-300"
                     >
                       <span className="flex flex-wrap items-center gap-2">
                         <span className="min-w-0 flex-1 truncate text-xs font-bold text-neutral-900">
                           {block.agencyName || block.contactName || block.reference}
                         </span>
-                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${BLOCK_STATUS_CLS[block.status] ?? BLOCK_STATUS_CLS.HELD}`}>
+                        <span className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold ${BLOCK_STATUS_CLS[block.status] ?? BLOCK_STATUS_CLS.HELD}`}>
                           {BLOCK_STATUS_LABEL[block.status] ?? label(block.status)}
                         </span>
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black ${block.cutOffPassed ? "bg-red-50 text-red-700" : days <= 2 ? "bg-amber-50 text-amber-800" : "bg-neutral-200 text-neutral-700"}`}>
@@ -561,7 +561,7 @@ export default function SalesHome() {
           )}
         </section>
 
-        <section className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+        <section className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
               <h2 className="m-0 text-sm font-black text-neutral-900">Agent decisions</h2>
@@ -586,10 +586,10 @@ export default function SalesHome() {
             <ul className="m-0 mt-3 list-none space-y-2 p-0">
               {pendingAgentBookings.slice(0, 5).map((request) => (
                 <li key={`booking-${request.id}`}>
-                  <Link href="/owner/nrms/agents/requests" className="flex items-center gap-3 rounded-xl bg-amber-50 px-3 py-2.5 no-underline ring-1 ring-amber-200 transition hover:bg-white hover:no-underline hover:ring-amber-300">
+                  <Link href="/owner/nrms/agents/requests" className="flex items-center gap-3 rounded-md bg-amber-50 px-3 py-2.5 no-underline ring-1 ring-amber-200 transition hover:bg-white hover:no-underline hover:ring-amber-300">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800"><Clock3 className="h-4 w-4" /></span>
                     <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-900">{request.agency?.legalName || "Travel agent booking"}</span><span className="block truncate text-[11px] leading-4 text-neutral-500">{request.rooms} × {request.roomType || "room"} · arrival {new Date(request.checkIn).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</span></span>
-                    <span className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-800">Decide</span>
+                    <span className="shrink-0 rounded-md bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-800">Decide</span>
                   </Link>
                 </li>
               ))}
@@ -597,7 +597,7 @@ export default function SalesHome() {
                 <li key={link.id}>
                   <Link
                     href="/owner/nrms/agents"
-                    className="flex items-center gap-3 rounded-xl bg-neutral-50 px-3 py-2.5 no-underline ring-1 ring-neutral-200 transition hover:bg-white hover:no-underline hover:ring-emerald-300"
+                    className="flex items-center gap-3 rounded-md bg-neutral-50 px-3 py-2.5 no-underline ring-1 ring-neutral-200 transition hover:bg-white hover:no-underline hover:ring-emerald-300"
                   >
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
                       <Handshake className="h-4 w-4" />
@@ -611,7 +611,7 @@ export default function SalesHome() {
                         {link.requestedAt ? ` · ${waitingFor(minutesSince(link.requestedAt))} ago` : ""}
                       </span>
                     </span>
-                    <span className="shrink-0 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-800">Decide</span>
+                    <span className="shrink-0 rounded-md bg-amber-50 px-2 py-1 text-[10px] font-black text-amber-800">Decide</span>
                   </Link>
                 </li>
               ))}
@@ -621,7 +621,7 @@ export default function SalesHome() {
       </div>
 
       {reporting && reporting.sources.length > 0 ? (
-        <section className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+        <section className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
           <h2 className="m-0 text-sm font-black text-neutral-900">Which channel actually books</h2>
           <p className="m-0 mt-0.5 text-xs text-neutral-500">
             Last {reporting.periodDays} days, by the source the guest arrived from.
@@ -671,7 +671,7 @@ function StatCard({ icon, label: title, value, note, tone, href }: {
   // that nothing happened, so words drop to roughly the size of the label.
   const size = typeof value === "number" ? "text-base sm:text-lg" : "text-xs sm:text-sm";
   return (
-    <Link href={href} className={`block rounded-2xl bg-white p-3 no-underline ring-1 transition hover:no-underline hover:ring-emerald-300 sm:p-3.5 ${ring}`}>
+    <Link href={href} className={`block rounded-lg bg-white p-3 no-underline ring-1 transition hover:no-underline hover:ring-emerald-300 sm:p-3.5 ${ring}`}>
       <span className={`inline-flex h-6 w-6 items-center justify-center rounded-lg ${chip}`}>{icon}</span>
       <span className={`mt-1.5 block truncate font-black leading-tight text-neutral-900 ${size}`}>{value}</span>
       <span className="mt-0.5 block text-[11px] font-bold leading-4 text-neutral-700">{title}</span>
@@ -682,7 +682,7 @@ function StatCard({ icon, label: title, value, note, tone, href }: {
 
 function EmptyState({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
   return (
-    <div className="mt-3 rounded-xl bg-neutral-50 px-3 py-6 text-center ring-1 ring-neutral-200">
+    <div className="mt-3 rounded-md bg-neutral-50 px-3 py-6 text-center ring-1 ring-neutral-200">
       <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-neutral-400 ring-1 ring-neutral-200">{icon}</span>
       <p className="m-0 mt-2 text-xs font-bold text-neutral-700">{title}</p>
       <p className="m-0 mt-1 text-[11px] leading-5 text-neutral-500">{body}</p>

@@ -250,7 +250,7 @@ export function PropertyVisualizationPreview({
 
   if (rooms.length === 0) {
     return (
-      <div className="box-border rounded-xl border border-solid border-slate-200 bg-white p-8 text-center">
+      <div className="box-border rounded-md border border-solid border-slate-200 bg-white p-8 text-center">
         <BedDouble className="mx-auto mb-3 h-10 w-10 text-slate-300" />
         <p className="m-0 font-medium text-slate-600">No rooms configured yet</p>
         <p className="m-0 mt-1 text-sm text-slate-500">Add room types to see the building layout</p>
@@ -288,14 +288,14 @@ export function PropertyVisualizationPreview({
   const floorLabel = (f: number) => (f === 0 ? "Ground floor" : `${getFloorName(f)} floor`);
 
   return (
-    <div className={`${showHeader ? "box-border overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white" : ""}${tone === "dark" ? " pvp-dark" : ""}`}>
+    <div className={`${showHeader ? "box-border overflow-hidden rounded-lg border border-solid border-slate-200 bg-white" : ""}${tone === "dark" ? " pvp-dark" : ""}`}>
       {showHeader ? (
         <div
           className={`flex items-center justify-between gap-4 px-5 py-4 ${headerVariant === "hero" ? "text-white" : "border-0 border-b border-solid border-slate-100"}`}
           style={headerVariant === "hero" ? { background: "linear-gradient(135deg, #013d38 0%, #02665e 60%, #037a70 100%)" } : undefined}
         >
           <div className="flex min-w-0 items-center gap-3">
-            <span className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${headerVariant === "hero" ? "bg-white/15" : "bg-[#02665e]/10 text-[#02665e]"}`}>
+            <span className={`flex h-10 w-10 flex-none items-center justify-center rounded-md ${headerVariant === "hero" ? "bg-white/15" : "bg-[#02665e]/10 text-[#02665e]"}`}>
               <Home className="h-5 w-5" />
             </span>
             <h3 className={`m-0 truncate text-lg font-bold ${headerVariant === "hero" ? "" : "text-slate-900"}`}>{title || "Property"}</h3>
@@ -328,12 +328,12 @@ export function PropertyVisualizationPreview({
           return (
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                <span className="flex h-10 w-10 flex-none items-center justify-center rounded-md bg-[#02665e]/10 text-[#02665e]">
                   <Building2 className="h-5 w-5" aria-hidden />
                 </span>
                 <div className="min-w-0">
                   {sectionEyebrow && (
-                    <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#02665e]">{sectionEyebrow}</p>
+                    <p className="m-0 text-[11px] font-bold text-[#02665e]">{sectionEyebrow}</p>
                   )}
                   <h2 className="m-0 truncate text-[17px] font-bold leading-tight text-slate-900">{sectionTitle}</h2>
                 </div>
@@ -380,7 +380,7 @@ export function PropertyVisualizationPreview({
                 stepFloor(-1);
               }
             }}
-            className="box-border rounded-xl border border-solid border-slate-200 bg-gradient-to-b from-sky-50/80 via-white to-slate-50 px-3 pt-3 outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 sm:px-5"
+            className="box-border rounded-md border border-solid border-slate-200 bg-gradient-to-b from-sky-50/80 via-white to-slate-50 px-3 pt-3 outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 sm:px-5"
           >
             {/* How to use it, said once and plainly */}
             {availableFloors.length > 1 && (
@@ -398,7 +398,7 @@ export function PropertyVisualizationPreview({
                 }`}
               >
                 {/* Column labels so the numbers read as room counts */}
-                <div aria-hidden className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-2 border-0 border-b border-solid border-slate-100 px-1.5 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                <div aria-hidden className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-2 border-0 border-b border-solid border-slate-100 px-1.5 pb-1.5 text-[11px] font-semibold text-slate-400">
                   <span className="text-center">Floor</span>
                   <span />
                   <span className="whitespace-nowrap pr-1 text-right">No. of rooms</span>
@@ -500,7 +500,7 @@ export function PropertyVisualizationPreview({
           <div className="relative" style={panelPos ? { minHeight: panelPos.height } : undefined}>
           <div
             ref={panelRef}
-            className="box-border flex w-full flex-col rounded-xl border-2 border-solid border-[#02665e] bg-white shadow-[0_18px_40px_-22px_rgba(2,40,36,0.45)] lg:absolute lg:inset-x-0"
+            className="box-border flex w-full flex-col rounded-md border-2 border-solid border-[#02665e] bg-white shadow-[0_18px_40px_-22px_rgba(2,40,36,0.45)] lg:absolute lg:inset-x-0"
             style={panelPos ? { top: panelPos.top } : undefined}
           >
             <div
@@ -552,7 +552,7 @@ export function PropertyVisualizationPreview({
 
             {current.types.length > 0 ? (
               <div className="p-3">
-                <p className="m-0 mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Room types on this floor</p>
+                <p className="m-0 mb-2 px-1 text-[11px] font-semibold text-slate-500">Room types on this floor</p>
                 <ul className="m-0 grid list-none gap-2 p-0">
                   {current.types.map((t) => {
                     const share = current.rooms > 0 ? Math.round((t.roomsCount / current.rooms) * 100) : 0;

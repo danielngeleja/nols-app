@@ -67,11 +67,11 @@ export default function TransfersTab({ propertyId, overview, refreshKey, onChang
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-sky-200 bg-sky-50/70 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-solid border-sky-200 bg-sky-50/70 px-4 py-3">
         <p className="m-0 flex min-w-0 items-start gap-2 text-sm text-sky-900"><ArrowRightLeft className="mt-0.5 h-4 w-4 shrink-0 text-sky-700" />Goods leave the sending shelf when sent, and reach the other shelf only when someone there confirms what arrived.</p>
         {canSendAnywhere && <button type="button" onClick={() => setSending(true)} className={`${primaryButton} shrink-0`}><ArrowRightLeft className="h-4 w-4" />Send goods</button>}
       </div>
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {incoming.length > 0 && (
         <section className={`${cardClass} overflow-hidden border-sky-300`}>
@@ -204,7 +204,7 @@ function SendTransferModal({ propertyId, overview, onClose, onSaved }: { propert
           const sending = amountToBase(good, line.amount);
           const available = line.stockItemId ? onHand(line.stockItemId) : 0;
           return (
-            <div key={line.key} className="grid gap-2 rounded-xl border border-solid border-neutral-300 p-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_36px] sm:items-start">
+            <div key={line.key} className="grid gap-2 rounded-md border border-solid border-neutral-300 p-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_36px] sm:items-start">
               <div>
                 <select value={line.stockItemId} onChange={(event) => { const id = event.target.value ? Number(event.target.value) : ""; setLines((rows) => rows.map((row) => (row.key === line.key ? { ...row, stockItemId: id, amount: defaultAmount(id ? goodById.get(id) : null) } : row))); }} className={`${smallFieldClass} w-full`}>
                   <option value="">Choose goods</option>
@@ -266,7 +266,7 @@ function ReceiveTransferModal({ transfer, onClose, onSaved }: { transfer: Transf
     >
       <div className="space-y-2">
         {transfer.lines.map((line) => (
-          <div key={line.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-neutral-300 px-3 py-2.5">
+          <div key={line.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-solid border-neutral-300 px-3 py-2.5">
             <div>
               <p className="m-0 text-[15px] font-bold text-neutral-900">{line.stockItemName}</p>
               <p className="m-0 text-[13px] text-neutral-500">Sent {formatStockQuantity(line.quantitySent, line.baseUnit ?? "PIECE")}</p>

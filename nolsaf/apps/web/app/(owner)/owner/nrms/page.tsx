@@ -415,7 +415,7 @@ function NrmsFrontDeskPage() {
 
   return (
     <div className="space-y-5 pb-10">
-      <section className="relative min-h-[160px] overflow-hidden rounded-3xl bg-[#0d2f29] text-white shadow-[0_20px_45px_-34px_rgba(6,78,59,0.72)] sm:min-h-[170px]">
+      <section className="relative min-h-[160px] overflow-hidden rounded-lg bg-[#0d2f29] text-white shadow-[0_20px_45px_-34px_rgba(6,78,59,0.72)] sm:min-h-[170px]">
         <Image
           src="/images/nrms/front-desk-hero.png"
           alt="Hotel receptionist welcoming a guest at the front desk"
@@ -445,25 +445,25 @@ function NrmsFrontDeskPage() {
               onRefresh={() => void load()}
             />
           )}
-          <div className="max-w-full self-end overflow-x-auto rounded-2xl border border-solid border-white/10 bg-black/25 p-1.5 shadow-lg shadow-black/10 backdrop-blur-md">
+          <div className="max-w-full self-end overflow-x-auto rounded-lg border border-solid border-white/10 bg-black/25 p-1.5 shadow-lg shadow-black/10 backdrop-blur-md">
             <div className="flex w-max gap-1.5">
               <Link
                 href="/owner/nrms/reservations?create=1"
-                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-400 px-3.5 text-xs font-bold text-emerald-950 no-underline shadow-sm transition hover:bg-emerald-300 hover:text-emerald-950 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 focus-visible:ring-offset-2 focus-visible:ring-offset-[#12352f]"
+                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md bg-emerald-400 px-3.5 text-xs font-bold text-emerald-950 no-underline shadow-sm transition hover:bg-emerald-300 hover:text-emerald-950 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200 focus-visible:ring-offset-2 focus-visible:ring-offset-[#12352f]"
               >
                 <Plus className="h-4 w-4" />
                 New reservation
               </Link>
               <Link
                 href="/owner/nrms/calendar"
-                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-white/10 hover:text-white hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-white/10 hover:text-white hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
               >
                 <CalendarDays className="h-4 w-4" />
                 Room calendar
               </Link>
               <Link
                 href="/owner/nrms/analytics"
-                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-white/10 hover:text-white hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-white/10 hover:text-white hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
               >
                 <BarChart3 className="h-4 w-4" />
                 Revenue &amp; analytics
@@ -476,14 +476,14 @@ function NrmsFrontDeskPage() {
       {error && isPropertyFrozen ? (
         <NrmsFrozenNotice propertyTitle={selectedProperty?.title} loading={loading} onRefresh={() => void load()} />
       ) : error ? (
-        <div role="alert" className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
       {auditBehindDate && (
-        <div role="status" className="flex items-start gap-2 rounded-2xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div role="status" className="flex items-start gap-2 rounded-lg border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
           <span className="min-w-0 flex-1">Checkout recorded on today&apos;s date. The business day is still open at {shortDate(auditBehindDate)}, so its postings land there until Night Audit catches up. <Link href="/owner/nrms/finance?view=audit" className="font-semibold text-amber-900 underline">Open Night Audit</Link></span>
           <button type="button" onClick={() => setAuditBehindDate(null)} aria-label="Dismiss" className="cursor-pointer border-0 bg-transparent p-0 text-amber-700"><X className="h-4 w-4" /></button>
@@ -727,7 +727,7 @@ function StayActionModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-[2px] sm:items-center sm:p-5" role="presentation">
-      <section role="dialog" aria-modal="true" aria-labelledby="stay-action-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:max-w-2xl sm:rounded-3xl">
+      <section role="dialog" aria-modal="true" aria-labelledby="stay-action-title" className="max-h-[94vh] w-full overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:max-w-2xl sm:rounded-lg">
         {/* Header band: who, and the four facts of the stay */}
         <div className="bg-[#012a26] px-5 pb-5 pt-5 text-white sm:px-7">
           <div className="flex items-start justify-between gap-4">
@@ -737,7 +737,7 @@ function StayActionModal({
             </button>
           </div>
           <div className="mt-2 flex items-center gap-3.5">
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#5eead4] text-base font-extrabold text-[#012a26]">{initials(guestName)}</span>
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-[#5eead4] text-base font-extrabold text-[#012a26]">{initials(guestName)}</span>
             <div className="min-w-0 flex-1">
               <h2 id="stay-action-title" className="m-0 truncate text-xl font-bold tracking-[-0.01em] text-white">
                 {isCheckIn ? `Check in ${guestName}` : `Check out ${guestName}`}
@@ -759,9 +759,9 @@ function StayActionModal({
 
         <div className="space-y-5 px-5 py-5 sm:px-7 sm:py-6">
           {/* Guest account: the verdict first, then how it adds up */}
-          <section aria-label="Guest account summary" className="overflow-hidden rounded-2xl border border-solid border-slate-200">
+          <section aria-label="Guest account summary" className="overflow-hidden rounded-lg border border-solid border-slate-200">
             <div className="flex flex-wrap items-center gap-4 px-4 py-4 sm:px-5">
-              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${settled ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+              <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md ${settled ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
                 {settled ? <CheckCircle2 className="h-5 w-5" /> : <WalletCards className="h-5 w-5" />}
               </span>
               <div className="min-w-0 flex-1">
@@ -808,7 +808,7 @@ function StayActionModal({
                 </div>
                 <ul className="m-0 list-none space-y-1.5 p-0">
                   {recentPayments.map((payment) => (
-                    <li key={payment.id} className="flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
+                    <li key={payment.id} className="flex min-w-0 items-center gap-3 rounded-md bg-slate-50 px-3 py-2.5">
                       <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white text-emerald-700 ring-1 ring-inset ring-slate-200"><WalletCards className="h-4 w-4" /></span>
                       <div className="min-w-0 flex-1">
                         <p className="m-0 truncate text-xs font-semibold text-slate-800">{paymentMethodLabel(payment.method)}{payment.reference ? ` · ${payment.reference}` : ""}</p>
@@ -823,7 +823,7 @@ function StayActionModal({
           </section>
 
           {!isCheckIn && activeCharges.length > 0 && (
-            <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white" aria-label="Extra charge verification">
+            <section className="overflow-hidden rounded-md border border-neutral-200 bg-white" aria-label="Extra charge verification">
               <div className="flex items-center justify-between gap-3 border-b border-neutral-100 bg-neutral-50 px-4 py-3">
                 <div><h3 className="m-0 text-sm font-bold text-neutral-900">Verify room-folio charges</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-500">Only charges added to the room folio require confirmation. Outlet-paid orders are already settled.</p></div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -840,7 +840,7 @@ function StayActionModal({
               <div className="space-y-2 p-3">
                 {activeCharges.map((charge) => {
                   const checked = verifiedChargeIds.includes(charge.id);
-                  return <label key={charge.id} className={`flex min-w-0 cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 transition ${checked ? "border-emerald-300 bg-emerald-50 shadow-sm" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
+                  return <label key={charge.id} className={`flex min-w-0 cursor-pointer items-center gap-3 rounded-md border px-3.5 py-3 transition ${checked ? "border-emerald-300 bg-emerald-50 shadow-sm" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
                     <input type="checkbox" checked={checked} onChange={(event) => setVerifiedChargeIds((current) => event.target.checked ? [...current, charge.id] : current.filter((id) => id !== charge.id))} className="peer sr-only" />
                     <span
                       aria-hidden="true"
@@ -880,7 +880,7 @@ function StayActionModal({
                   type="button"
                   onClick={() => void handleAssignRoom()}
                   disabled={busy || selectedRoomId === ""}
-                  className="inline-flex min-h-11 appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45"
+                  className="inline-flex min-h-11 appearance-none items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BedDouble className="h-4 w-4" />}
                   {busy ? "Assigning..." : "Assign room"}
@@ -890,7 +890,7 @@ function StayActionModal({
           )}
 
           {isCheckIn && noRoomAssigned && !assignmentPaymentReady && (
-            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
+            <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <div><p className="m-0 text-xs font-bold">Room assignment is waiting for payment</p><p className="mb-0 mt-1 text-xs leading-5 text-amber-800">{assignmentRequirement.message}</p></div>
             </div>
@@ -899,7 +899,7 @@ function StayActionModal({
           {isCheckIn && noRoomAssigned && (!unassignedAllocation || !assignmentPaymentReady) && <button type="button" onClick={() => onOpenDestination(reservationHref(reservation))} className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold">{unassignedAllocation ? "Review payment and assignment" : "Review missing room allocation"}</button>}
 
           {(checkoutBlocked || (noRoomAssigned && !isCheckIn)) && (
-            <div className={`rounded-xl border px-4 py-3 text-xs leading-5 ${checkoutBlocked ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+            <div className={`rounded-md border px-4 py-3 text-xs leading-5 ${checkoutBlocked ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
               {noRoomAssigned && !isCheckIn && <p className="m-0 font-bold">This stay does not have a room unit assigned.</p>}
               {folioUnsettled && (
                 <div className={noRoomAssigned ? "mt-1" : ""}>
@@ -929,7 +929,7 @@ function StayActionModal({
           )}
 
           {!isCheckIn && earlyDeparture && (
-            <section className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+            <section className="rounded-md border border-amber-200 bg-amber-50/70 px-4 py-3">
               <div className="flex items-start gap-3">
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
                 <div className="min-w-0 flex-1">
@@ -948,7 +948,7 @@ function StayActionModal({
 
           {!isCheckIn && earlyDeparture && <NrmsCheckoutPolicyNotice />}
 
-          <label className={`flex items-center gap-4 rounded-2xl px-4 py-3.5 ring-inset transition ${checkoutBlocked ? "cursor-not-allowed bg-slate-50 opacity-60 ring-1 ring-slate-200" : acknowledged ? "cursor-pointer bg-emerald-50 ring-2 ring-emerald-500" : "cursor-pointer bg-white ring-1 ring-slate-300 hover:ring-emerald-400"}`}>
+          <label className={`flex items-center gap-4 rounded-lg px-4 py-3.5 ring-inset transition ${checkoutBlocked ? "cursor-not-allowed bg-slate-50 opacity-60 ring-1 ring-slate-200" : acknowledged ? "cursor-pointer bg-emerald-50 ring-2 ring-emerald-500" : "cursor-pointer bg-white ring-1 ring-slate-300 hover:ring-emerald-400"}`}>
             <input
               type="checkbox"
               role="switch"
@@ -974,11 +974,11 @@ function StayActionModal({
           </label>
 
           {error && (
-            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+            <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           )}
 
           {isCheckIn && roomNotReady && (
-            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               <p className="m-0">{roomNotReady}</p>
               <button
                 type="button"
@@ -993,12 +993,12 @@ function StayActionModal({
         </div>
 
         <div className="sticky bottom-0 flex flex-col-reverse gap-2 border-0 border-t border-solid border-slate-100 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-          <button type="button" onClick={() => onOpenDestination(hasOpenOutletOrders ? "/owner/nrms/orders" : reservationHref(reservation))} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border-0 bg-transparent px-3 text-xs font-bold text-[#02665e] transition hover:bg-emerald-50 disabled:opacity-50">
+          <button type="button" onClick={() => onOpenDestination(hasOpenOutletOrders ? "/owner/nrms/orders" : reservationHref(reservation))} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border-0 bg-transparent px-3 text-xs font-bold text-[#02665e] transition hover:bg-emerald-50 disabled:opacity-50">
             {hasOpenOutletOrders ? "Open restaurant & bar orders" : folioUnsettled ? "Open reservation and settle folio" : chargesUnverified ? "Open full reservation to verify charges" : "Open full reservation"}
             <ArrowUpRight className="h-3.5 w-3.5" />
           </button>
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} disabled={busy} className="min-h-11 flex-1 rounded-xl border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 sm:flex-none">
+            <button type="button" onClick={onClose} disabled={busy} className="min-h-11 flex-1 rounded-md border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 sm:flex-none">
               Not now
             </button>
             {marketplaceHref ? (
@@ -1006,7 +1006,7 @@ function StayActionModal({
               type="button"
               onClick={() => onOpenDestination(marketplaceHref)}
               disabled={busy || !acknowledged || noRoomAssigned}
-              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-bold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-5 text-sm font-bold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none"
             >
               Check in with code
               <ArrowUpRight className="h-4 w-4" />
@@ -1016,7 +1016,7 @@ function StayActionModal({
               type="button"
               onClick={() => onConfirm(verifiedChargeIds, !earlyDeparture ? undefined : { roomVacantConfirmed, earlyDepartureReason: earlyDepartureReason.trim() })}
               disabled={busy || !acknowledged || !departureDeclarationReady || checkoutBlocked || (isCheckIn && noRoomAssigned)}
-              className={`inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border-0 px-5 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none ${isCheckIn ? "bg-[#02665e] hover:bg-[#014d47]" : "bg-[#012a26] hover:bg-[#033a34]"}`}
+              className={`inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-md border-0 px-5 text-sm font-bold text-white transition disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 sm:flex-none ${isCheckIn ? "bg-[#02665e] hover:bg-[#014d47]" : "bg-[#012a26] hover:bg-[#033a34]"}`}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
               {busy ? "Processing..." : hasOpenOutletOrders ? "Complete orders first" : folioUnsettled ? "Settle folio first" : chargesUnverified ? "Verify charges first" : isCheckIn ? actionLabel : "Yes, check out guest"}
@@ -1032,7 +1032,7 @@ function StayActionModal({
 
 function ModalFact({ label, value, warning = false }: { label: string; value: string; warning?: boolean }) {
   return (
-    <div className="min-w-0 rounded-xl bg-white/[0.06] px-3 py-2.5 ring-1 ring-inset ring-white/10">
+    <div className="min-w-0 rounded-md bg-white/[0.06] px-3 py-2.5 ring-1 ring-inset ring-white/10">
       <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.1em] text-white/45">{label}</p>
       <p className={`m-0 mt-1 truncate text-sm font-bold ${warning ? "text-rose-300" : "text-white"}`} title={value}>{value}</p>
     </div>
@@ -1067,9 +1067,9 @@ function FrontDeskSkeleton() {
         @media (prefers-reduced-motion: reduce) { .fd-l { animation: none; } }
       `}</style>
       {[0, 1].map((card) => (
-        <div key={card} className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+        <div key={card} className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
           <div className="flex items-center gap-3 px-5 py-4">
-            <div className="fd-l h-10 w-10 rounded-xl" />
+            <div className="fd-l h-10 w-10 rounded-md" />
             <div className="space-y-2">
               <div className="fd-l h-3.5 w-32 rounded-full" />
               <div className="fd-l h-2.5 w-52 rounded-full" />
@@ -1079,7 +1079,7 @@ function FrontDeskSkeleton() {
             <div key={row} className="flex items-center gap-3 border-0 border-t border-solid border-slate-100 px-5 py-4">
               <div className="fd-l h-10 w-10 rounded-full" />
               <div className="fd-l h-3 w-40 rounded-full" />
-              <div className="fd-l ml-auto h-10 w-28 rounded-xl" />
+              <div className="fd-l ml-auto h-10 w-28 rounded-md" />
             </div>
           ))}
         </div>
@@ -1183,7 +1183,7 @@ function TonightPanel({
   onRefresh: () => void;
 }) {
   const dateLabel = new Date().toLocaleDateString("en-GB", { timeZone: FD_TIME_ZONE, weekday: "short", day: "numeric", month: "short" });
-  const shell = "w-full max-w-[540px] rounded-2xl bg-black/30 p-3.5 ring-1 ring-inset ring-white/10 backdrop-blur-md sm:p-4";
+  const shell = "w-full max-w-[540px] rounded-lg bg-black/30 p-3.5 ring-1 ring-inset ring-white/10 backdrop-blur-md sm:p-4";
 
   if (loading) {
     return (
@@ -1191,7 +1191,7 @@ function TonightPanel({
         <div className="h-3 w-36 rounded-full bg-white/10" />
         <div className="mt-3 flex items-center gap-4">
           <div className="h-[92px] w-[92px] shrink-0 rounded-full border-[9px] border-solid border-white/10" />
-          <div className="grid flex-1 grid-cols-4 gap-1.5">{[0, 1, 2, 3].map((i) => <div key={i} className="h-14 rounded-xl bg-white/[0.06]" />)}</div>
+          <div className="grid flex-1 grid-cols-4 gap-1.5">{[0, 1, 2, 3].map((i) => <div key={i} className="h-14 rounded-md bg-white/[0.06]" />)}</div>
         </div>
       </div>
     );
@@ -1219,12 +1219,12 @@ function TonightPanel({
         </p>
         <div className="flex shrink-0 items-center gap-1.5">
           {attention > 0 ? (
-            <a href="#fd-attention" className="inline-flex h-7 items-center gap-1 rounded-full bg-amber-400/15 px-2.5 text-[11px] font-bold text-amber-200 no-underline ring-1 ring-inset ring-amber-300/40 transition hover:bg-amber-400/25">
+            <a href="#fd-attention" className="inline-flex h-7 items-center gap-1 rounded-md bg-amber-400/15 px-2.5 text-[11px] font-bold text-amber-200 no-underline ring-1 ring-inset ring-amber-300/40 transition hover:bg-amber-400/25">
               <CircleAlert className="h-3 w-3" aria-hidden />
               {attention} to resolve
             </a>
           ) : (
-            <span className="inline-flex h-7 items-center gap-1 rounded-full bg-[#5eead4]/10 px-2.5 text-[11px] font-bold text-[#5eead4] ring-1 ring-inset ring-[#5eead4]/30">
+            <span className="inline-flex h-7 items-center gap-1 rounded-md bg-[#5eead4]/10 px-2.5 text-[11px] font-bold text-[#5eead4] ring-1 ring-inset ring-[#5eead4]/30">
               <Check className="h-3 w-3" aria-hidden />
               All clear
             </span>
@@ -1251,7 +1251,7 @@ function TonightPanel({
                   <span className="mt-1 block truncate text-[10px] font-medium text-white/55">{step.label}</span>
                 </>
               );
-              const skin = `block rounded-xl px-2.5 py-2 no-underline transition ${step.last ? "bg-[#5eead4]/10 ring-1 ring-inset ring-[#5eead4]/35" : "bg-white/[0.05] ring-1 ring-inset ring-white/10"}`;
+              const skin = `block rounded-md px-2.5 py-2 no-underline transition ${step.last ? "bg-[#5eead4]/10 ring-1 ring-inset ring-[#5eead4]/35" : "bg-white/[0.05] ring-1 ring-inset ring-white/10"}`;
               return (
                 <li key={step.label} className="min-w-0">
                   {step.href ? <a href={step.href} className={`${skin} hover:bg-white/[0.1]`}>{body}</a> : <div className={skin}>{body}</div>}
@@ -1322,16 +1322,16 @@ function OperationList({
   const desktopGrid = showStatusColumn ? QUEUE_GRID_WITH_STATUS : QUEUE_GRID;
 
   return (
-    <section id={id} className="min-w-0 scroll-mt-24 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-[0_14px_35px_-32px_rgba(15,23,42,0.45)]">
+    <section id={id} className="min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-[0_14px_35px_-32px_rgba(15,23,42,0.45)]">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ring-1 ring-inset ${iconSkin}`}>{icon}</span>
+          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-md ring-1 ring-inset ${iconSkin}`}>{icon}</span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="m-0 text-base font-bold tracking-[-0.01em] text-slate-900">{title}</h2>
               <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#012a26] px-2 text-xs font-bold tabular-nums text-white" aria-label={`${count} ${countLabel}`}>{count}</span>
               {overdueCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-700 ring-1 ring-inset ring-rose-200">
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-700 ring-1 ring-inset ring-rose-200">
                   <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden />
                   {overdueCount} overdue
                 </span>
@@ -1345,7 +1345,7 @@ function OperationList({
           onClick={() => setCollapsed((current) => !current)}
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? "Expand" : "Collapse"} ${title}`}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-solid border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]"
         >
           <ChevronDown className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`} />
         </button>
@@ -1411,7 +1411,7 @@ function OperationRow({
   const buttonSkin = actionTone === "emerald"
     ? "bg-[#02665e] text-white hover:bg-[#014d47] focus-visible:ring-[#02665e]"
     : "bg-[#012a26] text-white hover:bg-[#033a34] focus-visible:ring-[#012a26]";
-  const actionClass = `col-start-2 row-start-1 inline-flex h-10 w-[8.5rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-xl px-3 text-xs font-bold no-underline transition hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 xl:col-auto xl:row-auto xl:justify-self-end ${buttonSkin}`;
+  const actionClass = `col-start-2 row-start-1 inline-flex h-10 w-[8.5rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-md px-3 text-xs font-bold no-underline transition hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 xl:col-auto xl:row-auto xl:justify-self-end ${buttonSkin}`;
 
   return (
     <li className={`m-0 list-none border-0 border-t border-solid px-4 py-3.5 transition-colors sm:px-5 ${overdue ? "border-rose-100 bg-rose-50/40 hover:bg-rose-50/70" : "border-slate-100 hover:bg-slate-50/80"}`}>
@@ -1448,11 +1448,11 @@ function OperationRow({
           )}
 
           {hasOutstandingBalance(reservation) ? (
-            <span className="inline-flex shrink-0 justify-self-start rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold tabular-nums text-amber-800 ring-1 ring-inset ring-amber-200">
+            <span className="inline-flex shrink-0 justify-self-start rounded-md bg-amber-50 px-2.5 py-1 text-[11px] font-bold tabular-nums text-amber-800 ring-1 ring-inset ring-amber-200">
               {reservation.currency} {reservation.balance!.toLocaleString()} due
             </span>
           ) : (
-            <span className="inline-flex shrink-0 items-center gap-1 justify-self-start rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+            <span className="inline-flex shrink-0 items-center gap-1 justify-self-start rounded-md bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">
               <Check className="h-3 w-3" aria-hidden />
               Paid in full
             </span>
@@ -1494,10 +1494,10 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
   ].filter((entry) => entry.count > 0);
 
   return (
-    <section id="fd-attention" className="scroll-mt-24 overflow-hidden rounded-2xl border border-solid border-amber-200 bg-white shadow-[0_14px_35px_-32px_rgba(146,64,14,0.5)]">
+    <section id="fd-attention" className="scroll-mt-24 overflow-hidden rounded-lg border border-solid border-amber-200 bg-white shadow-[0_14px_35px_-32px_rgba(146,64,14,0.5)]">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200">
             <CircleAlert className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0">
@@ -1505,7 +1505,7 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
               <h2 className="m-0 text-base font-bold tracking-[-0.01em] text-slate-900">Needs attention</h2>
               <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-2 text-xs font-bold tabular-nums text-white">{items.length}</span>
               {tally.map((entry) => (
-                <span key={entry.code} className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold ring-1 ring-inset ${issueSkin(entry.code)}`}>
+                <span key={entry.code} className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-[11px] font-bold ring-1 ring-inset ${issueSkin(entry.code)}`}>
                   {entry.count} {entry.label}
                 </span>
               ))}
@@ -1518,7 +1518,7 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
           onClick={() => setCollapsed((current) => !current)}
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? "Expand" : "Collapse"} front desk attention`}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-solid border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
         >
           <ChevronDown className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`} />
         </button>
@@ -1548,13 +1548,13 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
                     <p className="m-0 min-w-0 truncate text-xs text-slate-500">Out {shortDate(item.checkOut)} · {item.source}</p>
                     <div className="flex flex-wrap gap-1.5">
                       {item.issues.map((issue) => (
-                        <span key={issue.code} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${issueSkin(issue.code)}`}>{issue.label}</span>
+                        <span key={issue.code} className={`rounded-md px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${issueSkin(issue.code)}`}>{issue.label}</span>
                       ))}
                     </div>
                   </div>
                   <Link
                     href={reservationHref(item)}
-                    className="col-start-2 row-start-1 inline-flex h-9 shrink-0 items-center justify-center gap-1.5 self-center rounded-xl border border-solid border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 no-underline transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:no-underline lg:col-auto lg:row-auto lg:justify-self-end"
+                    className="col-start-2 row-start-1 inline-flex h-9 shrink-0 items-center justify-center gap-1.5 self-center rounded-md border border-solid border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 no-underline transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:no-underline lg:col-auto lg:row-auto lg:justify-self-end"
                   >
                     Review <ArrowRight className="h-3.5 w-3.5" />
                   </Link>

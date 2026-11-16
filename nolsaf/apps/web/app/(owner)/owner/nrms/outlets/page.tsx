@@ -301,43 +301,43 @@ export default function NrmsOutletsPage() {
 
   return <div className="mx-auto max-w-7xl space-y-4 pb-8">
     <div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Management</p><h2 className="mb-0 mt-1 text-xl font-bold text-neutral-950">Outlets and menus</h2><p className="mb-0 mt-1 text-xs text-neutral-500">Menu content here is what staff sell from and what guests will see on the QR menu: photo, description, price, and live stock state.</p></div>
-    {error && <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+    {error && <div className="flex gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
 
-    <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-[0_18px_45px_-36px_rgba(15,23,42,0.5)]">
+    <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_18px_45px_-36px_rgba(15,23,42,0.5)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 bg-neutral-50/70 px-4 py-3.5 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800"><Store className="h-4 w-4" /></span>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-100 text-emerald-800"><Store className="h-4 w-4" /></span>
           <div className="min-w-0">
             <h3 className="m-0 text-sm font-bold text-neutral-950">Add an outlet</h3>
             <p className="mb-0 mt-0.5 text-[10px] text-neutral-500">Create a restaurant, bar, or guest-service point.</p>
           </div>
         </div>
-        <span className="rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-neutral-500">Property setup</span>
+        <span className="rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-neutral-500">Property setup</span>
       </div>
 
       <form onSubmit={(event) => { event.preventDefault(); void createOutlet(); }} className="grid min-w-0 grid-cols-1 gap-3 p-4 sm:p-5 md:grid-cols-2 xl:grid-cols-12 xl:items-end">
         <label className="min-w-0 md:col-span-2 xl:col-span-5 text-[10px] font-bold uppercase tracking-wide text-neutral-500">
           Outlet name
-          <input value={outletForm.name} onChange={(event) => setOutletForm({ ...outletForm, name: event.target.value })} placeholder="Main restaurant" autoComplete="off" className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
+          <input value={outletForm.name} onChange={(event) => setOutletForm({ ...outletForm, name: event.target.value })} placeholder="Main restaurant" autoComplete="off" className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
         </label>
         <label className="min-w-0 xl:col-span-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500">
           Short code
-          <input value={outletForm.code} onChange={(event) => setOutletForm({ ...outletForm, code: event.target.value.toUpperCase() })} placeholder="REST01" autoComplete="off" maxLength={24} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-bold uppercase tracking-[0.08em] text-neutral-900 outline-none transition placeholder:font-normal placeholder:tracking-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
+          <input value={outletForm.code} onChange={(event) => setOutletForm({ ...outletForm, code: event.target.value.toUpperCase() })} placeholder="REST01" autoComplete="off" maxLength={24} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-bold uppercase tracking-[0.08em] text-neutral-900 outline-none transition placeholder:font-normal placeholder:tracking-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
         </label>
         <label className="min-w-0 xl:col-span-3 text-[10px] font-bold uppercase tracking-wide text-neutral-500">
           Outlet type
-          <select value={outletForm.type} onChange={(event) => setOutletForm({ ...outletForm, type: event.target.value })} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10"><option value="RESTAURANT">Restaurant</option><option value="BAR">Bar</option><option value="OTHER">Other service</option></select>
+          <select value={outletForm.type} onChange={(event) => setOutletForm({ ...outletForm, type: event.target.value })} className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-md border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10"><option value="RESTAURANT">Restaurant</option><option value="BAR">Bar</option><option value="OTHER">Other service</option></select>
         </label>
-        <button type="submit" disabled={busy || !outletForm.name.trim() || !outletForm.code.trim()} className="box-border inline-flex !h-10 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#073c35] px-3 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none md:col-span-2 xl:col-span-2"><Plus className="h-4 w-4" />{busy ? "Adding..." : "Add outlet"}</button>
+        <button type="submit" disabled={busy || !outletForm.name.trim() || !outletForm.code.trim()} className="box-border inline-flex !h-10 w-full items-center justify-center gap-2 rounded-md border-0 bg-[#073c35] px-3 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none md:col-span-2 xl:col-span-2"><Plus className="h-4 w-4" />{busy ? "Adding..." : "Add outlet"}</button>
       </form>
     </section>
 
     <div className="min-w-0">
-      <section className="min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+      <section className="min-w-0 rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
         {!selected ? <div className="py-14 text-center text-sm text-neutral-400">Create an outlet to manage its menu.</div> : <>
-          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="m-0 text-base font-bold text-neutral-950">{selected.name}</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{selected.type.toLowerCase()} · {selected.code} · {selected.currency}</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => void toggleAutoAccept(selected)} disabled={busy} title="When on, guest QR orders skip the accept step and enter the queue as confirmed" className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[10px] font-bold transition disabled:opacity-50 ${selected.autoAcceptQrOrders ? "border-violet-200 bg-violet-50 text-violet-700" : "border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50"}`}><span className={`h-2 w-2 rounded-full ${selected.autoAcceptQrOrders ? "bg-violet-600" : "bg-neutral-300"}`} />QR auto-accept {selected.autoAcceptQrOrders ? "on" : "off"}</button><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">{selected.status}</span></div></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="m-0 text-base font-bold text-neutral-950">{selected.name}</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{selected.type.toLowerCase()} · {selected.code} · {selected.currency}</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => void toggleAutoAccept(selected)} disabled={busy} title="When on, guest QR orders skip the accept step and enter the queue as confirmed" className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[10px] font-bold transition disabled:opacity-50 ${selected.autoAcceptQrOrders ? "border-violet-200 bg-violet-50 text-violet-700" : "border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50"}`}><span className={`h-2 w-2 rounded-full ${selected.autoAcceptQrOrders ? "bg-violet-600" : "bg-neutral-300"}`} />QR auto-accept {selected.autoAcceptQrOrders ? "on" : "off"}</button><span className="rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">{selected.status}</span></div></div>
 
-          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-neutral-200 bg-neutral-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-4 flex flex-col gap-3 rounded-md border border-neutral-200 bg-neutral-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm"><UtensilsCrossed className="h-4 w-4" /></span>
               <div className="min-w-0">
@@ -360,7 +360,7 @@ export default function NrmsOutletsPage() {
                 const collapsed = collapsedCategories[categoryStateKey] ?? true;
                 const tone = CATEGORY_TONES[categoryIndex % CATEGORY_TONES.length];
                 return (
-                  <section key={category} className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_4px_14px_-10px_rgba(15,23,42,0.35)]">
+                  <section key={category} className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_4px_14px_-10px_rgba(15,23,42,0.35)]">
                     <div className={`flex items-center gap-3 border-b border-neutral-200/80 px-3.5 py-3 sm:px-4 ${tone.header}`}>
                       <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tone.icon}`}><UtensilsCrossed className="h-3.5 w-3.5" /></span>
                       <div className="min-w-0">
@@ -378,9 +378,9 @@ export default function NrmsOutletsPage() {
                       {visibleItems.map((item) => {
                         const itemIndex = items.findIndex((entry) => entry.id === item.id);
                         return (
-                        <article key={item.id} className={`group min-w-0 overflow-hidden rounded-2xl border shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-px hover:border-neutral-300 hover:shadow-[0_10px_24px_-18px_rgba(15,23,42,0.45)] ${item.inStock ? "border-neutral-200 bg-white" : "border-neutral-200 bg-neutral-50"}`}>
+                        <article key={item.id} className={`group min-w-0 overflow-hidden rounded-lg border shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-px hover:border-neutral-300 hover:shadow-[0_10px_24px_-18px_rgba(15,23,42,0.45)] ${item.inStock ? "border-neutral-200 bg-white" : "border-neutral-200 bg-neutral-50"}`}>
                           <div className="grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] gap-3 p-3.5">
-                            <span className={`relative flex h-[5.5rem] w-[5.5rem] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-neutral-100 bg-gradient-to-br from-neutral-50 to-neutral-100 text-neutral-300 ${item.inStock ? "" : "grayscale opacity-60"}`}>
+                            <span className={`relative flex h-[5.5rem] w-[5.5rem] shrink-0 items-center justify-center overflow-hidden rounded-md border border-neutral-100 bg-gradient-to-br from-neutral-50 to-neutral-100 text-neutral-300 ${item.inStock ? "" : "grayscale opacity-60"}`}>
                               {item.imageUrl ? <Image src={item.imageUrl} alt={item.name} fill sizes="88px" className="object-cover" /> : <UtensilsCrossed className="h-5 w-5" />}
                             </span>
                             <div className="flex min-w-0 flex-col">
@@ -442,7 +442,7 @@ export default function NrmsOutletsPage() {
               {showRetired && (
                 <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {retiredItems.map((item) => (
-                    <article key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-neutral-200 bg-neutral-50 p-2.5">
+                    <article key={item.id} className="flex items-center justify-between gap-3 rounded-md border border-dashed border-neutral-200 bg-neutral-50 p-2.5">
                       <div className="min-w-0"><p className="m-0 truncate text-xs font-semibold text-neutral-500">{item.name}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{selected.currency} {Number(item.price).toLocaleString()}</p></div>
                       <button type="button" disabled={busy} onClick={() => void patchItem(item.id, { status: "ACTIVE" })} className="shrink-0 appearance-none rounded-md border border-emerald-200 bg-white px-2 py-1 text-[9px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">Restore</button>
                     </article>
@@ -458,30 +458,30 @@ export default function NrmsOutletsPage() {
     {(editing || creatingItem) && selected && (
       <div className="fixed inset-0 z-[11000] flex items-center justify-center p-3 sm:p-6">
         <button type="button" aria-label="Close" className="absolute inset-0 border-0 bg-neutral-950/50 backdrop-blur-sm" onClick={closeItemEditor} />
-        <section className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-white bg-white shadow-[0_30px_80px_-24px_rgba(0,0,0,0.5)] ring-1 ring-black/5 sm:max-h-[calc(100dvh-3rem)]">
+        <section className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-white bg-white shadow-[0_30px_80px_-24px_rgba(0,0,0,0.5)] ring-1 ring-black/5 sm:max-h-[calc(100dvh-3rem)]">
           <div className="flex shrink-0 items-start justify-between gap-4 border-b border-neutral-100 bg-white px-5 py-4 sm:px-6 sm:py-5">
             <div>
               <p className="m-0 text-[9px] font-bold uppercase tracking-[0.16em] text-emerald-700">{editing ? "Menu item" : "New menu item"}</p>
               <h3 className="mb-0 mt-1 text-base font-bold text-neutral-950">{editing ? `Edit ${editing.name}` : "Add a complete menu item"}</h3>
               <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-500">This information appears on the staff order screen and the guest QR menu.</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-bold text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Guest visible</span>
-                <span className="rounded-full bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-600">Photo optional</span>
-                <span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-700">Name and price required</span>
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[9px] font-bold text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Guest visible</span>
+                <span className="rounded-md bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-600">Photo optional</span>
+                <span className="rounded-md bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-700">Name and price required</span>
               </div>
             </div>
-            <button type="button" onClick={closeItemEditor} disabled={busy || uploading} aria-label="Close editor" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-500 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:opacity-50"><X className="h-4 w-4" /></button>
+            <button type="button" onClick={closeItemEditor} disabled={busy || uploading} aria-label="Close editor" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-500 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:opacity-50"><X className="h-4 w-4" /></button>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="grid gap-6 p-5 sm:p-6 md:grid-cols-[12rem_minmax(0,1fr)]">
             <aside className="min-w-0">
               <p className="mb-2 mt-0 text-xs font-bold text-neutral-900">Item photo</p>
-              <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl border border-neutral-200 bg-gradient-to-br from-neutral-50 to-neutral-100 text-neutral-300 shadow-inner">
+              <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-neutral-200 bg-gradient-to-br from-neutral-50 to-neutral-100 text-neutral-300 shadow-inner">
                 {editForm.imageUrl ? <Image src={editForm.imageUrl} alt={editForm.name || "Menu item preview"} fill sizes="224px" className="object-cover" /> : <div className="text-center"><ImageIcon className="mx-auto h-8 w-8" /><span className="mt-2 block text-[10px] font-semibold text-neutral-400">Photo preview</span></div>}
               </div>
               <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} />
-              <button type="button" disabled={uploading || busy} onClick={() => fileInput.current?.click()} className="mt-3 inline-flex min-h-10 w-full appearance-none items-center justify-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 shadow-sm transition hover:border-neutral-400 hover:bg-neutral-50 disabled:opacity-50">{uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}{uploading ? "Uploading photo" : editForm.imageUrl ? "Replace item photo" : "Upload item photo"}</button>
+              <button type="button" disabled={uploading || busy} onClick={() => fileInput.current?.click()} className="mt-3 inline-flex min-h-10 w-full appearance-none items-center justify-center gap-2 rounded-md border border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 shadow-sm transition hover:border-neutral-400 hover:bg-neutral-50 disabled:opacity-50">{uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}{uploading ? "Uploading photo" : editForm.imageUrl ? "Replace item photo" : "Upload item photo"}</button>
               {editForm.imageUrl && <button type="button" disabled={busy || uploading} onClick={() => setEditForm((current) => ({ ...current, imageUrl: "" }))} className="mt-2 w-full appearance-none border-0 bg-transparent p-1 text-[10px] font-bold text-red-600 hover:text-red-700 disabled:opacity-50">Remove photo</button>}
               <p className="mb-0 mt-2 text-[9px] leading-4 text-neutral-500">Use a clear dish or product photo. QR codes are managed separately under QR order points. JPG, PNG, or WEBP up to 2MB.</p>
             </aside>
@@ -492,36 +492,36 @@ export default function NrmsOutletsPage() {
                 <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Write this as guests should read it, with a clear name and useful description.</p>
               </div>
               <label className="block text-[11px] font-bold text-neutral-700">Item name <span className="text-red-500">*</span>
-                <input value={editForm.name} onChange={(event) => { setEditForm({ ...editForm, name: event.target.value }); setItemEditorError(null); }} maxLength={160} autoFocus placeholder={selected.type === "BAR" ? "For example: Jack Daniel’s, Safari Lager" : selected.type === "RESTAURANT" ? "For example: Grilled chicken, Beef burger" : "For example: Grilled chicken, Safari Lager"} className="mt-1.5 box-border !h-11 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-0 text-sm font-semibold text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
+                <input value={editForm.name} onChange={(event) => { setEditForm({ ...editForm, name: event.target.value }); setItemEditorError(null); }} maxLength={160} autoFocus placeholder={selected.type === "BAR" ? "For example: Jack Daniel’s, Safari Lager" : selected.type === "RESTAURANT" ? "For example: Grilled chicken, Beef burger" : "For example: Grilled chicken, Safari Lager"} className="mt-1.5 box-border !h-11 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3.5 py-0 text-sm font-semibold text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
               </label>
               <label className="mt-4 block text-[11px] font-bold text-neutral-700">Guest description
-                <textarea value={editForm.description} onChange={(event) => setEditForm({ ...editForm, description: event.target.value })} maxLength={500} rows={3} placeholder="For example: Grilled chicken served with coconut rice and fresh kachumbari." className="mt-1.5 box-border w-full resize-none rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-sm leading-5 text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
+                <textarea value={editForm.description} onChange={(event) => setEditForm({ ...editForm, description: event.target.value })} maxLength={500} rows={3} placeholder="For example: Grilled chicken served with coconut rice and fresh kachumbari." className="mt-1.5 box-border w-full resize-none rounded-md border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-sm leading-5 text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
                 <span className="mt-1 block text-right text-[9px] font-medium text-neutral-400">{editForm.description.length}/500</span>
               </label>
               <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className="block text-[11px] font-bold text-neutral-700">Category <span className="text-red-500">*</span>
-                  <select value={editForm.category} onChange={(event) => { setEditForm({ ...editForm, category: event.target.value }); setItemEditorError(null); }} className="mt-1.5 box-border !h-11 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-0 text-sm font-semibold text-neutral-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10">
+                  <select value={editForm.category} onChange={(event) => { setEditForm({ ...editForm, category: event.target.value }); setItemEditorError(null); }} className="mt-1.5 box-border !h-11 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3.5 py-0 text-sm font-semibold text-neutral-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10">
                     <option value="">Select {selected.type === "BAR" ? "bar" : selected.type === "RESTAURANT" ? "restaurant" : "menu"} category</option>
                     {allowedMenuCategories.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
                 </label>
                 <label className="block text-[11px] font-bold text-neutral-700">Selling price ({selected.currency}) <span className="text-red-500">*</span>
-                  <input type="number" min={1} value={editForm.price} onChange={(event) => { setEditForm({ ...editForm, price: event.target.value }); setItemEditorError(null); }} placeholder="0" className="mt-1.5 box-border !h-11 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-0 text-sm font-bold tabular-nums text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
+                  <input type="number" min={1} value={editForm.price} onChange={(event) => { setEditForm({ ...editForm, price: event.target.value }); setItemEditorError(null); }} placeholder="0" className="mt-1.5 box-border !h-11 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3.5 py-0 text-sm font-bold tabular-nums text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
                 </label>
               </div>
               <label className="mt-4 block text-[11px] font-bold text-neutral-700">Internal item code <span className="font-medium text-neutral-400">(optional)</span>
-                <input value={editForm.sku} onChange={(event) => setEditForm({ ...editForm, sku: event.target.value })} maxLength={50} placeholder="For example: JACK-21" className="mt-1.5 box-border !h-11 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-0 text-sm font-semibold uppercase tracking-[0.04em] text-neutral-900 outline-none transition placeholder:font-normal placeholder:normal-case placeholder:tracking-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
+                <input value={editForm.sku} onChange={(event) => setEditForm({ ...editForm, sku: event.target.value })} maxLength={50} placeholder="For example: JACK-21" className="mt-1.5 box-border !h-11 w-full rounded-md border border-neutral-200 bg-neutral-50 px-3.5 py-0 text-sm font-semibold uppercase tracking-[0.04em] text-neutral-900 outline-none transition placeholder:font-normal placeholder:normal-case placeholder:tracking-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" />
               </label>
-              {itemEditorError && <p className="mb-0 mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold leading-5 text-red-700"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{itemEditorError}</p>}
+              {itemEditorError && <p className="mb-0 mt-4 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold leading-5 text-red-700"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{itemEditorError}</p>}
             </div>
           </div>
           </div>
 
           <div className="flex shrink-0 flex-col gap-3 border-t border-neutral-100 bg-neutral-50/80 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            {editing ? <button type="button" disabled={busy || uploading} onClick={() => { void patchItem(editing.id, { status: "INACTIVE" }); setEditing(null); }} className="inline-flex min-h-10 appearance-none items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-white px-3.5 text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:opacity-50"><Archive className="h-3.5 w-3.5" />Retire item</button> : <span />}
+            {editing ? <button type="button" disabled={busy || uploading} onClick={() => { void patchItem(editing.id, { status: "INACTIVE" }); setEditing(null); }} className="inline-flex min-h-10 appearance-none items-center justify-center gap-1.5 rounded-md border border-red-200 bg-white px-3.5 text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:opacity-50"><Archive className="h-3.5 w-3.5" />Retire item</button> : <span />}
             <div className="flex gap-2 sm:justify-end">
-              <button type="button" disabled={busy || uploading} onClick={closeItemEditor} className="min-h-10 flex-1 appearance-none rounded-xl border border-neutral-300 bg-white px-4 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50 sm:flex-none">Cancel</button>
-              <button type="button" disabled={busy || uploading} onClick={() => void saveItemEditor()} className="inline-flex min-h-10 flex-1 appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50 sm:flex-none">{busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{editing ? "Save changes" : "Add to menu"}</button>
+              <button type="button" disabled={busy || uploading} onClick={closeItemEditor} className="min-h-10 flex-1 appearance-none rounded-md border border-neutral-300 bg-white px-4 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50 sm:flex-none">Cancel</button>
+              <button type="button" disabled={busy || uploading} onClick={() => void saveItemEditor()} className="inline-flex min-h-10 flex-1 appearance-none items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50 sm:flex-none">{busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{editing ? "Save changes" : "Add to menu"}</button>
             </div>
           </div>
         </section>

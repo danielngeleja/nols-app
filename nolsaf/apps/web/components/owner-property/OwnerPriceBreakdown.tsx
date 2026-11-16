@@ -15,7 +15,7 @@ export function OwnerPriceBreakdown({ rate, commissionPercent, currency = "TZS",
   const guestPrice = commissionPercent === null ? null : calculatePriceWithCommission(rate, commissionPercent);
   const fee = guestPrice === null ? null : guestPrice - rate;
 
-  return <div className={`mt-3 rounded-xl border border-solid p-3 text-xs ${dark ? "border-white/15 bg-white/[0.04] text-white/70" : "border-slate-200 bg-white text-slate-600"}`}>
+  return <div className={`mt-3 rounded-md border border-solid p-3 text-xs ${dark ? "border-white/15 bg-white/[0.04] text-white/70" : "border-slate-200 bg-white text-slate-600"}`}>
     <div className="flex items-center justify-between gap-3"><span>Your nightly rate</span><strong className={dark ? "text-white" : "text-slate-900"}>{formatAmount(rate, currency)}</strong></div>
     {guestPrice === null ? (
       <p className="m-0 mt-2">Guest price preview is unavailable right now.</p>

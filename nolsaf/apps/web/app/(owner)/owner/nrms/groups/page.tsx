@@ -298,7 +298,7 @@ function filterGroups(groups: ReservationGroup[], filters: GroupFilters): Reserv
   });
 }
 
-const filterControlCls = "box-border h-10 min-w-0 rounded-xl border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-800 shadow-sm outline-none transition hover:border-neutral-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+const filterControlCls = "box-border h-10 min-w-0 rounded-md border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-800 shadow-sm outline-none transition hover:border-neutral-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 
 function FilterField({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
   return (
@@ -380,7 +380,7 @@ function FilterBar({
                 type="button"
                 onClick={() => { onFrom(""); onTo(""); }}
                 aria-label="Clear stay window"
-                className="inline-flex h-10 w-10 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-xl border border-solid border-neutral-200 bg-white p-0 text-neutral-500 shadow-sm transition hover:border-red-200 hover:text-red-600"
+                className="inline-flex h-10 w-10 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-md border border-solid border-neutral-200 bg-white p-0 text-neutral-500 shadow-sm transition hover:border-red-200 hover:text-red-600"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -391,7 +391,7 @@ function FilterBar({
       <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-neutral-100 bg-white px-4 py-2.5 text-sm text-neutral-500 sm:px-5">
         <span className="flex flex-wrap items-center gap-2">
           <span>Showing <strong className="tabular-nums text-neutral-900">{shown}</strong> of <strong className="tabular-nums text-neutral-900">{total}</strong> {noun}</span>
-          {activeCount > 0 && <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-800">{activeCount} {activeCount === 1 ? "filter" : "filters"} on</span>}
+          {activeCount > 0 && <span className="inline-flex items-center rounded-md bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-800">{activeCount} {activeCount === 1 ? "filter" : "filters"} on</span>}
         </span>
         {activeCount > 0 && (
           <button type="button" onClick={onClear} className="inline-flex cursor-pointer appearance-none items-center gap-1.5 border-0 bg-transparent p-0 text-sm font-semibold text-emerald-700 transition hover:text-emerald-900">
@@ -701,10 +701,10 @@ export default function NrmsGroupReservationsPage() {
 
   return (
     <div className="min-w-0 max-w-full pb-10">
-      <section className="mb-5 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+      <section className="mb-5 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white shadow-sm">
         <header className="flex flex-col gap-4 px-5 pb-4 pt-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
           <div className="flex min-w-0 items-start gap-3.5">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
               <Users className="h-5 w-5" />
             </span>
             <div className="min-w-0">
@@ -721,14 +721,14 @@ export default function NrmsGroupReservationsPage() {
             <button
               type="button"
               onClick={() => setShowCreateBlock(true)}
-              className="inline-flex min-h-11 w-full shrink-0 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-800 sm:w-auto"
+              className="inline-flex min-h-11 w-full shrink-0 cursor-pointer appearance-none items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-800 sm:w-auto"
             >
               <Plus className="h-4 w-4" /> Create group block
             </button>
           ) : ownerWorkspace ? (
             <Link
               href="/owner/nrms/reservations"
-              className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-xs font-bold text-white no-underline shadow-sm transition-colors hover:bg-emerald-800 sm:w-auto"
+              className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-xs font-bold text-white no-underline shadow-sm transition-colors hover:bg-emerald-800 sm:w-auto"
             >
               <Plus className="h-4 w-4" /> Build a group
             </Link>
@@ -775,15 +775,15 @@ export default function NrmsGroupReservationsPage() {
       </section>
 
       {pendingError && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50 px-4 py-3">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-solid border-amber-200 bg-amber-50 px-4 py-3">
           <p className="m-0 text-xs font-semibold text-amber-900">{pendingError}</p>
           <button type="button" onClick={clearSelection} className="cursor-pointer rounded-lg border border-solid border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 transition hover:bg-amber-100">Dismiss</button>
         </div>
       )}
-      {error && <p className="m-0 mb-4 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {error && <p className="m-0 mb-4 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
       {pending && (
-        <section className="mb-4 rounded-2xl border border-solid border-emerald-200 bg-emerald-50 p-4">
+        <section className="mb-4 rounded-lg border border-solid border-emerald-200 bg-emerald-50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Users className="h-4 w-4" /></span>
@@ -818,8 +818,8 @@ export default function NrmsGroupReservationsPage() {
         <div className="flex justify-center py-20 text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : tab === "BLOCKS" ? (
         blocks.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-16 text-center">
-            <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CalendarClock className="h-5 w-5" /></span>
+          <div className="rounded-lg border border-dashed border-neutral-300 bg-white px-6 py-16 text-center">
+            <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><CalendarClock className="h-5 w-5" /></span>
             <p className="m-0 text-sm font-bold text-neutral-900">No group blocks yet</p>
             <p className="m-0 mx-auto mt-1 max-w-lg text-xs leading-5 text-neutral-500">
               A block holds rooms for a party before anyone knows the guest names. Agree the rooms, dates and rate with the agency now, collect the names later, and nobody can sell those rooms in the meantime.
@@ -833,7 +833,7 @@ export default function NrmsGroupReservationsPage() {
             </button>}
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+          <div className="overflow-hidden rounded-md border border-solid border-neutral-200 bg-white">
             <FilterBar
               query={blockFilters.q}
               onQuery={(q) => updateBlockFilters({ q })}
@@ -875,7 +875,7 @@ export default function NrmsGroupReservationsPage() {
                   aria-pressed={blockFilters.attention}
                   onClick={() => updateBlockFilters({ attention: !blockFilters.attention })}
                   title="Rooming lists waiting for review, or live blocks past their names deadline"
-                  className={`inline-flex h-10 cursor-pointer appearance-none items-center gap-2 rounded-xl border border-solid px-3 text-sm font-semibold shadow-sm transition ${blockFilters.attention ? "border-amber-300 bg-amber-50 text-amber-800" : "border-neutral-200 bg-white text-neutral-700 hover:border-amber-200 hover:text-amber-800"}`}
+                  className={`inline-flex h-10 cursor-pointer appearance-none items-center gap-2 rounded-md border border-solid px-3 text-sm font-semibold shadow-sm transition ${blockFilters.attention ? "border-amber-300 bg-amber-50 text-amber-800" : "border-neutral-200 bg-white text-neutral-700 hover:border-amber-200 hover:text-amber-800"}`}
                 >
                   <TriangleAlert className="h-4 w-4" /> Needs attention
                   <span className={`inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-bold ${attentionCount > 0 ? "bg-amber-100 text-amber-800" : "bg-neutral-100 text-neutral-500"}`}>{attentionCount}</span>
@@ -968,8 +968,8 @@ export default function NrmsGroupReservationsPage() {
           </div>
         )
       ) : groups.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-16 text-center">
-          <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Users className="h-5 w-5" /></span>
+        <div className="rounded-lg border border-dashed border-neutral-300 bg-white px-6 py-16 text-center">
+          <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Users className="h-5 w-5" /></span>
           <p className="m-0 text-sm font-bold text-neutral-900">No group reservations yet</p>
           <p className="m-0 mx-auto mt-1 max-w-md text-xs leading-5 text-neutral-500">
             Open Reservations, tick two or more stays that are travelling together, then choose Create a group. You can check the whole party in or out from here afterwards.
@@ -982,7 +982,7 @@ export default function NrmsGroupReservationsPage() {
           </Link>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+        <div className="overflow-hidden rounded-md border border-solid border-neutral-200 bg-white">
           <FilterBar
             query={groupFilters.q}
             onQuery={(q) => updateGroupFilters({ q })}
@@ -1024,7 +1024,7 @@ export default function NrmsGroupReservationsPage() {
                 aria-pressed={Boolean(groupFilters.attention)}
                 onClick={() => updateGroupFilters({ attention: !groupFilters.attention })}
                 title="Groups with guests to check in or out today"
-                className={`inline-flex h-10 cursor-pointer appearance-none items-center gap-2 rounded-xl border border-solid px-3 text-sm font-semibold shadow-sm transition ${groupFilters.attention ? "border-amber-300 bg-amber-50 text-amber-800" : "border-neutral-200 bg-white text-neutral-700 hover:border-amber-200 hover:text-amber-800"}`}
+                className={`inline-flex h-10 cursor-pointer appearance-none items-center gap-2 rounded-md border border-solid px-3 text-sm font-semibold shadow-sm transition ${groupFilters.attention ? "border-amber-300 bg-amber-50 text-amber-800" : "border-neutral-200 bg-white text-neutral-700 hover:border-amber-200 hover:text-amber-800"}`}
               >
                 <TriangleAlert className="h-4 w-4" /> Due today
                 <span className={`inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-bold ${groupAttentionCount > 0 ? "bg-amber-100 text-amber-800" : "bg-neutral-100 text-neutral-500"}`}>{groupAttentionCount}</span>

@@ -22,7 +22,7 @@ export function NrmsLifecycleRail({ stages, selected, onSelect }: {
 }) {
   const total = stages.reduce((sum, stage) => sum + stage.count, 0);
   return (
-    <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-2">
+    <section className="rounded-lg border border-solid border-neutral-200 bg-white p-2">
       <div className={`grid grid-cols-2 gap-2 ${stages.length > 3 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
         {stages.map((stage, index) => {
           const Icon = stage.icon;
@@ -34,7 +34,7 @@ export function NrmsLifecycleRail({ stages, selected, onSelect }: {
               type="button"
               onClick={() => onSelect(active ? "" : stage.key)}
               aria-pressed={active}
-              className={`group relative min-w-0 rounded-xl border border-solid p-4 text-left transition-all ${active ? `border-neutral-900 ${stage.soft}` : "border-transparent bg-neutral-50/70 hover:border-neutral-200 hover:bg-white"}`}
+              className={`group relative min-w-0 rounded-md border border-solid p-4 text-left transition-all ${active ? `border-neutral-900 ${stage.soft}` : "border-transparent bg-neutral-50/70 hover:border-neutral-200 hover:bg-white"}`}
             >
               <span className="flex items-center justify-between gap-2">
                 <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${stage.text}`}><Icon className="h-4 w-4" />{stage.label}</span>
@@ -84,14 +84,14 @@ export function NrmsDirectoryShell({
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+    <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
       <div className="flex flex-wrap items-center gap-4 bg-neutral-50/40 px-4 py-4 sm:px-5">
         <div className="min-w-0 border-l-2 border-emerald-600 pl-3">
           <h2 className="m-0 text-base font-bold leading-tight text-neutral-950">{title}</h2>
           <p className="mb-0 mt-1 text-xs font-medium tabular-nums text-neutral-500">{loading ? "Loading records..." : `${count.toLocaleString()} ${count === 1 ? "record" : "records"}`}</p>
         </div>
         {filter && onClearFilter && (
-          <button type="button" onClick={onClearFilter} className="inline-flex h-7 items-center gap-1 rounded-full border-0 bg-neutral-100 px-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-200">
+          <button type="button" onClick={onClearFilter} className="inline-flex h-7 items-center gap-1 rounded-md border-0 bg-neutral-100 px-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-200">
             <X className="h-3 w-3" /> Show all
           </button>
         )}

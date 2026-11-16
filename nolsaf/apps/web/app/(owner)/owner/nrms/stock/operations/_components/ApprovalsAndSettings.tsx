@@ -116,7 +116,7 @@ export function SettingsTab({ propertyId, overview, onChanged }: { propertyId: n
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
       <SectionCard icon={Warehouse} title="Main store" subtitle="A store room that holds stock before it goes to the bar or kitchen">
-        <label className={`flex items-start gap-3 rounded-xl border border-solid p-3.5 transition ${canEdit ? "cursor-pointer" : ""} ${storeEnabled ? "border-brand bg-brand/[0.05]" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
+        <label className={`flex items-start gap-3 rounded-md border border-solid p-3.5 transition ${canEdit ? "cursor-pointer" : ""} ${storeEnabled ? "border-brand bg-brand/[0.05]" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
           <input type="checkbox" checked={storeEnabled} disabled={!canEdit} onChange={(event) => setStoreEnabled(event.target.checked)} className={`${checkboxClass} mt-0.5`} />
           <span className="min-w-0">
             <span className={`block text-sm font-bold ${storeEnabled ? "text-brand" : "text-neutral-900"}`}>This property has a store room</span>

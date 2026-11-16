@@ -35,7 +35,7 @@ export default function OwnerFooter() {
     <div className="public-container py-3">
       <footer
         aria-label="Owner workspace resources"
-        className="rounded-2xl border border-solid border-neutral-200 bg-white px-3.5 py-2 shadow-sm sm:px-5"
+        className="rounded-lg border border-solid border-neutral-200 bg-white px-3.5 py-2 shadow-sm sm:px-5"
       >
         <div className="flex items-center justify-between gap-3 text-xs font-bold text-neutral-500">
           <Popover className="relative">
@@ -55,8 +55,8 @@ export default function OwnerFooter() {
                   leaveFrom="translate-y-0 opacity-100"
                   leaveTo="translate-y-1 opacity-0"
                 >
-                  <Popover.Panel className="absolute bottom-full left-0 z-50 mb-2 w-60 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white p-1.5 shadow-[0_18px_40px_-20px_rgba(15,23,42,0.45)]">
-                    <p className="m-0 px-2.5 pb-1 pt-1.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-neutral-400">Owner policies</p>
+                  <Popover.Panel className="absolute bottom-full left-0 z-50 mb-2 w-60 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white p-1.5 shadow-[0_18px_40px_-20px_rgba(15,23,42,0.45)]">
+                    <p className="m-0 px-2.5 pb-1 pt-1.5 text-[11px] font-bold text-neutral-400">Owner policies</p>
                     {OWNER_POLICIES.map((policy) => (
                       <Popover.Button
                         key={policy.href}

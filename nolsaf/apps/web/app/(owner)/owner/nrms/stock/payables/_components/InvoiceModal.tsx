@@ -135,7 +135,7 @@ export default function InvoiceModal({ propertyId, currency, suppliers, supplier
 
         <div>
           <p className={`${labelClass} m-0`}>Deliveries on this invoice</p>
-          <div className="mt-2 overflow-hidden rounded-xl border border-solid border-neutral-300">
+          <div className="mt-2 overflow-hidden rounded-md border border-solid border-neutral-300">
             {!supplierId ? (
               <p className="m-0 px-4 py-5 text-center text-sm text-neutral-500">Choose the supplier to see their deliveries.</p>
             ) : !deliveries ? (

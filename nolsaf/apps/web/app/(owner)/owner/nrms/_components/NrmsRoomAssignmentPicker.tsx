@@ -72,7 +72,7 @@ export default function NrmsRoomAssignmentPicker({
   }, [floorFilter, floorOptions, multiStorey]);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white" aria-label="Room assignment">
+    <section className="overflow-hidden rounded-md border border-solid border-neutral-200 bg-white" aria-label="Room assignment">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 bg-neutral-50/70 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><LockKeyhole className="h-4 w-4" /></span>
@@ -81,7 +81,7 @@ export default function NrmsRoomAssignmentPicker({
             <p className="mb-0 mt-0.5 truncate text-sm font-bold text-neutral-950">{roomTypeName}</p>
           </div>
         </div>
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-100"><ShieldCheck className="h-3 w-3" />Category locked</span>
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-100"><ShieldCheck className="h-3 w-3" />Category locked</span>
       </div>
 
       <div className="px-4 py-4">

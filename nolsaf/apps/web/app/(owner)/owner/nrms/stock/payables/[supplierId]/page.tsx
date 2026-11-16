@@ -89,7 +89,7 @@ export default function SupplierStatementPage() {
     return (
       <div className="space-y-3">
         <Link href="/owner/nrms/stock/payables" className="inline-flex items-center gap-1.5 text-sm font-bold text-brand no-underline hover:underline"><ArrowLeft className="h-4 w-4" />Supplier payables</Link>
-        <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       </div>
     );
   }
@@ -121,19 +121,19 @@ export default function SupplierStatementPage() {
         ]}
       />
       {supplier.payChannels?.length ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-4 py-2.5 text-sm">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-solid border-neutral-200 bg-white px-4 py-2.5 text-sm">
           <span className="text-xs font-bold uppercase tracking-wide text-neutral-500">Pay to</span>
           {supplier.payChannels.map((row) => <span key={`${row.label}-${row.value}`} className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-100 px-2.5 py-1"><span className="font-bold text-neutral-800">{row.label}</span><span className="tabular-nums text-neutral-600">{row.value}</span></span>)}
         </div>
       ) : null}
 
       {notice && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+        <div className="flex items-center justify-between gap-3 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
           <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" />{notice}</span>
           <button type="button" onClick={() => setNotice(null)} className="border-0 bg-transparent p-0 text-sm font-bold text-emerald-800 [font-family:inherit] hover:underline">Dismiss</button>
         </div>
       )}
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {/* Stacked, not side by side: the statement needs the full width for its columns. */}
       <div className="grid gap-4">

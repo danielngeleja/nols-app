@@ -83,7 +83,7 @@ export default function NrmsStockPage() {
       <section className={cardClass}>
         <div className="flex flex-wrap items-start justify-between gap-4 px-4 pt-4 sm:px-6 sm:pt-5">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand"><Package className="h-5 w-5" /></span>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand"><Package className="h-5 w-5" /></span>
             <div className="min-w-0">
               <h1 className="m-0 truncate text-2xl font-bold tracking-tight text-neutral-950">Stock</h1>
               <p className="m-0 mt-1 max-w-2xl text-sm text-neutral-500">{description}</p>
@@ -265,7 +265,7 @@ function MenuAvailabilityBoard({ onOpenGoods, startWithAttention = false }: { on
         <button type="button" onClick={() => void load()} className={`${quietButton} h-9 px-3 text-sm`}><RefreshCw className="h-4 w-4" />Refresh</button>
       </div>
 
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-700">{error}</div>}
 
       {loading && !data ? (
         <div className="flex min-h-[30vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>
@@ -315,7 +315,7 @@ function MenuAvailabilityBoard({ onOpenGoods, startWithAttention = false }: { on
                             {item.linked ? (
                               // Quantity lives on the goods behind this item (Goods on hand).
                               <div className="flex justify-center">
-                                <button type="button" onClick={onOpenGoods} title="This item draws from stock items. Record deliveries under Goods on hand." className="inline-flex items-center gap-1 rounded-full border-0 bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700 [font-family:inherit] hover:bg-sky-100"><Link2 className="h-3 w-3" />From stock</button>
+                                <button type="button" onClick={onOpenGoods} title="This item draws from stock items. Record deliveries under Goods on hand." className="inline-flex items-center gap-1 rounded-md border-0 bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700 [font-family:inherit] hover:bg-sky-100"><Link2 className="h-3 w-3" />From stock</button>
                               </div>
                             ) : (
                               <div className="flex items-center justify-center gap-1">

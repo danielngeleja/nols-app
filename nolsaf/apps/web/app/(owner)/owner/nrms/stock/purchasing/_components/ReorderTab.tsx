@@ -140,7 +140,7 @@ export default function ReorderTab({ propertyId, overview, summary, suppliers, r
     return next;
   });
 
-  if (error && !rows) return <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
+  if (error && !rows) return <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
   if (!rows) return <div className={`${cardClass} flex min-h-[24vh] items-center justify-center text-neutral-300`}><Loader2 className="h-6 w-6 animate-spin" /></div>;
   if (rows.length === 0) {
     return (
@@ -159,7 +159,7 @@ export default function ReorderTab({ propertyId, overview, summary, suppliers, r
           ))}
         </div>
       )}
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {groups.map(([locationId, group]) => (
         <section key={locationId} className={`${cardClass} overflow-hidden`}>
@@ -167,7 +167,7 @@ export default function ReorderTab({ propertyId, overview, summary, suppliers, r
             <div className="flex items-center gap-2">
               <PackageSearch className="h-4 w-4 text-brand" />
               <h2 className="m-0 text-[15px] font-bold text-neutral-950">{group.name}</h2>
-              <span className="rounded-full bg-amber-100 px-2 text-xs font-bold text-amber-800">{group.rows.length} low</span>
+              <span className="rounded-md bg-amber-100 px-2 text-xs font-bold text-amber-800">{group.rows.length} low</span>
             </div>
           </header>
           <div className="overflow-x-auto">
@@ -194,7 +194,7 @@ export default function ReorderTab({ propertyId, overview, summary, suppliers, r
                       <td className="px-4 py-3 align-top"><input type="checkbox" checked={on} onChange={(event) => toggle(key, event.target.checked)} className={checkboxClass} aria-label={`Include ${row.name}`} /></td>
                       <td className="px-2 py-3 align-top">
                         <p className="m-0 text-[15px] font-bold text-neutral-900">{row.name}</p>
-                        <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${tone.chip}`}>{STOCK_CATEGORY_LABELS[row.category] ?? row.category}</span>
+                        <span className={`mt-1 inline-flex rounded-md px-2 py-0.5 text-[11px] font-bold ${tone.chip}`}>{STOCK_CATEGORY_LABELS[row.category] ?? row.category}</span>
                       </td>
                       <td className="px-2 py-3 text-right align-top">
                         <p className={`m-0 text-sm font-bold tabular-nums ${row.onHand <= 0 ? "text-red-700" : "text-amber-700"}`}>{formatStockQuantity(row.onHand, row.baseUnit)}</p>
@@ -236,7 +236,7 @@ export default function ReorderTab({ propertyId, overview, summary, suppliers, r
       ))}
 
       <div className="sticky bottom-3 z-10">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-solid border-neutral-200 bg-white px-4 py-3 shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-solid border-neutral-200 bg-white px-4 py-3 shadow-card">
           <div className="min-w-0 text-sm text-neutral-600">
             <span className="font-bold text-neutral-900">{chosen.length} {chosen.length === 1 ? "good" : "goods"} selected</span>
             {summary.canManage && chosen.length > 0 && <span className="ml-2">· about {formatMoney(estimate, overview.currency)} · {orderGroups.length} {orderGroups.length === 1 ? "order" : "orders"}</span>}

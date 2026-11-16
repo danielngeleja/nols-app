@@ -125,7 +125,7 @@ export default function NrmsGroupRoomsModal({
         </p>
       ) : (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-solid border-neutral-200 bg-neutral-50 p-4">
             <p className="m-0 inline-flex items-center gap-2 text-xs font-bold text-neutral-700">
               <BedDouble className="h-4 w-4 text-emerald-700" />
               {unassigned === 0 ? "Every guest has a room" : `${unassigned} of ${rows.length} still without a room`}
@@ -143,13 +143,13 @@ export default function NrmsGroupRoomsModal({
           </div>
 
           {notice && (
-            <p className="m-0 inline-flex w-full items-center gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+            <p className="m-0 inline-flex w-full items-center gap-2 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
               <Check className="h-4 w-4 shrink-0" /> {notice}
             </p>
           )}
-          {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          {error && <p className="m-0 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
           {failures.length > 0 && (
-            <div className="rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+            <div className="rounded-md border border-solid border-amber-300 bg-amber-50 p-4">
               <p className="m-0 inline-flex items-center gap-2 text-sm font-bold text-amber-950">
                 <AlertTriangle className="h-4 w-4" /> {failures.length} {failures.length === 1 ? "guest" : "guests"} could not be given a room
               </p>
@@ -161,7 +161,7 @@ export default function NrmsGroupRoomsModal({
             </div>
           )}
 
-          <div className="overflow-hidden rounded-xl border border-solid border-neutral-200">
+          <div className="overflow-hidden rounded-md border border-solid border-neutral-200">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                 <thead>
@@ -203,13 +203,13 @@ export default function NrmsGroupRoomsModal({
                         </td>
                         <td className="whitespace-nowrap px-4 py-2.5 text-right">
                           {row.roomUnitId == null ? (
-                            <span className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700">No room</span>
+                            <span className="inline-block rounded-md bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700">No room</span>
                           ) : READY.includes(row.housekeepingStatus ?? "") ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
                               <Sparkles className="h-3 w-3" /> Ready
                             </span>
                           ) : (
-                            <span className="inline-block rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-600">
+                            <span className="inline-block rounded-md bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-600">
                               {(row.housekeepingStatus ?? "").replace(/_/g, " ").toLowerCase() || "assigned"}
                             </span>
                           )}

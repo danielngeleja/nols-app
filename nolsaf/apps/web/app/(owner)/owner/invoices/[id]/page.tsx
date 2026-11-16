@@ -107,14 +107,14 @@ export default function InvoiceView() {
     return (
       <div id="owner-invoice" className={shell} aria-busy="true" aria-label="Loading invoice">
         <style>{styles}</style>
-        <div className="rounded-3xl bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
+        <div className="rounded-lg bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="space-y-2.5">
             <div className="ov-sk-dark h-3 w-24 rounded-full" />
             <div className="ov-sk-dark h-8 w-64 rounded-lg" />
           </div>
           <div className="mt-6 grid grid-cols-5 gap-2">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="ov-sk-dark h-6 rounded-full" />)}</div>
         </div>
-        <div className="ov-sk h-[360px] rounded-3xl" />
+        <div className="ov-sk h-[360px] rounded-lg" />
       </div>
     );
   }
@@ -123,10 +123,10 @@ export default function InvoiceView() {
     return (
       <div id="owner-invoice" className={shell}>
         <style>{styles}</style>
-        <div className="rounded-2xl border border-solid border-slate-300/80 bg-white p-7">
+        <div className="rounded-lg border border-solid border-slate-300/80 bg-white p-7">
           <p className="m-0 text-lg font-bold text-slate-900">This invoice could not be opened</p>
           <p className="m-0 mt-1 text-sm text-slate-500">{err}</p>
-          <Link href="/owner/payouts/older-claims" className="mt-4 inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-50">
+          <Link href="/owner/payouts/older-claims" className="mt-4 inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-50">
             <ArrowLeft className="h-4 w-4" aria-hidden /> Older claims
           </Link>
         </div>
@@ -206,11 +206,11 @@ export default function InvoiceView() {
       <style>{styles}</style>
 
       {/* ── Header band: invoice, status, and the five claim steps ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div className="relative px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Invoice {inv.invoiceNumber}</p>
+              <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Invoice {inv.invoiceNumber}</p>
               <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">{now.title}</h1>
               <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">{now.body}</p>
             </div>
@@ -219,14 +219,14 @@ export default function InvoiceView() {
                 type="button"
                 onClick={downloadPDF}
                 disabled={pdfBusy}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
               >
                 {pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
                 {hasReceipt ? "Receipt PDF" : "PDF"}
               </button>
               <Link
                 href="/owner/payouts/older-claims"
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/10"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/10"
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden /> Claims
               </Link>
@@ -241,18 +241,18 @@ export default function InvoiceView() {
         </div>
       </header>
 
-      {err ? <div className="rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{err}</div> : null}
+      {err ? <div className="rounded-lg border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{err}</div> : null}
 
       {/* ── Step 2: send it, same agreement pattern as the check-in pass ── */}
       {status === "DRAFT" ? (
-        <section className="rounded-2xl border border-solid border-[#02665e]/25 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(1,42,38,0.5)] sm:p-6">
+        <section className="rounded-lg border border-solid border-[#02665e]/25 bg-white p-5 shadow-[0_12px_32px_-24px_rgba(1,42,38,0.5)] sm:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <p className="m-0 text-base font-bold text-slate-900">Send this invoice to NoLSAF</p>
             <p className="m-0 text-sm font-bold tabular-nums text-[#02665e]">{fmtTzs(inv.total)}</p>
           </div>
           <p className="m-0 mt-1 text-sm text-slate-500">Payouts usually arrive between 30 minutes and 3 business days after you send it.</p>
           <label
-            className={`mt-4 flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 ring-inset transition ${
+            className={`mt-4 flex cursor-pointer items-center gap-3 rounded-md px-4 py-3 ring-inset transition ${
               agreeDisbursement ? "bg-[#02665e]/[0.06] ring-2 ring-[#02665e]" : "bg-white ring-1 ring-slate-300 hover:ring-[#02665e]/60"
             }`}
           >
@@ -282,7 +282,7 @@ export default function InvoiceView() {
             type="button"
             onClick={submit}
             disabled={!agreeDisbursement || submitting}
-            className="group mt-3 inline-flex h-12 w-full items-center justify-between gap-2 rounded-xl border border-solid border-[#012a26] bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white shadow-[0_14px_30px_-18px_rgba(1,42,38,0.9)] transition hover:bg-[#02665e] disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
+            className="group mt-3 inline-flex h-12 w-full items-center justify-between gap-2 rounded-md border border-solid border-[#012a26] bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white shadow-[0_14px_30px_-18px_rgba(1,42,38,0.9)] transition hover:bg-[#02665e] disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
           >
             {submitting ? "Sending..." : "Send to NoLSAF"}
             <span className={`grid h-8 w-8 place-items-center rounded-lg transition group-hover:translate-x-0.5 ${agreeDisbursement ? "bg-[#5eead4] text-[#012a26]" : "bg-slate-200 text-slate-400"}`}>
@@ -293,8 +293,8 @@ export default function InvoiceView() {
       ) : null}
 
       {successMsg ? (
-        <div className="flex items-start gap-3 rounded-2xl border border-solid border-emerald-200 bg-white p-4 sm:p-5" role="status">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200">
+        <div className="flex items-start gap-3 rounded-lg border border-solid border-emerald-200 bg-white p-4 sm:p-5" role="status">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200">
             <CheckCircle2 className="h-5 w-5" aria-hidden />
           </span>
           <div className="min-w-0">
@@ -305,15 +305,15 @@ export default function InvoiceView() {
       ) : null}
 
       {/* ── The invoice document (also the PDF source) ── */}
-      <article id="owner-invoice-pdf" className="overflow-hidden rounded-3xl bg-white shadow-[0_30px_70px_-42px_rgba(1,42,38,0.6)] ring-1 ring-slate-200">
+      <article id="owner-invoice-pdf" className="overflow-hidden rounded-lg bg-white shadow-[0_30px_70px_-42px_rgba(1,42,38,0.6)] ring-1 ring-slate-200">
         <div className="flex flex-wrap items-start justify-between gap-4 border-0 border-b border-solid border-slate-200 px-6 py-5">
           <div className="min-w-0">
-            <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Accommodation invoice</p>
+            <p className="m-0 text-[11px] font-semibold text-slate-400">Accommodation invoice</p>
             <p className="m-0 mt-1 font-mono text-lg font-bold text-slate-900">{inv.invoiceNumber}</p>
             <p className="m-0 mt-0.5 truncate text-sm text-slate-500">{inv.title}</p>
           </div>
           <div className="text-right">
-            <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Issued</p>
+            <p className="m-0 text-[11px] font-semibold text-slate-400">Issued</p>
             <p className="m-0 mt-0.5 text-sm font-semibold text-slate-800">
               {inv.issuedAt || inv.createdAt ? new Date(inv.issuedAt ?? inv.createdAt).toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short", year: "numeric" }) : ""}
             </p>
@@ -322,13 +322,13 @@ export default function InvoiceView() {
 
         <div className="grid grid-cols-1 border-0 border-b border-solid border-slate-200 sm:grid-cols-2">
           <div className="px-6 py-4">
-            <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">From</p>
+            <p className="m-0 text-[11px] font-semibold text-slate-400">From</p>
             <p className="m-0 mt-1 text-sm font-semibold text-slate-900">{inv.senderName}</p>
             {inv.senderPhone ? <p className="m-0 mt-0.5 flex items-center gap-1.5 text-xs text-slate-500"><Phone className="h-3 w-3" aria-hidden />{inv.senderPhone}</p> : null}
             {inv.senderAddress ? <p className="m-0 mt-0.5 flex items-center gap-1.5 text-xs text-slate-500"><MapPin className="h-3 w-3" aria-hidden />{inv.senderAddress}</p> : null}
           </div>
           <div className="border-0 border-t border-solid border-slate-200 px-6 py-4 sm:border-l sm:border-t-0">
-            <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">To</p>
+            <p className="m-0 text-[11px] font-semibold text-slate-400">To</p>
             <p className="m-0 mt-1 text-sm font-semibold text-slate-900">{inv.receiverName || "NoLS Africa Co LTD"}</p>
             <p className="m-0 mt-0.5 flex items-center gap-1.5 text-xs text-slate-500"><Mail className="h-3 w-3" aria-hidden />{inv.receiverEmail || "payments@nolsaf.com"}</p>
             <p className="m-0 mt-0.5 flex items-center gap-1.5 text-xs text-slate-500"><MapPin className="h-3 w-3" aria-hidden />{inv.receiverAddress || "Dar es Salaam, Tanzania"}</p>
@@ -339,10 +339,10 @@ export default function InvoiceView() {
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-0 border-b border-solid border-slate-200 bg-slate-50 text-left">
-                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Description</th>
-                <th className="px-4 py-2.5 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Qty</th>
-                <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Unit price</th>
-                <th className="px-6 py-2.5 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Amount</th>
+                <th className="px-6 py-2.5 text-[11px] font-semibold text-slate-500">Description</th>
+                <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-slate-500">Qty</th>
+                <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-slate-500">Unit price</th>
+                <th className="px-6 py-2.5 text-right text-[11px] font-semibold text-slate-500">Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -365,7 +365,7 @@ export default function InvoiceView() {
 
         <div className="flex items-center justify-between gap-4 bg-[#012a26] px-6 py-5 text-white">
           <div>
-            <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9fd8cc]">Total payout</p>
+            <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Total payout</p>
             <p className="m-0 mt-0.5 text-xs text-white/50">Amount to be released to you</p>
           </div>
           <p className="m-0 text-2xl font-bold tabular-nums sm:text-3xl">{fmtTzs(inv.total)}</p>
@@ -374,9 +374,9 @@ export default function InvoiceView() {
 
       {/* ── Receipt, once paid ── */}
       {hasReceipt ? (
-        <article className="grid overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <article className="grid overflow-hidden rounded-lg bg-white ring-1 ring-slate-200 sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="space-y-3 p-6">
-            <p className="m-0 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+            <p className="m-0 flex items-center gap-2 text-[11px] font-semibold text-emerald-700">
               <CheckCircle2 className="h-4 w-4" aria-hidden /> Payment receipt
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -385,8 +385,8 @@ export default function InvoiceView() {
                 { k: "Payment reference", v: inv.paymentRef, mono: true },
                 { k: "Paid on", v: fmtEat(inv.paidAt) },
               ].filter((r) => r.v).map((r) => (
-                <div key={r.k} className="rounded-xl bg-slate-50 px-3.5 py-2.5 ring-1 ring-inset ring-slate-200">
-                  <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{r.k}</p>
+                <div key={r.k} className="rounded-md bg-slate-50 px-3.5 py-2.5 ring-1 ring-inset ring-slate-200">
+                  <p className="m-0 text-[11px] font-semibold text-slate-400">{r.k}</p>
                   <p className={`m-0 mt-0.5 break-all text-sm font-semibold text-slate-900 ${r.mono ? "font-mono text-xs" : ""}`}>{r.v}</p>
                 </div>
               ))}

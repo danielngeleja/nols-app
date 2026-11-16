@@ -153,7 +153,7 @@ const BILLING_MODES: Array<{ value: string; label: string; detail: string }> = [
 ];
 
 const inputCls =
-  "h-11 w-full min-w-0 max-w-full box-border rounded-xl border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+  "h-11 w-full min-w-0 max-w-full box-border rounded-md border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 
 const labelCls = "mb-1.5 block text-xs font-semibold text-neutral-700";
 
@@ -171,7 +171,7 @@ function BillingModeCards({ value, onChange, name, disabled = false }: { value: 
           <label
             key={mode.value}
             aria-disabled={disabled}
-            className={`relative flex items-start gap-2.5 rounded-xl border border-solid p-3 transition-all focus-within:ring-2 focus-within:ring-emerald-500/20 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${selected ? "border-emerald-500 bg-emerald-50/70 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]" : "border-neutral-200 bg-white hover:border-neutral-300 hover:shadow-sm"}`}
+            className={`relative flex items-start gap-2.5 rounded-md border border-solid p-3 transition-all focus-within:ring-2 focus-within:ring-emerald-500/20 ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${selected ? "border-emerald-500 bg-emerald-50/70 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]" : "border-neutral-200 bg-white hover:border-neutral-300 hover:shadow-sm"}`}
           >
             <input type="radio" name={name} checked={selected} disabled={disabled} onChange={() => onChange(mode.value)} className="sr-only" />
             <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-500"}`}>
@@ -256,7 +256,7 @@ function GroupChargeRegister({ block }: { block: GroupBlock }) {
   const guestAmount = guestRows.reduce((sum, row) => sum + row.amount, 0);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-md border border-solid border-neutral-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-0 border-b border-solid border-neutral-200 bg-neutral-50/80 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700"><ReceiptText className="h-4 w-4" /></span>
@@ -266,9 +266,9 @@ function GroupChargeRegister({ block }: { block: GroupBlock }) {
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[10px] font-bold text-sky-800">Agency · {agencyAmount.toLocaleString()} {block.currency}</span>
-          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800">Guests · {guestAmount.toLocaleString()} {block.currency}</span>
-          <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-neutral-600 ring-1 ring-inset ring-neutral-200">{activeRows.length} active</span>
+          <span className="rounded-md bg-sky-100 px-2.5 py-1 text-[10px] font-bold text-sky-800">Agency · {agencyAmount.toLocaleString()} {block.currency}</span>
+          <span className="rounded-md bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800">Guests · {guestAmount.toLocaleString()} {block.currency}</span>
+          <span className="rounded-md bg-white px-2.5 py-1 text-[10px] font-bold text-neutral-600 ring-1 ring-inset ring-neutral-200">{activeRows.length} active</span>
         </div>
       </div>
 
@@ -321,8 +321,8 @@ function GroupChargeRegister({ block }: { block: GroupBlock }) {
                     </td>
                     <td className="px-3 py-3 align-top"><p className="m-0 text-[11px] font-bold text-neutral-900">{row.guestName}</p><p className="m-0 mt-0.5 text-[9px] text-neutral-500">{row.room} · {row.category.replace(/_/g, " ")}</p></td>
                     <td className="px-3 py-3 align-top"><span className={`inline-flex rounded-full px-2 py-1 text-[9px] font-bold ${row.payer === "AGENCY" ? "bg-sky-100 text-sky-800" : "bg-amber-100 text-amber-800"}`}>{row.payer === "AGENCY" ? block.masterFolio?.billToName || "Agency" : row.guestName}</span></td>
-                    <td className="px-3 py-3 align-top"><p className="m-0 text-[10px] font-semibold text-neutral-700">{row.destination}</p>{row.documentRevisionRequired && <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-800">Revision required</span>}</td>
-                    <td className="px-3 py-3 align-top"><span className={`inline-flex rounded-full px-2 py-1 text-[9px] font-bold ${chargeStatusClass(row.settlementStatus)}`}>{CHARGE_STATUS_LABEL[row.settlementStatus] || row.settlementStatus.replace(/_/g, " ")}</span></td>
+                    <td className="px-3 py-3 align-top"><p className="m-0 text-[10px] font-semibold text-neutral-700">{row.destination}</p>{row.documentRevisionRequired && <span className="mt-1 inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-800">Revision required</span>}</td>
+                    <td className="px-3 py-3 align-top"><span className={`inline-flex rounded-md px-2 py-1 text-[9px] font-bold ${chargeStatusClass(row.settlementStatus)}`}>{CHARGE_STATUS_LABEL[row.settlementStatus] || row.settlementStatus.replace(/_/g, " ")}</span></td>
                     <td className={`whitespace-nowrap px-3 py-3 text-right align-top text-[11px] font-bold tabular-nums ${row.settlementStatus === "VOIDED" ? "text-neutral-400 line-through" : "text-neutral-950"}`}>{row.amount.toLocaleString()} {row.currency}</td>
                   </tr>
                 );
@@ -473,7 +473,7 @@ export function CreateGroupBlockModal({
     <>
     <ModalFrame title="New group block" subtitle="Hold rooms for a party before the names are known" onClose={onClose} extraWide>
       <div className="space-y-5">
-        <div className="rounded-xl border border-solid border-emerald-200 bg-emerald-50 p-4">
+        <div className="rounded-md border border-solid border-emerald-200 bg-emerald-50 p-4">
           <div className="flex items-start gap-3">
             <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
             <div className="min-w-0">
@@ -565,7 +565,7 @@ export function CreateGroupBlockModal({
           </div>
         </div>
 
-        <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-3.5">
+        <div className="rounded-md border border-solid border-neutral-200 bg-neutral-50 p-3.5">
           <div className="mb-2.5 flex items-center justify-between gap-3">
             <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Rooms to hold<RequiredMark /></p>
             <span className="text-xs font-semibold text-neutral-500">{nights} {nights === 1 ? "night" : "nights"}</span>
@@ -640,7 +640,7 @@ export function CreateGroupBlockModal({
         </div>
 
         {isSingleRoom && (
-          <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-start gap-3 rounded-md border border-solid border-amber-300 bg-amber-50 p-4">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
             <div>
               <p className="m-0 text-sm font-bold text-amber-950">This is a normal reservation</p>
@@ -651,22 +651,22 @@ export function CreateGroupBlockModal({
         )}
 
         {needsSmallGroupApproval && (
-          <div className="overflow-hidden rounded-2xl border border-solid border-amber-300 bg-gradient-to-br from-amber-50 to-white shadow-sm">
+          <div className="overflow-hidden rounded-lg border border-solid border-amber-300 bg-gradient-to-br from-amber-50 to-white shadow-sm">
             <div className="border-0 border-b border-solid border-amber-200 px-4 py-4 sm:px-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700"><AlertTriangle className="h-4 w-4" /></span>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700"><AlertTriangle className="h-4 w-4" /></span>
                   <div>
                     <p className="m-0 text-sm font-bold text-amber-950">Choose how to manage this {totals.rooms}-room party</p>
                     <p className="m-0 mt-1 text-xs leading-5 text-amber-900">It is {STANDARD_GROUP_MIN_ROOMS - totals.rooms} {STANDARD_GROUP_MIN_ROOMS - totals.rooms === 1 ? "room" : "rooms"} below the standard group minimum. Select the option that matches the agreement.</p>
                   </div>
                 </div>
-                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800">{totals.rooms} of {STANDARD_GROUP_MIN_ROOMS} rooms</span>
+                <span className="rounded-md bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800">{totals.rooms} of {STANDARD_GROUP_MIN_ROOMS} rooms</span>
               </div>
             </div>
 
             <div className="grid gap-2.5 p-4 sm:grid-cols-2">
-              <Link href="/owner/nrms/reservations" className="group flex items-start gap-3 rounded-xl border border-solid border-neutral-200 bg-white p-3 text-left no-underline shadow-sm transition hover:border-sky-300 hover:shadow-md">
+              <Link href="/owner/nrms/reservations" className="group flex items-start gap-3 rounded-md border border-solid border-neutral-200 bg-white p-3 text-left no-underline shadow-sm transition hover:border-sky-300 hover:shadow-md">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700"><BedDouble className="h-3.5 w-3.5" /></span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-xs font-bold text-neutral-950">Regular reservations</span>
@@ -676,7 +676,7 @@ export function CreateGroupBlockModal({
               </Link>
 
               {canApproveSmallGroup ? (
-                <button type="button" aria-pressed={approveSmallGroup} onClick={() => { setApproveSmallGroup((current) => !current); setError(null); }} className={`relative flex cursor-pointer items-start gap-3 rounded-xl border border-solid p-3 text-left shadow-sm transition ${approveSmallGroup ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/15" : "border-neutral-200 bg-white hover:border-emerald-300 hover:shadow-md"}`}>
+                <button type="button" aria-pressed={approveSmallGroup} onClick={() => { setApproveSmallGroup((current) => !current); setError(null); }} className={`relative flex cursor-pointer items-start gap-3 rounded-md border border-solid p-3 text-left shadow-sm transition ${approveSmallGroup ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/15" : "border-neutral-200 bg-white hover:border-emerald-300 hover:shadow-md"}`}>
                   {approveSmallGroup && <span className="absolute right-2.5 top-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-white"><Check className="h-2.5 w-2.5" strokeWidth={3} /></span>}
                   <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${approveSmallGroup ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-600"}`}><Building2 className="h-3.5 w-3.5" /></span>
                   <span className="min-w-0 flex-1 pr-4">
@@ -686,7 +686,7 @@ export function CreateGroupBlockModal({
                   </span>
                 </button>
               ) : (
-                <div className="flex items-start gap-3 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-3">
+                <div className="flex items-start gap-3 rounded-md border border-solid border-neutral-200 bg-neutral-50 p-3">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-200 text-neutral-600"><Building2 className="h-3.5 w-3.5" /></span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-xs font-bold text-neutral-950">Contracted small group</span>
@@ -699,7 +699,7 @@ export function CreateGroupBlockModal({
             </div>
 
             {approveSmallGroup && (
-              <label className="mx-4 mb-4 block rounded-xl border border-solid border-emerald-200 bg-emerald-50 p-4 sm:mx-5 sm:mb-5">
+              <label className="mx-4 mb-4 block rounded-md border border-solid border-emerald-200 bg-emerald-50 p-4 sm:mx-5 sm:mb-5">
                 <span className="block text-xs font-bold text-emerald-950">Why is this party being approved?<RequiredMark /></span>
                 <span className="mt-1 block text-[10px] leading-4 text-emerald-700">This reason is saved with the group for accountability.</span>
                 <textarea value={smallGroupApprovalReason} onChange={(event) => setSmallGroupApprovalReason(event.target.value)} maxLength={300} rows={2} autoFocus placeholder="For example: Tour operator contract with shared billing" className="mt-3 box-border w-full resize-y rounded-lg border border-solid border-emerald-300 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/15" />
@@ -709,7 +709,7 @@ export function CreateGroupBlockModal({
         )}
 
         {totals.rooms >= STANDARD_GROUP_MIN_ROOMS && (
-          <div className="flex items-center gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800">
+          <div className="flex items-center gap-2 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800">
             <Check className="h-4 w-4" /> Qualifies as a standard group with {totals.rooms} rooms.
           </div>
         )}
@@ -722,7 +722,7 @@ export function CreateGroupBlockModal({
           <BillingModeCards value={billingMode} onChange={setBillingMode} name="billingMode" />
         </div>
 
-        {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+        {error && <p className="m-0 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
         <div className="flex flex-wrap items-center justify-end gap-3 border-0 border-t border-solid border-neutral-100 pt-4">
           <span className="mr-auto text-xs font-semibold text-neutral-500">
@@ -1205,7 +1205,7 @@ export function GroupBlockDetailModal({
         <p className="m-0 py-10 text-center text-sm text-neutral-500">Group block not found.</p>
       ) : (
         <div className="space-y-5">
-          <div className="grid gap-3 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-2">
+          <div className="grid gap-3 rounded-md border border-solid border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-2">
             <div className="min-w-0">
               <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-400">{block.reference}</p>
               <p className="m-0 mt-1 text-sm font-bold text-neutral-900">
@@ -1223,7 +1223,7 @@ export function GroupBlockDetailModal({
           </div>
 
           {namesWaiting && (
-            <div role="status" className="flex flex-col gap-3 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div role="status" className="flex flex-col gap-3 rounded-md border border-solid border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-start gap-3">
                 <span className="relative mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
                   <UserPlus className="h-4 w-4" />
@@ -1247,7 +1247,7 @@ export function GroupBlockDetailModal({
           )}
 
           {block.billingMode !== "INDIVIDUAL" && accessRole !== "SALES_EXECUTIVE" && (
-            <div className="rounded-xl border border-solid border-sky-200 bg-sky-50 p-4">
+            <div className="rounded-md border border-solid border-sky-200 bg-sky-50 p-4">
               {!block.masterFolio ? (
                 <div>
                   <p className="m-0 text-sm font-bold text-sky-950">Agency master folio</p>
@@ -1293,7 +1293,7 @@ export function GroupBlockDetailModal({
                   <p className="m-0 mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-500">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-neutral-900 text-[10px] text-white">1</span> Request payment
                   </p>
-                  <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white shadow-sm">
+                  <div className="overflow-hidden rounded-md border border-solid border-neutral-200 bg-white shadow-sm">
                   {(proFormaError || proFormaNotice) && (
                     <div className="space-y-2 border-0 border-b border-solid border-neutral-100 p-4 pb-3">
                       {proFormaError && (
@@ -1323,7 +1323,7 @@ export function GroupBlockDetailModal({
                     <div className="p-4 sm:p-5">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 items-center gap-3">
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><FileText className="h-5 w-5" /></span>
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><FileText className="h-5 w-5" /></span>
                           <div className="min-w-0">
                             <p className="m-0 text-sm font-bold text-neutral-950">Pro Forma invoice</p>
                             <p className="m-0 mt-0.5 text-[13px] leading-5 text-neutral-500">The agency's official payment request, paid to the property's bank account.</p>
@@ -1365,7 +1365,7 @@ export function GroupBlockDetailModal({
 
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex min-w-0 items-start gap-3">
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><FileText className="h-5 w-5" /></span>
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><FileText className="h-5 w-5" /></span>
                             <div className="min-w-0">
                               <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Pro Forma invoice</p>
                               <p className="m-0 mt-0.5 flex flex-wrap items-center gap-2 text-sm font-bold text-neutral-950">
@@ -1377,7 +1377,7 @@ export function GroupBlockDetailModal({
                               </p>
                             </div>
                           </div>
-                          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${statusPill.cls}`}>{statusPill.label}</span>
+                          <span className={`shrink-0 rounded-md px-2.5 py-1 text-xs font-bold ${statusPill.cls}`}>{statusPill.label}</span>
                         </div>
 
                         {proForma.bankSource === "MANUAL_UNVERIFIED" && (
@@ -1386,7 +1386,7 @@ export function GroupBlockDetailModal({
                           </p>
                         )}
 
-                        <dl className="m-0 mt-4 grid grid-cols-3 overflow-hidden rounded-xl border border-solid border-neutral-200">
+                        <dl className="m-0 mt-4 grid grid-cols-3 overflow-hidden rounded-md border border-solid border-neutral-200">
                           <div className="px-3 py-3 sm:px-4">
                             <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-400">Requested</dt>
                             <dd className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{proForma.quotedTotal.toLocaleString()} <span className="text-xs font-semibold text-neutral-400">{proForma.currency}</span></dd>
@@ -1431,7 +1431,7 @@ export function GroupBlockDetailModal({
                     <div className="border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 px-4 py-3.5 sm:px-5">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 items-center gap-3">
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700 ring-1 ring-neutral-200"><Link2 className="h-4 w-4" /></span>
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white text-emerald-700 ring-1 ring-neutral-200"><Link2 className="h-4 w-4" /></span>
                           <div className="min-w-0">
                             <p className="m-0 text-sm font-bold text-neutral-950">Online payment link</p>
                             <p className="m-0 mt-0.5 text-[13px] leading-5 text-neutral-500">Mobile money or bank through AzamPay. Valid 3 hours; the agency can also start one from its Pro Forma.</p>
@@ -1462,7 +1462,7 @@ export function GroupBlockDetailModal({
                         const phoneDigits = (block.contactPhone ?? "").replace(/\D/g, "").replace(/^0/, "255");
                         const message = `Payment link for ${block.name}: ${onlinePaymentLink.amount.toLocaleString()} ${onlinePaymentLink.currency}. Pay by mobile money or bank before ${expiresLabel} EAT: ${onlinePaymentLink.url}`;
                         return (
-                          <div className="mt-3 overflow-hidden rounded-xl border border-solid border-emerald-200 bg-white">
+                          <div className="mt-3 overflow-hidden rounded-md border border-solid border-emerald-200 bg-white">
                             <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-emerald-100 bg-emerald-50/70 px-3.5 py-2.5">
                               <p className="m-0 flex items-center gap-1.5 text-xs font-bold text-emerald-800">
                                 <Check className="h-3.5 w-3.5" /> Link ready for {onlinePaymentLink.amount.toLocaleString()} {onlinePaymentLink.currency}
@@ -1508,7 +1508,7 @@ export function GroupBlockDetailModal({
                       <p className="m-0 mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-500">
                         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-neutral-900 text-[10px] text-white">2</span> Record a payment received
                       </p>
-                      <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white shadow-sm">
+                      <div className="overflow-hidden rounded-md border border-solid border-neutral-200 bg-white shadow-sm">
                         <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 bg-neutral-50/70 px-4 py-3">
                           <div className="min-w-0">
                             <p className="m-0 text-sm font-semibold text-neutral-700">Still to collect from {block.masterFolio.billToName}</p>
@@ -1546,7 +1546,7 @@ export function GroupBlockDetailModal({
                             <span className="mb-1.5 block text-xs font-semibold text-neutral-700">Reference <span className="font-normal text-neutral-400">(optional)</span></span>
                             <input className={inputCls} value={agencyPaymentReference} onChange={(e) => setAgencyPaymentReference(e.target.value)} placeholder="Bank or transfer reference" />
                           </label>
-                          <button type="button" onClick={() => void recordAgencyPayment()} disabled={busy} className="inline-flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50">
+                          <button type="button" onClick={() => void recordAgencyPayment()} disabled={busy} className="inline-flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-md border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50">
                             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Record payment
                           </button>
                           {agencyPaymentError && <p id="agency-payment-error" className="m-0 text-xs font-semibold text-red-700 sm:col-span-4">{agencyPaymentError}</p>}
@@ -1613,7 +1613,7 @@ export function GroupBlockDetailModal({
                     </div>
                   )}
                   {block.masterFolio.credit > 0.005 && canManageAgencyRefunds && (
-                    <div className="rounded-xl border border-solid border-blue-200 bg-blue-50 p-3">
+                    <div className="rounded-md border border-solid border-blue-200 bg-blue-50 p-3">
                       <div className="mb-3">
                         <p className="m-0 text-xs font-bold text-blue-950">Record money returned to the agency</p>
                         <p className="m-0 mt-0.5 text-xs leading-4 text-blue-800">Available credit: {block.masterFolio.credit.toLocaleString()} {block.masterFolio.currency}. Record this only after the refund has actually been sent.</p>
@@ -1625,7 +1625,7 @@ export function GroupBlockDetailModal({
                       </div>
                       <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                         <input className={inputCls} value={agencyRefundReason} onChange={(e) => { setAgencyRefundReason(e.target.value); setAgencyRefundError(null); }} maxLength={300} placeholder="Reason, for example: one room released after advance payment" />
-                        <button type="button" onClick={() => void recordAgencyRefund()} disabled={busy} className="min-h-11 shrink-0 cursor-pointer rounded-xl border-0 bg-blue-700 px-4 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-50">Confirm refund sent</button>
+                        <button type="button" onClick={() => void recordAgencyRefund()} disabled={busy} className="min-h-11 shrink-0 cursor-pointer rounded-md border-0 bg-blue-700 px-4 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-50">Confirm refund sent</button>
                       </div>
                       {agencyRefundError && <p className="m-0 mt-2 text-xs font-semibold text-red-700">{agencyRefundError}</p>}
                     </div>
@@ -1665,7 +1665,7 @@ export function GroupBlockDetailModal({
           {block.groupId && accessRole !== "SALES_EXECUTIVE" && <GroupChargeRegister block={block} />}
 
           {block.cutOffPassed && live && (
-            <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+            <div className="flex items-start gap-3 rounded-md border border-solid border-amber-300 bg-amber-50 p-4">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
               <div className="min-w-0">
                 <p className="m-0 text-sm font-bold text-amber-950">Guest names are overdue</p>
@@ -1681,7 +1681,7 @@ export function GroupBlockDetailModal({
             </div>
           )}
 
-          <div className="overflow-hidden rounded-xl border border-solid border-neutral-200">
+          <div className="overflow-hidden rounded-md border border-solid border-neutral-200">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                 <thead>
@@ -1721,7 +1721,7 @@ export function GroupBlockDetailModal({
           </div>
 
           {namingLine && (
-            <div className="rounded-xl border border-solid border-emerald-200 bg-emerald-50 p-4">
+            <div className="rounded-md border border-solid border-emerald-200 bg-emerald-50 p-4">
               <p className="m-0 text-sm font-bold text-emerald-950">Name a guest in {namingLine.roomTypeName ?? "this room type"}</p>
               <p className="m-0 mt-0.5 text-xs text-emerald-800">
                 {namingLine.held} still waiting. This creates a confirmed stay for {fmtStay(block.checkIn, block.checkOut)} and adds it to the group.
@@ -1742,11 +1742,11 @@ export function GroupBlockDetailModal({
             </div>
           )}
 
-          {block.notes && <p className="m-0 rounded-xl border border-solid border-neutral-200 bg-white px-4 py-3 text-xs leading-5 text-neutral-600">{block.notes}</p>}
-          {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          {block.notes && <p className="m-0 rounded-md border border-solid border-neutral-200 bg-white px-4 py-3 text-xs leading-5 text-neutral-600">{block.notes}</p>}
+          {error && <p className="m-0 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
           {confirmRelease && (
-            <div className="rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+            <div className="rounded-md border border-solid border-amber-300 bg-amber-50 p-4">
               <div className="flex items-start gap-3">
                 <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700"><AlertTriangle className="h-4 w-4" /></span>
                 <div className="min-w-0">
@@ -1767,7 +1767,7 @@ export function GroupBlockDetailModal({
           )}
 
           {confirmCancel && (
-            <div className="rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+            <div className="rounded-md border border-solid border-amber-300 bg-amber-50 p-4">
               <div className="flex items-start gap-3">
                 <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700"><AlertTriangle className="h-4 w-4" /></span>
                 <div className="min-w-0">
@@ -1787,7 +1787,7 @@ export function GroupBlockDetailModal({
           )}
 
           {editing && (
-            <div ref={editorRef} className="rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-4">
+            <div ref={editorRef} className="rounded-md border border-solid border-neutral-200 bg-neutral-50 p-4">
               <p className="m-0 mb-3 text-sm font-bold text-neutral-900">Edit block details</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <p className="m-0 text-[13px] font-semibold text-neutral-500 sm:col-span-2"><RequiredMark /> Required fields</p>
@@ -1826,7 +1826,7 @@ export function GroupBlockDetailModal({
                 </div>
               </div>
               {block.roomsPickedUp === 0 && (
-                <div className="mt-3 rounded-xl border border-solid border-neutral-200 bg-white p-3">
+                <div className="mt-3 rounded-md border border-solid border-neutral-200 bg-white p-3">
                   <div className="mb-2 flex items-baseline justify-between gap-3"><p className="m-0 text-xs font-bold text-neutral-800">Room amendment</p><p className="m-0 text-xs text-neutral-500">Updates availability and supersedes the current Pro Forma.</p></div>
                   <div className="space-y-2">
                     {roomAmendments.map((room, index) => (
@@ -1868,7 +1868,7 @@ export function GroupBlockDetailModal({
                   <Link2 className="h-3.5 w-3.5" /> Rooming list
                   {namesWaiting && (
                     <>
-                      <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">New names</span>
+                      <span className="rounded-md bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">New names</span>
                       <span className="absolute -right-1 -top-1 flex h-3 w-3" aria-hidden="true">
                         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
                         <span className="relative inline-flex h-3 w-3 rounded-full border-2 border-solid border-white bg-amber-500" />
@@ -1906,11 +1906,11 @@ export function GroupBlockDetailModal({
           <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[16px] border border-solid border-neutral-200 bg-white shadow-2xl sm:max-h-[calc(100dvh-2.5rem)]">
             <div className="z-10 flex shrink-0 items-start justify-between gap-4 border-0 border-b border-solid border-neutral-100 bg-white px-5 py-4 sm:px-6">
               <div className="flex min-w-0 items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Landmark className="h-5 w-5" /></span>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Landmark className="h-5 w-5" /></span>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 id="manual-bank-title" className="m-0 text-base font-bold text-neutral-950">Bank instructions for Pro Forma</h2>
-                    <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-800">Manual · Not verified</span>
+                    <span className="rounded-md bg-amber-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-800">Manual · Not verified</span>
                   </div>
                   <p className="m-0 mt-1 text-[13px] leading-4 text-neutral-500">Saved only for this property&apos;s Pro Formas. Not added to My Profile or AzamPay.</p>
                 </div>
@@ -1919,7 +1919,7 @@ export function GroupBlockDetailModal({
             </div>
 
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-5 sm:p-6">
-              <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50 p-3.5">
+              <div className="flex items-start gap-3 rounded-md border border-solid border-amber-200 bg-amber-50 p-3.5">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
                 <div>
                   <p className="m-0 text-xs font-bold text-amber-950">The property owner is responsible for these instructions</p>
@@ -1944,7 +1944,7 @@ export function GroupBlockDetailModal({
                 </div>
               </div>
 
-              <details className="group rounded-xl border border-solid border-neutral-200 bg-neutral-50">
+              <details className="group rounded-md border border-solid border-neutral-200 bg-neutral-50">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-bold text-neutral-800">International and branch details <span className="text-xs font-semibold text-neutral-400 group-open:hidden">Optional</span><span className="hidden text-xs font-semibold text-neutral-400 group-open:inline">Hide</span></summary>
                 <div className="grid gap-4 border-0 border-t border-solid border-neutral-200 p-4 sm:grid-cols-2">
                   <label className="block"><span className={labelCls}>Branch name <span className="font-normal text-neutral-400">(optional)</span></span><input className={inputCls} value={manualBank.branchName} onChange={(event) => setManualBank({ ...manualBank, branchName: event.target.value })} /></label>
@@ -1952,11 +1952,11 @@ export function GroupBlockDetailModal({
                   <label className="block sm:col-span-2"><span className={labelCls}>IBAN <span className="font-normal text-neutral-400">(where applicable)</span></span><input className={`${inputCls} font-mono uppercase`} value={manualBank.iban} onChange={(event) => setManualBank({ ...manualBank, iban: event.target.value.toUpperCase() })} /></label>
                   <label className="block"><span className={labelCls}>Routing / clearing code <span className="font-normal text-neutral-400">(optional)</span></span><input className={inputCls} value={manualBank.routingCode} onChange={(event) => setManualBank({ ...manualBank, routingCode: event.target.value })} /></label>
                   <label className="block"><span className={labelCls}>Bank address <span className="font-normal text-neutral-400">(optional)</span></span><input className={inputCls} value={manualBank.bankAddress} onChange={(event) => setManualBank({ ...manualBank, bankAddress: event.target.value })} /></label>
-                  <label className="block sm:col-span-2"><span className={labelCls}>Transfer instructions <span className="font-normal text-neutral-400">(optional)</span></span><textarea rows={3} maxLength={500} className="box-border w-full resize-y rounded-xl border border-solid border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" value={manualBank.instructions} onChange={(event) => setManualBank({ ...manualBank, instructions: event.target.value })} placeholder="Correspondent bank or transfer notes" /></label>
+                  <label className="block sm:col-span-2"><span className={labelCls}>Transfer instructions <span className="font-normal text-neutral-400">(optional)</span></span><textarea rows={3} maxLength={500} className="box-border w-full resize-y rounded-md border border-solid border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" value={manualBank.instructions} onChange={(event) => setManualBank({ ...manualBank, instructions: event.target.value })} placeholder="Correspondent bank or transfer notes" /></label>
                 </div>
               </details>
 
-              <label className={`flex cursor-pointer items-start gap-3.5 rounded-xl border border-solid p-4 transition-all duration-200 focus-within:ring-2 focus-within:ring-emerald-500/25 ${manualBankPolicyAccepted ? "border-emerald-300 bg-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
+              <label className={`flex cursor-pointer items-start gap-3.5 rounded-md border border-solid p-4 transition-all duration-200 focus-within:ring-2 focus-within:ring-emerald-500/25 ${manualBankPolicyAccepted ? "border-emerald-300 bg-emerald-50 shadow-[0_0_0_1px_rgba(16,185,129,0.08)]" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
                 <input type="checkbox" checked={manualBankPolicyAccepted} onChange={(event) => { setManualBankPolicyAccepted(event.target.checked); setManualBankError(null); }} className="sr-only" />
                 <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-200 ${manualBankPolicyAccepted ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-400"}`}><ShieldCheck className="h-4 w-4" /></span>
                 <span className="min-w-0 flex-1">
@@ -1969,11 +1969,11 @@ export function GroupBlockDetailModal({
                 </span>
               </label>
 
-              {manualBankError && <div role="alert" className="flex items-start gap-2 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" /><p className="m-0 text-xs font-semibold leading-5 text-red-800">{manualBankError}</p></div>}
+              {manualBankError && <div role="alert" className="flex items-start gap-2 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" /><p className="m-0 text-xs font-semibold leading-5 text-red-800">{manualBankError}</p></div>}
 
               <div className="flex flex-wrap items-center justify-end gap-2 border-0 border-t border-solid border-neutral-100 pt-4">
-                <button type="button" disabled={manualBankBusy} onClick={() => setShowManualBank(false)} className="cursor-pointer rounded-xl border border-solid border-neutral-300 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
-                <button type="button" disabled={manualBankBusy || !manualBankPolicyAccepted} onClick={() => void saveManualBank()} className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45">{manualBankBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Landmark className="h-4 w-4" />} Add to Pro Forma</button>
+                <button type="button" disabled={manualBankBusy} onClick={() => setShowManualBank(false)} className="cursor-pointer rounded-md border border-solid border-neutral-300 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+                <button type="button" disabled={manualBankBusy || !manualBankPolicyAccepted} onClick={() => void saveManualBank()} className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45">{manualBankBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Landmark className="h-4 w-4" />} Add to Pro Forma</button>
               </div>
             </div>
           </div>

@@ -227,7 +227,7 @@ export default function NrmsGuestsPage() {
       </div>
 
       {campaignNotice && (
-        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800">
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800">
           <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> {campaignNotice}</span>
           <button type="button" onClick={() => setCampaignNotice(null)} aria-label="Dismiss" className="flex h-6 w-6 shrink-0 appearance-none items-center justify-center rounded-md border-0 bg-transparent text-emerald-700 transition hover:bg-emerald-100"><X className="h-4 w-4" /></button>
         </div>
@@ -236,7 +236,7 @@ export default function NrmsGuestsPage() {
       {/* Selecting guests used to change only the button's label. The count
           now leads the bar and can be cleared, so a selection made two pages
           ago is visible rather than silently carried into a campaign. */}
-      <div className={`mb-3 flex flex-col gap-2 rounded-xl px-3 py-2.5 ring-1 sm:flex-row sm:items-center sm:justify-between ${selectedGuestIds.size > 0 ? "bg-emerald-50/70 ring-emerald-200" : "bg-white ring-neutral-200"}`}>
+      <div className={`mb-3 flex flex-col gap-2 rounded-md px-3 py-2.5 ring-1 sm:flex-row sm:items-center sm:justify-between ${selectedGuestIds.size > 0 ? "bg-emerald-50/70 ring-emerald-200" : "bg-white ring-neutral-200"}`}>
         <div className="min-w-0">
           {selectedGuestIds.size > 0 ? (
             <>
@@ -268,13 +268,13 @@ export default function NrmsGuestsPage() {
           <Loader2 className="w-6 h-6 animate-spin" />
         </div>
       ) : error ? (
-        <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
+        <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
       ) : guests.length === 0 ? (
-        <p className="text-sm text-neutral-500 py-14 text-center border border-dashed border-neutral-300 rounded-2xl">
+        <p className="text-sm text-neutral-500 py-14 text-center border border-dashed border-neutral-300 rounded-lg">
           {q ? "No guests match your search." : "Guest records build up automatically as you record reservations."}
         </p>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">
+        <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[980px] border-collapse text-left">
               <thead className="bg-neutral-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
@@ -441,12 +441,12 @@ export default function NrmsGuestsPage() {
       {detail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <button type="button" aria-label="Close" className="absolute inset-0 bg-black/40" onClick={() => setDetail(null)} />
-          <div className="relative my-8 box-border w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+          <div className="relative my-8 box-border w-full max-w-lg rounded-lg bg-white p-5 shadow-xl">
             {/* The close button had no className, so with preflight disabled it
                 rendered with the browser's default grey button chrome. */}
             <div className="mb-4 flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl bg-emerald-100 text-[13px] font-bold text-emerald-700">
+                <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-md bg-emerald-100 text-[13px] font-bold text-emerald-700">
                   {detail.fullName.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "?"}
                 </span>
                 <div className="min-w-0">
@@ -460,7 +460,7 @@ export default function NrmsGuestsPage() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="mb-5 rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
+            <div className="mb-5 rounded-md border border-neutral-200 bg-neutral-50 p-3.5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="flex items-center gap-1.5 text-xs font-bold text-neutral-800"><ShieldCheck className="h-4 w-4 text-emerald-700" /> Promotional SMS consent</p>
@@ -506,7 +506,7 @@ export default function NrmsGuestsPage() {
               {detail.reservations.length > 0 && <span className="text-[10px] font-medium text-neutral-400">{detail.reservations.length} {detail.reservations.length === 1 ? "stay" : "stays"}</span>}
             </div>
             {detail.reservations.length === 0 ? (
-              <p className="m-0 rounded-xl bg-neutral-50 px-3 py-4 text-center text-xs text-neutral-400">No stays recorded yet.</p>
+              <p className="m-0 rounded-md bg-neutral-50 px-3 py-4 text-center text-xs text-neutral-400">No stays recorded yet.</p>
             ) : (
               // m-0 list-none p-0 is required: preflight is off, so a <ul>
               // keeps the browser's 40px indent and its bullets, which is what
@@ -518,14 +518,14 @@ export default function NrmsGuestsPage() {
                   const status = r.status.replace(/_/g, " ").toLowerCase();
                   const settled = status === "checked out" || status === "cancelled";
                   return (
-                    <li key={r.id} className="flex items-start justify-between gap-3 rounded-xl bg-neutral-50 px-3 py-2.5">
+                    <li key={r.id} className="flex items-start justify-between gap-3 rounded-md bg-neutral-50 px-3 py-2.5">
                       <div className="min-w-0">
                         <p className="m-0 text-[13px] font-semibold text-neutral-800">
                           {new Date(r.checkIn).toLocaleDateString()} to {new Date(r.checkOut).toLocaleDateString()}
                         </p>
                         <p className="m-0 mt-1 flex flex-wrap items-center gap-1.5">
                           <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.04em] ${settled ? "bg-neutral-200 text-neutral-600" : "bg-emerald-100 text-emerald-700"}`}>{status}</span>
-                          <span className="rounded-full bg-white px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.04em] text-neutral-500 ring-1 ring-neutral-200">{r.source.replace(/_/g, " ").toLowerCase()}</span>
+                          <span className="rounded-md bg-white px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.04em] text-neutral-500 ring-1 ring-neutral-200">{r.source.replace(/_/g, " ").toLowerCase()}</span>
                           <span className="text-[10px] text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</span>
                         </p>
                       </div>
@@ -559,11 +559,11 @@ export default function NrmsGuestsPage() {
             onClick={() => setPendingConsent(null)}
             className="absolute inset-0 bg-neutral-950/55 backdrop-blur-[2px] disabled:cursor-wait"
           />
-          <div role="alertdialog" aria-modal="true" aria-labelledby="consent-confirmation-title" className="relative w-full max-w-md overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_28px_80px_-24px_rgba(0,0,0,0.55)]">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="consent-confirmation-title" className="relative w-full max-w-md overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_28px_80px_-24px_rgba(0,0,0,0.55)]">
             <div className={`h-1 w-full ${pendingConsent === "OPTED_IN" ? "bg-emerald-600" : "bg-rose-500"}`} />
             <div className="p-5 sm:p-6">
               <div className="flex items-start justify-between gap-4">
-                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${pendingConsent === "OPTED_IN" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${pendingConsent === "OPTED_IN" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
                   <ShieldCheck className="h-5 w-5" />
                 </span>
                 <button
@@ -589,20 +589,20 @@ export default function NrmsGuestsPage() {
                   : `Confirm that ${detail.fullName} asked not to receive promotional SMS messages.`}
               </p>
 
-              <div className={`mt-4 rounded-xl border px-3.5 py-3 text-[11px] leading-relaxed ${pendingConsent === "OPTED_IN" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-neutral-200 bg-neutral-50 text-neutral-600"}`}>
+              <div className={`mt-4 rounded-md border px-3.5 py-3 text-[11px] leading-relaxed ${pendingConsent === "OPTED_IN" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-neutral-200 bg-neutral-50 text-neutral-600"}`}>
                 {pendingConsent === "OPTED_IN"
                   ? "Consent must come directly from the guest. A previous booking does not automatically provide marketing permission."
                   : "The guest will immediately become ineligible for all future promotional campaigns."}
               </div>
 
-              {consentError && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs text-red-700">{consentError}</div>}
+              {consentError && <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3.5 py-3 text-xs text-red-700">{consentError}</div>}
 
               <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   disabled={consentSaving}
                   onClick={() => setPendingConsent(null)}
-                  className="min-h-10 rounded-xl border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 transition hover:bg-neutral-50 disabled:opacity-40"
+                  className="min-h-10 rounded-md border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 transition hover:bg-neutral-50 disabled:opacity-40"
                 >
                   Cancel
                 </button>
@@ -610,7 +610,7 @@ export default function NrmsGuestsPage() {
                   type="button"
                   disabled={consentSaving}
                   onClick={() => void updateConsent(pendingConsent)}
-                  className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 text-xs font-bold text-white transition disabled:cursor-wait disabled:opacity-60 ${pendingConsent === "OPTED_IN" ? "bg-emerald-700 hover:bg-emerald-800" : "bg-rose-600 hover:bg-rose-700"}`}
+                  className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-4 text-xs font-bold text-white transition disabled:cursor-wait disabled:opacity-60 ${pendingConsent === "OPTED_IN" ? "bg-emerald-700 hover:bg-emerald-800" : "bg-rose-600 hover:bg-rose-700"}`}
                 >
                   {consentSaving && <Loader2 className="h-4 w-4 animate-spin" />}
                   {pendingConsent === "OPTED_IN" ? "Confirm opt-in" : "Confirm opt-out"}
@@ -627,19 +627,19 @@ export default function NrmsGuestsPage() {
           <div role="dialog" aria-modal="true" aria-labelledby="sms-campaign-title" className="relative flex max-h-[calc(100vh-1rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[22px] border border-neutral-200 bg-[#f7f9f8] shadow-[0_28px_90px_-28px_rgba(0,0,0,0.55)] sm:max-h-[calc(100vh-2.5rem)]">
             <div className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 bg-white px-4 py-3.5 sm:px-6">
               <div className="flex min-w-0 items-center gap-3.5">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white shadow-[0_8px_22px_-10px_rgba(4,120,87,0.8)]">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-700 text-white shadow-[0_8px_22px_-10px_rgba(4,120,87,0.8)]">
                   <Megaphone className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 id="sms-campaign-title" className="truncate text-base font-bold text-neutral-950">Create SMS campaign</h3>
-                    <span className="hidden rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 sm:inline-flex">Draft</span>
+                    <span className="hidden rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 sm:inline-flex">Draft</span>
                   </div>
                   <p className="mt-0.5 truncate text-xs text-neutral-500">Guest engagement · Delivered securely through Africa&apos;s Talking</p>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <span className="hidden items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 sm:inline-flex"><ShieldCheck className="h-3 w-3" /> Consent protected</span>
+                <span className="hidden items-center gap-1.5 rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 sm:inline-flex"><ShieldCheck className="h-3 w-3" /> Consent protected</span>
                 <button type="button" onClick={() => setCampaignOpen(false)} aria-label="Close dialog" className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-500 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900">
                   <X className="h-4 w-4" />
                 </button>
@@ -647,7 +647,7 @@ export default function NrmsGuestsPage() {
             </div>
 
             <div className="grid min-h-0 flex-1 auto-rows-max content-start grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-12 lg:items-start">
-              <section className="isolate h-fit min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.55)] lg:col-span-6">
+              <section className="isolate h-fit min-w-0 rounded-lg border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.55)] lg:col-span-6">
                 <div className="mb-4 flex items-center gap-3">
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Megaphone className="h-4 w-4" /></span>
                   <div><h4 className="text-base font-bold text-neutral-900">Campaign details</h4><p className="text-xs text-neutral-400">Give this campaign a clear internal name and purpose.</p></div>
@@ -659,18 +659,18 @@ export default function NrmsGuestsPage() {
                     onChange={(event) => setCampaignName(event.target.value)}
                     maxLength={120}
                     placeholder="e.g. July return guest invitation"
-                    className="mt-2 block min-h-11 w-full min-w-0 max-w-full box-border rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 text-sm font-medium normal-case tracking-normal text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-50"
+                    className="mt-2 block min-h-11 w-full min-w-0 max-w-full box-border rounded-md border border-neutral-200 bg-neutral-50 px-3.5 text-sm font-medium normal-case tracking-normal text-neutral-900 outline-none transition placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-50"
                   />
                 </label>
                 <div className="mt-4">
                   <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-500">Message purpose</p>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <button type="button" onClick={() => setCampaignKind("RETURN_INVITATION")} className={`box-border flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition ${campaignKind === "RETURN_INVITATION" ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-100" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
+                    <button type="button" onClick={() => setCampaignKind("RETURN_INVITATION")} className={`box-border flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-md border p-3 text-left transition ${campaignKind === "RETURN_INVITATION" ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-100" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
                       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${campaignKind === "RETURN_INVITATION" ? "bg-emerald-700 text-white" : "bg-neutral-100 text-neutral-500"}`}><Repeat2 className="h-4 w-4" /></span>
                       <span><strong className="block text-sm text-neutral-900">Invite guests to return</strong><small className="mt-0.5 block text-xs text-neutral-400">Reconnect with past guests</small></span>
                       {campaignKind === "RETURN_INVITATION" && <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-emerald-700" />}
                     </button>
-                    <button type="button" onClick={() => setCampaignKind("OFFER")} className={`box-border flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition ${campaignKind === "OFFER" ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-100" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
+                    <button type="button" onClick={() => setCampaignKind("OFFER")} className={`box-border flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-md border p-3 text-left transition ${campaignKind === "OFFER" ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-100" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
                       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${campaignKind === "OFFER" ? "bg-emerald-700 text-white" : "bg-neutral-100 text-neutral-500"}`}><Megaphone className="h-4 w-4" /></span>
                       <span><strong className="block text-sm text-neutral-900">Share an offer</strong><small className="mt-0.5 block text-xs text-neutral-400">Promote a limited guest deal</small></span>
                       {campaignKind === "OFFER" && <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-emerald-700" />}
@@ -679,7 +679,7 @@ export default function NrmsGuestsPage() {
                 </div>
               </section>
 
-              <section className="isolate h-fit min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.55)] lg:col-span-6">
+              <section className="isolate h-fit min-w-0 rounded-lg border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.55)] lg:col-span-6">
                 <div className="mb-4 flex items-center gap-3">
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><Users className="h-4 w-4" /></span>
                   <div><h4 className="text-base font-bold text-neutral-900">Choose audience</h4><p className="text-xs text-neutral-400">Eligibility and the 3-per-year limit are enforced automatically.</p></div>
@@ -695,7 +695,7 @@ export default function NrmsGuestsPage() {
                         type="button"
                         disabled={disabled}
                         onClick={() => setAudienceType(option.value)}
-                        className={`relative box-border min-h-[74px] w-full min-w-0 max-w-full overflow-hidden rounded-xl border p-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${selected ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-100" : "border-neutral-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/25"}`}
+                        className={`relative box-border min-h-[74px] w-full min-w-0 max-w-full overflow-hidden rounded-md border p-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${selected ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-100" : "border-neutral-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/25"}`}
                       >
                         <div className="flex items-start gap-2.5">
                           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${selected ? "bg-emerald-700 text-white" : "bg-neutral-100 text-neutral-500"}`}><Icon className="h-3.5 w-3.5" /></span>
@@ -708,12 +708,12 @@ export default function NrmsGuestsPage() {
                 </div>
               </section>
 
-              <section className="isolate h-fit min-w-0 rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.55)] lg:col-span-8">
+              <section className="isolate h-fit min-w-0 rounded-lg border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.55)] lg:col-span-8">
                 <div className="mb-4 flex items-center gap-3">
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-700"><MessageSquareText className="h-4 w-4" /></span>
                   <div><h4 className="text-base font-bold text-neutral-900">Write the message</h4><p className="text-xs text-neutral-400">Keep it useful, recognizable, and easy to understand.</p></div>
                 </div>
-                <div className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-neutral-50 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] transition focus-within:border-emerald-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-emerald-50">
+                <div className="overflow-hidden rounded-lg border border-solid border-neutral-300 bg-neutral-50 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] transition focus-within:border-emerald-500 focus-within:bg-white focus-within:ring-4 focus-within:ring-emerald-50">
                   <div className="flex items-center justify-between border-0 border-b border-solid border-neutral-300 bg-white px-3.5 py-2.5">
                     <span className="flex items-center gap-2 text-xs font-bold text-neutral-600"><span className="h-2 w-2 rounded-full bg-emerald-500" /> SMS via Africa&apos;s Talking</span>
                     <div className="flex items-center gap-3">
@@ -737,7 +737,7 @@ export default function NrmsGuestsPage() {
                 </div>
               </section>
 
-              <section className="isolate h-fit min-w-0 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4 lg:col-span-4">
+              <section className="isolate h-fit min-w-0 rounded-lg border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4 lg:col-span-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700"><ShieldCheck className="h-4 w-4" /></span><div><h4 className="text-base font-bold text-blue-950">Audience preview</h4><p className="text-xs text-blue-700/60">A final safety check before queueing.</p></div></div>
                   {previewLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
@@ -745,9 +745,9 @@ export default function NrmsGuestsPage() {
                 {audiencePreview && !previewLoading ? (
                   <>
                     <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-xl border border-white bg-white/90 p-3 shadow-sm"><strong className="block text-xl text-neutral-900">{audiencePreview.totalCount}</strong><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Matched</span></div>
-                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 p-3"><strong className="block text-xl text-emerald-700">{audiencePreview.eligibleCount}</strong><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700/60">Will receive</span></div>
-                      <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3"><strong className="block text-xl text-amber-700">{audiencePreview.skippedCount}</strong><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-700/60">Protected</span></div>
+                      <div className="rounded-md border border-white bg-white/90 p-3 shadow-sm"><strong className="block text-xl text-neutral-900">{audiencePreview.totalCount}</strong><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Matched</span></div>
+                      <div className="rounded-md border border-emerald-100 bg-emerald-50/80 p-3"><strong className="block text-xl text-emerald-700">{audiencePreview.eligibleCount}</strong><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700/60">Will receive</span></div>
+                      <div className="rounded-md border border-amber-100 bg-amber-50/80 p-3"><strong className="block text-xl text-amber-700">{audiencePreview.skippedCount}</strong><span className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-700/60">Protected</span></div>
                     </div>
                     {audiencePreview.skippedCount > 0 && (
                       <p className="mt-3 rounded-lg bg-white/80 px-3 py-2 text-xs leading-relaxed text-blue-800">
@@ -764,18 +764,18 @@ export default function NrmsGuestsPage() {
                 ) : !previewLoading ? <p className="mt-3 text-xs text-blue-700">Choose an audience to calculate who can safely receive this message.</p> : null}
               </section>
 
-              {campaignError && <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs text-red-700 lg:col-span-12">{campaignError}</div>}
+              {campaignError && <div className="rounded-md border border-red-200 bg-red-50 px-3.5 py-3 text-xs text-red-700 lg:col-span-12">{campaignError}</div>}
             </div>
 
             <div className="flex flex-col-reverse gap-2 border-t border-neutral-200 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
               <p className="hidden max-w-xs text-[11px] leading-relaxed text-neutral-400 sm:block">Only opted-in guests with annual quota remaining will be queued.</p>
               <div className="flex flex-col-reverse gap-2 sm:ml-auto sm:flex-row">
-                <button type="button" onClick={() => setCampaignOpen(false)} className="min-h-10 rounded-xl border border-neutral-200 bg-white px-4 text-sm font-bold text-neutral-600 transition hover:bg-neutral-50">Cancel</button>
+                <button type="button" onClick={() => setCampaignOpen(false)} className="min-h-10 rounded-md border border-neutral-200 bg-white px-4 text-sm font-bold text-neutral-600 transition hover:bg-neutral-50">Cancel</button>
                 <button
                   type="button"
                   disabled={campaignSubmitting || previewLoading || !audiencePreview || audiencePreview.eligibleCount === 0 || campaignName.trim().length < 3 || campaignMessage.trim().length < 5}
                   onClick={() => void queueCampaign()}
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-emerald-700 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
                 >
                   {campaignSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   Queue {audiencePreview?.eligibleCount ?? 0} SMS message{audiencePreview?.eligibleCount === 1 ? "" : "s"}

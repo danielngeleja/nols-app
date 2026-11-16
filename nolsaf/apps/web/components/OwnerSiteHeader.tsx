@@ -162,13 +162,13 @@ export default function OwnerSiteHeader({ unreadMessages = 0 }: { unreadMessages
         {firstName.charAt(0).toUpperCase()}
       </span>
     );
-  const menuLink = "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 no-underline transition hover:bg-slate-50 hover:text-slate-900";
+  const menuLink = "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-slate-700 no-underline transition hover:bg-slate-50 hover:text-slate-900";
   const menuIcon = "h-4 w-4 text-slate-400 transition group-hover:text-[#02665e]";
 
   return (
     <header className="fixed left-0 right-0 top-0 z-50 bg-transparent text-white">
       <div className="relative box-border flex h-16 min-w-0 max-w-full items-center px-3">
-        <div className="relative box-border flex h-14 min-w-0 max-w-full flex-1 items-center gap-3 rounded-2xl bg-[#012a26] px-2.5 shadow-[0_10px_30px_-18px_rgba(1,42,38,0.85),inset_0_0_0_1px_rgba(255,255,255,0.06)] sm:px-3">
+        <div className="relative box-border flex h-14 min-w-0 max-w-full flex-1 items-center gap-3 rounded-lg bg-[#012a26] px-2.5 shadow-[0_10px_30px_-18px_rgba(1,42,38,0.85),inset_0_0_0_1px_rgba(255,255,255,0.06)] sm:px-3">
           {/* Left: sidebar toggle, mark, and where the owner is */}
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <button
@@ -176,7 +176,7 @@ export default function OwnerSiteHeader({ unreadMessages = 0 }: { unreadMessages
               onClick={toggleSidebar}
               aria-label="Toggle sidebar"
               title="Toggle sidebar"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-solid border-white/10 bg-white/[0.06] text-white transition hover:bg-white/[0.12]"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-solid border-white/10 bg-white/[0.06] text-white transition hover:bg-white/[0.12]"
             >
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden>
                 <path d="M4 6h16M4 12h10M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -200,17 +200,17 @@ export default function OwnerSiteHeader({ unreadMessages = 0 }: { unreadMessages
                 }}
                 aria-haspopup="menu"
                 aria-expanded={createOpen}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl border-0 bg-[#5eead4] px-3 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1] sm:px-3.5"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md border-0 bg-[#5eead4] px-3 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1] sm:px-3.5"
               >
                 <Plus className="h-4 w-4" strokeWidth={2.75} aria-hidden />
                 <span className="hidden sm:inline">New</span>
                 <span className="sr-only sm:hidden">New</span>
               </button>
               {createOpen && (
-                <div role="menu" className="animate-fade-in-up absolute right-0 top-full z-50 mt-3 w-64 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white p-1.5 text-slate-900 shadow-[0_24px_50px_-20px_rgba(15,23,42,0.35)]">
+                <div role="menu" className="animate-fade-in-up absolute right-0 top-full z-50 mt-3 w-64 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white p-1.5 text-slate-900 shadow-[0_24px_50px_-20px_rgba(15,23,42,0.35)]">
                   {QUICK_CREATE.map((item) => (
-                    <Link key={item.href} href={item.href} role="menuitem" onClick={() => setCreateOpen(false)} className="group flex items-center gap-3 rounded-xl px-3 py-2.5 no-underline transition hover:bg-emerald-50/70">
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4]">
+                    <Link key={item.href} href={item.href} role="menuitem" onClick={() => setCreateOpen(false)} className="group flex items-center gap-3 rounded-md px-3 py-2.5 no-underline transition hover:bg-emerald-50/70">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#012a26] text-[#5eead4]">
                         <item.icon className="h-4 w-4" aria-hidden />
                       </span>
                       <span className="min-w-0">
@@ -227,7 +227,7 @@ export default function OwnerSiteHeader({ unreadMessages = 0 }: { unreadMessages
               href="/owner/notifications"
               aria-label={unreadMessages > 0 ? `Notifications, ${unreadMessages} unread` : "Notifications"}
               title="Notifications"
-              className="relative grid h-10 w-10 place-items-center rounded-xl text-white/85 no-underline transition hover:bg-white/[0.08] hover:text-white"
+              className="relative grid h-10 w-10 place-items-center rounded-md text-white/85 no-underline transition hover:bg-white/[0.08] hover:text-white"
             >
               <Bell className="h-5 w-5" aria-hidden />
               {unreadMessages > 0 && (
@@ -247,7 +247,7 @@ export default function OwnerSiteHeader({ unreadMessages = 0 }: { unreadMessages
                   setProfileDropdownOpen((v) => !v);
                   setCreateOpen(false);
                 }}
-                className="inline-flex h-11 items-center gap-2.5 rounded-xl border-0 bg-transparent py-1 pl-1 pr-2 text-left text-white transition hover:bg-white/[0.08]"
+                className="inline-flex h-11 items-center gap-2.5 rounded-md border-0 bg-transparent py-1 pl-1 pr-2 text-left text-white transition hover:bg-white/[0.08]"
                 aria-label="Profile menu"
                 aria-expanded={profileDropdownOpen}
               >
@@ -260,7 +260,7 @@ export default function OwnerSiteHeader({ unreadMessages = 0 }: { unreadMessages
               </button>
 
               {profileDropdownOpen && (
-                <div className="animate-fade-in-up absolute right-0 top-full z-50 mt-3 w-72 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white text-slate-900 shadow-[0_24px_50px_-20px_rgba(15,23,42,0.35)]">
+                <div className="animate-fade-in-up absolute right-0 top-full z-50 mt-3 w-72 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white text-slate-900 shadow-[0_24px_50px_-20px_rgba(15,23,42,0.35)]">
                   <div className="flex items-center gap-3 border-0 border-b border-solid border-slate-100 px-4 py-4">
                     {avatar(44)}
                     <div className="min-w-0 flex-1">
@@ -293,7 +293,7 @@ export default function OwnerSiteHeader({ unreadMessages = 0 }: { unreadMessages
                         } catch {}
                         window.location.href = logoutRedirect;
                       }}
-                      className="group flex w-full items-center gap-3 rounded-xl border-0 bg-transparent px-3 py-2.5 text-left text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+                      className="group flex w-full items-center gap-3 rounded-md border-0 bg-transparent px-3 py-2.5 text-left text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
                     >
                       <LogOut className="h-4 w-4" aria-hidden />
                       Log out

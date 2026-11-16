@@ -179,7 +179,7 @@ export default function NrmsSalesPerformancePage() {
           pushed the controls onto a line of their own. The heading keeps one
           short line; what is and is not counted is a footnote on the roster
           table, which is the only place it changes how a number is read. */}
-      <header className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+      <header className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <div className="min-w-0 flex-1 basis-72">
             <div className="flex flex-wrap items-center gap-2">
@@ -205,7 +205,7 @@ export default function NrmsSalesPerformancePage() {
                 <span aria-current="page" className="inline-flex h-7 items-center rounded-md bg-white px-2.5 text-[11px] font-bold text-emerald-800 shadow-sm">Sales team</span>
               </nav>
             ) : null}
-            <div className="inline-flex overflow-hidden rounded-xl bg-neutral-100 p-0.5" role="group" aria-label="Reporting period">
+            <div className="inline-flex overflow-hidden rounded-md bg-neutral-100 p-0.5" role="group" aria-label="Reporting period">
               {PERIODS.map((option) => (
                 <button
                   key={option.key}
@@ -226,7 +226,7 @@ export default function NrmsSalesPerformancePage() {
               disabled={loading}
               aria-label="Reload the report"
               title="Reload"
-              className="inline-flex h-8 w-8 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-xl border-0 bg-neutral-100 p-0 text-neutral-500 transition hover:bg-neutral-200 hover:text-neutral-800 disabled:opacity-60"
+              className="inline-flex h-8 w-8 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-md border-0 bg-neutral-100 p-0 text-neutral-500 transition hover:bg-neutral-200 hover:text-neutral-800 disabled:opacity-60"
             >
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             </button>
@@ -235,7 +235,7 @@ export default function NrmsSalesPerformancePage() {
       </header>
 
       {error ? (
-        <p className="m-0 flex items-start gap-2 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs leading-5 text-amber-900 ring-1 ring-amber-200">
+        <p className="m-0 flex items-start gap-2 rounded-md bg-amber-50 px-3.5 py-2.5 text-xs leading-5 text-amber-900 ring-1 ring-amber-200">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {error}
         </p>
@@ -287,7 +287,7 @@ export default function NrmsSalesPerformancePage() {
         // The empty state replaces the report rather than sitting on top of
         // one. A page of zeroed cards under "nothing recorded" says the same
         // thing four more times and buries the one useful link.
-        <div className="rounded-2xl bg-white px-4 py-12 text-center ring-1 ring-neutral-200">
+        <div className="rounded-lg bg-white px-4 py-12 text-center ring-1 ring-neutral-200">
           <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400">
             <CalendarRange className="h-5 w-5" />
           </span>
@@ -337,7 +337,7 @@ export default function NrmsSalesPerformancePage() {
           </section>
 
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <section className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+            <section className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
               <h2 className="m-0 text-sm font-black text-neutral-900">From inquiry to a stay</h2>
               <p className="m-0 mt-0.5 text-xs text-neutral-500">
                 {own
@@ -366,7 +366,7 @@ export default function NrmsSalesPerformancePage() {
                   </li>
                 ))}
               </ul>
-              <p className="m-0 mt-3 rounded-xl bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-600 ring-1 ring-neutral-200">
+              <p className="m-0 mt-3 rounded-md bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-600 ring-1 ring-neutral-200">
                 A hold is credited to whoever worked the conversation, not to whoever pressed the button, because turning an inquiry into a
                 reservation is a front desk action today.
               </p>
@@ -376,7 +376,7 @@ export default function NrmsSalesPerformancePage() {
               </p>
             </section>
 
-            <section className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+            <section className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
               <h2 className="m-0 text-sm font-black text-neutral-900">Day by day</h2>
               <p className="m-0 mt-0.5 text-xs text-neutral-500">Inquiries assigned and group blocks agreed.</p>
               {plottedDays.every((day) => day.inquiries === 0 && day.blocks === 0) ? (
@@ -414,7 +414,7 @@ export default function NrmsSalesPerformancePage() {
             </section>
           </div>
 
-          <section className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+          <section className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
             <h2 className="m-0 text-sm font-black text-neutral-900">Group business outcome</h2>
             <p className="m-0 mt-0.5 text-xs text-neutral-500">
               Agreeing a block is not the same as filling it. These are the blocks agreed in this period and where they ended up.
@@ -431,8 +431,8 @@ export default function NrmsSalesPerformancePage() {
                     { label: "Released", value: sum((person) => person.groups.released), cls: "bg-neutral-100 text-neutral-600", note: "Rooms went back on sale" },
                     { label: "Cancelled", value: sum((person) => person.groups.cancelled), cls: "bg-red-50 text-red-600", note: "The agreement fell through" },
                   ].map((cell) => (
-                    <div key={cell.label} className="rounded-xl bg-neutral-50 p-3 ring-1 ring-neutral-200">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${cell.cls}`}>{cell.label}</span>
+                    <div key={cell.label} className="rounded-md bg-neutral-50 p-3 ring-1 ring-neutral-200">
+                      <span className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-bold ${cell.cls}`}>{cell.label}</span>
                       <p className="m-0 mt-2 text-lg font-black leading-none text-neutral-900">{cell.value}</p>
                       <p className="m-0 mt-1 text-[10px] leading-4 text-neutral-500">{cell.note}</p>
                       <p className="m-0 mt-0.5 text-[10px] font-bold text-neutral-600">{rate(cell.value, agreed)} of blocks agreed</p>
@@ -441,14 +441,14 @@ export default function NrmsSalesPerformancePage() {
                 })()}
               </div>
             ) : (
-              <p className="m-0 mt-3 rounded-xl bg-neutral-50 px-3 py-6 text-center text-xs text-neutral-500 ring-1 ring-neutral-200">
+              <p className="m-0 mt-3 rounded-md bg-neutral-50 px-3 py-6 text-center text-xs text-neutral-500 ring-1 ring-neutral-200">
                 No group blocks were agreed in this period.
               </p>
             )}
           </section>
 
           {report.scope === "PROPERTY" ? (
-            <section className="rounded-2xl bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
+            <section className="rounded-lg bg-white p-3.5 ring-1 ring-neutral-200 sm:p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <h2 className="m-0 text-sm font-black text-neutral-900">By person</h2>
@@ -456,7 +456,7 @@ export default function NrmsSalesPerformancePage() {
                     Everyone on the sales roster, including anyone with nothing recorded.
                   </p>
                 </div>
-                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-600">
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-600">
                   <Users className="h-3 w-3" />{report.people.length} on the roster
                 </span>
               </div>
@@ -510,7 +510,7 @@ export default function NrmsSalesPerformancePage() {
                           <td className="py-2.5 pr-2">
                             <span className="flex items-center gap-1.5">
                               <span className="truncate font-bold text-neutral-900">{person.name}</span>
-                              {isViewer ? <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-px text-[9px] font-black text-emerald-800">You</span> : null}
+                              {isViewer ? <span className="shrink-0 rounded-md bg-emerald-100 px-1.5 py-px text-[9px] font-black text-emerald-800">You</span> : null}
                             </span>
                             <span className="mt-0.5 block text-[10px] text-neutral-500">
                               {person.roleLabel || "Staff"}
@@ -564,7 +564,7 @@ export default function NrmsSalesPerformancePage() {
               </div>
             </section>
           ) : (
-            <p className="m-0 flex items-start gap-2 rounded-xl bg-neutral-50 px-3.5 py-2.5 text-[11px] leading-5 text-neutral-500 ring-1 ring-neutral-200">
+            <p className="m-0 flex items-start gap-2 rounded-md bg-neutral-50 px-3.5 py-2.5 text-[11px] leading-5 text-neutral-500 ring-1 ring-neutral-200">
               <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
               This report covers your own work. Comparisons across the team are a management view, so the owner and managers see the whole
               roster and you see yourself.
@@ -618,7 +618,7 @@ function Stat({ icon, label, value, note, tone }: {
   // both turns "No replies yet" into a headline announcing nothing happened.
   const size = typeof value === "number" ? "text-base sm:text-lg" : "text-xs sm:text-sm";
   return (
-    <div className={`rounded-2xl bg-white p-3 ring-1 sm:p-3.5 ${ring}`}>
+    <div className={`rounded-lg bg-white p-3 ring-1 sm:p-3.5 ${ring}`}>
       <span className={`inline-flex h-6 w-6 items-center justify-center rounded-lg ${chip}`}>{icon}</span>
       <p className={`m-0 mt-1.5 truncate font-black leading-tight text-neutral-900 ${size}`}>{value}</p>
       <p className="m-0 mt-0.5 text-[11px] font-bold leading-4 text-neutral-700">{label}</p>

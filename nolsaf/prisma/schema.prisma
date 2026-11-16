@@ -11090,3 +11090,32 @@ model BookingPaymentCaseEvent {
   @@index([caseId, createdAt])
   @@map("booking_payment_case_event")
 }
+
+/// Every room price change an owner makes, with what it was before. Plain
+/// pointers (no relations) so the Property and User models stay untouched.
+/// flagged: the change tripped a guardrail (large swing or repeated swings)
+/// and was raised to admin price watch.
+model PropertyPriceChange {
+  id               Int      @id @default(autoincrement())
+  propertyId       Int
+  /// Stable room key from roomsSpec (code), falling back to the room type name.
+  roomKey          String   @db.VarChar(120)
+  roomType         String?  @db.VarChar(160)
+  currency         String   @default("TZS") @db.VarChar(3)
+  priceBefore      Decimal? @db.Decimal(14, 2)
+  priceAfter       Decimal  @db.Decimal(14, 2)
+  discountBefore   Decimal? @db.Decimal(5, 2)
+  discountAfter    Decimal? @db.Decimal(5, 2)
+  /// Signed percent change of the nightly price, e.g. 40.00 or -25.50.
+  changePercent    Decimal? @db.Decimal(9, 2)
+  reason           String?  @db.VarChar(300)
+  flagged          Boolean  @default(false)
+  flagReason       String?  @db.VarChar(200)
+  changedById      Int
+  createdAt        DateTime @default(now())
+
+  @@index([propertyId, createdAt])
+  @@index([propertyId, roomKey, createdAt])
+  @@index([flagged, createdAt])
+  @@map("property_price_change")
+}

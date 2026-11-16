@@ -64,7 +64,7 @@ export default function OwnerPayoutReceiptPage() {
             href={url ?? undefined}
             download={url ? "nolsaf-payout-receipt.pdf" : undefined}
             aria-disabled={!url}
-            className={`inline-flex h-10 items-center gap-2 rounded-xl border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-50 hover:no-underline ${url ? "" : "pointer-events-none opacity-50"}`}
+            className={`inline-flex h-10 items-center gap-2 rounded-md border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-50 hover:no-underline ${url ? "" : "pointer-events-none opacity-50"}`}
           >
             <Download className="h-4 w-4" aria-hidden /> Download
           </a>
@@ -74,14 +74,14 @@ export default function OwnerPayoutReceiptPage() {
             type="button"
             onClick={print}
             aria-disabled={!url}
-            className={`inline-flex h-10 items-center gap-2 rounded-xl border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014d47] ${url ? "" : "cursor-not-allowed opacity-50"}`}
+            className={`inline-flex h-10 items-center gap-2 rounded-md border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014d47] ${url ? "" : "cursor-not-allowed opacity-50"}`}
           >
             <Printer className="h-4 w-4" aria-hidden /> Print
           </button>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-slate-100">
+      <div className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-100">
         {error ? (
           <p className="m-0 px-6 py-16 text-center text-sm text-slate-600">{error}</p>
         ) : !url ? (

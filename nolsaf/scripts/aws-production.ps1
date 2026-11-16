@@ -199,6 +199,26 @@ function Show-AwsStatus {
     )
     Invoke-Native "aws" @rdsArguments
 
+    # A forgotten qualification clone bills by the hour (one ran 2026-10-10 to 2026-11-08).
+    Write-Section "Leftover databases"
+    $leftoverArguments = @(
+        "rds", "describe-db-instances",
+        "--region", $Region,
+        "--query", "DBInstances[?DBInstanceIdentifier!='$RdsInstance'].[DBInstanceIdentifier,DBInstanceClass,DBInstanceStatus,InstanceCreateTime]",
+        "--output", "text",
+        "--no-cli-pager"
+    )
+    $leftovers = (& aws @leftoverArguments | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not list RDS instances to check for leftover clones."
+    }
+    if ($leftovers) {
+        Write-Warning "RDS instances other than $RdsInstance are running and billing by the hour. Delete each one once its qualification is finished:"
+        Write-Host $leftovers -ForegroundColor Yellow
+    } else {
+        Write-Host "None. $RdsInstance is the only RDS instance."
+    }
+
     Show-Health
 }
 

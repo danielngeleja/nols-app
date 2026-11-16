@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { readAgencyRef } from "@/lib/agencyRef";
+import { discountedNightlyNet, roomDiscountPercent } from "@/lib/roomDiscount";
 import {
   MapPin,
   Calendar,
@@ -1003,7 +1004,8 @@ export default function BookingConfirmPage() {
         const numPrice = Number(priceRaw);
         // Check if price is valid and greater than 0
         if (Number.isFinite(numPrice) && numPrice > 0) {
-          basePricePerNight = numPrice;
+          // Same as the server: the room's discount comes off the owner's net.
+          basePricePerNight = discountedNightlyNet(numPrice, roomDiscountPercent(selectedRoom));
         } else if (Number.isFinite(numPrice) && numPrice === 0 && property?.basePrice) {
           // If room price is 0, fall back to basePrice
           basePricePerNight = Number(property.basePrice);

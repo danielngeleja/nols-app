@@ -285,7 +285,7 @@ export default function GoodsReceiptModal({ propertyId, overview, suppliers, onS
               const weighed = good && (good.baseUnit === "G" || good.baseUnit === "ML");
               const over = orderLine ? overOrdered.includes(orderLine.id) : false;
               return (
-                <div key={line.key} className={`rounded-xl border border-solid p-3 ${flagged || over ? "border-amber-300 bg-amber-50/40" : "border-neutral-300 bg-white"}`}>
+                <div key={line.key} className={`rounded-md border border-solid p-3 ${flagged || over ? "border-amber-300 bg-amber-50/40" : "border-neutral-300 bg-white"}`}>
                   <div className="grid gap-2 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.9fr)_36px] md:items-start">
                     <label className="block">
                       <span className="text-xs font-bold text-neutral-500">{orderLine ? "On the order" : purchaseOrder ? "Not on the order" : `Good ${index + 1}`}</span>

@@ -436,7 +436,7 @@ export default function SalesChannelsPage() {
     <main className="mx-auto w-full max-w-[1500px] space-y-5 pb-10">
       <section className="flex flex-wrap items-center justify-between gap-4 px-1 py-2">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
             <TrendingUp className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0">
@@ -451,7 +451,7 @@ export default function SalesChannelsPage() {
             row it is the only item on that line, and justify-between resolves
             a lone item to flex-start, which threw it back to the left. */}
         <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:ml-auto sm:w-auto">
-          <div className="flex items-center gap-1 rounded-xl bg-white p-1 ring-1 ring-neutral-200 shadow-sm">
+          <div className="flex items-center gap-1 rounded-md bg-white p-1 ring-1 ring-neutral-200 shadow-sm">
             {([["BOOKED", "Booked"], ["STAY", "Arrivals"]] as const).map(([value, label]) => (
               <button
                 key={value}
@@ -468,7 +468,7 @@ export default function SalesChannelsPage() {
 
           {/* Grows to fill the row on a phone so the presets can scroll, but
               sits at its natural width from sm up so the group stays right. */}
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-xl bg-white p-1 ring-1 ring-neutral-200 shadow-sm sm:flex-none">
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-md bg-white p-1 ring-1 ring-neutral-200 shadow-sm sm:flex-none">
             <CalendarRange className="mx-2 hidden h-3.5 w-3.5 shrink-0 text-neutral-400 md:block" />
             {RANGE_OPTIONS.map((option) => (
               <button
@@ -484,7 +484,7 @@ export default function SalesChannelsPage() {
           </div>
 
           {data && data.currencies.length > 1 && (
-            <label className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-white px-3 text-xs font-bold text-neutral-700 ring-1 ring-neutral-200 shadow-sm">
+            <label className="inline-flex min-h-10 items-center gap-2 rounded-md bg-white px-3 text-xs font-bold text-neutral-700 ring-1 ring-neutral-200 shadow-sm">
               <CircleDollarSign className="h-3.5 w-3.5 text-neutral-400" />
               <span className="sr-only">Currency</span>
               <select value={selectedCurrency} onChange={(event) => setSelectedCurrency(event.target.value)} className="border-0 bg-transparent p-0 text-xs font-bold outline-none">
@@ -493,14 +493,14 @@ export default function SalesChannelsPage() {
             </label>
           )}
 
-          <button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh sales channels" className="inline-flex h-10 w-10 shrink-0 appearance-none items-center justify-center rounded-xl bg-white text-neutral-500 ring-1 ring-neutral-200 shadow-sm transition hover:text-emerald-700 hover:ring-emerald-200 disabled:opacity-50">
+          <button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh sales channels" className="inline-flex h-10 w-10 shrink-0 appearance-none items-center justify-center rounded-md bg-white text-neutral-500 ring-1 ring-neutral-200 shadow-sm transition hover:text-emerald-700 hover:ring-emerald-200 disabled:opacity-50">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
       </section>
 
       {error && (
-        <div role="alert" className="flex items-center gap-3 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
+        <div role="alert" className="flex items-center gap-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
           <AlertCircle className="h-5 w-5 shrink-0" />
           <span className="flex-1">{error}</span>
           <button type="button" onClick={() => void load()} className="appearance-none rounded-lg border-0 bg-red-100 px-3 py-2 text-xs font-bold text-red-800">Try again</button>
@@ -508,7 +508,7 @@ export default function SalesChannelsPage() {
       )}
 
       {loading && !data ? (
-        <div className="flex min-h-72 items-center justify-center rounded-3xl bg-white text-neutral-500 ring-1 ring-neutral-200">
+        <div className="flex min-h-72 items-center justify-center rounded-lg bg-white text-neutral-500 ring-1 ring-neutral-200">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading sales channels…
         </div>
       ) : data ? (
@@ -528,7 +528,7 @@ export default function SalesChannelsPage() {
             <KpiCard icon={Percent} label="Still owed" value={money(report?.summary.outstanding ?? 0)} note={`${report?.summary.cancellations ?? 0} cancelled, ${report?.summary.noShows ?? 0} no show`} tone={(report?.summary.outstanding ?? 0) > 0 ? "rose" : "emerald"} />
           </section>
 
-          <section className="rounded-3xl bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
+          <section className="rounded-lg bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="m-0 text-lg font-bold text-neutral-950">Your sales force</h3>
@@ -543,8 +543,8 @@ export default function SalesChannelsPage() {
             </div>
 
             {opportunity && (
-              <div className={`mb-4 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl p-4 ring-1 ${opportunity.tone === "rose" ? "bg-rose-50/70 ring-rose-200/70" : "bg-amber-50/70 ring-amber-200/70"}`}>
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${opportunity.tone === "rose" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-800"}`}>
+              <div className={`mb-4 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg p-4 ring-1 ${opportunity.tone === "rose" ? "bg-rose-50/70 ring-rose-200/70" : "bg-amber-50/70 ring-amber-200/70"}`}>
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${opportunity.tone === "rose" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-800"}`}>
                   <Lightbulb className="h-4 w-4" />
                 </span>
                 <div className="min-w-[16rem] flex-1">
@@ -554,7 +554,7 @@ export default function SalesChannelsPage() {
                 {opportunity.card.action && (
                   <Link
                     href={actionHref(opportunity.card.action, opportunity.card.key, propertyId)}
-                    className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-xs font-bold text-white no-underline shadow-sm transition hover:no-underline ${opportunity.tone === "rose" ? "bg-rose-700 hover:bg-rose-800" : "bg-amber-700 hover:bg-amber-800"}`}
+                    className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-3.5 text-xs font-bold text-white no-underline shadow-sm transition hover:no-underline ${opportunity.tone === "rose" ? "bg-rose-700 hover:bg-rose-800" : "bg-amber-700 hover:bg-amber-800"}`}
                   >
                     {ACTION_LABELS[opportunity.card.action]}<ArrowRight className="h-3.5 w-3.5" />
                   </Link>
@@ -571,11 +571,11 @@ export default function SalesChannelsPage() {
                 return (
                   <article
                     key={card.key}
-                    className={`group flex flex-col rounded-2xl bg-white p-4 ring-1 transition hover:shadow-[0_16px_34px_-28px_rgba(15,23,42,0.6)] ${style.accent}`}
+                    className={`group flex flex-col rounded-lg bg-white p-4 ring-1 transition hover:shadow-[0_16px_34px_-28px_rgba(15,23,42,0.6)] ${style.accent}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-2.5">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white shadow-sm" style={{ backgroundColor: CHANNEL_COLORS[card.key] }}>
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-white shadow-sm" style={{ backgroundColor: CHANNEL_COLORS[card.key] }}>
                           {card.key === "INSTAGRAM" ? <Instagram className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                         </span>
                         <div className="min-w-0">
@@ -583,7 +583,7 @@ export default function SalesChannelsPage() {
                           <p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">{FAMILY_LABELS[card.family]}</p>
                         </div>
                       </div>
-                      <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${style.pill}`}>
+                      <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-bold ring-1 ${style.pill}`}>
                         {card.state === "MANUAL" ? <PenLine className="h-2.5 w-2.5" /> : <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />}
                         {style.label}
                       </span>
@@ -632,7 +632,7 @@ export default function SalesChannelsPage() {
           {producing.length ? (
             <>
               <section className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
-                <article className="rounded-3xl bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
+                <article className="rounded-lg bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h3 className="m-0 text-lg font-bold text-neutral-950">Net revenue over time</h3>
@@ -641,7 +641,7 @@ export default function SalesChannelsPage() {
                         {" "}Top {chartChannels.length} channel{chartChannels.length === 1 ? "" : "s"}, stacked.
                       </p>
                     </div>
-                    <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">
+                    <span className="rounded-md bg-neutral-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">
                       By {data.granularity}
                     </span>
                   </div>
@@ -677,7 +677,7 @@ export default function SalesChannelsPage() {
                   </div>
                 </article>
 
-                <article className="flex flex-col rounded-3xl bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
+                <article className="flex flex-col rounded-lg bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
                   <h3 className="m-0 text-lg font-bold text-neutral-950">Share of revenue</h3>
                   <p className="mb-0 mt-1 text-sm text-neutral-500">Gross accommodation and folio value before commission.</p>
                   <div className="mt-4 h-72 w-full">
@@ -716,7 +716,7 @@ export default function SalesChannelsPage() {
                 </article>
               </section>
 
-              <section className="overflow-hidden rounded-3xl bg-white ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)]">
+              <section className="overflow-hidden rounded-lg bg-white ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)]">
                 <div className="flex flex-wrap items-end justify-between gap-3 p-5 pb-4 sm:p-6 sm:pb-4">
                   <div>
                     <h3 className="m-0 text-lg font-bold text-neutral-950">Channel league table</h3>
@@ -724,7 +724,7 @@ export default function SalesChannelsPage() {
                       Ranked by what reaches you after commission, for {data.range.from} to {data.range.to}. Click a column to re-sort.
                     </p>
                   </div>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 ring-1 ring-emerald-100">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 ring-1 ring-emerald-100">
                     <Trophy className="h-3.5 w-3.5" />{producing[0]?.label ?? "No leader yet"}
                   </span>
                 </div>
@@ -786,10 +786,10 @@ export default function SalesChannelsPage() {
                                   <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden">
                                     <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">{FAMILY_LABELS[row.family]}</span>
                                     {shown.map((badge) => (
-                                      <span key={badge.label} className={`shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[9px] font-bold ring-1 ${badge.tone}`}>{badge.label}</span>
+                                      <span key={badge.label} className={`shrink-0 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[9px] font-bold ring-1 ${badge.tone}`}>{badge.label}</span>
                                     ))}
                                     {hidden.length > 0 && (
-                                      <span title={hidden.map((badge) => badge.label).join(" · ")} className="shrink-0 cursor-help rounded-full bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold text-neutral-500 ring-1 ring-neutral-200">+{hidden.length}</span>
+                                      <span title={hidden.map((badge) => badge.label).join(" · ")} className="shrink-0 cursor-help rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold text-neutral-500 ring-1 ring-neutral-200">+{hidden.length}</span>
                                     )}
                                   </div>
                                 </div>;
@@ -874,7 +874,7 @@ export default function SalesChannelsPage() {
             </>
           ) : (
             // Rings cannot be dashed, so dashed edges use outline utilities.
-            <section className="rounded-3xl bg-white px-6 py-16 text-center outline outline-1 outline-dashed outline-neutral-300">
+            <section className="rounded-lg bg-white px-6 py-16 text-center outline outline-1 outline-dashed outline-neutral-300">
               <TrendingUp className="mx-auto h-10 w-10 text-neutral-300" />
               <h3 className="mb-0 mt-4 text-lg font-bold text-neutral-800">No confirmed stays in this period</h3>
               <p className="mb-0 mt-1 text-sm text-neutral-500">Widen the date range, or connect a channel above to start selling through it.</p>
@@ -882,14 +882,14 @@ export default function SalesChannelsPage() {
           )}
 
           {funnel && (funnel.funnel.visits > 0 || funnel.funnel.inquiries > 0) && (
-            <section className="rounded-3xl bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
+            <section className="rounded-lg bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
               <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <h3 className="m-0 text-lg font-bold text-neutral-950">Enquiry to booking funnel</h3>
                   <p className="mb-0 mt-1 text-sm text-neutral-500">Where interest is lost before a reservation ever exists.</p>
                 </div>
                 {funnel.averageFirstResponseMinutes != null && (
-                  <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 ring-1 ring-blue-100">
+                  <span className="rounded-md bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 ring-1 ring-blue-100">
                     {funnel.averageFirstResponseMinutes} min average first reply
                   </span>
                 )}
@@ -933,7 +933,7 @@ export default function SalesChannelsPage() {
           )}
 
           {(data.agents.length > 0 || data.agentPipeline.total > 0) && (
-            <section className="rounded-3xl bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
+            <section className="rounded-lg bg-white p-5 ring-1 ring-neutral-200/80 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="m-0 text-lg font-bold text-neutral-950">Travel agents selling for you</h3>
@@ -941,7 +941,7 @@ export default function SalesChannelsPage() {
                 </div>
                 <Link
                   href="/owner/nrms/agents"
-                  className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-white px-3.5 text-xs font-bold text-neutral-700 no-underline ring-1 ring-neutral-200 transition hover:text-violet-700 hover:no-underline hover:ring-violet-200"
+                  className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-md bg-white px-3.5 text-xs font-bold text-neutral-700 no-underline ring-1 ring-neutral-200 transition hover:text-violet-700 hover:no-underline hover:ring-violet-200"
                 >
                   Manage agencies<ArrowRight className="h-3.5 w-3.5" />
                 </Link>
@@ -951,8 +951,8 @@ export default function SalesChannelsPage() {
                   way to act on them from here. They are the one thing on this
                   card that needs a decision, so they get their own row. */}
               {data.agentPipeline.pending > 0 && (
-                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl bg-amber-50/70 p-4 ring-1 ring-amber-200/70">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-800"><Inbox className="h-4 w-4" /></span>
+                <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg bg-amber-50/70 p-4 ring-1 ring-amber-200/70">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-800"><Inbox className="h-4 w-4" /></span>
                   <div className="min-w-[14rem] flex-1">
                     <p className="m-0 text-sm font-bold text-amber-900">
                       {data.agentPipeline.pending} partnership request{data.agentPipeline.pending === 1 ? "" : "s"} waiting for your decision
@@ -961,14 +961,14 @@ export default function SalesChannelsPage() {
                   </div>
                   <Link
                     href="/owner/nrms/agents/partnerships"
-                    className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-xl bg-amber-700 px-3.5 text-xs font-bold text-white no-underline shadow-sm transition hover:bg-amber-800 hover:no-underline"
+                    className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-md bg-amber-700 px-3.5 text-xs font-bold text-white no-underline shadow-sm transition hover:bg-amber-800 hover:no-underline"
                   >
                     Review requests<ArrowRight className="h-3.5 w-3.5" />
                   </Link>
                 </div>
               )}
 
-              <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-neutral-200/70 ring-1 ring-neutral-200/70 sm:grid-cols-4">
+              <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-neutral-200/70 ring-1 ring-neutral-200/70 sm:grid-cols-4">
                 <AgentStat label="Active agencies" value={String(data.agentPipeline.active)} />
                 <AgentStat label="Bookings produced" value={String(agentSummary.bookings)} />
                 <AgentStat label="Net revenue" value={agentRow ? money(agentRow.netRevenue) : money(agentSummary.revenue)} />
@@ -986,9 +986,9 @@ export default function SalesChannelsPage() {
                     const perBooking = agent.reservations > 0 ? agent.netRevenue / agent.reservations : 0;
                     const format = moneyFormatter(agent.currency);
                     return (
-                      <li key={`${agent.id}-${agent.currency}`} className="flex flex-col rounded-2xl bg-white p-4 ring-1 ring-neutral-200/70 transition hover:ring-violet-200">
+                      <li key={`${agent.id}-${agent.currency}`} className="flex flex-col rounded-lg bg-white p-4 ring-1 ring-neutral-200/70 transition hover:ring-violet-200">
                         <div className="flex items-start gap-3">
-                          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[13px] font-bold tabular-nums ${index === 0 ? "bg-violet-600 text-white" : "bg-violet-50 text-violet-700"}`}>
+                          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[13px] font-bold tabular-nums ${index === 0 ? "bg-violet-600 text-white" : "bg-violet-50 text-violet-700"}`}>
                             {index + 1}
                           </span>
                           {/* Wraps to two lines rather than truncating: an
@@ -1017,7 +1017,7 @@ export default function SalesChannelsPage() {
                   })}
                 </ul>
               ) : (
-                <div className="mt-3 flex flex-col items-center justify-center rounded-2xl bg-neutral-50/70 px-6 py-10 text-center outline outline-1 outline-dashed outline-neutral-300">
+                <div className="mt-3 flex flex-col items-center justify-center rounded-lg bg-neutral-50/70 px-6 py-10 text-center outline outline-1 outline-dashed outline-neutral-300">
                   <Handshake className="h-8 w-8 text-neutral-300" />
                   <p className="mb-0 mt-3 text-sm font-bold text-neutral-700">
                     {data.agentPipeline.active > 0 ? "No agency booked in this period" : "No agency is selling your rooms yet"}
@@ -1029,7 +1029,7 @@ export default function SalesChannelsPage() {
                   </p>
                   <Link
                     href="/owner/nrms/agents"
-                    className="mt-4 inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-violet-600 px-4 text-xs font-bold text-white no-underline shadow-sm transition hover:bg-violet-700 hover:no-underline"
+                    className="mt-4 inline-flex min-h-9 items-center gap-1.5 rounded-md bg-violet-600 px-4 text-xs font-bold text-white no-underline shadow-sm transition hover:bg-violet-700 hover:no-underline"
                   >
                     {data.agentPipeline.active > 0 ? "Manage agencies" : "Invite an agency"}<ArrowRight className="h-3.5 w-3.5" />
                   </Link>
@@ -1132,7 +1132,7 @@ function LegendKey({ color, label }: { color: string; label: string }) {
 
 function CountChip({ value, label, dot }: { value: number; label: string; dot: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-neutral-600 ring-1 ring-neutral-200/80">
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1 text-[11px] font-bold text-neutral-600 ring-1 ring-neutral-200/80">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       <span className="tabular-nums text-neutral-900">{value}</span>
       <span className="font-semibold text-neutral-500">{label}</span>
@@ -1159,7 +1159,7 @@ function KpiCard({ icon: Icon, label, value, note, tone, change }: {
     violet: "bg-violet-50 text-violet-700",
   };
   return (
-    <article className="flex min-h-[138px] flex-col rounded-xl bg-white p-4 ring-1 ring-neutral-200/80 shadow-[0_12px_30px_-30px_rgba(15,23,42,0.45)]">
+    <article className="flex min-h-[138px] flex-col rounded-md bg-white p-4 ring-1 ring-neutral-200/80 shadow-[0_12px_30px_-30px_rgba(15,23,42,0.45)]">
       <div className="flex min-w-0 items-center justify-between gap-2.5">
         <p className="m-0 truncate text-[11px] font-semibold leading-4 text-neutral-500">{label}</p>
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}><Icon className="h-3.5 w-3.5" /></span>
@@ -1177,7 +1177,7 @@ function FunnelStep({ label, value, rate, rateLabel, tone = "neutral" }: {
   label: string; value: number; rate?: number | null; rateLabel?: string; tone?: "neutral" | "emerald";
 }) {
   return (
-    <div className={`rounded-2xl p-4 ring-1 ${tone === "emerald" ? "bg-emerald-50/60 ring-emerald-200/70" : "bg-white ring-neutral-200/70"}`}>
+    <div className={`rounded-lg p-4 ring-1 ${tone === "emerald" ? "bg-emerald-50/60 ring-emerald-200/70" : "bg-white ring-neutral-200/70"}`}>
       <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-500">{label}</p>
       <p className="mb-0 mt-1.5 text-xl font-bold tabular-nums text-neutral-950">{value.toLocaleString()}</p>
       {rate != null && <p className="mb-0 mt-1 flex items-center gap-1 text-[11px] text-neutral-500"><CheckCircle2 className="h-3 w-3 text-emerald-600" />{rate}% {rateLabel}</p>}

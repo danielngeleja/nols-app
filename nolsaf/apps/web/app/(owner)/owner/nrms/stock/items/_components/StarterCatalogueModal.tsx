@@ -140,7 +140,7 @@ export default function StarterCatalogueModal({ propertyId, existingNames, onClo
           {categories.map((category) => {
             const stats = categoryStats(category);
             return (
-              <button key={category} type="button" onClick={() => setScope(category)} className={scope === category ? `inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-solid px-3 text-[13px] font-bold [font-family:inherit] transition ${categoryTone(category).chip}` : chip(false)}>
+              <button key={category} type="button" onClick={() => setScope(category)} className={scope === category ? `inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-solid px-3 text-[13px] font-bold [font-family:inherit] transition ${categoryTone(category).chip}` : chip(false)}>
                 {scope !== category && <span className={`h-2 w-2 rounded-full ${categoryTone(category).dot}`} aria-hidden />}
                 {STOCK_CATEGORY_LABELS[category] ?? category}
                 <span className={scope === category ? "text-white/80" : "text-neutral-400"}>{stats.total}</span>
@@ -157,13 +157,13 @@ export default function StarterCatalogueModal({ propertyId, existingNames, onClo
           const tone = categoryTone(category);
           const picked = categoryGoods.filter((good) => selected.has(good.name)).length;
           return (
-            <section key={category} className={`overflow-hidden rounded-2xl border border-solid bg-white ${tone.border}`}>
+            <section key={category} className={`overflow-hidden rounded-lg border border-solid bg-white ${tone.border}`}>
               <div className={`flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid px-4 py-3 ${tone.border}`}>
                 <div className="flex items-center gap-2.5">
                   <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${tone.tile}`}><span className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} /></span>
                   <p className={`m-0 text-[15px] font-bold ${tone.text}`}>{STOCK_CATEGORY_LABELS[category] ?? category}</p>
                   <span className="text-sm font-semibold text-neutral-400">{categoryGoods.length}</span>
-                  {picked > 0 && <span className={`rounded-full px-2 py-0.5 text-xs font-bold text-white ${tone.dot}`}>{picked} selected</span>}
+                  {picked > 0 && <span className={`rounded-md px-2 py-0.5 text-xs font-bold text-white ${tone.dot}`}>{picked} selected</span>}
                 </div>
                 {categoryGoods.some((good) => !isAdded(good)) && <button type="button" onClick={() => setMany(categoryGoods, !allOn(categoryGoods))} className={quietButton}>{allOn(categoryGoods) ? "Clear category" : "Select category"}</button>}
               </div>
@@ -186,7 +186,7 @@ export default function StarterCatalogueModal({ propertyId, existingNames, onClo
                             type="button"
                             disabled={added}
                             onClick={() => toggle(good.name)}
-                            className={`flex items-start gap-2.5 rounded-xl border border-solid p-3 text-left [font-family:inherit] transition ${added ? "cursor-default border-neutral-200 bg-neutral-50" : on ? tone.picked : "border-neutral-300 bg-white hover:border-neutral-400"}`}
+                            className={`flex items-start gap-2.5 rounded-md border border-solid p-3 text-left [font-family:inherit] transition ${added ? "cursor-default border-neutral-200 bg-neutral-50" : on ? tone.picked : "border-neutral-300 bg-white hover:border-neutral-400"}`}
                           >
                             <span className={`mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border-2 border-solid ${added ? "border-neutral-300 bg-neutral-300 text-white" : on ? `${tone.check} text-white` : "border-neutral-400 bg-white"}`}>{(on || added) && <Check className="h-3 w-3" strokeWidth={3} />}</span>
                             <span className="min-w-0">

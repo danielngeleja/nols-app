@@ -18,6 +18,7 @@ import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
 import { getNrmsMarketplaceHolds } from "../lib/nrmsAvailability.js";
 import { getTransportAvailability } from "../lib/serviceAvailability.js";
 import { effectiveRoomSelectionCode, matchingRoomSelectionCodes, roomsSpecEntries } from "../lib/roomSelectionCode.js";
+import { discountedNightlyNet, roomDiscountPercent } from "../lib/roomDiscount.js";
 import { bedsPerSellableUnit } from "../lib/roomSpecBeds.js";
 import { guestOccupancyPricing } from "../lib/guestOccupancyPricing.js";
 import { recordAgencyAttribution } from "../lib/salesAgency.js";
@@ -930,7 +931,9 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
       if (selectedRoom) {
         selectedPricingRoom = selectedRoom;
         const roomPrice = parseRoomPrice(selectedRoom.pricePerNight ?? selectedRoom.price ?? null);
-        if (roomPrice != null) pricePerNight = roomPrice;
+        // The owner's room discount is charged, not just shown: it comes off the
+        // owner's nightly net before NoLSAF's commission is added.
+        if (roomPrice != null) pricePerNight = discountedNightlyNet(roomPrice, roomDiscountPercent(selectedRoom));
       }
     }
     

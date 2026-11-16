@@ -219,19 +219,19 @@ export default function NrmsTablesPage() {
         </div>
       </header>
 
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {loading && orders.length === 0 ? (
         <div className="flex min-h-[30vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : (
         <div className="space-y-4">
           {tablePoints.length > 0 && (
-            <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+            <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <LayoutGrid className="h-4 w-4 text-neutral-400" />
                   <p className="m-0 text-[13px] font-bold text-neutral-900">Tables</p>
-                  <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-bold text-neutral-500">{tablePoints.length}</span>
+                  <span className="rounded-md bg-neutral-100 px-2 py-0.5 text-[10px] font-bold text-neutral-500">{tablePoints.length}</span>
                 </div>
                 {canCreate && <button type="button" onClick={() => openOrderModal()} className="inline-flex h-8 items-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-3 text-[11px] font-bold text-white hover:bg-emerald-800"><Plus className="h-3.5 w-3.5" />Take order</button>}
               </div>
@@ -240,7 +240,7 @@ export default function NrmsTablesPage() {
                   const busy = busyPointIds.has(point.id);
                   const orderCount = orders.filter((order) => OPEN_STATUSES.includes(order.status) && order.orderPoint?.id === point.id).length;
                   return (
-                    <div key={point.id} className={`overflow-hidden rounded-xl border border-l-4 bg-white p-3.5 shadow-sm transition ${busy ? "border-neutral-200 border-l-cyan-500" : "border-neutral-200 border-l-emerald-500"}`}>
+                    <div key={point.id} className={`overflow-hidden rounded-md border border-l-4 bg-white p-3.5 shadow-sm transition ${busy ? "border-neutral-200 border-l-cyan-500" : "border-neutral-200 border-l-emerald-500"}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-2.5">
                           <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${busy ? "bg-cyan-50 text-cyan-700" : "bg-emerald-50 text-emerald-700"}`}><QrCode className="h-4 w-4" /></span>
@@ -261,24 +261,24 @@ export default function NrmsTablesPage() {
             </section>
           )}
 
-          <section className={`overflow-hidden rounded-2xl border ${placed.length ? "border-violet-200" : "border-neutral-200"} bg-white`}>
+          <section className={`overflow-hidden rounded-lg border ${placed.length ? "border-violet-200" : "border-neutral-200"} bg-white`}>
             <div className={`flex items-center gap-2 border-b px-4 py-3 ${placed.length ? "border-violet-100 bg-violet-50/60" : "border-neutral-100"}`}>
               <Bell className={`h-4 w-4 ${placed.length ? "text-violet-700" : "text-neutral-400"}`} />
               <p className="m-0 text-[13px] font-bold text-neutral-900">New orders</p>
-              {placed.length > 0 && <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-bold text-white">{placed.length}</span>}
+              {placed.length > 0 && <span className="rounded-md bg-violet-600 px-2 py-0.5 text-[10px] font-bold text-white">{placed.length}</span>}
             </div>
             {placed.length === 0 ? (
               <p className="m-0 px-4 py-6 text-center text-xs text-neutral-400">No new table orders waiting. Table QR and walk-in orders appear here to accept.</p>
             ) : (
               <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(16rem,1fr))] gap-3 p-3">
                 {placed.map((order) => (
-                  <article key={order.id} className="min-w-0 rounded-xl border border-neutral-200 p-3">
+                  <article key={order.id} className="min-w-0 rounded-md border border-neutral-200 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="m-0 truncate text-xs font-bold text-neutral-900">{order.orderNumber} · {order.outlet.name}</p>
                         <p className="mb-0 mt-1 truncate text-[10px] text-neutral-400">{tableLabel(order)} · {tableSub(order)}</p>
                       </div>
-                      <span className="shrink-0 rounded-full bg-violet-50 px-2 py-1 text-[9px] font-bold text-violet-700">{order.orderPoint ? "NEW · QR" : "NEW"}</span>
+                      <span className="shrink-0 rounded-md bg-violet-50 px-2 py-1 text-[9px] font-bold text-violet-700">{order.orderPoint ? "NEW · QR" : "NEW"}</span>
                     </div>
 
                     <div className="mt-3 space-y-1">
@@ -334,11 +334,11 @@ export default function NrmsTablesPage() {
               <span className="text-[11px] text-neutral-400">{tabs.length} open</span>
             </div>
             {tabs.length === 0 ? (
-              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-10 text-center text-xs text-neutral-400">No open tabs. Accepted table orders in progress will appear here.</div>
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-10 text-center text-xs text-neutral-400">No open tabs. Accepted table orders in progress will appear here.</div>
             ) : (
               <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
                 {tabs.map((tab) => (
-                  <div key={`${tab.label}-${tab.sub}`} className="flex flex-col overflow-hidden rounded-2xl border border-emerald-300 bg-gradient-to-br from-emerald-100 via-teal-50 to-cyan-100 p-4 shadow-md shadow-emerald-200/70 ring-1 ring-emerald-200">
+                  <div key={`${tab.label}-${tab.sub}`} className="flex flex-col overflow-hidden rounded-lg border border-emerald-300 bg-gradient-to-br from-emerald-100 via-teal-50 to-cyan-100 p-4 shadow-md shadow-emerald-200/70 ring-1 ring-emerald-200">
                     <div className="flex items-start justify-between gap-2 border-b border-emerald-200 pb-3">
                       <div className="min-w-0">
                         <p className="m-0 truncate text-[13px] font-bold text-neutral-900">{tab.label}</p>
@@ -350,7 +350,7 @@ export default function NrmsTablesPage() {
                       {tab.orders.map((order) => {
                         const step = nextStep(order.status);
                         return (
-                          <div key={order.id} className={`rounded-xl border-l-4 p-3 shadow-sm ${order.status === "PREPARING" ? "border border-amber-300 border-l-amber-500 bg-amber-100" : order.status === "SERVING" ? "border border-cyan-300 border-l-cyan-600 bg-cyan-100" : "border border-blue-300 border-l-blue-600 bg-blue-100"}`}>
+                          <div key={order.id} className={`rounded-md border-l-4 p-3 shadow-sm ${order.status === "PREPARING" ? "border border-amber-300 border-l-amber-500 bg-amber-100" : order.status === "SERVING" ? "border border-cyan-300 border-l-cyan-600 bg-cyan-100" : "border border-blue-300 border-l-blue-600 bg-blue-100"}`}>
                             <div className="flex items-center justify-between gap-2">
                               <span className="flex items-center gap-1.5 text-[10px] text-neutral-500"><Clock className="h-3 w-3" />{elapsed(order.createdAt)}</span>
                               <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${STATUS_STYLE[order.status] ?? "bg-neutral-100 text-neutral-500"}`}>{order.status.toLowerCase()}</span>

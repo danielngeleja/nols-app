@@ -91,7 +91,7 @@ export default function RequestsTab({ propertyId, overview, summary, refreshKey,
         </div>
         {summary.canRequest && <button type="button" onClick={onAsk} className={primaryButton}><ClipboardList className="h-4 w-4" />Ask for goods</button>}
       </div>
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {!rows ? (
         <div className={`${cardClass} flex min-h-[20vh] items-center justify-center text-neutral-300`}><Loader2 className="h-6 w-6 animate-spin" /></div>

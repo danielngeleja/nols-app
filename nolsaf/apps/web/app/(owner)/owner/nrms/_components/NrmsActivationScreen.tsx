@@ -98,10 +98,10 @@ export default function NrmsActivationScreen() {
                     type="button"
                     aria-pressed={selected}
                     onClick={() => setMode(item)}
-                    className={`group rounded-2xl border p-4 text-left transition-all ${selected ? "border-emerald-500 bg-white shadow-[0_12px_30px_-18px_rgba(5,150,105,0.7)] ring-2 ring-emerald-500/10" : "border-neutral-200/80 bg-white/55 hover:border-emerald-300 hover:bg-white"}`}
+                    className={`group rounded-lg border p-4 text-left transition-all ${selected ? "border-emerald-500 bg-white shadow-[0_12px_30px_-18px_rgba(5,150,105,0.7)] ring-2 ring-emerald-500/10" : "border-neutral-200/80 bg-white/55 hover:border-emerald-300 hover:bg-white"}`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${selected ? "bg-emerald-600 text-white" : "bg-neutral-100 text-neutral-600 group-hover:bg-emerald-50 group-hover:text-emerald-700"}`}><Icon className="h-4 w-4" /></span>
+                      <span className={`flex h-9 w-9 items-center justify-center rounded-md ${selected ? "bg-emerald-600 text-white" : "bg-neutral-100 text-neutral-600 group-hover:bg-emerald-50 group-hover:text-emerald-700"}`}><Icon className="h-4 w-4" /></span>
                       <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${selected ? "border-emerald-600 bg-emerald-600 text-white" : "border-neutral-300 text-transparent"}`}><Check className="h-3 w-3" /></span>
                     </div>
                     <p className="mt-3 text-sm font-bold text-neutral-900">{item === "RUN" ? "Run rooms with NRMS" : "Connect my existing PMS"}</p>
@@ -111,7 +111,7 @@ export default function NrmsActivationScreen() {
               })}
             </div>
 
-            <div className="mt-4 rounded-2xl border border-emerald-100 bg-white/75 p-4">
+            <div className="mt-4 rounded-lg border border-emerald-100 bg-white/75 p-4">
               <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-emerald-700">{activeCopy.eyebrow}</p>
               <p className="mt-1 text-base font-bold text-neutral-900">{activeCopy.title}</p>
               <p className="mt-1 text-sm leading-6 text-neutral-600">{activeCopy.description}</p>
@@ -120,10 +120,10 @@ export default function NrmsActivationScreen() {
               </div>
             </div>
 
-            {message && <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{message}</div>}
+            {message && <div role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{message}</div>}
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <button type="button" onClick={onActivate} disabled={busy} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-neutral-950 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-neutral-900/15 transition hover:-translate-y-0.5 hover:bg-emerald-700 disabled:pointer-events-none disabled:opacity-60">
+              <button type="button" onClick={onActivate} disabled={busy} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-md bg-neutral-950 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-neutral-900/15 transition hover:-translate-y-0.5 hover:bg-emerald-700 disabled:pointer-events-none disabled:opacity-60">
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                 {busy ? "Activating workspace…" : "Activate NRMS"}
                 {!busy && <ArrowRight className="h-4 w-4" />}
@@ -139,7 +139,7 @@ export default function NrmsActivationScreen() {
           <WorkspacePreview />
         </div>
 
-        <div className="mt-12 grid overflow-hidden rounded-2xl border border-emerald-100 bg-white/80 shadow-sm sm:grid-cols-3">
+        <div className="mt-12 grid overflow-hidden rounded-lg border border-emerald-100 bg-white/80 shadow-sm sm:grid-cols-3">
           <PricingFact
             icon={Clock3}
             label={hasTrial ? "Property trial" : "Billing begins"}
@@ -149,9 +149,9 @@ export default function NrmsActivationScreen() {
           <PricingFact icon={CircleDollarSign} label={hasTrial ? "After trial" : "External stays"} value={usagePolicy ? `${policyCurrency} ${roomNightPrice}` : roomNightPrice} detail="per completed external room-night" />
           <PricingFact icon={WalletCards} label="Marketplace bookings" value={usagePolicy ? `${policyCurrency} 0 NRMS fee` : "No NRMS usage fee"} detail="your normal commission remains" />
         </div>
-        <div className="mt-4 rounded-2xl border border-emerald-100 bg-white/85 p-4 sm:p-5">
+        <div className="mt-4 rounded-lg border border-emerald-100 bg-white/85 p-4 sm:p-5">
           <div className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Info className="h-4 w-4" /></span>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Info className="h-4 w-4" /></span>
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-emerald-700">Pay As You Go, in plain terms</p>
               <p className="mt-1.5 text-sm leading-6 text-neutral-600">NRMS itself has no subscription fee. {hasTrial ? "After the property trial, you’re" : "You’re"} only billed for stays NRMS actually completed outside the NoLSAF marketplace, walk-ins, phone bookings and other OTAs, each at the current per-room-night rate above. A guest who books you through the NoLSAF marketplace never adds an NRMS fee.</p>
@@ -187,7 +187,7 @@ export default function NrmsActivationScreen() {
           </div>
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
             <p className="flex items-center gap-2 text-xs text-emerald-50/75"><BarChart3 className="h-4 w-4 text-emerald-300" /> {properties.length ? `${properties.length} ${properties.length === 1 ? "property" : "properties"} ready to connect` : "You can add a property before or after enrollment"}</p>
-            <button type="button" onClick={onActivate} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-bold text-emerald-950 transition hover:bg-emerald-300 disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Activate NRMS</button>
+            <button type="button" onClick={onActivate} disabled={busy} className="inline-flex items-center gap-2 rounded-md bg-emerald-400 px-4 py-2.5 text-sm font-bold text-emerald-950 transition hover:bg-emerald-300 disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Activate NRMS</button>
           </div>
         </section>
       </div>
@@ -196,9 +196,9 @@ export default function NrmsActivationScreen() {
 }
 
 function PricingFact({ icon: Icon, label, value, detail }: { icon: ComponentType<{ className?: string }>; label: string; value: string; detail: string }) {
-  return <div className="flex items-center gap-3 border-b border-emerald-100 p-4 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 sm:p-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Icon className="h-5 w-5" /></span><div><p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">{label}</p><p className="text-base font-bold text-neutral-900">{value}</p><p className="text-[10px] text-neutral-500">{detail}</p></div></div>;
+  return <div className="flex items-center gap-3 border-b border-emerald-100 p-4 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 sm:p-5"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Icon className="h-5 w-5" /></span><div><p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">{label}</p><p className="text-base font-bold text-neutral-900">{value}</p><p className="text-[10px] text-neutral-500">{detail}</p></div></div>;
 }
 
 function SetupStep({ number, title, text }: { number: string; title: string; text: string }) {
-  return <div className="rounded-xl border border-white/10 bg-white/[0.06] p-4"><span className="text-[10px] font-bold tracking-widest text-emerald-300">{number}</span><p className="mt-2 text-sm font-bold">{title}</p><p className="mt-1 text-xs leading-5 text-emerald-50/60">{text}</p></div>;
+  return <div className="rounded-md border border-white/10 bg-white/[0.06] p-4"><span className="text-[10px] font-bold tracking-widest text-emerald-300">{number}</span><p className="mt-2 text-sm font-bold">{title}</p><p className="mt-1 text-xs leading-5 text-emerald-50/60">{text}</p></div>;
 }

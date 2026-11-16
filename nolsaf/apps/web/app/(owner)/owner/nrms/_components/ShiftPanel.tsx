@@ -95,10 +95,10 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
   if (!shift) {
     if (handover && canManageShift) {
       return (
-        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white"><ArrowLeftRight className="h-5 w-5" /></span>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-amber-500 text-white"><ArrowLeftRight className="h-5 w-5" /></span>
               <div>
                 <p className="m-0 text-[13px] font-bold text-amber-950">Drawer handover awaiting confirmation</p>
                 <p className="mb-0 mt-0.5 text-[11px] text-amber-800/90">{handover.attendeeName} closed at {time(handover.closedAt)} after physically counting {money(handover.amount)}.</p>
@@ -117,9 +117,9 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
       );
     }
     return (
-      <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4">
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-200 text-neutral-500"><Clock className="h-5 w-5" /></span>
+          <span className="flex h-10 w-10 items-center justify-center rounded-md bg-neutral-200 text-neutral-500"><Clock className="h-5 w-5" /></span>
           <div>
             <p className="m-0 text-[13px] font-bold text-neutral-800">No shift open</p>
             <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{canManageShift ? "Start your shift to record sales under your name. NRMS tracks the expected drawer; you count the physical cash once at close." : "Shifts are held by bar and restaurant staff at their assigned outlet."}</p>
@@ -136,7 +136,7 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+    <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
       <div className="border-b border-neutral-100 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -146,7 +146,7 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
               <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{serviceLabel} · since {time(shift.openedAt)} · {elapsed}{shift.takenOverFrom ? ` · took over from ${shift.takenOverFrom}` : ""}</p>
             </div>
           </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Open</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Open</span>
         </div>
 
         <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
@@ -181,7 +181,7 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
 
               <div className="px-5 pt-3">
                 {summary.unpaid.count > 0 ? (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3.5">
                     <div className="flex items-center justify-between gap-3">
                       <span className="flex items-center gap-2 text-[12px] font-bold text-amber-900"><AlertTriangle className="h-4 w-4 text-amber-700" />{summary.unpaid.count} order{summary.unpaid.count === 1 ? " is" : "s are"} still unpaid</span>
                       <span className="text-[12px] font-bold text-amber-900">{money(summary.unpaid.amount)}</span>
@@ -198,14 +198,14 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
                     <p className="mb-0 mt-2.5 text-[10px] leading-relaxed text-amber-800">Note what is outstanding below so the next attendee and the manager know. It blocks the night audit until resolved.</p>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3.5 py-3 text-[11px] font-bold text-emerald-800"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-white text-[11px]">✓</span>Every order is paid or on a room folio. Nothing is outstanding.</div>
+                  <div className="flex items-center gap-2 rounded-md border border-emerald-100 bg-emerald-50 px-3.5 py-3 text-[11px] font-bold text-emerald-800"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-white text-[11px]">✓</span>Every order is paid or on a room folio. Nothing is outstanding.</div>
                 )}
               </div>
             </>
           )}
 
           <div className="p-5 pt-4">
-            <div className="grid gap-3 rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <div className="grid gap-3 rounded-md bg-neutral-50 p-4 ring-1 ring-neutral-200 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
               <label className="block min-w-0 text-[12px] font-bold text-neutral-800">Physical cash counted
                 <span className="mt-1.5 flex h-11 max-w-sm items-center overflow-hidden rounded-lg bg-white ring-1 ring-neutral-300 focus-within:ring-2 focus-within:ring-emerald-600">
                   <span className="px-3 text-xs font-bold text-neutral-500">{shift.currency}</span>

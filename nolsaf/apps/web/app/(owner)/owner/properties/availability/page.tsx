@@ -301,7 +301,7 @@ export default function PropertyAvailabilitySelectionPage() {
           @media (prefers-reduced-motion: reduce) { #owner-avail-list .oal-d, #owner-avail-list .oal-l { animation: none; } }
         `}</style>
         {/* Steady panels in the page's shape; only a soft shimmer moves. */}
-        <div className="rounded-3xl bg-[#012a26] px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
+        <div className="rounded-lg bg-[#012a26] px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
           <div className="oal-d h-3 w-28 rounded-full" />
           <div className="mt-5 space-y-2.5">
             <div className="oal-d h-2.5 w-20 rounded-full" />
@@ -310,7 +310,7 @@ export default function PropertyAvailabilitySelectionPage() {
           </div>
           <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+              <div key={i} className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3">
                 <div className="oal-d h-2.5 w-20 rounded-full" />
                 <div className="oal-d mt-2.5 h-6 w-10 rounded-md" />
               </div>
@@ -319,14 +319,14 @@ export default function PropertyAvailabilitySelectionPage() {
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div key={i} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
               <div className="oal-l h-32" />
               <div className="space-y-3 p-4">
                 <div className="oal-l h-2.5 w-16 rounded-full" />
                 <div className="oal-l h-8 w-32 rounded-lg" />
                 <div className="oal-l h-2 w-full rounded-full" />
-                <div className="oal-l h-16 w-full rounded-xl" />
-                <div className="oal-l h-10 w-full rounded-xl" />
+                <div className="oal-l h-16 w-full rounded-md" />
+                <div className="oal-l h-10 w-full rounded-md" />
               </div>
             </div>
           ))}
@@ -339,7 +339,7 @@ export default function PropertyAvailabilitySelectionPage() {
     return (
       <div id="owner-avail-list" className={shell}>
         {style}
-        <div className="flex flex-col items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" aria-hidden />
             <div>
@@ -347,7 +347,7 @@ export default function PropertyAvailabilitySelectionPage() {
               <p className="m-0 mt-0.5 text-xs text-rose-800">{error}</p>
             </div>
           </div>
-          <button type="button" onClick={() => window.location.reload()} className="h-10 rounded-xl bg-[#012a26] px-4 text-sm font-bold text-white hover:bg-[#02665e]">
+          <button type="button" onClick={() => window.location.reload()} className="h-10 rounded-md bg-[#012a26] px-4 text-sm font-bold text-white hover:bg-[#02665e]">
             Try again
           </button>
         </div>
@@ -359,14 +359,14 @@ export default function PropertyAvailabilitySelectionPage() {
     return (
       <div id="owner-avail-list" className={shell}>
         {style}
-        <section className="grid overflow-hidden rounded-3xl border border-slate-300/80 bg-white md:grid-cols-2">
+        <section className="grid overflow-hidden rounded-lg border border-slate-300/80 bg-white md:grid-cols-2">
           <div className="p-8">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#012a26] text-[#5eead4]"><CalendarDays className="h-6 w-6" aria-hidden /></span>
+            <span className="grid h-12 w-12 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]"><CalendarDays className="h-6 w-6" aria-hidden /></span>
             <p className="m-0 mt-4 text-xl font-bold text-slate-900">No approved properties yet</p>
             <p className="m-0 mt-1.5 max-w-sm text-sm text-slate-500">Room availability opens once a property is approved.</p>
           </div>
           <div className="flex flex-col justify-center gap-2.5 border-0 border-t border-slate-200 bg-slate-50 p-8 md:border-l md:border-t-0">
-            <Link href="/owner/properties/add" className="group inline-flex h-12 items-center justify-between rounded-xl bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline hover:bg-[#02665e]">
+            <Link href="/owner/properties/add" className="group inline-flex h-12 items-center justify-between rounded-md bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline hover:bg-[#02665e]">
               Add a property
               <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]"><Sparkles className="h-4 w-4" aria-hidden /></span>
             </Link>
@@ -391,7 +391,7 @@ export default function PropertyAvailabilitySelectionPage() {
       {style}
 
       {/* ── Header band ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -402,7 +402,7 @@ export default function PropertyAvailabilitySelectionPage() {
             <ChevronRight className="h-4 w-4 rotate-180" aria-hidden /> My properties
           </Link>
           <div className="mt-4">
-            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Front desk</p>
+            <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Front desk</p>
             <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Room availability</h1>
             <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">Pick a property to see its rooms by floor, check dates and block rooms booked outside NoLSAF.</p>
           </div>
@@ -413,8 +413,8 @@ export default function PropertyAvailabilitySelectionPage() {
               { label: "Free tonight", value: todayLoaded ? String(sumToday("totalAvailableRooms")) : "...", Icon: Sparkles },
               { label: "Booked tonight", value: todayLoaded ? String(sumToday("totalBookedRooms")) : "...", Icon: CalendarDays },
             ].map((s) => (
-              <div key={s.label} className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
-                <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+              <div key={s.label} className="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white/55">
                   <s.Icon className="h-3.5 w-3.5 text-[#5eead4]" aria-hidden /> {s.label}
                 </span>
                 <span className="mt-1 block text-2xl font-bold tabular-nums">{s.value}</span>
@@ -437,7 +437,7 @@ export default function PropertyAvailabilitySelectionPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search name or area"
-              className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+              className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
             />
           </label>
         ) : null}
@@ -461,7 +461,7 @@ export default function PropertyAvailabilitySelectionPage() {
             <li key={property.id}>
               <Link
                 href={propertyHref(property.id, "/availability")}
-                className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-300/80 bg-white no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_22px_44px_-26px_rgba(1,42,38,0.5)]"
+                className="group flex h-full flex-col overflow-hidden rounded-lg border border-slate-300/80 bg-white no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_22px_44px_-26px_rgba(1,42,38,0.5)]"
               >
                 {/* Photo */}
                 <div className="relative h-32 overflow-hidden bg-slate-100">
@@ -472,8 +472,8 @@ export default function PropertyAvailabilitySelectionPage() {
                   )}
                   <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/60 to-transparent" aria-hidden />
                   <div className="absolute left-3 top-3 flex gap-1.5">
-                    <span className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-slate-800">{totalRooms} rooms</span>
-                    <span className="rounded-full bg-[#012a26]/85 px-2.5 py-1 text-[11px] font-bold text-[#5eead4]">{structure.length} {structure.length === 1 ? "floor" : "floors"}</span>
+                    <span className="rounded-md bg-white/95 px-2.5 py-1 text-[11px] font-bold text-slate-800">{totalRooms} rooms</span>
+                    <span className="rounded-md bg-[#012a26]/85 px-2.5 py-1 text-[11px] font-bold text-[#5eead4]">{structure.length} {structure.length === 1 ? "floor" : "floors"}</span>
                   </div>
                   <div className="absolute inset-x-3 bottom-2.5 text-white">
                     <p className="m-0 truncate text-base font-bold">{property.title}</p>
@@ -486,7 +486,7 @@ export default function PropertyAvailabilitySelectionPage() {
                 {/* Tonight */}
                 <div className="flex flex-1 flex-col p-4">
                   <div className="flex items-baseline justify-between gap-2">
-                    <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Tonight</p>
+                    <p className="m-0 text-[11px] font-semibold text-slate-500">Tonight</p>
                     <p className="m-0 text-[11px] text-slate-500">
                       {typeof today?.overallAvailabilityPercentage === "number" ? `${today.overallAvailabilityPercentage}% open` : ""}
                     </p>
@@ -504,7 +504,7 @@ export default function PropertyAvailabilitySelectionPage() {
                   {/* Booked and blocked, today / week / month */}
                   <table className="mt-4 w-full border-collapse text-xs">
                     <thead>
-                      <tr className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                      <tr className="text-[11px] text-slate-400">
                         <th className="pb-1.5 text-left font-semibold" />
                         <th className="pb-1.5 text-right font-semibold">Today</th>
                         <th className="pb-1.5 text-right font-semibold">Week</th>
@@ -528,7 +528,7 @@ export default function PropertyAvailabilitySelectionPage() {
                   </table>
 
                   <span className="mt-auto pt-4">
-                    <span className="flex h-10 items-center justify-between rounded-xl bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white transition group-hover:bg-[#02665e]">
+                    <span className="flex h-10 items-center justify-between rounded-md bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white transition group-hover:bg-[#02665e]">
                       Open availability
                       <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#5eead4] text-[#012a26] transition group-hover:translate-x-0.5">
                         <ChevronRight className="h-4 w-4" aria-hidden />

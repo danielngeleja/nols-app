@@ -439,19 +439,19 @@ function PropertyActivationGate() {
   };
 
   return (
-    <section className="mx-auto mt-10 max-w-3xl rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+    <section className="mx-auto mt-10 max-w-3xl rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
       <div className="flex flex-wrap items-center gap-4">
-        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Building2 className="h-5 w-5" /></span>
+        <span className="flex h-11 w-11 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Building2 className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
           <h2 className="m-0 text-lg font-bold text-neutral-950">Activate NRMS for {selectedProperty.title}</h2>
           <p className="mb-0 mt-1 text-sm text-neutral-500">Operational tools are isolated per property and require activation.</p>
         </div>
-        <button type="button" onClick={activate} disabled={busy} className="inline-flex min-h-11 items-center gap-2 rounded-xl border-0 bg-emerald-700 px-5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50">
+        <button type="button" onClick={activate} disabled={busy} className="inline-flex min-h-11 items-center gap-2 rounded-md border-0 bg-emerald-700 px-5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-50">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
           {busy ? "Activating…" : "Activate property"}
         </button>
       </div>
-      {message && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{message}</div>}
+      {message && <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{message}</div>}
     </section>
   );
 }
@@ -745,7 +745,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
     : "Room management system";
 
   const sidebar = (
-    <aside className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
+    <aside className={`flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-emerald-950/70 bg-[#082f2a] text-white shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-[width] duration-200 ${collapsed ? "w-[4.5rem]" : "w-[17rem]"}`}>
       <div className={`flex min-h-[5rem] items-center border-b border-white/10 ${collapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
         <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/15 bg-white shadow-sm"><Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={40} height={40} className="h-9 w-9 scale-[1.9] object-contain" priority /></span>
         {!collapsed && <><span className="h-8 w-px shrink-0 bg-white/10" aria-hidden /><div className="min-w-0"><h1 className="m-0 truncate text-base font-bold tracking-[0.02em]">NRMS WORKSPACE</h1><p className="mb-0 mt-1 text-[10px] text-emerald-100/50">{roleSubtitle}</p></div></>}
@@ -920,18 +920,18 @@ function NrmsShell({ children }: { children: ReactNode }) {
       {mobileOpen && (
         <div className="fixed inset-0 z-[10000] lg:hidden">
           <button type="button" aria-label="Close NRMS navigation" className="absolute inset-0 border-0 bg-neutral-950/45 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-          <div className="relative h-full w-[17.5rem] p-3">{sidebar}<button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation" className="absolute right-6 top-6 flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/10 text-white"><X className="h-4 w-4" /></button></div>
+          <div className="relative h-full w-[17.5rem] p-3">{sidebar}<button type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation" className="absolute right-6 top-6 flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/10 text-white"><X className="h-4 w-4" /></button></div>
         </div>
       )}
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="mx-3 mt-3 shrink-0 overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white shadow-[0_14px_35px_-30px_rgba(15,23,42,0.45)]">
+        <header className="mx-3 mt-3 shrink-0 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-[0_14px_35px_-30px_rgba(15,23,42,0.45)]">
           <div className="flex min-h-[4.5rem] items-center gap-3 px-3 pt-3 sm:px-5">
-            <button type="button" onClick={() => setMobileOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-slate-200 bg-white text-slate-700 lg:hidden" aria-label="Open NRMS navigation"><Menu className="h-5 w-5" /></button>
+            <button type="button" onClick={() => setMobileOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-solid border-slate-200 bg-white text-slate-700 lg:hidden" aria-label="Open NRMS navigation"><Menu className="h-5 w-5" /></button>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2">
                 <p className="m-0 truncate text-[15px] font-bold tracking-[-0.01em] text-slate-900">{paymentsHome ? "NoLSAF Payments" : selectedProperty?.title ?? "NRMS property"}</p>
-                {!paymentsHome && daysLeft != null && <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-inset ring-amber-200">{daysLeft} days trial</span>}
+                {!paymentsHome && daysLeft != null && <span className="shrink-0 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-inset ring-amber-200">{daysLeft} days trial</span>}
               </div>
               {/* The subtitle names the workspace the reader is actually in.
                   "Live property operations" was written for the owner and read
@@ -955,10 +955,10 @@ function NrmsShell({ children }: { children: ReactNode }) {
                 offered a way to change or see another one, so they get a static
                 label, not a select. The API enforces this too; this is the UI half. */}
             {showPropertySelector ? (
-              <label className="group relative hidden h-10 min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-solid border-slate-200 bg-white pl-3 pr-2.5 text-slate-700 transition hover:border-[#02665e]/40 hover:bg-emerald-50/40 sm:flex">
+              <label className="group relative hidden h-10 min-w-0 cursor-pointer items-center gap-2 rounded-md border border-solid border-slate-200 bg-white pl-3 pr-2.5 text-slate-700 transition hover:border-[#02665e]/40 hover:bg-emerald-50/40 sm:flex">
                 <Building2 className="h-4 w-4 shrink-0 text-[#02665e]" />
                 <span className="text-xs font-semibold">Switch property</span>
-                <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-bold tabular-nums text-slate-600">{properties.length}</span>
+                <span className="rounded-md bg-slate-100 px-1.5 text-[10px] font-bold tabular-nums text-slate-600">{properties.length}</span>
                 <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400 transition group-hover:text-slate-700" aria-hidden />
                 {/* The native select sits invisibly on top, so the switcher keeps keyboard and screen-reader support. */}
                 <select
@@ -977,7 +977,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
               </label>
             ) : null}
             {!paymentsHome && accessRole === "OWNER" && <NrmsBillingAttention property={selectedProperty} policy={usagePolicy} variant="indicator" />}
-            <button type="button" onClick={() => setPendingWorkspaceChange({ kind: "EXIT" })} title={accessRole === "OWNER" ? "Return to Marketplace" : "Exit NRMS"} aria-label={accessRole === "OWNER" ? "Return to Marketplace" : "Exit NRMS"} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-slate-200 bg-white text-slate-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600">
+            <button type="button" onClick={() => setPendingWorkspaceChange({ kind: "EXIT" })} title={accessRole === "OWNER" ? "Return to Marketplace" : "Exit NRMS"} aria-label={accessRole === "OWNER" ? "Return to Marketplace" : "Exit NRMS"} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600">
               <LogOut className="h-4 w-4" />
             </button>
           </div>
@@ -999,7 +999,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
                     key={tab.href}
                     href={tab.href}
                     aria-current={active ? "page" : undefined}
-                    className={`inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 text-xs font-bold no-underline transition hover:no-underline ${active ? "bg-emerald-50 text-[#02665e] ring-1 ring-inset ring-emerald-200/70" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
+                    className={`inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-md px-3.5 text-xs font-bold no-underline transition hover:no-underline ${active ? "bg-emerald-50 text-[#02665e] ring-1 ring-inset ring-emerald-200/70" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
                   >
                     <Icon className={`h-4 w-4 ${active ? "text-[#02665e]" : "text-slate-400"}`} />
                     {override?.label ?? tab.label}
@@ -1022,7 +1022,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
               role, but every request below is still made as the signed-in
               account, so this proves layout only, never permissions. */}
           {previewRole ? (
-            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900 ring-1 ring-amber-300">
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md bg-amber-50 px-3.5 py-2.5 text-xs text-amber-900 ring-1 ring-amber-300">
               <span className="font-bold">Previewing the {roleSubtitle}</span>
               <span className="text-amber-800">
                 Layout only: which links the sidebar draws and how a role aware page arranges itself. Every request is still

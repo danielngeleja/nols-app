@@ -235,8 +235,8 @@ export default function CountSheetPage() {
         {data.count.blind && counting && <p className="m-0 mt-3 text-sm text-neutral-500">Count what is physically there, including open bottles. The book stays hidden until a manager reviews.</p>}
       </section>
 
-      {notice && <div className="flex items-center gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800"><CheckCircle2 className="h-4 w-4" />{notice}</div>}
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {notice && <div className="flex items-center gap-2 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800"><CheckCircle2 className="h-4 w-4" />{notice}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {(reviewing || status === "APPROVED") ? (
         <ReviewTable lines={lines} currency={currency} showMoney={data.showMoney} reviewing={reviewing} picked={recountPick} onPick={setRecountPick} />
@@ -244,7 +244,7 @@ export default function CountSheetPage() {
         groups.map(([category, rows]) => {
           const tone = categoryTone(category);
           return (
-            <section key={category} className={`overflow-hidden rounded-2xl border border-solid bg-white shadow-card ${tone.border}`}>
+            <section key={category} className={`overflow-hidden rounded-lg border border-solid bg-white shadow-card ${tone.border}`}>
               <header className={`flex items-center gap-2 border-0 border-b border-solid px-4 py-2.5 ${tone.border}`}>
                 <span className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
                 <h2 className={`m-0 text-[15px] font-bold ${tone.text}`}>{STOCK_CATEGORY_LABELS[category] ?? category}</h2>

@@ -251,12 +251,12 @@ export default function NrmsHousekeepingPage() {
           <p className="mb-0 mt-1 text-xs text-neutral-500">Checkout rooms enter turnover immediately. Occupied rooms follow the configured daily cleaning cycle.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 shadow-sm">
+          <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2 shadow-sm">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><CalendarDays className="h-3.5 w-3.5" /></span>
             <span><span className="block text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Today</span><span className="mt-0.5 block text-[11px] font-bold text-neutral-700">{housekeepingDate(board?.businessDate)}</span></span>
           </div>
           {canManage && board && (
-            <button type="button" onClick={() => setSettingsOpen(true)} className="inline-flex appearance-none items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/50">
+            <button type="button" onClick={() => setSettingsOpen(true)} className="inline-flex appearance-none items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/50">
               <Settings2 className="h-4 w-4 text-emerald-700" />
               <span><span className="block text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Occupied-room cycle</span><span className="mt-0.5 block text-[11px] font-bold text-neutral-700">{board.settings.dailyServiceEnabled ? `Daily at ${board.settings.dailyServiceTime}` : "Daily cleaning off"}</span></span>
             </button>
@@ -264,19 +264,19 @@ export default function NrmsHousekeepingPage() {
         </div>
       </div>
 
-      {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {loading || !board ? (
-        <div className="flex min-h-64 items-center justify-center rounded-2xl border border-neutral-200 bg-white text-neutral-400"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
+        <div className="flex min-h-64 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-400"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
       ) : (
         <>
-          <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+          <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
             <div className="flex flex-wrap items-start justify-between gap-2 border-b border-neutral-100 px-4 py-3.5 sm:px-5">
               <div>
                 <h3 className="m-0 flex items-center gap-2 text-sm font-bold text-neutral-950"><Sparkles className="h-4 w-4 text-emerald-700" />Room readiness flow</h3>
                 <p className="mb-0 mt-1 text-[11px] text-neutral-500">Follow each room from checkout through guest-ready inspection.</p>
               </div>
-              <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-semibold text-neutral-500">Select a stage to filter</span>
+              <span className="rounded-md bg-neutral-100 px-2.5 py-1 text-[10px] font-semibold text-neutral-500">Select a stage to filter</span>
             </div>
 
             <div className="grid gap-2 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-4 lg:gap-6">
@@ -286,7 +286,7 @@ export default function NrmsHousekeepingPage() {
                     type="button"
                     aria-pressed={filter === key}
                     onClick={() => setFilter(filter === key ? "ALL" : key)}
-                    className={`group w-full appearance-none rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-sm ${filter === key ? `${STATUS_META[key].active} ring-2` : "border-neutral-200 bg-white"}`}
+                    className={`group w-full appearance-none rounded-lg border p-3 text-left transition hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-sm ${filter === key ? `${STATUS_META[key].active} ring-2` : "border-neutral-200 bg-white"}`}
                   >
                     <span className="flex items-center justify-between gap-2">
                       <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">
@@ -310,7 +310,7 @@ export default function NrmsHousekeepingPage() {
                 className={`flex appearance-none items-center justify-between gap-3 border-0 px-4 py-3 text-left transition hover:bg-violet-50 sm:px-5 ${filter === "OCCUPIED" ? "bg-violet-50" : "bg-transparent"}`}
               >
                 <span className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-violet-100 bg-violet-50 text-violet-700"><UserRound className="h-4 w-4" /></span>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-md border border-violet-100 bg-violet-50 text-violet-700"><UserRound className="h-4 w-4" /></span>
                   <span><span className="block text-xs font-bold text-neutral-800">Occupied rooms</span><span className="mt-0.5 block text-[10px] text-neutral-400">Included in the daily clean cycle</span></span>
                 </span>
                 <span className="text-lg font-bold tabular-nums text-neutral-800">{board.counts.OCCUPIED ?? 0}</span>
@@ -322,14 +322,14 @@ export default function NrmsHousekeepingPage() {
                 className={`flex appearance-none items-center justify-between gap-3 border-0 border-t border-neutral-200 px-4 py-3 text-left transition hover:bg-neutral-100 sm:border-t-0 sm:px-5 ${filter === "OUT_OF_SERVICE" ? "bg-neutral-100" : "bg-transparent"}`}
               >
                 <span className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-500"><Wrench className="h-4 w-4" /></span>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-500"><Wrench className="h-4 w-4" /></span>
                   <span><span className="block text-xs font-bold text-neutral-800">Out of service</span><span className="mt-0.5 block text-[10px] text-neutral-400">Separate from the cleaning flow</span></span>
                 </span>
                 <span className="text-lg font-bold tabular-nums text-neutral-800">{board.counts.OUT_OF_SERVICE ?? 0}</span>
               </button>
               <div className="flex items-center justify-between gap-3 border-t border-neutral-200 px-4 py-3 sm:border-t-0 sm:px-5">
                 <span className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-neutral-200 bg-white text-emerald-700"><ClipboardList className="h-4 w-4" /></span>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-md border border-neutral-200 bg-white text-emerald-700"><ClipboardList className="h-4 w-4" /></span>
                   <span><span className="block text-xs font-bold text-neutral-800">Open tasks</span><span className="mt-0.5 block text-[10px] text-neutral-400">Assignments managed below</span></span>
                 </span>
                 <span className="text-lg font-bold tabular-nums text-neutral-800">{board.counts.openTasks ?? 0}</span>
@@ -337,7 +337,7 @@ export default function NrmsHousekeepingPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-neutral-200 bg-white p-4 sm:p-5">
+          <section className="rounded-lg border border-neutral-200 bg-white p-4 sm:p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="m-0 flex items-center gap-2 text-sm font-bold text-neutral-950"><BedDouble className="h-4 w-4 text-emerald-700" />Rooms{filter !== "ALL" && <span className="text-xs font-semibold text-neutral-400">({STATUS_META[filter]?.label})</span>}</h3>
               {filter !== "ALL" && (
@@ -355,20 +355,20 @@ export default function NrmsHousekeepingPage() {
                     groupCounts[key] = (groupCounts[key] ?? 0) + 1;
                   }
                   return (
-                    <section key={group.label} className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.06)] ring-1 ring-neutral-950/[0.02]">
+                    <section key={group.label} className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.06)] ring-1 ring-neutral-950/[0.02]">
                       <header className="relative flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-200 bg-gradient-to-r from-white via-white to-emerald-50/50 px-4 py-4 sm:px-5">
                         <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-emerald-600" aria-hidden="true" />
                         <h4 className="m-0 flex items-center gap-3">
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7)]"><Building2 className="h-[18px] w-[18px]" /></span>
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7)]"><Building2 className="h-[18px] w-[18px]" /></span>
                           <span>
                             <span className="block text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-700">Floor zone</span>
                             <span className="mt-0.5 block text-base font-bold tracking-tight text-neutral-950">{group.label}</span>
                           </span>
                         </h4>
-                        <span className="rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-bold text-neutral-500 shadow-sm">{group.rooms.length} {group.rooms.length === 1 ? "room" : "rooms"}</span>
+                        <span className="rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-bold text-neutral-500 shadow-sm">{group.rooms.length} {group.rooms.length === 1 ? "room" : "rooms"}</span>
                         <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                           {STATUS_ORDER.filter((key) => groupCounts[key]).map((key) => (
-                            <span key={key} className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-bold text-neutral-600 shadow-sm">
+                            <span key={key} className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-bold text-neutral-600 shadow-sm">
                               <span className={`h-1.5 w-1.5 rounded-full ring-2 ring-white ${STATUS_META[key].dot}`} />{groupCounts[key]} {STATUS_META[key].label.toLowerCase()}
                             </span>
                           ))}
@@ -383,7 +383,7 @@ export default function NrmsHousekeepingPage() {
                           const outOfService = room.status !== "ACTIVE";
                           const flowIndex = ROOM_FLOW.indexOf(room.housekeepingStatus as (typeof ROOM_FLOW)[number]);
                           return (
-                            <article key={room.id} className={`overflow-hidden rounded-2xl border border-l-4 border-neutral-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-neutral-300 hover:shadow-md ${meta.accent}`}>
+                            <article key={room.id} className={`overflow-hidden rounded-lg border border-l-4 border-neutral-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-neutral-300 hover:shadow-md ${meta.accent}`}>
                               <div className="p-3.5">
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="min-w-0">
@@ -391,8 +391,8 @@ export default function NrmsHousekeepingPage() {
                                     <p className="mb-0 mt-0.5 truncate text-[10px] font-medium uppercase tracking-wide text-neutral-400">{room.roomType.name}</p>
                                   </div>
                                   <span className="flex shrink-0 flex-col items-end gap-1">
-                                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold ${meta.chip}`}><span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />{meta.label}</span>
-                                    {room.occupant && <span className="inline-flex items-center gap-1 rounded-full border border-violet-100 bg-violet-50 px-2 py-0.5 text-[9px] font-bold text-violet-700"><UserRound className="h-2.5 w-2.5" />Occupied</span>}
+                                    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-bold ${meta.chip}`}><span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />{meta.label}</span>
+                                    {room.occupant && <span className="inline-flex items-center gap-1 rounded-md border border-violet-100 bg-violet-50 px-2 py-0.5 text-[9px] font-bold text-violet-700"><UserRound className="h-2.5 w-2.5" />Occupied</span>}
                                   </span>
                                 </div>
 
@@ -432,19 +432,19 @@ export default function NrmsHousekeepingPage() {
                                 <div className="border-t border-neutral-100 bg-neutral-50/60 px-3.5 py-3">
                                   <p className="m-0 mb-2 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">Next in room flow</p>
                                   {room.housekeepingStatus === "DIRTY" && (
-                                    <button type="button" disabled={busy} onClick={() => setRoomStatus(room, "IN_PROGRESS")} className="inline-flex w-full appearance-none items-center justify-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BrushCleaning className="h-3.5 w-3.5" />}Start cleaning<ArrowRight className="h-3.5 w-3.5" /></button>
+                                    <button type="button" disabled={busy} onClick={() => setRoomStatus(room, "IN_PROGRESS")} className="inline-flex w-full appearance-none items-center justify-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BrushCleaning className="h-3.5 w-3.5" />}Start cleaning<ArrowRight className="h-3.5 w-3.5" /></button>
                                   )}
                                   {room.housekeepingStatus === "IN_PROGRESS" && (
-                                    <button type="button" disabled={busy} onClick={() => setRoomStatus(room, "CLEAN")} className="inline-flex w-full appearance-none items-center justify-center gap-1.5 rounded-xl border-0 bg-emerald-700 px-3 py-2 text-[11px] font-bold text-white transition hover:bg-emerald-800 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}Mark as clean<ArrowRight className="h-3.5 w-3.5" /></button>
+                                    <button type="button" disabled={busy} onClick={() => setRoomStatus(room, "CLEAN")} className="inline-flex w-full appearance-none items-center justify-center gap-1.5 rounded-md border-0 bg-emerald-700 px-3 py-2 text-[11px] font-bold text-white transition hover:bg-emerald-800 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}Mark as clean<ArrowRight className="h-3.5 w-3.5" /></button>
                                   )}
                                   {room.housekeepingStatus === "CLEAN" && canManage && (
-                                    <button type="button" disabled={busy} onClick={() => setRoomStatus(room, "INSPECTED")} className="inline-flex w-full appearance-none items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-bold text-sky-700 transition hover:bg-sky-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}Confirm inspection<ArrowRight className="h-3.5 w-3.5" /></button>
+                                    <button type="button" disabled={busy} onClick={() => setRoomStatus(room, "INSPECTED")} className="inline-flex w-full appearance-none items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-bold text-sky-700 transition hover:bg-sky-100 disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}Confirm inspection<ArrowRight className="h-3.5 w-3.5" /></button>
                                   )}
                                   {room.housekeepingStatus === "CLEAN" && !canManage && (
-                                    <div className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-700"><ShieldCheck className="h-3.5 w-3.5" />Awaiting manager inspection</div>
+                                    <div className="flex items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-700"><ShieldCheck className="h-3.5 w-3.5" />Awaiting manager inspection</div>
                                   )}
                                   {room.housekeepingStatus === "INSPECTED" && (
-                                    <div className="flex items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-semibold text-sky-700"><ShieldCheck className="h-3.5 w-3.5" />Room is guest ready</div>
+                                    <div className="flex items-center justify-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-semibold text-sky-700"><ShieldCheck className="h-3.5 w-3.5" />Room is guest ready</div>
                                   )}
 
                                   <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-dashed border-neutral-200 pt-2.5">
@@ -476,7 +476,7 @@ export default function NrmsHousekeepingPage() {
           </section>
 
           <section className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-3xl border border-neutral-200 bg-white p-4 sm:p-5">
+            <div className="rounded-lg border border-neutral-200 bg-white p-4 sm:p-5">
               <h3 className="m-0 mb-3 flex items-center gap-2 text-sm font-bold text-neutral-950"><ClipboardList className="h-4 w-4 text-emerald-700" />Task queue</h3>
               {openTasks.length === 0 ? (
                 <p className="py-6 text-center text-sm text-neutral-400">No open housekeeping tasks. All caught up.</p>
@@ -485,9 +485,9 @@ export default function NrmsHousekeepingPage() {
                   {openTasks.map((task) => {
                     const busy = busyKey === `task-${task.id}`;
                     return (
-                      <div key={task.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50/60 px-3 py-2.5">
+                      <div key={task.id} className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-200 bg-neutral-50/60 px-3 py-2.5">
                         <div className="min-w-0 flex-1">
-                          <p className="m-0 text-xs font-bold text-neutral-900">{task.roomCode ?? `Room #${task.roomUnitId}`} · {TASK_TYPE_LABEL[task.type] ?? task.type}{task.priority === "HIGH" && <span className="ml-1.5 rounded-full bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-600">URGENT</span>}</p>
+                          <p className="m-0 text-xs font-bold text-neutral-900">{task.roomCode ?? `Room #${task.roomUnitId}`} · {TASK_TYPE_LABEL[task.type] ?? task.type}{task.priority === "HIGH" && <span className="ml-1.5 rounded-md bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-600">URGENT</span>}</p>
                           <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{task.status === "IN_PROGRESS" ? "In progress" : "Waiting"}{task.note ? ` · ${task.note}` : ""}</p>
                         </div>
                         {canManage && board.housekeepers.length > 0 && (
@@ -511,14 +511,14 @@ export default function NrmsHousekeepingPage() {
               )}
             </div>
 
-            <div className="rounded-3xl border border-neutral-200 bg-white p-4 sm:p-5">
+            <div className="rounded-lg border border-neutral-200 bg-white p-4 sm:p-5">
               <h3 className="m-0 mb-3 flex items-center gap-2 text-sm font-bold text-neutral-950"><CheckCircle2 className="h-4 w-4 text-emerald-700" />Completed today</h3>
               {board.recentDone.length === 0 ? (
                 <p className="py-6 text-center text-sm text-neutral-400">Nothing completed yet today.</p>
               ) : (
                 <div className="space-y-2">
                   {board.recentDone.map((task) => (
-                    <div key={task.id} className="flex items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50/40 px-3 py-2">
+                    <div key={task.id} className="flex items-center gap-2 rounded-md border border-neutral-100 bg-neutral-50/40 px-3 py-2">
                       <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
                       <p className="m-0 min-w-0 flex-1 truncate text-xs text-neutral-700">{task.roomCode ?? `Room #${task.roomUnitId}`} · {TASK_TYPE_LABEL[task.type] ?? task.type}{task.completedBy ? ` · ${task.completedBy.name}` : ""}</p>
                       <span className="shrink-0 text-[10px] text-neutral-400">{task.completedAt ? new Date(task.completedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
@@ -537,7 +537,7 @@ export default function NrmsHousekeepingPage() {
           <div role="dialog" aria-modal="true" aria-labelledby="housekeeping-settings-title" className="relative my-auto w-full max-w-md overflow-hidden rounded-[24px] border border-white/70 bg-white shadow-[0_28px_80px_rgba(0,0,0,0.24)]">
             <div className="relative border-b border-neutral-200 bg-gradient-to-br from-white via-white to-emerald-50/70 px-5 py-3.5 pr-14">
               <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-sm"><Clock3 className="h-5 w-5" /></span>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-sm"><Clock3 className="h-5 w-5" /></span>
                 <div>
                   <p className="m-0 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-700">Automation</p>
                   <h3 id="housekeeping-settings-title" className="mb-0 mt-1 text-base font-bold tracking-tight text-neutral-950">Occupied-room cleaning cycle</h3>
@@ -548,26 +548,26 @@ export default function NrmsHousekeepingPage() {
             </div>
 
             <div className="space-y-3 px-5 py-4">
-              <button type="button" role="switch" aria-checked={dailyServiceEnabled} onClick={() => setDailyServiceEnabled((value) => !value)} className={`flex w-full appearance-none items-center justify-between gap-4 rounded-xl border p-3 text-left transition ${dailyServiceEnabled ? "border-emerald-200 bg-emerald-50/70" : "border-neutral-200 bg-neutral-50"}`}>
+              <button type="button" role="switch" aria-checked={dailyServiceEnabled} onClick={() => setDailyServiceEnabled((value) => !value)} className={`flex w-full appearance-none items-center justify-between gap-4 rounded-md border p-3 text-left transition ${dailyServiceEnabled ? "border-emerald-200 bg-emerald-50/70" : "border-neutral-200 bg-neutral-50"}`}>
                 <span><span className="block text-sm font-bold text-neutral-900">Daily cleaning for occupied rooms</span><span className="mt-0.5 block text-[10px] text-neutral-500">Returns long-stay rooms to the cleaning queue.</span></span>
                 <span className={`relative h-6 w-11 shrink-0 rounded-full transition ${dailyServiceEnabled ? "bg-emerald-600" : "bg-neutral-300"}`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition ${dailyServiceEnabled ? "left-6" : "left-1"}`} /></span>
               </button>
 
-              <label className="grid min-w-0 grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-3 overflow-hidden rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
+              <label className="grid min-w-0 grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-3 overflow-hidden rounded-md border border-neutral-200 bg-white p-3 shadow-sm">
                 <span><span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">Daily service time</span><span className="mt-1 block text-[10px] font-medium text-neutral-400">Dar es Salaam time</span></span>
                 <span className="relative block min-w-0 max-w-full overflow-hidden">
                   <input type="time" aria-label="Daily service time" value={dailyServiceTime} disabled={!dailyServiceEnabled} onChange={(event) => setDailyServiceTime(event.target.value)} className="!h-10 !w-full !min-w-0 !max-w-full box-border rounded-lg border border-neutral-200 bg-neutral-50 px-2 text-center text-sm font-bold text-neutral-800 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 disabled:text-neutral-400" />
                 </span>
               </label>
 
-              <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2.5 text-[10px] leading-relaxed text-sky-800">
+              <div className="rounded-md border border-sky-100 bg-sky-50/70 px-3 py-2.5 text-[10px] leading-relaxed text-sky-800">
                 Clean occupied rooms become dirty and receive one Daily clean task. Checkout turnover remains immediate.
               </div>
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-neutral-200 bg-neutral-50/80 px-5 py-3">
-              <button type="button" onClick={closeHousekeepingSettings} className="appearance-none rounded-xl border border-neutral-200 bg-white px-4 py-2 text-xs font-bold text-neutral-600 shadow-sm transition hover:bg-neutral-100">Cancel</button>
-              <button type="button" disabled={busyKey === "housekeeping-settings" || (dailyServiceEnabled && !dailyServiceTime)} onClick={() => void saveHousekeepingSettings()} className="inline-flex appearance-none items-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-[0_6px_16px_rgba(4,120,87,0.22)] transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="button" onClick={closeHousekeepingSettings} className="appearance-none rounded-md border border-neutral-200 bg-white px-4 py-2 text-xs font-bold text-neutral-600 shadow-sm transition hover:bg-neutral-100">Cancel</button>
+              <button type="button" disabled={busyKey === "housekeeping-settings" || (dailyServiceEnabled && !dailyServiceTime)} onClick={() => void saveHousekeepingSettings()} className="inline-flex appearance-none items-center gap-2 rounded-md border-0 bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-[0_6px_16px_rgba(4,120,87,0.22)] transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
                 {busyKey === "housekeeping-settings" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}{busyKey === "housekeeping-settings" ? "Saving…" : "Save schedule"}
               </button>
             </div>
@@ -581,13 +581,13 @@ export default function NrmsHousekeepingPage() {
           <div role="dialog" aria-modal="true" aria-labelledby="task-composer-title" className="relative my-auto w-full max-w-lg overflow-hidden rounded-[26px] border border-white/70 bg-white shadow-[0_28px_80px_rgba(0,0,0,0.24)]">
             <div className="relative border-b border-neutral-200 bg-gradient-to-br from-white via-white to-emerald-50/70 px-5 py-4 pr-14">
               <div className="flex items-start gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-sm"><ClipboardList className="h-5 w-5" /></span>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-sm"><ClipboardList className="h-5 w-5" /></span>
                 <div className="min-w-0">
                   <p className="m-0 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-700">Housekeeping task</p>
                   <h3 id="task-composer-title" className="mb-0 mt-1 text-base font-bold tracking-tight text-neutral-950">Create a room task</h3>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-neutral-500">
-                    <span className="inline-flex items-center gap-1 rounded-full border border-neutral-200 bg-white px-2 py-1 shadow-sm"><BedDouble className="h-3 w-3 text-emerald-700" />Room {taskRoom.code}</span>
-                    <span className="rounded-full border border-neutral-200 bg-white px-2 py-1 shadow-sm">{floorLabel(taskRoom.floor)}</span>
+                    <span className="inline-flex items-center gap-1 rounded-md border border-neutral-200 bg-white px-2 py-1 shadow-sm"><BedDouble className="h-3 w-3 text-emerald-700" />Room {taskRoom.code}</span>
+                    <span className="rounded-md border border-neutral-200 bg-white px-2 py-1 shadow-sm">{floorLabel(taskRoom.floor)}</span>
                   </div>
                 </div>
               </div>
@@ -598,7 +598,7 @@ export default function NrmsHousekeepingPage() {
               <label className="block text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">
                 Task type
                 <span className="relative mt-1.5 block">
-                  <select value={taskType} onChange={(event) => setTaskType(event.target.value)} className="h-11 w-full rounded-xl border border-neutral-200 bg-white px-3.5 pr-10 text-sm font-bold normal-case tracking-normal text-neutral-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10">
+                  <select value={taskType} onChange={(event) => setTaskType(event.target.value)} className="h-11 w-full rounded-md border border-neutral-200 bg-white px-3.5 pr-10 text-sm font-bold normal-case tracking-normal text-neutral-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10">
                     {Object.entries(TASK_TYPE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </span>
@@ -607,7 +607,7 @@ export default function NrmsHousekeepingPage() {
 
               <fieldset>
                 <legend className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">Priority</legend>
-                <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl border border-neutral-200 bg-neutral-100 p-1">
+                <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-md border border-neutral-200 bg-neutral-100 p-1">
                   <button type="button" aria-pressed={taskPriority === "NORMAL"} onClick={() => setTaskPriority("NORMAL")} className={`appearance-none rounded-lg border-0 px-3 py-2 text-xs font-bold transition ${taskPriority === "NORMAL" ? "bg-white text-neutral-800 shadow-sm ring-1 ring-neutral-200" : "bg-transparent text-neutral-500 hover:text-neutral-700"}`}>
                     <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />Normal
                   </button>
@@ -622,7 +622,7 @@ export default function NrmsHousekeepingPage() {
                   Assign to
                   <span className="relative mt-1.5 block">
                     <UserRound className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                    <select value={taskAssignee} onChange={(event) => setTaskAssignee(event.target.value === "" ? "" : Number(event.target.value))} className="h-11 w-full rounded-xl border border-neutral-200 bg-white pl-10 pr-10 text-sm font-semibold normal-case tracking-normal text-neutral-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10">
+                    <select value={taskAssignee} onChange={(event) => setTaskAssignee(event.target.value === "" ? "" : Number(event.target.value))} className="h-11 w-full rounded-md border border-neutral-200 bg-white pl-10 pr-10 text-sm font-semibold normal-case tracking-normal text-neutral-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10">
                       <option value="">Unassigned</option>
                       {board.housekeepers.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
                     </select>
@@ -633,8 +633,8 @@ export default function NrmsHousekeepingPage() {
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-neutral-200 bg-neutral-50/80 px-5 py-4">
-              <button type="button" onClick={closeTaskComposer} className="appearance-none rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-600 shadow-sm transition hover:bg-neutral-100">Cancel</button>
-              <button type="button" disabled={busyKey === "create-task"} onClick={() => void createTask()} className="inline-flex appearance-none items-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white shadow-[0_6px_16px_rgba(4,120,87,0.22)] transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="button" onClick={closeTaskComposer} className="appearance-none rounded-md border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-600 shadow-sm transition hover:bg-neutral-100">Cancel</button>
+              <button type="button" disabled={busyKey === "create-task"} onClick={() => void createTask()} className="inline-flex appearance-none items-center gap-2 rounded-md border-0 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white shadow-[0_6px_16px_rgba(4,120,87,0.22)] transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
                 {busyKey === "create-task" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}{busyKey === "create-task" ? "Creating…" : "Create task"}
               </button>
             </div>

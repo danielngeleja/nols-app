@@ -94,7 +94,7 @@ export default function NationalityPicker({
         <ul
           id={listId}
           role="listbox"
-          className="absolute left-0 right-0 top-full z-30 m-0 mt-1 max-h-64 list-none overflow-y-auto rounded-xl border border-solid border-neutral-200 bg-white p-1 shadow-[0_18px_40px_-16px_rgba(15,23,42,0.35)]"
+          className="absolute left-0 right-0 top-full z-30 m-0 mt-1 max-h-64 list-none overflow-y-auto rounded-md border border-solid border-neutral-200 bg-white p-1 shadow-[0_18px_40px_-16px_rgba(15,23,42,0.35)]"
         >
           {options.map((option, index) => {
             const active = index === cursor;

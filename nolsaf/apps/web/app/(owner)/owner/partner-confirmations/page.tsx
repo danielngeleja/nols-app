@@ -232,7 +232,7 @@ function PartnerConfirmations() {
     <div id="partner-confirmations" className="mx-auto w-full max-w-3xl space-y-5">
       <style>{`#partner-confirmations, #partner-confirmations * { box-sizing: border-box; }`}</style>
 
-      <header className="rounded-xl border border-solid border-slate-200 bg-white p-5 sm:p-6">
+      <header className="rounded-md border border-solid border-slate-200 bg-white p-5 sm:p-6">
         <div className="flex items-start gap-3">
           <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/10 text-[#02665e]">
             <ShieldCheck className="h-5 w-5" aria-hidden />
@@ -255,11 +255,11 @@ function PartnerConfirmations() {
         </h2>
 
         {loading ? (
-          <div className="flex items-center gap-2 rounded-xl border border-solid border-slate-200 bg-white p-5 text-sm text-slate-500">
+          <div className="flex items-center gap-2 rounded-md border border-solid border-slate-200 bg-white p-5 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading
           </div>
         ) : pending.length === 0 ? (
-          <div className="rounded-xl border border-solid border-slate-200 bg-white p-5 text-sm text-slate-600">
+          <div className="rounded-md border border-solid border-slate-200 bg-white p-5 text-sm text-slate-600">
             Nothing to answer right now.
           </div>
         ) : (
@@ -269,7 +269,7 @@ function PartnerConfirmations() {
               return (
                 <li
                   key={item.id}
-                  className={`rounded-xl border border-solid bg-white p-4 sm:p-5 ${highlight === item.id ? "border-[#02665e] ring-2 ring-[#02665e]/15" : "border-slate-200"}`}
+                  className={`rounded-md border border-solid bg-white p-4 sm:p-5 ${highlight === item.id ? "border-[#02665e] ring-2 ring-[#02665e]/15" : "border-slate-200"}`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
                     <p className="m-0 min-w-0 text-[15px] font-semibold text-slate-900">
@@ -375,7 +375,7 @@ function PartnerConfirmations() {
       {answered.length > 0 && (
         <section aria-labelledby="answered-heading" className="space-y-2">
           <h2 id="answered-heading" className="m-0 text-sm font-semibold text-slate-900">Your answers</h2>
-          <ul className="m-0 list-none divide-y divide-slate-100 overflow-hidden rounded-xl border border-solid border-slate-200 bg-white p-0">
+          <ul className="m-0 list-none divide-y divide-slate-100 overflow-hidden rounded-md border border-solid border-slate-200 bg-white p-0">
             {answered.map((item) => {
               const label = ANSWER_LABEL[item.status] ?? { label: item.status, tone: "text-slate-700 bg-slate-100" };
               const met = item.contactChannel ? CHANNEL_PAST[item.contactChannel] : null;

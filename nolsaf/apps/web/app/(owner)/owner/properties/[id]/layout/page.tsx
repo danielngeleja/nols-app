@@ -166,7 +166,7 @@ export default function OwnerPropertyLayoutPage() {
     return (
       <div id="owner-floorplan" className={shell}>
         {style}
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
           This property could not be found on your account.
           <Link href="/owner/properties/availability" className="ml-2 font-semibold text-rose-900 underline">Back to Room availability</Link>
         </div>
@@ -187,7 +187,7 @@ export default function OwnerPropertyLayoutPage() {
     return (
       <div id="owner-floorplan" className={shell}>
         {style}
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
           {error ?? "The floor plan could not be loaded."}
           <Link href={href(propertyId, "/availability")} className="ml-2 font-semibold text-rose-900 underline">Back to Room availability</Link>
         </div>
@@ -203,9 +203,9 @@ export default function OwnerPropertyLayoutPage() {
       {confirmRebuild ? (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="rebuild-title">
           <button type="button" aria-label="Close" onClick={() => setConfirmRebuild(false)} className="absolute inset-0 border-0 bg-[#012a26]/60 backdrop-blur-sm" />
-          <div className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/10">
+          <div className="relative w-full max-w-md overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-black/10">
             <div className="bg-[#012a26] px-6 pb-5 pt-5 text-white">
-              <span className="grid h-11 w-11 place-items-center rounded-xl bg-[#5eead4]/15 text-[#5eead4]">
+              <span className="grid h-11 w-11 place-items-center rounded-md bg-[#5eead4]/15 text-[#5eead4]">
                 <Sparkles className="h-5 w-5" aria-hidden />
               </span>
               <p id="rebuild-title" className="m-0 mt-3 text-lg font-bold">Rebuild the floor plan?</p>
@@ -226,7 +226,7 @@ export default function OwnerPropertyLayoutPage() {
                   Use it after adding or removing rooms, or changing floors.
                 </li>
               </ul>
-              <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
+              <div className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-4 py-3 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">
                 <span>Now</span>
                 <span className="font-semibold text-slate-900">{floors.length} {floors.length === 1 ? "floor" : "floors"} · {allRooms.length} {allRooms.length === 1 ? "room" : "rooms"}</span>
               </div>
@@ -234,7 +234,7 @@ export default function OwnerPropertyLayoutPage() {
                 <button
                   type="button"
                   onClick={() => setConfirmRebuild(false)}
-                  className="h-11 flex-1 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  className="h-11 flex-1 rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
                   Keep current plan
                 </button>
@@ -242,7 +242,7 @@ export default function OwnerPropertyLayoutPage() {
                   type="button"
                   onClick={rebuild}
                   autoFocus
-                  className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#012a26] text-sm font-bold text-white transition hover:bg-[#02665e]"
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-md bg-[#012a26] text-sm font-bold text-white transition hover:bg-[#02665e]"
                 >
                   <Sparkles className="h-4 w-4 text-[#5eead4]" aria-hidden /> Rebuild plan
                 </button>
@@ -253,7 +253,7 @@ export default function OwnerPropertyLayoutPage() {
       ) : null}
 
       {/* ── Header band ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -265,7 +265,7 @@ export default function OwnerPropertyLayoutPage() {
           </Link>
           <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Setup</p>
+              <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Setup</p>
               <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Floor plan</h1>
               <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">
                 Your building, floor by floor. NoLSAF places each room from the floors you set for its room type.
@@ -274,7 +274,7 @@ export default function OwnerPropertyLayoutPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Link
                 href={`/owner/properties/add?id=${ownerPropertyRefOrId(propertyId)}`}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/10"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md border border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/10"
               >
                 <Pencil className="h-4 w-4" aria-hidden /> Edit rooms and floors
               </Link>
@@ -282,7 +282,7 @@ export default function OwnerPropertyLayoutPage() {
                 type="button"
                 onClick={() => setConfirmRebuild(true)}
                 disabled={rebuilding}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-3.5 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1] disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#5eead4] px-3.5 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1] disabled:opacity-60"
               >
                 {rebuilding ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Sparkles className="h-4 w-4" aria-hidden />}
                 Rebuild plan
@@ -296,8 +296,8 @@ export default function OwnerPropertyLayoutPage() {
               { label: "Rooms", value: allRooms.length, Icon: BedDouble },
               { label: "Free tonight", value: freeTonight, Icon: Building2 },
             ].map((s) => (
-              <div key={s.label} className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
-                <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+              <div key={s.label} className="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white/55">
                   <s.Icon className="h-3.5 w-3.5 text-[#5eead4]" aria-hidden /> {s.label}
                 </span>
                 <span className="mt-1 block text-2xl font-bold tabular-nums">{s.value}</span>
@@ -307,10 +307,10 @@ export default function OwnerPropertyLayoutPage() {
         </div>
       </header>
 
-      {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : null}
+      {error ? <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : null}
 
       {emptyFloors.length > 0 ? (
-        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>
             <strong className="font-semibold">{emptyFloors.length} {emptyFloors.length === 1 ? "floor has" : "floors have"} no rooms</strong>{" "}
@@ -321,7 +321,7 @@ export default function OwnerPropertyLayoutPage() {
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         {/* ── The building ── */}
-        <section className="overflow-hidden rounded-3xl bg-[#012a26] text-white shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
+        <section className="overflow-hidden rounded-lg bg-[#012a26] text-white shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-white/10 px-5 py-4">
             <p className="m-0 text-sm font-bold">Building</p>
             <div className="flex items-center gap-3 text-[11px] font-semibold text-white/70">
@@ -346,7 +346,7 @@ export default function OwnerPropertyLayoutPage() {
                   </div>
                   <div className="min-w-0 px-3 py-3 sm:px-4">
                     {floor.rooms.length === 0 ? (
-                      <div className="flex h-12 items-center rounded-xl border border-dashed border-white/15 px-3 text-xs text-white/40">
+                      <div className="flex h-12 items-center rounded-md border border-dashed border-white/15 px-3 text-xs text-white/40">
                         Empty floor
                       </div>
                     ) : (
@@ -361,7 +361,7 @@ export default function OwnerPropertyLayoutPage() {
                                 onClick={() => setSelected(on ? null : room.code)}
                                 aria-pressed={on}
                                 title={`${room.name} · ${STATUS_TEXT[st]}`}
-                                className={`flex h-14 w-[76px] flex-col items-start justify-between rounded-xl border px-2.5 py-1.5 text-left transition ${TILE[st]} ${on ? "ring-2 ring-[#5eead4] ring-offset-2 ring-offset-[#012a26]" : ""}`}
+                                className={`flex h-14 w-[76px] flex-col items-start justify-between rounded-md border px-2.5 py-1.5 text-left transition ${TILE[st]} ${on ? "ring-2 ring-[#5eead4] ring-offset-2 ring-offset-[#012a26]" : ""}`}
                               >
                                 <span className="text-base font-bold leading-none tabular-nums">{numberOf(room)}</span>
                                 <span className="w-full truncate text-[10px] font-semibold text-white/60">{typeOf(room)}</span>
@@ -371,7 +371,7 @@ export default function OwnerPropertyLayoutPage() {
                         })}
                       </ul>
                     )}
-                    {isGround ? <p className="m-0 mt-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/35">Entrance and reception</p> : null}
+                    {isGround ? <p className="m-0 mt-2 text-[11px] font-semibold text-white/35">Entrance and reception</p> : null}
                   </div>
                 </li>
               );
@@ -382,13 +382,13 @@ export default function OwnerPropertyLayoutPage() {
         {/* ── Side panel: the selected room, or the room types ── */}
         <aside className="space-y-4 lg:sticky lg:top-4">
           {pick ? (
-            <section className="overflow-hidden rounded-3xl border border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]">
+            <section className="overflow-hidden rounded-lg border border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]">
               {pick.room.photos?.[0] ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={pick.room.photos[0]} alt="" className="h-36 w-full object-cover" />
               ) : null}
               <div className="p-5">
-                <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{pick.floor.label} floor</p>
+                <p className="m-0 text-[11px] font-semibold text-slate-500">{pick.floor.label} floor</p>
                 <p className="m-0 mt-1 text-xl font-bold text-slate-900">{pick.room.name}</p>
                 <p className="m-0 mt-0.5 text-sm text-slate-500">
                   {pick.room.pricePerNight > 0 ? `${fmtTzs(pick.room.pricePerNight)} / night` : "No rate set"}
@@ -420,21 +420,21 @@ export default function OwnerPropertyLayoutPage() {
                 {pick.room.amenities?.length ? (
                   <div className="mt-4 flex flex-wrap gap-1.5">
                     {pick.room.amenities.slice(0, 8).map((a) => (
-                      <span key={a} className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-700">{a}</span>
+                      <span key={a} className="rounded-md bg-slate-100 px-2.5 py-1 text-[11px] text-slate-700">{a}</span>
                     ))}
                   </div>
                 ) : null}
                 <div className="mt-5 space-y-2">
                   <Link
                     href={href(propertyId, `/availability?externalBlock=1&roomName=${encodeURIComponent(pick.room.name)}`)}
-                    className="group flex h-11 items-center justify-between rounded-xl bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
+                    className="group flex h-11 items-center justify-between rounded-md bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
                   >
                     Block this room
                     <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]"><Plus className="h-4 w-4" aria-hidden /></span>
                   </Link>
                   <Link
                     href={href(propertyId, "/availability")}
-                    className="flex h-11 items-center justify-between rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                    className="flex h-11 items-center justify-between rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
                   >
                     Check other dates <ArrowRight className="h-4 w-4" aria-hidden />
                   </Link>
@@ -442,12 +442,12 @@ export default function OwnerPropertyLayoutPage() {
               </div>
             </section>
           ) : (
-            <section className="rounded-3xl border border-slate-300/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <section className="rounded-lg border border-slate-300/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <p className="m-0 text-sm font-bold text-slate-900">Room types</p>
               <p className="m-0 mt-0.5 text-xs text-slate-500">Tap a room in the building to see it here.</p>
               <ul className="m-0 mt-4 list-none space-y-2 p-0">
                 {types.map(([name, t]) => (
-                  <li key={name} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3.5 py-2.5 ring-1 ring-inset ring-slate-200">
+                  <li key={name} className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3.5 py-2.5 ring-1 ring-inset ring-slate-200">
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold text-slate-900">{name}</span>
                       <span className="block truncate text-[11px] text-slate-500">{[...t.floors].join(", ")}</span>

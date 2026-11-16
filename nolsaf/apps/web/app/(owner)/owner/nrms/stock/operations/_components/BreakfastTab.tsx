@@ -92,7 +92,7 @@ export default function BreakfastTab({ propertyId, overview, onChanged }: { prop
     }
   };
 
-  if (error && !data) return <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
+  if (error && !data) return <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
   if (!data) return <div className="flex min-h-[24vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
   // What the typed covers use; whole goods round up, the same rule the server posts with.
@@ -125,7 +125,7 @@ export default function BreakfastTab({ propertyId, overview, onChanged }: { prop
           </label>
         </div>
 
-        <div className="mt-4 overflow-hidden rounded-xl border border-solid border-neutral-300">
+        <div className="mt-4 overflow-hidden rounded-md border border-solid border-neutral-300">
           {data.recipe.length === 0 ? (
             <div className="flex flex-wrap items-center justify-between gap-3 bg-amber-50/60 px-4 py-4">
               <p className="m-0 text-sm text-amber-900">No breakfast recipe yet. Set what one cover uses, then post each morning here.</p>

@@ -296,7 +296,7 @@ export default function NrmsCalendarPage() {
   return (
     <div className="min-w-0 space-y-3 pb-6">
       {isSalesExecutive && <div className="flex flex-wrap items-center justify-between gap-3 border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-xs text-emerald-950"><div><span className="font-semibold">Availability view</span><span className="ml-2 text-emerald-800">Review room demand and existing stays. Create individual bookings through Reception.</span></div><div className="flex items-center gap-3"><Link href="/owner/nrms/inquiries" className="font-semibold text-emerald-800 no-underline hover:underline">Work inquiries</Link><Link href="/owner/nrms/groups" className="font-semibold text-emerald-800 no-underline hover:underline">Group blocks</Link></div></div>}
-      <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-30px_rgba(15,23,42,0.4)]">
+      <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_35px_-30px_rgba(15,23,42,0.4)]">
         <div className="flex flex-col gap-3 px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-2">
             <button
@@ -333,7 +333,7 @@ export default function NrmsCalendarPage() {
           </div>
 
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
-            <div className="flex min-w-0 flex-1 rounded-xl bg-neutral-100 p-1 sm:flex-none" aria-label="Calendar range">
+            <div className="flex min-w-0 flex-1 rounded-md bg-neutral-100 p-1 sm:flex-none" aria-label="Calendar range">
               {VIEW_LABELS.map((option) => (
                 <button
                   type="button"
@@ -384,16 +384,16 @@ export default function NrmsCalendarPage() {
       </section>
 
       {error && (
-        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-30px_rgba(15,23,42,0.35)]">
+      <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_35px_-30px_rgba(15,23,42,0.35)]">
         <div ref={calendarScrollRef} className="relative min-h-[320px] max-h-[calc(100dvh-14rem)] overflow-auto">
           {loading && (
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/70 backdrop-blur-[1px]">
-              <div className="flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-500 shadow-sm">
+              <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-500 shadow-sm">
                 <Loader2 className="h-4 w-4 animate-spin text-emerald-700" /> Loading calendar
               </div>
             </div>
@@ -496,7 +496,7 @@ export default function NrmsCalendarPage() {
             </div>
             <Link
               href="/owner/nrms/rooms"
-              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white no-underline transition hover:bg-emerald-800 hover:no-underline"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-sm font-bold text-white no-underline transition hover:bg-emerald-800 hover:no-underline"
             >
               <Plus className="h-4 w-4" /> Set up rooms
             </Link>
@@ -590,7 +590,7 @@ function CalendarTypeRows({
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-center gap-2">
                 <span className="truncate text-[10px] font-bold uppercase tracking-[0.12em]">{type.name}</span>
-                <span className="ml-auto shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/90">
+                <span className="ml-auto shrink-0 rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/90">
                   {type.units.length} {type.units.length === 1 ? "room" : "rooms"}
                 </span>
               </span>

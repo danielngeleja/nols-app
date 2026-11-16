@@ -388,10 +388,10 @@ export default function OwnerDocsPage() {
       <style>{`:where(#owner-guide, #owner-guide *) { box-sizing: border-box; }`}</style>
 
       {/* Header band */}
-      <header className="overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div className="grid gap-6 px-5 pb-6 pt-6 sm:px-8 sm:pt-7 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-end">
           <div>
-            <p className="m-0 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#5eead4]">
+            <p className="m-0 flex items-center gap-2 text-[11px] font-bold text-[#5eead4]">
               <BookOpen className="h-3.5 w-3.5" aria-hidden /> Owner guide
             </p>
             <h1 className="m-0 mt-2 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[34px]">Run your property on NoLSAF</h1>
@@ -405,7 +405,7 @@ export default function OwnerDocsPage() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search the guide: lost code, withdraw, block a room"
                 aria-label="Search the owner guide"
-                className="h-12 w-full rounded-2xl border border-solid border-white/15 bg-white/[0.07] pl-11 pr-11 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#5eead4]/60 focus:bg-white/[0.1]"
+                className="h-12 w-full rounded-lg border border-solid border-white/15 bg-white/[0.07] pl-11 pr-11 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#5eead4]/60 focus:bg-white/[0.1]"
               />
               {query && (
                 <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full border-0 bg-white/10 text-white/70 hover:bg-white/20">
@@ -424,10 +424,10 @@ export default function OwnerDocsPage() {
               { n: 4, label: "Get paid", href: "/owner/payouts", Icon: Wallet },
             ].map((step) => (
               <li key={step.n}>
-                <Link href={step.href} className="group flex h-full items-center gap-3 rounded-2xl bg-white/[0.05] px-3.5 py-3 no-underline ring-1 ring-inset ring-white/10 transition hover:bg-white/[0.1]">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#5eead4] text-[#012a26]"><step.Icon className="h-4 w-4" aria-hidden /></span>
+                <Link href={step.href} className="group flex h-full items-center gap-3 rounded-lg bg-white/[0.05] px-3.5 py-3 no-underline ring-1 ring-inset ring-white/10 transition hover:bg-white/[0.1]">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#5eead4] text-[#012a26]"><step.Icon className="h-4 w-4" aria-hidden /></span>
                   <span className="min-w-0">
-                    <span className="block text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/45">Step {step.n}</span>
+                    <span className="block text-[11px] font-bold text-white/45">Step {step.n}</span>
                     <span className="block truncate text-sm font-semibold text-white">{step.label}</span>
                   </span>
                 </Link>
@@ -450,7 +450,7 @@ export default function OwnerDocsPage() {
                     type="button"
                     onClick={() => setChapter(c.key)}
                     aria-pressed={active}
-                    className={`flex w-full items-center gap-3 rounded-xl border border-solid px-3 py-2.5 text-left transition ${active ? "border-[#02665e]/30 bg-emerald-50 text-[#02665e]" : "border-transparent bg-transparent text-slate-600 hover:bg-white hover:text-slate-900"}`}
+                    className={`flex w-full items-center gap-3 rounded-md border border-solid px-3 py-2.5 text-left transition ${active ? "border-[#02665e]/30 bg-emerald-50 text-[#02665e]" : "border-transparent bg-transparent text-slate-600 hover:bg-white hover:text-slate-900"}`}
                   >
                     <c.Icon className={`h-4 w-4 shrink-0 ${active ? "text-[#02665e]" : "text-slate-400"}`} aria-hidden />
                     <span className="min-w-0 flex-1">
@@ -469,10 +469,10 @@ export default function OwnerDocsPage() {
           {/* Guides */}
           <section aria-label="Guides" className="space-y-2.5">
             {matches.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-8 text-center">
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-5 py-8 text-center">
                 <p className="m-0 text-sm font-bold text-slate-900">No guide matches &ldquo;{query}&rdquo;</p>
                 <p className="m-0 mt-1 text-xs text-slate-500">Try another word, or ask the NoLSAF team.</p>
-                <Link href="/owner/support" className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#02665e] px-4 text-xs font-bold text-white no-underline hover:bg-[#014d47]">
+                <Link href="/owner/support" className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-md bg-[#02665e] px-4 text-xs font-bold text-white no-underline hover:bg-[#014d47]">
                   <LifeBuoy className="h-3.5 w-3.5" aria-hidden /> Get help
                 </Link>
               </div>
@@ -481,14 +481,14 @@ export default function OwnerDocsPage() {
                 const expanded = open === guide.id || Boolean(q);
                 const chapterMeta = CHAPTERS.find((c) => c.key === guide.chapter)!;
                 return (
-                  <article key={guide.id} className={`overflow-hidden rounded-2xl border border-solid bg-white transition ${expanded ? "border-[#02665e]/30 shadow-[0_14px_35px_-28px_rgba(1,42,38,0.6)]" : "border-slate-200"}`}>
+                  <article key={guide.id} className={`overflow-hidden rounded-lg border border-solid bg-white transition ${expanded ? "border-[#02665e]/30 shadow-[0_14px_35px_-28px_rgba(1,42,38,0.6)]" : "border-slate-200"}`}>
                     <button
                       type="button"
                       onClick={() => setOpen(expanded && !q ? null : guide.id)}
                       aria-expanded={expanded}
                       className="flex w-full items-center gap-4 border-0 bg-transparent px-4 py-4 text-left sm:px-5"
                     >
-                      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${expanded ? "bg-[#012a26] text-[#5eead4]" : "bg-slate-100 text-slate-600"}`}>
+                      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md ${expanded ? "bg-[#012a26] text-[#5eead4]" : "bg-slate-100 text-slate-600"}`}>
                         <chapterMeta.Icon className="h-5 w-5" aria-hidden />
                       </span>
                       <span className="min-w-0 flex-1">
@@ -509,12 +509,12 @@ export default function OwnerDocsPage() {
                           ))}
                         </ol>
                         {guide.tip && (
-                          <p className="m-0 mt-4 flex items-start gap-2 rounded-xl bg-amber-50/70 px-3.5 py-2.5 text-xs leading-5 text-amber-900 ring-1 ring-inset ring-amber-200">
+                          <p className="m-0 mt-4 flex items-start gap-2 rounded-md bg-amber-50/70 px-3.5 py-2.5 text-xs leading-5 text-amber-900 ring-1 ring-inset ring-amber-200">
                             <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
                             {guide.tip}
                           </p>
                         )}
-                        <Link href={guide.href} className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-[#012a26] px-4 text-sm font-bold text-white no-underline transition hover:bg-[#033a34]">
+                        <Link href={guide.href} className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-[#012a26] px-4 text-sm font-bold text-white no-underline transition hover:bg-[#033a34]">
                           {guide.cta} <ArrowRight className="h-4 w-4 text-[#5eead4]" aria-hidden />
                         </Link>
                       </div>
@@ -527,12 +527,12 @@ export default function OwnerDocsPage() {
 
           {/* Rules to remember */}
           {!q && (
-            <section aria-label="Rules to remember" className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+            <section aria-label="Rules to remember" className="rounded-lg border border-solid border-slate-200 bg-white p-5">
               <h2 className="m-0 text-base font-bold text-slate-900">Rules to remember</h2>
               <p className="m-0 mt-0.5 text-xs text-slate-500">The few things that explain most questions.</p>
               <ul className="m-0 mt-4 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
                 {RULES.map((rule) => (
-                  <li key={rule.title} className="flex gap-3 rounded-xl bg-slate-50 px-3.5 py-3">
+                  <li key={rule.title} className="flex gap-3 rounded-md bg-slate-50 px-3.5 py-3">
                     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#02665e] ring-1 ring-inset ring-slate-200"><rule.Icon className="h-4 w-4" aria-hidden /></span>
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-slate-900">{rule.title}</span>
@@ -547,11 +547,11 @@ export default function OwnerDocsPage() {
           {/* Statuses */}
           {!q && (
             <section aria-label="Statuses at a glance" className="grid gap-4 xl:grid-cols-2">
-              <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+              <div className="rounded-lg border border-solid border-slate-200 bg-white p-5">
                 <h2 className="m-0 flex items-center gap-2 text-base font-bold text-slate-900"><BedDouble className="h-4 w-4 text-[#02665e]" aria-hidden /> Booking statuses</h2>
                 <ul className="m-0 mt-3 list-none space-y-2 p-0">
                   {BOOKING_STATUSES.map((s) => (
-                    <li key={s.label} className="flex items-start gap-3 rounded-xl px-1 py-1.5">
+                    <li key={s.label} className="flex items-start gap-3 rounded-md px-1 py-1.5">
                       <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${s.dot}`} aria-hidden />
                       <span className="min-w-0">
                         <span className="block text-sm font-semibold text-slate-900">{s.label}</span>
@@ -561,7 +561,7 @@ export default function OwnerDocsPage() {
                   ))}
                 </ul>
               </div>
-              <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+              <div className="rounded-lg border border-solid border-slate-200 bg-white p-5">
                 <h2 className="m-0 flex items-center gap-2 text-base font-bold text-slate-900"><Wallet className="h-4 w-4 text-[#02665e]" aria-hidden /> Payout statuses</h2>
                 <ol className="m-0 mt-3 list-none space-y-0 p-0">
                   {PAYOUT_STATUSES.map((s, index) => (
@@ -581,11 +581,11 @@ export default function OwnerDocsPage() {
 
           {/* Glossary */}
           {glossary.length > 0 && (
-            <section aria-label="Words you will see" className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+            <section aria-label="Words you will see" className="rounded-lg border border-solid border-slate-200 bg-white p-5">
               <h2 className="m-0 text-base font-bold text-slate-900">Words you will see</h2>
               <dl className="m-0 mt-3 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
                 {glossary.map((g) => (
-                  <div key={g.term} className="rounded-xl bg-slate-50 px-3.5 py-3">
+                  <div key={g.term} className="rounded-md bg-slate-50 px-3.5 py-3">
                     <dt className="text-sm font-semibold text-slate-900">{g.term}</dt>
                     <dd className="m-0 mt-0.5 text-xs leading-5 text-slate-500">{g.body}</dd>
                   </div>
@@ -595,19 +595,19 @@ export default function OwnerDocsPage() {
           )}
 
           {/* Still stuck */}
-          <section className="flex flex-col gap-4 rounded-2xl bg-[#012a26] p-5 text-white sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-4 rounded-lg bg-[#012a26] p-5 text-white sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#5eead4] text-[#012a26]"><LifeBuoy className="h-5 w-5" aria-hidden /></span>
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]"><LifeBuoy className="h-5 w-5" aria-hidden /></span>
               <div>
                 <p className="m-0 text-base font-bold text-white">Still stuck?</p>
                 <p className="m-0 mt-0.5 text-xs leading-5 text-white/60">Answers to common questions, plus phone, WhatsApp and email. The team is available every day.</p>
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
-              <Link href="/owner/support" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
+              <Link href="/owner/support" className="inline-flex h-10 items-center gap-2 rounded-md bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
                 Help and support <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
-              <Link href="/owner/notifications" className="inline-flex h-10 items-center gap-2 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-4 text-sm font-semibold text-white no-underline hover:bg-white/[0.12]">
+              <Link href="/owner/notifications" className="inline-flex h-10 items-center gap-2 rounded-md border border-solid border-white/15 bg-white/[0.06] px-4 text-sm font-semibold text-white no-underline hover:bg-white/[0.12]">
                 <CalendarDays className="h-4 w-4" aria-hidden /> Notifications
               </Link>
             </div>

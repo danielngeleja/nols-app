@@ -71,6 +71,7 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   property_submitted: act("attention", "properties"),
   property_approved: info("properties"),
   property_rejected: info("properties"),
+  property_price_watch: act("attention", "properties"),
   nrms_channel_health_alert: act("attention", "properties"),
   nrms_stop_sell_approval_requested: act("critical", "properties"),
 

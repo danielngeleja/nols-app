@@ -18,7 +18,7 @@ export default function OwnerLoading() {
         {/* Sidebar skeleton */}
         <div className="hidden md:flex flex-col w-56 shrink-0 border-r border-slate-200 bg-white px-3 py-4 gap-2">
           {[...Array(8)].map((_, i) => (
-            <div key={i} className="h-9 w-full rounded-xl bg-slate-100 animate-pulse" style={{ opacity: 1 - i * 0.08 }} />
+            <div key={i} className="h-9 w-full rounded-md bg-slate-100 animate-pulse" style={{ opacity: 1 - i * 0.08 }} />
           ))}
         </div>
 
@@ -30,21 +30,21 @@ export default function OwnerLoading() {
           {/* Stats row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-24 rounded-2xl bg-white border border-slate-200 animate-pulse" />
+              <div key={i} className="h-24 rounded-lg bg-white border border-slate-200 animate-pulse" />
             ))}
           </div>
 
           {/* Content cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="h-48 rounded-2xl bg-white border border-slate-200 animate-pulse" />
-            <div className="h-48 rounded-2xl bg-white border border-slate-200 animate-pulse" />
+            <div className="h-48 rounded-lg bg-white border border-slate-200 animate-pulse" />
+            <div className="h-48 rounded-lg bg-white border border-slate-200 animate-pulse" />
           </div>
 
           {/* Table skeleton */}
-          <div className="rounded-2xl bg-white border border-slate-200 p-4 space-y-3">
+          <div className="rounded-lg bg-white border border-slate-200 p-4 space-y-3">
             <div className="h-5 w-32 rounded-full bg-slate-200 animate-pulse" />
             {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-12 w-full rounded-xl bg-slate-100 animate-pulse" style={{ opacity: 1 - i * 0.12 }} />
+              <div key={i} className="h-12 w-full rounded-md bg-slate-100 animate-pulse" style={{ opacity: 1 - i * 0.12 }} />
             ))}
           </div>
         </div>

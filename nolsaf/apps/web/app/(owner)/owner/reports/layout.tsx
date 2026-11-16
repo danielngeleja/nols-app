@@ -21,7 +21,7 @@ export default function ReportsLayout({ children }: { children: React.ReactNode 
     <div id="owner-reports" className="w-full min-w-0 space-y-5 px-3 pb-12 sm:px-5 lg:px-6">
       <style>{`#owner-reports, #owner-reports * { box-sizing: border-box; }`}</style>
 
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -30,13 +30,13 @@ export default function ReportsLayout({ children }: { children: React.ReactNode 
         <div className="relative px-5 pt-6 sm:px-8 sm:pt-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Property owner</p>
+              <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Property owner</p>
               <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Reports</h1>
               <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">{current.sub}</p>
             </div>
             <Link
               href="/owner/payouts"
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 self-start rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/10 sm:self-auto"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 self-start rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/10 sm:self-auto"
             >
               My Payouts <ArrowUpRight className="h-4 w-4" aria-hidden />
             </Link>

@@ -60,7 +60,7 @@ export default function WriteOffsTab({ propertyId, overview, refreshKey, onChang
           {overview.canWriteOff && <button type="button" onClick={() => setRecording(true)} className={primaryButton}><Trash className="h-4 w-4" />Record a write-off</button>}
         </div>
       )}
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       <div className={bare ? "" : `${cardClass} overflow-hidden`}>
         {!rows ? (
@@ -218,7 +218,7 @@ export function WriteOffModal({ propertyId, overview, initial, onClose, onSaved 
           ] as const).map(([value, Icon, hint]) => {
             const on = type === value;
             return (
-              <button key={value} type="button" onClick={() => setType(value)} className={`flex items-start gap-2.5 rounded-xl border border-solid p-3 text-left [font-family:inherit] transition ${on ? "border-brand bg-brand/[0.06] shadow-[inset_0_0_0_1px_#02665e]" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
+              <button key={value} type="button" onClick={() => setType(value)} className={`flex items-start gap-2.5 rounded-md border border-solid p-3 text-left [font-family:inherit] transition ${on ? "border-brand bg-brand/[0.06] shadow-[inset_0_0_0_1px_#02665e]" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
                 <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${on ? "bg-brand text-white" : "bg-neutral-100 text-neutral-500"}`}><Icon className="h-4 w-4" /></span>
                 <span className="min-w-0">
                   <span className={`block text-sm font-bold ${on ? "text-brand" : "text-neutral-900"}`}>{WRITE_OFF_TYPE_LABELS[value]}</span>
@@ -229,7 +229,7 @@ export function WriteOffModal({ propertyId, overview, initial, onClose, onSaved 
           })}
         </div>
 
-        <section className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-4">
+        <section className="rounded-md border border-solid border-neutral-200 bg-neutral-50/70 p-4">
           <p className="m-0 mb-3 text-[11px] font-bold uppercase tracking-wide text-neutral-500">The goods</p>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={labelClass}>
@@ -280,7 +280,7 @@ export function WriteOffModal({ propertyId, overview, initial, onClose, onSaved 
         </div>
 
         {good && quantity > 0 && overview.showCost && (
-          <div className={`flex items-center justify-between gap-3 rounded-xl border border-solid px-4 py-3 text-sm ${needsApproval ? "border-amber-300 bg-amber-50 text-amber-900" : "border-neutral-200 bg-white text-neutral-700"}`}>
+          <div className={`flex items-center justify-between gap-3 rounded-md border border-solid px-4 py-3 text-sm ${needsApproval ? "border-amber-300 bg-amber-50 text-amber-900" : "border-neutral-200 bg-white text-neutral-700"}`}>
             <span>{needsApproval ? "Above your write-off limit: a manager approves it before it leaves the books." : "Leaves the books as soon as you save."}</span>
             <span className="whitespace-nowrap font-bold tabular-nums">{formatMoney(value, overview.currency)} at cost</span>
           </div>

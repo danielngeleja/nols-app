@@ -84,7 +84,7 @@ export default function AgentRequestsPage() {
   }, [load]);
 
   if (!selectedPropertyId) {
-    return <div className="rounded-xl border border-solid border-neutral-200 bg-white p-6 text-sm text-neutral-600">Select a property to see its agent booking requests.</div>;
+    return <div className="rounded-md border border-solid border-neutral-200 bg-white p-6 text-sm text-neutral-600">Select a property to see its agent booking requests.</div>;
   }
 
   const rows = requests ?? [];
@@ -114,9 +114,9 @@ export default function AgentRequestsPage() {
   return (
     <div className="flex flex-col gap-5">
       {/* Header: what needs the desk, at a glance */}
-      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+      <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white shadow-sm">
         <div className="flex items-start gap-3.5 px-5 pb-4 pt-5 sm:px-6">
-          <span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><Inbox className="h-5 w-5" /></span>
+          <span className="grid h-11 w-11 flex-none place-items-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><Inbox className="h-5 w-5" /></span>
           <div className="min-w-0">
             <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700">Front desk · Agents</p>
             <h1 className="m-0 mt-0.5 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">Agent bookings</h1>
@@ -131,23 +131,23 @@ export default function AgentRequestsPage() {
         </dl>
       </section>
 
-      {notice && <div role="status" className="rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div>}
-      {error && <div role="alert" className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {notice && <div role="status" className="rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div>}
+      {error && <div role="alert" className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {requests === null ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-solid border-neutral-200 bg-white p-8 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading agent bookings…</div>
+        <div className="flex items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white p-8 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading agent bookings…</div>
       ) : (
         <>
           {/* Pending holds: only when there is something to decide */}
           {pending.length > 0 && (
             <section>
-              <h2 className="m-0 mb-2.5 flex items-center gap-2 text-sm font-bold text-neutral-900">Waiting for your decision <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">{pending.length}</span></h2>
+              <h2 className="m-0 mb-2.5 flex items-center gap-2 text-sm font-bold text-neutral-900">Waiting for your decision <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">{pending.length}</span></h2>
               <ul className="m-0 flex list-none flex-col gap-3 p-0">
                 {pending.map((r) => {
                   const left = timeLeft(r.holdExpiresAt);
                   const busy = busyId === r.id;
                   return (
-                    <li key={r.id} className="rounded-2xl border border-solid border-amber-200 bg-white p-4 shadow-sm sm:p-5">
+                    <li key={r.id} className="rounded-lg border border-solid border-amber-200 bg-white p-4 shadow-sm sm:p-5">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="flex min-w-0 items-start gap-3">
                           <span className={`grid h-10 w-10 flex-shrink-0 place-items-center rounded-full text-xs font-bold ring-1 ${avatarTone(r.agency?.reference ?? r.agency?.legalName)}`}>{initials(r.agency?.legalName)}</span>
@@ -181,7 +181,7 @@ export default function AgentRequestsPage() {
           )}
 
           {/* Confirmed and decided bookings */}
-          <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+          <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white shadow-sm">
             <div className="flex flex-col gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3.5 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h2 className="m-0 text-base font-bold text-neutral-900">Bookings</h2>
@@ -238,7 +238,7 @@ export default function AgentRequestsPage() {
                                 <p className="m-0 flex min-w-0 items-center gap-2">
                                   <span className="max-w-[15rem] truncate font-bold text-neutral-900">{r.agency?.legalName ?? "Agent"}</span>
                                   {/* Approved is the normal state; only an exception earns a pill. */}
-                                  {r.status !== "CONFIRMED" && <span className={`inline-flex flex-none items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${decision.cls}`}><DecisionIcon className="h-3 w-3" /> {decision.label}</span>}
+                                  {r.status !== "CONFIRMED" && <span className={`inline-flex flex-none items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-bold ${decision.cls}`}><DecisionIcon className="h-3 w-3" /> {decision.label}</span>}
                                 </p>
                                 <p className="m-0 mt-0.5 truncate text-xs text-neutral-500">
                                   {r.agency?.reference && <span className="font-mono">{r.agency.reference}</span>}
@@ -373,7 +373,7 @@ function RejectModal({ request, onClose, onConfirm }: { request: Request; onClos
   const [reason, setReason] = useState("");
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
-      <div className="w-full max-w-md rounded-2xl border border-solid border-neutral-200 bg-white shadow-xl">
+      <div className="w-full max-w-md rounded-lg border border-solid border-neutral-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-0 border-b border-solid border-neutral-100 px-5 py-3">
           <h2 className="m-0 text-[15px] font-bold text-neutral-900">Decline request</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg border-0 bg-transparent p-1 text-neutral-400 hover:text-neutral-700"><X className="h-5 w-5" /></button>

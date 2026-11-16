@@ -84,12 +84,12 @@ export default function NrmsStockItemsPage() {
       />
 
       {notice && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+        <div className="flex items-center justify-between gap-3 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
           <span>{notice}</span>
           <button type="button" onClick={() => setNotice(null)} className="border-0 bg-transparent p-0 text-sm font-bold text-emerald-800 hover:underline">Dismiss</button>
         </div>
       )}
-      {workspace.error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-700">{workspace.error}</div>}
+      {workspace.error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-700">{workspace.error}</div>}
 
       {workspace.loading && !overview ? (
         <div className="flex min-h-[30vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>

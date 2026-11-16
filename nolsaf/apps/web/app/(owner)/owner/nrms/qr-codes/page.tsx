@@ -315,7 +315,7 @@ export default function QrCodesPage() {
       <div className="mx-auto max-w-7xl space-y-5 pb-8">
         <div className="h-64 animate-pulse rounded-[28px] bg-emerald-950/90" />
         <div className="grid gap-4 lg:grid-cols-3">
-          {[0, 1, 2].map((item) => <div key={item} className="h-48 animate-pulse rounded-3xl border border-neutral-200 bg-white" />)}
+          {[0, 1, 2].map((item) => <div key={item} className="h-48 animate-pulse rounded-lg border border-neutral-200 bg-white" />)}
         </div>
       </div>
     );
@@ -324,7 +324,7 @@ export default function QrCodesPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 pb-10">
       {selectedProperty?.nrmsQrOrderingFrozenAt && (
-        <section className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
+        <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
             <div className="min-w-0">
@@ -350,7 +350,7 @@ export default function QrCodesPage() {
           <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
             <div className="max-w-2xl">
               <div className="flex items-center gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-emerald-200 shadow-inner">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/10 text-emerald-200 shadow-inner">
                   <QrCode className="h-6 w-6" />
                 </span>
                 <div>
@@ -365,13 +365,13 @@ export default function QrCodesPage() {
 
             {canManage && (
               <div className="grid gap-2.5 sm:grid-cols-3 xl:min-w-[34rem]">
-                <button type="button" onClick={generateRooms} disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white bg-white px-4 text-xs font-bold text-emerald-950 shadow-sm transition hover:bg-emerald-50 disabled:opacity-50">
+                <button type="button" onClick={generateRooms} disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-white bg-white px-4 text-xs font-bold text-emerald-950 shadow-sm transition hover:bg-emerald-50 disabled:opacity-50">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />} Generate rooms
                 </button>
-                <button type="button" onClick={() => setShowAddTable((open) => !open)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.07] px-4 text-xs font-bold text-white transition hover:bg-white/[0.13]">
+                <button type="button" onClick={() => setShowAddTable((open) => !open)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-white/15 bg-white/[0.07] px-4 text-xs font-bold text-white transition hover:bg-white/[0.13]">
                   <Plus className="h-4 w-4" /> Add table
                 </button>
-                <button type="button" onClick={() => downloadSheet()} disabled={busy || activeCount === 0} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.07] px-4 text-xs font-bold text-white transition hover:bg-white/[0.13] disabled:opacity-40">
+                <button type="button" onClick={() => downloadSheet()} disabled={busy || activeCount === 0} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-white/15 bg-white/[0.07] px-4 text-xs font-bold text-white transition hover:bg-white/[0.13] disabled:opacity-40">
                   <FileDown className="h-4 w-4" /> PDF sheet
                 </button>
               </div>
@@ -379,16 +379,16 @@ export default function QrCodesPage() {
           </div>
 
           <div className="mt-7 grid gap-2.5 sm:grid-cols-3">
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3.5 backdrop-blur-sm">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-200"><CheckCircle2 className="h-4 w-4" /></span>
+            <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/10 px-4 py-3.5 backdrop-blur-sm">
+              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-300/10 text-emerald-200"><CheckCircle2 className="h-4 w-4" /></span>
               <div><p className="m-0 text-xl font-bold">{activeCount}</p><p className="mb-0 mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-100/50">Active points</p></div>
             </div>
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3.5 backdrop-blur-sm">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-200"><BedDouble className="h-4 w-4" /></span>
+            <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/10 px-4 py-3.5 backdrop-blur-sm">
+              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-300/10 text-emerald-200"><BedDouble className="h-4 w-4" /></span>
               <div><p className="m-0 text-xl font-bold">{rooms.length}</p><p className="mb-0 mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-100/50">Guest rooms</p></div>
             </div>
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/10 px-4 py-3.5 backdrop-blur-sm">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-200"><UtensilsCrossed className="h-4 w-4" /></span>
+            <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-black/10 px-4 py-3.5 backdrop-blur-sm">
+              <span className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-300/10 text-emerald-200"><UtensilsCrossed className="h-4 w-4" /></span>
               <div><p className="m-0 text-xl font-bold">{tables.length}</p><p className="mb-0 mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-100/50">Dining tables</p></div>
             </div>
           </div>
@@ -397,12 +397,12 @@ export default function QrCodesPage() {
 
       {/* Notices */}
       {error && (
-        <div role="alert" className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3.5 text-sm text-red-700 shadow-sm">
+        <div role="alert" className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3.5 text-sm text-red-700 shadow-sm">
           <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
         </div>
       )}
       {notice && (
-        <div role="status" className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm font-medium text-emerald-800 shadow-sm">
+        <div role="status" className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-sm font-medium text-emerald-800 shadow-sm">
           <CheckCircle2 className="h-4 w-4 shrink-0" /> {notice}
           <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss message" className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-transparent text-emerald-600 hover:bg-emerald-100">
             <X className="h-4 w-4" />
@@ -412,9 +412,9 @@ export default function QrCodesPage() {
 
       {/* Add table inline form */}
       {showAddTable && canManage && (
-        <section className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-white p-3.5 shadow-sm lg:flex-row lg:items-end sm:p-4">
+        <section className="flex flex-col gap-3 rounded-md border border-emerald-200 bg-white p-3.5 shadow-sm lg:flex-row lg:items-end sm:p-4">
           <div className="flex min-w-0 items-center gap-3 lg:w-72 lg:shrink-0">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><UtensilsCrossed className="h-[18px] w-[18px]" /></span>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><UtensilsCrossed className="h-[18px] w-[18px]" /></span>
             <div className="min-w-0 flex-1"><h2 className="m-0 text-sm font-bold text-neutral-950">Create a table order point</h2><p className="mb-0 mt-1 text-xs text-neutral-500">Use a name guests and staff can identify immediately.</p></div>
           </div>
           <label className="min-w-0 flex-1"><span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-neutral-500">Table label</span><input autoFocus type="text" value={tableLabel} onChange={(event) => setTableLabel(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void addTable(); }} placeholder="e.g. Table 1, Poolside A" maxLength={60} className="box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 text-sm font-medium text-neutral-950 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" /></label>
@@ -427,16 +427,16 @@ export default function QrCodesPage() {
 
       {/* Guest payment details: the property's own receiving channels */}
       {canManage && (
-        <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-md border border-neutral-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-neutral-100 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
             <div className="flex items-start gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><WalletCards className="h-5 w-5" /></span>
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><WalletCards className="h-5 w-5" /></span>
               <div>
-                <div className="flex flex-wrap items-center gap-2"><h2 className="m-0 text-base font-bold tracking-tight text-neutral-950">Guest payment channels</h2><span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-emerald-700">Direct to property</span></div>
+                <div className="flex flex-wrap items-center gap-2"><h2 className="m-0 text-base font-bold tracking-tight text-neutral-950">Guest payment channels</h2><span className="rounded-md bg-emerald-50 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wide text-emerald-700">Direct to property</span></div>
                 <p className="mb-0 mt-1.5 max-w-2xl text-xs leading-5 text-neutral-500">These details appear after a guest places a QR order. Funds go directly to your own Lipa Namba, bank account, card terminal or cashier.</p>
               </div>
             </div>
-            <button type="button" onClick={savePayInstructions} disabled={savingPay || !payDirty} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:shadow-none">
+            <button type="button" onClick={savePayInstructions} disabled={savingPay || !payDirty} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:shadow-none">
               {savingPay ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} {savingPay ? "Saving…" : payDirty ? "Save changes" : "Saved"}
             </button>
           </div>
@@ -451,7 +451,7 @@ export default function QrCodesPage() {
               </div>
             ))}
             {payRows.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 px-5 py-8 text-center"><WalletCards className="mx-auto h-7 w-7 text-neutral-300" /><p className="mb-0 mt-3 text-sm font-bold text-neutral-700">No payment channels yet</p><p className="mb-0 mt-1 text-xs text-neutral-400">Add your Lipa Namba or bank details so guests know exactly where to pay.</p></div>
+              <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-5 py-8 text-center"><WalletCards className="mx-auto h-7 w-7 text-neutral-300" /><p className="mb-0 mt-3 text-sm font-bold text-neutral-700">No payment channels yet</p><p className="mb-0 mt-1 text-xs text-neutral-400">Add your Lipa Namba or bank details so guests know exactly where to pay.</p></div>
             )}
             {payRows.length < 6 && <button type="button" onClick={() => { setPayRows((rows) => [...rows, { label: "", value: "", name: null }]); payDirtyRef.current = true; setPayDirty(true); }} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-300 bg-white px-3.5 text-xs font-bold text-neutral-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 sm:w-auto"><Plus className="h-3.5 w-3.5" /> Add payment channel</button>}
           </div>
@@ -462,10 +462,10 @@ export default function QrCodesPage() {
       {/* Public listing menu link: a read-only preview a guest can browse
           before booking, separate from the room/table QR codes above. */}
       {canManage && (
-        <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-md border border-neutral-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
             <div className="flex items-start gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><Globe className="h-5 w-5" /></span>
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Globe className="h-5 w-5" /></span>
               <div>
                 <h2 className="m-0 text-base font-bold tracking-tight text-neutral-950">Live menu on your public listing</h2>
                 <p className="mb-0 mt-1.5 max-w-xl text-xs leading-5 text-neutral-500">Lets guests browse today&apos;s dishes, drinks and prices before they book. It&apos;s a preview only: they can&apos;t order from it, only from a room or table QR code.</p>
@@ -491,7 +491,7 @@ export default function QrCodesPage() {
 
       {/* Order-point library controls */}
       {points.length > 0 && (
-        <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-md border border-neutral-200 bg-white shadow-sm">
           <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Building2 className="h-4 w-4" /></span>
@@ -528,11 +528,11 @@ export default function QrCodesPage() {
             const activeCount = group.points.filter((point) => point.active).length;
             const pausedCount = group.points.length - activeCount;
             return (
-              <div key={group.label} className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div key={group.label} className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-sm">
                 <header className="relative flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 bg-gradient-to-r from-white via-white to-emerald-50/50 px-4 py-3">
                   <span className="absolute inset-y-0 left-0 w-1 bg-emerald-500" />
                   <div className="flex min-w-0 items-center gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Building2 className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-700">Floor zone</p><h3 className="m-0 truncate text-sm font-bold text-neutral-900">{group.label}</h3></div></div>
-                  <div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-600">{group.points.length} {group.points.length === 1 ? "room" : "rooms"}</span>{activeCount > 0 && <span className="rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-bold text-emerald-700">{activeCount} live</span>}{pausedCount > 0 && <span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-700">{pausedCount} paused</span>}</div>
+                  <div className="flex flex-wrap items-center gap-1.5"><span className="rounded-md bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-600">{group.points.length} {group.points.length === 1 ? "room" : "rooms"}</span>{activeCount > 0 && <span className="rounded-md bg-emerald-50 px-2 py-1 text-[9px] font-bold text-emerald-700">{activeCount} live</span>}{pausedCount > 0 && <span className="rounded-md bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-700">{pausedCount} paused</span>}</div>
                 </header>
                 <div className="grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                   {group.points.map((point) => <PointCard key={point.id} point={point} canManage={canManage} copied={copiedId === point.id} onCopy={copyMenuUrl} onDownload={downloadQr} onAction={setConfirmAction} />)}
@@ -545,11 +545,11 @@ export default function QrCodesPage() {
 
       {/* Tables section */}
       {tables.length > 0 && visibleTables.length > 0 && (
-        <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-sm">
           <header className="relative flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 bg-gradient-to-r from-white via-white to-emerald-50/50 px-4 py-3">
             <span className="absolute inset-y-0 left-0 w-1 bg-emerald-500" />
             <div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><UtensilsCrossed className="h-4 w-4" /></span><div><p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-700">Service zone</p><h2 className="m-0 text-sm font-bold text-neutral-900">Dining tables</h2></div></div>
-            <div className="flex items-center gap-2"><span className="rounded-full bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-600">{visibleTables.length} {visibleTables.length === 1 ? "table" : "tables"}</span>{canManage && tables.some((point) => point.active) && <button type="button" onClick={() => downloadSheet("table")} disabled={busy} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 text-[10px] font-bold text-emerald-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 disabled:opacity-50"><FileDown className="h-3.5 w-3.5" /> Tables PDF</button>}</div>
+            <div className="flex items-center gap-2"><span className="rounded-md bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-600">{visibleTables.length} {visibleTables.length === 1 ? "table" : "tables"}</span>{canManage && tables.some((point) => point.active) && <button type="button" onClick={() => downloadSheet("table")} disabled={busy} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 text-[10px] font-bold text-emerald-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 disabled:opacity-50"><FileDown className="h-3.5 w-3.5" /> Tables PDF</button>}</div>
           </header>
           <div className="grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {visibleTables.map((point) => <PointCard key={point.id} point={point} canManage={canManage} copied={copiedId === point.id} onCopy={copyMenuUrl} onDownload={downloadQr} onAction={setConfirmAction} />)}
@@ -558,12 +558,12 @@ export default function QrCodesPage() {
       )}
 
       {points.length > 0 && visiblePoints.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-12 text-center"><Building2 className="mx-auto h-8 w-8 text-neutral-300" /><p className="mb-0 mt-3 text-sm font-bold text-neutral-700">No order points in this view</p><p className="mb-0 mt-1 text-xs text-neutral-400">This floor and status combination has no matching rooms or tables.</p><button type="button" onClick={() => { setFloorFilter("ALL"); setStatusFilter("ALL"); }} className="mt-4 inline-flex min-h-9 items-center rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 hover:bg-neutral-50">Show all points</button></div>
+        <div className="rounded-lg border border-dashed border-neutral-300 bg-white px-6 py-12 text-center"><Building2 className="mx-auto h-8 w-8 text-neutral-300" /><p className="mb-0 mt-3 text-sm font-bold text-neutral-700">No order points in this view</p><p className="mb-0 mt-1 text-xs text-neutral-400">This floor and status combination has no matching rooms or tables.</p><button type="button" onClick={() => { setFloorFilter("ALL"); setStatusFilter("ALL"); }} className="mt-4 inline-flex min-h-9 items-center rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 hover:bg-neutral-50">Show all points</button></div>
       )}
 
       {/* Empty state */}
       {points.length === 0 && (
-        <div className="rounded-[26px] border border-dashed border-neutral-300 bg-white px-6 py-16 text-center shadow-sm"><span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><QrCode className="h-7 w-7" /></span><p className="mb-0 mt-4 text-base font-bold text-neutral-900">Create your first QR order point</p><p className="mx-auto mb-0 mt-1.5 max-w-md text-xs leading-5 text-neutral-500">Generate secure QR codes for every room, then print and place them where guests can scan to browse the live menu.</p>{canManage && <button type="button" onClick={generateRooms} disabled={busy} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 disabled:opacity-50"><QrCode className="h-4 w-4" /> Generate room QR codes</button>}</div>
+        <div className="rounded-[26px] border border-dashed border-neutral-300 bg-white px-6 py-16 text-center shadow-sm"><span className="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><QrCode className="h-7 w-7" /></span><p className="mb-0 mt-4 text-base font-bold text-neutral-900">Create your first QR order point</p><p className="mx-auto mb-0 mt-1.5 max-w-md text-xs leading-5 text-neutral-500">Generate secure QR codes for every room, then print and place them where guests can scan to browse the live menu.</p>{canManage && <button type="button" onClick={generateRooms} disabled={busy} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-md border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 disabled:opacity-50"><QrCode className="h-4 w-4" /> Generate room QR codes</button>}</div>
       )}
 
       {/* Confirmation dialog */}
@@ -578,7 +578,7 @@ export default function QrCodesPage() {
           <div role="dialog" aria-modal="true" aria-labelledby="qr-confirm-title" className="relative w-full max-w-md overflow-hidden rounded-[24px] border border-white/70 bg-white shadow-[0_28px_80px_rgba(0,0,0,0.24)]">
             <div className="px-5 py-5">
               <div className="flex items-start gap-3">
-                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border shadow-sm ${
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border shadow-sm ${
                   confirmAction.action === "delete"
                     ? "border-red-100 bg-red-50 text-red-600"
                     : "border-amber-100 bg-amber-50 text-amber-600"
@@ -603,7 +603,7 @@ export default function QrCodesPage() {
                   type="button"
                   onClick={() => setConfirmAction(null)}
                   disabled={busy}
-                  className="inline-flex min-h-10 items-center rounded-xl border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 hover:bg-neutral-50 disabled:opacity-50"
+                  className="inline-flex min-h-10 items-center rounded-md border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 hover:bg-neutral-50 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -611,7 +611,7 @@ export default function QrCodesPage() {
                   type="button"
                   onClick={executeAction}
                   disabled={busy}
-                  className={`inline-flex min-h-10 items-center gap-2 rounded-xl border-0 px-5 text-xs font-bold text-white disabled:opacity-50 ${
+                  className={`inline-flex min-h-10 items-center gap-2 rounded-md border-0 px-5 text-xs font-bold text-white disabled:opacity-50 ${
                     confirmAction.action === "delete" ? "bg-red-600 hover:bg-red-700" : "bg-amber-600 hover:bg-amber-700"
                   }`}
                 >
@@ -677,7 +677,7 @@ function PointCard({
         ? "bg-neutral-200 text-neutral-600"
         : "bg-emerald-100 text-emerald-700";
   return (
-    <article className={`group overflow-hidden rounded-xl border border-l-4 bg-white shadow-sm transition duration-200 hover:shadow-md ${point.active ? "border-neutral-200 border-l-emerald-500" : "border-neutral-200 border-l-neutral-300 bg-neutral-50/70"}`}>
+    <article className={`group overflow-hidden rounded-md border border-l-4 bg-white shadow-sm transition duration-200 hover:shadow-md ${point.active ? "border-neutral-200 border-l-emerald-500" : "border-neutral-200 border-l-neutral-300 bg-neutral-50/70"}`}>
       <div className="p-3.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0"><p className="m-0 truncate text-sm font-bold tracking-tight text-neutral-950">{point.label}</p><p className="mb-0 mt-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">{typeLabel}{point.roomUnit?.floor != null ? ` · Floor ${point.roomUnit.floor}` : ""}</p></div>

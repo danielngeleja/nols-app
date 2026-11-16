@@ -139,9 +139,9 @@ export default function FloorBoard({
 
   if (!layout || floors.length === 0) {
     return (
-      <section className="flex flex-col items-start gap-3 rounded-2xl border border-dashed border-white/15 bg-[#012a26] p-6 sm:flex-row sm:items-center sm:justify-between">
+      <section className="flex flex-col items-start gap-3 rounded-lg border border-dashed border-white/15 bg-[#012a26] p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/10 text-[#5eead4]">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-white/10 text-[#5eead4]">
             <Building2 className="h-5 w-5" aria-hidden />
           </span>
           <div>
@@ -149,7 +149,7 @@ export default function FloorBoard({
             <p className="m-0 mt-0.5 text-xs text-white/55">Set up the floor plan once and every room appears here, floor by floor.</p>
           </div>
         </div>
-        <Link href={propertyHref(propertyId, "/layout")} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
+        <Link href={propertyHref(propertyId, "/layout")} className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
           Open floor plan <ArrowRight className="h-4 w-4" aria-hidden />
         </Link>
       </section>
@@ -157,7 +157,7 @@ export default function FloorBoard({
   }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
+    <section className="overflow-hidden rounded-lg border border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
       {/* Head */}
       <div className="flex flex-wrap items-end justify-between gap-3 px-5 pb-3 pt-4">
         <div className="min-w-0">
@@ -188,7 +188,7 @@ export default function FloorBoard({
                 return (
                   <span
                     key={`empty-${it.from}`}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-white/10 px-3 py-1.5 text-xs font-semibold text-white/35"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-white/10 px-3 py-1.5 text-xs font-semibold text-white/35"
                     title="These floors have no rooms on the floor plan"
                   >
                     {it.count === 1 ? it.from : `${it.from} to ${it.to}`}
@@ -205,7 +205,7 @@ export default function FloorBoard({
                   type="button"
                   onClick={() => { setFloorId(f.id); setOpenCode(null); setTypeFilter(null); }}
                   aria-current={on ? "true" : undefined}
-                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm font-semibold transition ${
+                  className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-semibold transition ${
                     on ? "border-[#5eead4] bg-[#5eead4] text-[#012a26]" : "border-white/10 bg-white/[0.04] text-white/85 hover:border-white/25 hover:bg-white/[0.08] hover:text-white"
                   }`}
                 >
@@ -228,7 +228,7 @@ export default function FloorBoard({
       {/* Room types on this floor, also a filter */}
       {floorTypes.length > 1 ? (
         <div className="flex flex-wrap items-center gap-1.5 border-0 border-t border-white/10 px-4 py-3">
-          <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">Room types</span>
+          <span className="mr-1 text-[11px] font-semibold text-white/40">Room types</span>
           {floorTypes.map(([t, c]) => {
             const on = typeFilter === t;
             const color = colorOf(t);
@@ -250,7 +250,7 @@ export default function FloorBoard({
             );
           })}
           {typeFilter ? (
-            <button type="button" onClick={() => setTypeFilter(null)} className="rounded-full border-0 bg-transparent px-2 py-1 text-xs font-semibold text-[#5eead4] hover:underline">
+            <button type="button" onClick={() => setTypeFilter(null)} className="rounded-md border-0 bg-transparent px-2 py-1 text-xs font-semibold text-[#5eead4] hover:underline">
               Show all
             </button>
           ) : null}
@@ -258,7 +258,7 @@ export default function FloorBoard({
       ) : null}
 
       <div className="border-0 border-t border-white/10 p-4 sm:p-5">
-        {error ? <p className="m-0 mb-3 rounded-xl bg-rose-400/10 px-3 py-2 text-xs text-rose-200">{error}</p> : null}
+        {error ? <p className="m-0 mb-3 rounded-md bg-rose-400/10 px-3 py-2 text-xs text-rose-200">{error}</p> : null}
         {loading && Object.keys(rooms).length === 0 ? (
           <BoardTilesSkeleton count={Math.max(6, Math.min(18, visibleRooms.length || 12))} />
         ) : visibleRooms.length === 0 ? (
@@ -284,7 +284,7 @@ export default function FloorBoard({
                     type="button"
                     onClick={() => setOpenCode(on ? null : room.code)}
                     aria-pressed={on}
-                    className={`group relative flex h-full w-full flex-col overflow-hidden rounded-xl border p-3 text-left transition ${
+                    className={`group relative flex h-full w-full flex-col overflow-hidden rounded-md border p-3 text-left transition ${
                       st.key === "full" ? "bg-amber-400/[0.08]" : "bg-white/[0.04] hover:bg-white/[0.07]"
                     }`}
                     style={{ borderColor: on ? color : `${color}40`, boxShadow: on ? `0 0 0 1px ${color}` : undefined }}
@@ -294,7 +294,7 @@ export default function FloorBoard({
                         <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />
                         <span className="truncate text-[11px] font-semibold" style={{ color }}>{t}</span>
                       </span>
-                      <span className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-bold ${pill}`}>
+                      <span className={`shrink-0 rounded-md px-1.5 py-px text-[10px] font-bold ${pill}`}>
                         {st.key === "free" ? "Free" : st.key === "blocked" ? "Blocked" : st.key === "full" ? "Full" : `${av?.occupancyPct ?? 0}%`}
                       </span>
                     </span>
@@ -315,11 +315,11 @@ export default function FloorBoard({
 
         {/* Selected room */}
         {openRoom ? (
-          <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+          <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.05] p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-lg font-bold tabular-nums"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-lg font-bold tabular-nums"
                   style={{ backgroundColor: `${colorOf(typeName(openRoom))}26`, color: colorOf(typeName(openRoom)) }}
                 >
                   {roomNumber(openRoom)}
@@ -364,7 +364,7 @@ export default function FloorBoard({
                 <button
                   type="button"
                   onClick={() => onBlockRoom({ code: openRoom.code, name: openRoom.name })}
-                  className="group inline-flex h-10 items-center gap-3 rounded-xl bg-[#5eead4] pl-4 pr-1.5 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1]"
+                  className="group inline-flex h-10 items-center gap-3 rounded-md bg-[#5eead4] pl-4 pr-1.5 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1]"
                 >
                   Block this room
                   <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#012a26] text-[#5eead4] transition group-hover:translate-x-0.5">

@@ -48,7 +48,7 @@ const VERIFY: Record<string, { cls: string; label: string }> = {
 
 function StatusPill({ status }: { status: string }) {
   const s = LINK_STATUS[status] ?? { cls: "bg-neutral-100 text-neutral-600", label: status };
-  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${s.cls}`}>{s.label}</span>;
+  return <span className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-[11px] font-semibold ${s.cls}`}>{s.label}</span>;
 }
 
 /** Up to two initials from the agency name, for the row avatar. */
@@ -178,13 +178,13 @@ export default function NrmsAgentsPage() {
   }, [load]);
 
   if (!selectedPropertyId) {
-    return <div className="rounded-xl border border-solid border-neutral-200 bg-white p-6 text-sm text-neutral-600">Select a property to manage its travel agents.</div>;
+    return <div className="rounded-md border border-solid border-neutral-200 bg-white p-6 text-sm text-neutral-600">Select a property to manage its travel agents.</div>;
   }
 
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-start gap-x-4 gap-y-3">
-        <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm"><Handshake className="h-5 w-5" /></span>
+        <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-md bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm"><Handshake className="h-5 w-5" /></span>
         <div className="min-w-[16rem] flex-1">
           <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Travel trade</p>
           <h1 className="m-0 mt-0.5 text-xl font-bold tracking-tight text-neutral-900">Travel agents</h1>
@@ -204,7 +204,7 @@ export default function NrmsAgentsPage() {
       </header>
 
       {/* Seat meter */}
-      <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
+      <div className="rounded-md border border-solid border-neutral-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col">
             <span className="text-[13px] font-semibold text-neutral-800">Approved-agent limit</span>
@@ -235,9 +235,9 @@ export default function NrmsAgentsPage() {
 
         {/* Live breakdown chips */}
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> {activeCount} active</span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-amber-700"><Clock className="h-3.5 w-3.5" /> {pendingCount} pending</span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-neutral-500"><Handshake className="h-3.5 w-3.5" /> {seatsLeft} available</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> {activeCount} active</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1 text-amber-700"><Clock className="h-3.5 w-3.5" /> {pendingCount} pending</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-neutral-100 px-2.5 py-1 text-neutral-500"><Handshake className="h-3.5 w-3.5" /> {seatsLeft} available</span>
         </div>
 
         {capReached && <p className="m-0 mt-3 rounded-lg bg-orange-50 px-3 py-2 text-[12px] text-orange-700">You have reached your limit. Contact NoLSAF to increase how many agents you can approve.</p>}
@@ -280,7 +280,7 @@ export default function NrmsAgentsPage() {
                         ? { tone: "bg-orange-50 text-orange-800", icon: Clock, text: "Paused by you. This agency cannot book until you activate it again." }
                         : null;
             return (
-              <li key={link.id} className="relative box-border flex flex-col gap-3.5 rounded-2xl border border-solid border-neutral-300 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:shadow-[0_16px_32px_-24px_rgba(15,23,42,0.45)] sm:p-5 [&_*]:box-border">
+              <li key={link.id} className="relative box-border flex flex-col gap-3.5 rounded-lg border border-solid border-neutral-300 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:shadow-[0_16px_32px_-24px_rgba(15,23,42,0.45)] sm:p-5 [&_*]:box-border">
                 {(() => {
                   // Partnership progress: how far this agency is from booking.
                   const verified = link.agency?.verificationStatus === "VERIFIED";
@@ -304,7 +304,7 @@ export default function NrmsAgentsPage() {
                   const menuItem = "flex w-full appearance-none items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left text-[12px] font-semibold transition disabled:opacity-50";
                   return <>
                     <div className="flex items-start gap-3">
-                      <span className={`grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl text-sm font-bold ${skin.avatar}`}>{initials(link.agency?.legalName)}</span>
+                      <span className={`grid h-11 w-11 flex-shrink-0 place-items-center rounded-md text-sm font-bold ${skin.avatar}`}>{initials(link.agency?.legalName)}</span>
                       <button type="button" onClick={() => setDetailFor(link.id)} className="group min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-left">
                         <span className="block truncate text-[15px] font-bold leading-5 text-neutral-900 group-hover:text-emerald-700" title={link.agency?.legalName ?? undefined}>{link.agency?.legalName ?? "Agency"}</span>
                         {link.agency?.reference && <span className="mt-0.5 block font-mono text-[11px] text-neutral-400">{link.agency.reference}</span>}
@@ -314,7 +314,7 @@ export default function NrmsAgentsPage() {
                         <button type="button" aria-label="More actions" aria-expanded={menuFor === link.id} onClick={() => setMenuFor(menuFor === link.id ? null : link.id)} className="grid h-8 w-8 appearance-none place-items-center rounded-lg border-0 bg-transparent text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"><MoreHorizontal className="h-4 w-4" /></button>
                         {menuFor === link.id && <>
                           <button type="button" aria-label="Close menu" onClick={() => setMenuFor(null)} className="fixed inset-0 z-20 cursor-default appearance-none border-0 bg-transparent" />
-                          <div role="menu" className="absolute right-0 top-9 z-30 w-48 rounded-xl border border-solid border-neutral-200 bg-white p-1.5 shadow-[0_18px_40px_-16px_rgba(15,23,42,0.35)]" onClick={() => setMenuFor(null)}>
+                          <div role="menu" className="absolute right-0 top-9 z-30 w-48 rounded-md border border-solid border-neutral-200 bg-white p-1.5 shadow-[0_18px_40px_-16px_rgba(15,23,42,0.35)]" onClick={() => setMenuFor(null)}>
                             <button type="button" role="menuitem" onClick={() => setDetailFor(link.id)} className={`${menuItem} text-neutral-700 hover:bg-neutral-100`}><Eye className="h-3.5 w-3.5" />Open details</button>
                             <button type="button" role="menuitem" onClick={() => setTermsFor(link)} disabled={busy} className={`${menuItem} text-neutral-700 hover:bg-neutral-100`}><FileText className="h-3.5 w-3.5" />Edit terms</button>
                             <button type="button" role="menuitem" onClick={() => setRateFor(link)} disabled={busy} className={`${menuItem} text-neutral-700 hover:bg-neutral-100`}><Tag className="h-3.5 w-3.5" />Rate access</button>
@@ -348,7 +348,7 @@ export default function NrmsAgentsPage() {
 
                     <div className="flex flex-wrap gap-1.5">
                       {[link.bookingMode === "INSTANT" ? "Instant confirm" : "Request to book", link.paymentTerms === "PREPAID" ? "Prepaid" : link.paymentTerms, link.currency].map((term) => (
-                        <span key={term} className="rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-semibold text-neutral-700">{term}</span>
+                        <span key={term} className="rounded-md bg-neutral-100 px-2.5 py-1 text-[11px] font-semibold text-neutral-700">{term}</span>
                       ))}
                       <button type="button" onClick={() => setRateFor(link)} className={`appearance-none rounded-full border-0 px-2.5 py-1 text-[11px] font-semibold transition ${noRates ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100" : "bg-neutral-100 text-neutral-700 hover:bg-emerald-50 hover:text-emerald-800"}`}>{noRates ? "No rate plans" : `${link.rateAccess.length} rate plan${link.rateAccess.length === 1 ? "" : "s"}`}</button>
                     </div>
@@ -453,11 +453,11 @@ function ConfirmDestructiveModal({ link, kind, busy, error, onCancel, onConfirm 
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="agent-destructive-title">
-      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-neutral-200">
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-md bg-white shadow-2xl ring-1 ring-neutral-200">
         {/* The agency name appears once, as the subject line. It used to be
             inside the title as well, which pushed the heading to two lines. */}
         <div className="flex items-center gap-3 px-4 py-3.5">
-          <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-xl ${red ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
+          <span className={`grid h-9 w-9 flex-shrink-0 place-items-center rounded-md ${red ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
             {red ? <Ban className="h-4 w-4" /> : <Clock className="h-4 w-4" />}
           </span>
           <div className="min-w-0">
@@ -537,7 +537,7 @@ function AgentDetailModal({ linkId, onClose, onEditTerms, onEditRates }: { linkI
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
-      <div className="w-full max-w-2xl rounded-2xl border border-solid border-neutral-200 bg-white shadow-xl">
+      <div className="w-full max-w-2xl rounded-lg border border-solid border-neutral-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-0 border-b border-solid border-neutral-100 px-5 py-3">
           <h2 className="m-0 text-[15px] font-bold text-neutral-900">Agent details</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg border-0 bg-transparent p-1 text-neutral-400 hover:text-neutral-700"><X className="h-5 w-5" /></button>
@@ -551,7 +551,7 @@ function AgentDetailModal({ linkId, onClose, onEditTerms, onEditRates }: { linkI
           <div className="max-h-[80vh] overflow-y-auto">
             {/* Hero - clean and executive, no colour fill */}
             <div className="flex items-center gap-4 border-0 border-b border-solid border-neutral-100 px-6 py-5">
-              <span className="grid h-14 w-14 flex-shrink-0 place-items-center rounded-2xl bg-neutral-900 text-[18px] font-bold tracking-tight text-white shadow-sm ring-1 ring-neutral-900/5">{initials(agency.legalName)}</span>
+              <span className="grid h-14 w-14 flex-shrink-0 place-items-center rounded-lg bg-neutral-900 text-[18px] font-bold tracking-tight text-white shadow-sm ring-1 ring-neutral-900/5">{initials(agency.legalName)}</span>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="m-0 truncate text-[19px] font-extrabold tracking-tight text-neutral-900">{agency.legalName}</h3>
@@ -567,7 +567,7 @@ function AgentDetailModal({ linkId, onClose, onEditTerms, onEditRates }: { linkI
 
             <div className="flex flex-col gap-5 p-6">
               {/* Verification banner */}
-              <div className={`flex items-start gap-2.5 rounded-xl border border-solid px-3.5 py-3 ${agency.verificationStatus === "VERIFIED" ? "border-emerald-200 bg-emerald-50" : agency.verificationStatus === "REJECTED" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
+              <div className={`flex items-start gap-2.5 rounded-md border border-solid px-3.5 py-3 ${agency.verificationStatus === "VERIFIED" ? "border-emerald-200 bg-emerald-50" : agency.verificationStatus === "REJECTED" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
                 {agency.verificationStatus === "VERIFIED" ? <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" /> : <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />}
                 <div>
                   <p className={`m-0 text-[13px] font-bold ${verify?.cls}`}>{verify?.label}</p>
@@ -578,7 +578,7 @@ function AgentDetailModal({ linkId, onClose, onEditTerms, onEditRates }: { linkI
               {/* Agency & KYC */}
               <section>
                 <h4 className="m-0 mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-neutral-500"><Building2 className="h-3.5 w-3.5" /> Agency & KYC</h4>
-                <div className="grid grid-cols-1 gap-1 rounded-xl border border-solid border-neutral-200 bg-white p-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-1 rounded-md border border-solid border-neutral-200 bg-white p-2 sm:grid-cols-2 lg:grid-cols-3">
                   <Field icon={<Building2 className="h-4 w-4" />} label="Trading name" value={agency.tradingName} />
                   <Field icon={<Globe className="h-4 w-4" />} label="Nationality" value={agency.nationality} />
                   <Field icon={<MapPin className="h-4 w-4" />} label="Country" value={agency.countryCode} />
@@ -591,7 +591,7 @@ function AgentDetailModal({ linkId, onClose, onEditTerms, onEditRates }: { linkI
               {/* Contact */}
               <section>
                 <h4 className="m-0 mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-neutral-500"><User className="h-3.5 w-3.5" /> Contact</h4>
-                <div className="grid grid-cols-1 gap-1 rounded-xl border border-solid border-neutral-200 bg-white p-2 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-1 rounded-md border border-solid border-neutral-200 bg-white p-2 sm:grid-cols-2">
                   <Field icon={<User className="h-4 w-4" />} label="Contact person" value={agency.contactName} />
                   <Field icon={<Mail className="h-4 w-4" />} label="Email" value={agency.contactEmail ? <a href={`mailto:${agency.contactEmail}`} className="text-emerald-700 hover:underline">{agency.contactEmail}</a> : null} />
                   <Field icon={<Phone className="h-4 w-4" />} label="Phone" value={agency.contactPhone} />
@@ -630,11 +630,11 @@ function AgentDetailModal({ linkId, onClose, onEditTerms, onEditRates }: { linkI
               <section>
                 <h4 className="m-0 mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-neutral-500"><FileText className="h-3.5 w-3.5" /> Documents ({agency.documentCount})</h4>
                 {agency.documents.length === 0 ? (
-                  <p className="m-0 rounded-xl border border-dashed border-solid border-neutral-200 bg-neutral-50 px-3 py-3 text-[12px] text-neutral-500">No verified document attestation is available. Raw KYC evidence is restricted to NoLSAF verification staff.</p>
+                  <p className="m-0 rounded-md border border-dashed border-solid border-neutral-200 bg-neutral-50 px-3 py-3 text-[12px] text-neutral-500">No verified document attestation is available. Raw KYC evidence is restricted to NoLSAF verification staff.</p>
                 ) : (
                   <ul className="m-0 flex list-none flex-col gap-2 p-0">
                     {agency.documents.map((d, i) => (
-                      <li key={i} className="flex items-center justify-between gap-3 rounded-xl border border-solid border-neutral-200 px-3 py-2.5">
+                      <li key={i} className="flex items-center justify-between gap-3 rounded-md border border-solid border-neutral-200 px-3 py-2.5">
                         <span className="flex items-center gap-2 text-[12px] font-semibold text-neutral-700"><span className="grid h-7 w-7 place-items-center rounded-lg bg-neutral-100"><FileText className="h-3.5 w-3.5 text-neutral-500" /></span> {d.type.replace(/_/g, " ")}</span>
                         <span className="rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-2.5 py-1 text-[11px] font-semibold text-neutral-500">Protected by NoLSAF</span>
                       </li>
@@ -727,7 +727,7 @@ function AddAgentPanel({ propertyId, onClose, onAdded, onInvited, onError }: { p
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
-      <div className="w-full max-w-2xl rounded-2xl border border-solid border-neutral-200 bg-white shadow-xl">
+      <div className="w-full max-w-2xl rounded-lg border border-solid border-neutral-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-0 border-b border-solid border-neutral-100 px-5 py-3">
           <h2 className="m-0 flex items-center gap-2 text-[15px] font-bold text-neutral-900">
             {mode === "invite" && <button type="button" onClick={() => setMode("search")} aria-label="Back" className="rounded-lg border-0 bg-transparent p-0 text-neutral-400 hover:text-neutral-700"><ArrowLeft className="h-4 w-4" /></button>}
@@ -740,8 +740,8 @@ function AddAgentPanel({ propertyId, onClose, onAdded, onInvited, onError }: { p
           <div className="flex flex-col gap-3 p-5">
             <p className="m-0 text-[13px] leading-5 text-neutral-500">Browse travel agencies already verified by NoLSAF and invite the right partner to your property.</p>
             <form onSubmit={(event) => { event.preventDefault(); void search(); }} className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-              <label className="relative block min-w-0"><span className="sr-only">Search approved agencies</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by agency name or email" className="box-border min-h-11 w-full min-w-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50 py-2 pl-9 pr-3 text-[13px] outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100" /></label>
-              <button type="submit" disabled={searching} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-solid border-neutral-900 bg-neutral-900 px-5 text-[13px] font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50">{searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Search</button>
+              <label className="relative block min-w-0"><span className="sr-only">Search approved agencies</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by agency name or email" className="box-border min-h-11 w-full min-w-0 rounded-md border border-solid border-neutral-200 bg-neutral-50 py-2 pl-9 pr-3 text-[13px] outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100" /></label>
+              <button type="submit" disabled={searching} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-solid border-neutral-900 bg-neutral-900 px-5 text-[13px] font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50">{searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Search</button>
             </form>
 
             {matches !== null && (
@@ -757,11 +757,11 @@ function AddAgentPanel({ propertyId, onClose, onAdded, onInvited, onError }: { p
                   <div className="mb-2 flex items-center justify-between"><p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-400">Approved agencies</p><span className="text-[11px] font-semibold text-neutral-400">{matches.length} available</span></div>
                   <ul className="m-0 flex max-h-[24rem] list-none flex-col gap-2 overflow-y-auto p-0 pr-1">
                   {matches.map((m) => (
-                    <li key={m.id} className="min-w-0 overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-sm">
+                    <li key={m.id} className="min-w-0 overflow-hidden rounded-md border border-solid border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-sm">
                       <div className="flex min-w-0 flex-col gap-3 p-3.5 sm:flex-row sm:items-center">
-                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-[12px] font-bold text-emerald-700 ring-1 ring-emerald-100">{initials(m.tradingName || m.legalName)}</span>
+                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-emerald-50 text-[12px] font-bold text-emerald-700 ring-1 ring-emerald-100">{initials(m.tradingName || m.legalName)}</span>
                         <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 flex-wrap items-center gap-2"><p className="m-0 max-w-full truncate text-[14px] font-bold text-neutral-900">{m.tradingName || m.legalName}</p><span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700"><BadgeCheck className="h-3 w-3" /> NoLSAF verified</span></div>
+                          <div className="flex min-w-0 flex-wrap items-center gap-2"><p className="m-0 max-w-full truncate text-[14px] font-bold text-neutral-900">{m.tradingName || m.legalName}</p><span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700"><BadgeCheck className="h-3 w-3" /> NoLSAF verified</span></div>
                           {m.tradingName && m.tradingName !== m.legalName ? <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-500">{m.legalName}</p> : null}
                           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-500">
                             {m.reference ? <span className="font-mono font-semibold text-neutral-600">{m.reference}</span> : null}
@@ -900,7 +900,7 @@ function RateAccessModal({ link, propertyId, onClose, onSaved, onError }: { link
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-2xl border border-solid border-neutral-200 bg-white shadow-xl">
+      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-lg border border-solid border-neutral-200 bg-white shadow-xl">
         <div className="flex flex-shrink-0 items-center justify-between border-0 border-b border-solid border-neutral-100 px-5 py-3">
           <h2 className="m-0 text-[15px] font-bold text-neutral-900">Rate access</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg border-0 bg-transparent p-1 text-neutral-400 hover:text-neutral-700"><X className="h-5 w-5" /></button>
@@ -911,7 +911,7 @@ function RateAccessModal({ link, propertyId, onClose, onSaved, onError }: { link
           {plans === null ? (
             <div className="flex items-center gap-2 py-6 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading rate plans…</div>
           ) : plans.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-solid border-neutral-200 bg-neutral-50 px-4 py-6 text-center">
+            <div className="rounded-md border border-dashed border-solid border-neutral-200 bg-neutral-50 px-4 py-6 text-center">
               <p className="m-0 text-[13px] font-semibold text-neutral-700">No rate plans yet</p>
               <p className="m-0 mt-1 text-[12px] text-neutral-500">Create rate plans in Hotel controls first, then choose which ones this agent can sell.</p>
             </div>
@@ -926,7 +926,7 @@ function RateAccessModal({ link, propertyId, onClose, onSaved, onError }: { link
                   const on = selected.has(p.id);
                   const open = expanded.has(p.id);
                   return (
-                    <li key={p.id} className={`overflow-hidden rounded-2xl border border-solid transition ${on ? "border-emerald-400 bg-emerald-50/40 shadow-sm ring-1 ring-emerald-500/10" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
+                    <li key={p.id} className={`overflow-hidden rounded-lg border border-solid transition ${on ? "border-emerald-400 bg-emerald-50/40 shadow-sm ring-1 ring-emerald-500/10" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
                       {/* Header */}
                       <div className="flex items-start gap-3.5 p-4">
                         <button type="button" onClick={() => toggle(p.id)} className="flex min-w-0 flex-1 items-start gap-3.5 border-0 bg-transparent p-0 text-left">
@@ -1025,7 +1025,7 @@ function TermsModal({ propertyId, link, onClose, onSaved, onError }: { propertyI
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
-      <div className="w-full max-w-md rounded-2xl border border-solid border-neutral-200 bg-white shadow-xl">
+      <div className="w-full max-w-md rounded-lg border border-solid border-neutral-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-0 border-b border-solid border-neutral-100 px-5 py-3">
           <h2 className="m-0 text-[15px] font-bold text-neutral-900">Agent terms</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg border-0 bg-transparent p-1 text-neutral-400 hover:text-neutral-700"><X className="h-5 w-5" /></button>

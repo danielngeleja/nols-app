@@ -116,11 +116,11 @@ function SectionHeader({ title, hint, count, icon: Icon, accent = "teal" }: { ti
   }[accent];
   return (
     <div className="flex items-center gap-3">
-      {Icon && <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${tone}`}><Icon className="h-4 w-4" /></span>}
+      {Icon && <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md ${tone}`}><Icon className="h-4 w-4" /></span>}
       <div className="min-w-0 flex-1">
         <h2 className="m-0 flex items-center gap-2 text-base font-bold text-slate-900">
           {title}
-          {typeof count === "number" && <span className="rounded-full bg-slate-100 px-2 text-[11px] font-bold tabular-nums text-slate-600">{count}</span>}
+          {typeof count === "number" && <span className="rounded-md bg-slate-100 px-2 text-[11px] font-bold tabular-nums text-slate-600">{count}</span>}
         </h2>
         {hint && <p className="m-0 mt-0.5 text-xs text-slate-500">{hint}</p>}
       </div>
@@ -152,7 +152,7 @@ function DraftCard({ p, onPreview, onDeleted }: { p: any; onPreview: (id: number
   }
 
   return (
-    <div className="group bg-white rounded-2xl border-2 border-dashed border-slate-300 shadow-sm hover:shadow-md hover:border-slate-400 transition-all duration-200">
+    <div className="group bg-white rounded-lg border-2 border-dashed border-slate-300 shadow-sm hover:shadow-md hover:border-slate-400 transition-all duration-200">
       <div className="px-4 pt-4 flex items-start justify-between gap-2">
         <div className="text-base font-bold text-slate-900 truncate">{p.title || "Untitled Draft"}</div>
         {!confirmingDelete ? (
@@ -169,10 +169,10 @@ function DraftCard({ p, onPreview, onDeleted }: { p: any; onPreview: (id: number
       </div>
 
       <div className="px-4 mt-3">
-        <div className="relative aspect-square bg-slate-100 rounded-2xl overflow-hidden">
+        <div className="relative aspect-square bg-slate-100 rounded-lg overflow-hidden">
           <PropertyImage src={primaryImage} />
           <div className="absolute bottom-2 left-2">
-            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-slate-800/80 text-white backdrop-blur-sm">
+            <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold bg-slate-800/80 text-white backdrop-blur-sm">
               <PenLine className="w-3 h-3 mr-1" />
               Draft
             </span>
@@ -227,7 +227,7 @@ function DraftCard({ p, onPreview, onDeleted }: { p: any; onPreview: (id: number
         {/* Primary CTA: Continue editing */}
         <button
           onClick={() => void ownerPropertyPath(p.id).then((path) => router.push(`/owner/properties/add?id=${path.split("/").pop()}`))}
-          className="inline-flex items-center justify-center gap-2 w-full rounded-xl bg-[#02665e] text-white py-2.5 text-sm font-semibold transition-colors hover:bg-[#014e47]"
+          className="inline-flex items-center justify-center gap-2 w-full rounded-md bg-[#02665e] text-white py-2.5 text-sm font-semibold transition-colors hover:bg-[#014e47]"
         >
           <PenLine className="h-4 w-4" />
           <span>Continue editing</span>
@@ -238,7 +238,7 @@ function DraftCard({ p, onPreview, onDeleted }: { p: any; onPreview: (id: number
         {p.title && (
           <button
             onClick={() => onPreview(p.id)}
-            className="inline-flex items-center justify-center gap-2 w-full rounded-xl border border-slate-200 bg-white text-slate-700 py-2 text-sm font-medium transition-colors hover:bg-slate-50"
+            className="inline-flex items-center justify-center gap-2 w-full rounded-md border border-slate-200 bg-white text-slate-700 py-2 text-sm font-medium transition-colors hover:bg-slate-50"
           >
             <Eye className="h-4 w-4" />
             <span>Preview draft</span>
@@ -247,7 +247,7 @@ function DraftCard({ p, onPreview, onDeleted }: { p: any; onPreview: (id: number
 
         {/* Delete confirmation inline */}
         {confirmingDelete && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3 space-y-2">
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 space-y-2">
             <p className="text-sm font-semibold text-red-700">Delete this draft?</p>
             <p className="text-xs text-red-600">This cannot be undone.</p>
             {deleteError && <p className="text-xs text-red-700 font-medium">{deleteError}</p>}
@@ -290,16 +290,16 @@ function DraftCard({ p, onPreview, onDeleted }: { p: any; onPreview: (id: number
 function PendingCard({ p, onPreview }: { p: any; onPreview: (id: number) => void }) {
   const primaryImage = Array.isArray(p.photos) && p.photos.length > 0 ? p.photos[0] : null;
   return (
-    <div className="group bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200">
+    <div className="group bg-white rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200">
       <div className="px-4 pt-4">
         <div className="text-base font-bold text-slate-900 truncate">{p.title || "Untitled Property"}</div>
       </div>
 
       <div className="px-4 mt-3">
-        <div className="relative aspect-square bg-slate-100 rounded-2xl overflow-hidden">
+        <div className="relative aspect-square bg-slate-100 rounded-lg overflow-hidden">
           <PropertyImage src={primaryImage} />
           <div className="absolute bottom-2 left-2">
-            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+            <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
               <Hourglass className="w-3 h-3 mr-1" />
               Under Review
             </span>
@@ -334,7 +334,7 @@ function PendingCard({ p, onPreview }: { p: any; onPreview: (id: number) => void
         </div>
         <button
           onClick={() => onPreview(p.id)}
-          className="inline-flex items-center justify-center gap-2 w-full rounded-xl bg-[#02665e] text-white py-2.5 text-sm font-semibold transition-colors hover:bg-[#014e47]"
+          className="inline-flex items-center justify-center gap-2 w-full rounded-md bg-[#02665e] text-white py-2.5 text-sm font-semibold transition-colors hover:bg-[#014e47]"
         >
           <Eye className="h-4 w-4" />
           <span>View Submission</span>
@@ -355,22 +355,22 @@ function ActionRequiredCard({ p, onPreview }: { p: any; onPreview: (id: number) 
 
   return (
     <div className="space-y-3">
-      <div className="group bg-white rounded-2xl border border-red-200 shadow-sm hover:shadow-md transition-all duration-200">
+      <div className="group bg-white rounded-lg border border-red-200 shadow-sm hover:shadow-md transition-all duration-200">
         <div className="px-4 pt-4">
           <div className="text-base font-bold text-slate-900 truncate">{p.title || "Untitled Property"}</div>
         </div>
 
         <div className="px-4 mt-3">
-          <div className="relative aspect-square bg-slate-100 rounded-2xl overflow-hidden">
+          <div className="relative aspect-square bg-slate-100 rounded-lg overflow-hidden">
             <PropertyImage src={primaryImage} />
             <div className="absolute bottom-2 left-2">
               {isSuspended ? (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
+                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
                   <Ban className="w-3 h-3 mr-1" />
                   Suspended
                 </span>
               ) : (
-                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 border border-orange-200">
+                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold bg-orange-100 text-orange-800 border border-orange-200">
                   <AlertCircle className="w-3 h-3 mr-1" />
                   Fixes Required
                 </span>
@@ -420,7 +420,7 @@ function ActionRequiredCard({ p, onPreview }: { p: any; onPreview: (id: number) 
           {/* Primary CTA: Edit & Fix / Resubmit */}
           <button
             onClick={() => void ownerPropertyPath(p.id).then((path) => router.push(`/owner/properties/add?id=${path.split("/").pop()}`))}
-            className="inline-flex items-center justify-center gap-2 w-full rounded-xl bg-red-600 text-white py-2.5 text-sm font-semibold transition-colors hover:bg-red-700"
+            className="inline-flex items-center justify-center gap-2 w-full rounded-md bg-red-600 text-white py-2.5 text-sm font-semibold transition-colors hover:bg-red-700"
           >
             <PenLine className="h-4 w-4" />
             <span>Edit &amp; {isSuspended ? "Resubmit" : "Fix"}</span>
@@ -429,7 +429,7 @@ function ActionRequiredCard({ p, onPreview }: { p: any; onPreview: (id: number) 
 
           <button
             onClick={() => onPreview(p.id)}
-            className="inline-flex items-center justify-center gap-2 w-full rounded-xl border border-slate-200 bg-white text-slate-700 py-2 text-sm font-medium transition-colors hover:bg-slate-50"
+            className="inline-flex items-center justify-center gap-2 w-full rounded-md border border-slate-200 bg-white text-slate-700 py-2 text-sm font-medium transition-colors hover:bg-slate-50"
           >
             <Eye className="h-4 w-4" />
             <span>View Preview</span>
@@ -439,7 +439,7 @@ function ActionRequiredCard({ p, onPreview }: { p: any; onPreview: (id: number) 
 
       {/* Suspension notice below card (always shown for SUSPENDED) */}
       {isSuspended && (
-        <div className="bg-gradient-to-br from-orange-50 via-amber-50 to-orange-50 border border-orange-200/60 rounded-xl p-4 shadow-sm">
+        <div className="bg-gradient-to-br from-orange-50 via-amber-50 to-orange-50 border border-orange-200/60 rounded-md p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <Bell className="w-[18px] h-[18px] text-orange-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
@@ -453,7 +453,7 @@ function ActionRequiredCard({ p, onPreview }: { p: any; onPreview: (id: number) 
               </p>
               {suspensionReference && (
                 <div className="mt-3 rounded-lg border border-orange-200 bg-white/75 px-3 py-2">
-                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-600">Appeal reference</p>
+                  <p className="m-0 text-[11px] font-bold text-orange-600">Appeal reference</p>
                   <p className="mb-0 mt-1 break-all font-mono text-sm font-bold text-orange-950">{suspensionReference}</p>
                   <a
                     href={`mailto:partners@nolsaf.com?subject=${encodeURIComponent(`Property appeal ${suspensionReference}`)}`}
@@ -489,7 +489,7 @@ function Lifecycle({ current }: { current: number }) {
         const done = index < current;
         const active = index === current;
         return (
-          <li key={step.label} className={`rounded-xl px-3 py-2.5 ring-1 ring-inset ${active ? "bg-[#5eead4]/10 ring-[#5eead4]/35" : "bg-white/[0.04] ring-white/10"}`}>
+          <li key={step.label} className={`rounded-md px-3 py-2.5 ring-1 ring-inset ${active ? "bg-[#5eead4]/10 ring-[#5eead4]/35" : "bg-white/[0.04] ring-white/10"}`}>
             <span className="flex items-center gap-2">
               <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold ${done ? "bg-[#5eead4] text-[#012a26]" : active ? "bg-white text-[#012a26]" : "bg-white/10 text-white/50"}`}>
                 {done ? <CheckCircle className="h-3 w-3" /> : index + 1}
@@ -564,17 +564,17 @@ export default function PendingProps() {
     const primaryImg = Array.isArray(sp.photos) && sp.photos.length > 0 ? sp.photos[0] : null;
     return (
       <div className={shell}>
-        <header className="overflow-hidden rounded-3xl bg-[#012a26] text-white">
+        <header className="overflow-hidden rounded-lg bg-[#012a26] text-white">
           <div className="px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
             <button type="button" onClick={() => setSelectedPendingProperty(null)} className="inline-flex items-center gap-1.5 border-0 bg-transparent p-0 text-sm font-semibold text-white/60 hover:text-white">
               <ArrowRight className="h-4 w-4 rotate-180" aria-hidden /> Awaiting approval
             </button>
             <div className="mt-4 flex items-center gap-4">
-              <span className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-white/10 ring-1 ring-white/15">
+              <span className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-white/10 ring-1 ring-white/15">
                 {primaryImg ? <Image src={primaryImg} alt="" fill className="object-cover" sizes="64px" /> : <ImageIcon className="absolute inset-0 m-auto h-6 w-6 text-white/50" />}
               </span>
               <div className="min-w-0">
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2.5 py-0.5 text-[11px] font-bold text-amber-200 ring-1 ring-inset ring-amber-300/30"><Hourglass className="h-3 w-3" /> In review</span>
+                <span className="inline-flex items-center gap-1 rounded-md bg-amber-400/15 px-2.5 py-0.5 text-[11px] font-bold text-amber-200 ring-1 ring-inset ring-amber-300/30"><Hourglass className="h-3 w-3" /> In review</span>
                 <h1 className="m-0 mt-1.5 truncate text-2xl font-bold tracking-tight text-white">{sp.title || "Your property"}</h1>
                 <p className="m-0 mt-0.5 text-xs text-white/55">
                   {[sp.type, sp.lastSubmittedAt ? `submitted ${new Date(sp.lastSubmittedAt).toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "numeric", month: "short", year: "numeric" })}` : null].filter(Boolean).join(" · ")}
@@ -586,7 +586,7 @@ export default function PendingProps() {
         </header>
 
         <div className="grid gap-5 lg:grid-cols-2">
-          <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+          <section className="rounded-lg border border-solid border-slate-200 bg-white p-5">
             <h2 className="m-0 flex items-center gap-2 text-base font-bold text-slate-900"><Clock className="h-4 w-4 text-amber-600" /> What NoLSAF checks</h2>
             <ul className="m-0 mt-3 list-none space-y-2.5 p-0 text-sm text-slate-700">
               {[
@@ -598,13 +598,13 @@ export default function PendingProps() {
                 <li key={text} className="flex gap-2.5"><FileCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" />{text}</li>
               ))}
             </ul>
-            <p className="m-0 mt-4 flex items-start gap-2 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs leading-5 text-slate-600">
+            <p className="m-0 mt-4 flex items-start gap-2 rounded-md bg-slate-50 px-3.5 py-2.5 text-xs leading-5 text-slate-600">
               <Bell className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#02665e]" />
               Review takes {REVIEW_TIME}. You get a notification and an email as soon as it is approved or needs changes.
             </p>
           </section>
 
-          <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+          <section className="rounded-lg border border-solid border-slate-200 bg-white p-5">
             <h2 className="m-0 flex items-center gap-2 text-base font-bold text-slate-900"><BookOpen className="h-4 w-4 text-[#02665e]" /> Get ready while you wait</h2>
             <ul className="m-0 mt-3 list-none space-y-2 p-0">
               {[
@@ -613,7 +613,7 @@ export default function PendingProps() {
                 { icon: MessageSquare, title: "Read the disbursement policy", desc: "Payout timing, holds and recoveries.", href: "/owner/property-owner-disbursement-policy" },
               ].map(({ icon: Icon, title, desc, href }) => (
                 <li key={title}>
-                  <Link href={href} className="group flex items-start gap-3 rounded-xl bg-slate-50 px-3.5 py-3 no-underline transition hover:bg-emerald-50/60">
+                  <Link href={href} className="group flex items-start gap-3 rounded-md bg-slate-50 px-3.5 py-3 no-underline transition hover:bg-emerald-50/60">
                     <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#02665e] ring-1 ring-inset ring-slate-200"><Icon className="h-4 w-4" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-semibold text-slate-900">{title}</span>
@@ -626,7 +626,7 @@ export default function PendingProps() {
             </ul>
           </section>
 
-          <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5 lg:col-span-2">
+          <section className="rounded-lg border border-solid border-slate-200 bg-white p-5 lg:col-span-2">
             <h2 className="m-0 flex items-center gap-2 text-base font-bold text-slate-900"><TrendingUp className="h-4 w-4 text-emerald-600" /> Once it is live</h2>
             <ul className="m-0 mt-3 grid list-none grid-cols-1 gap-2.5 p-0 sm:grid-cols-2">
               {[
@@ -645,18 +645,18 @@ export default function PendingProps() {
   }
 
   const header = (
-    <header className="overflow-hidden rounded-3xl bg-[#012a26] text-white">
+    <header className="overflow-hidden rounded-lg bg-[#012a26] text-white">
       <div className="flex flex-wrap items-end justify-between gap-4 px-5 pb-5 pt-5 sm:px-8 sm:pt-6">
         <div className="min-w-0">
-          <p className="m-0 text-[11px] font-bold uppercase tracking-[0.16em] text-[#5eead4]">Properties</p>
+          <p className="m-0 text-[11px] font-bold text-[#5eead4]">Properties</p>
           <h1 className="m-0 mt-1 text-[26px] font-bold leading-tight tracking-tight text-white sm:text-[30px]">Awaiting approval</h1>
           <p className="m-0 mt-1 max-w-xl text-sm text-white/60">Drafts you are still filling in, listings with NoLSAF for review, and anything that needs your attention.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/owner/properties/approved" className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline hover:bg-white/[0.12]">
+          <Link href="/owner/properties/approved" className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline hover:bg-white/[0.12]">
             <Building2 className="h-4 w-4" aria-hidden /> My properties
           </Link>
-          <Link href="/owner/properties/add" className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
+          <Link href="/owner/properties/add" className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
             <Plus className="h-4 w-4" aria-hidden /> Add a property
           </Link>
         </div>
@@ -668,7 +668,7 @@ export default function PendingProps() {
           { label: "Need attention", value: loading ? null : allNeedsAttention.length, hint: "changes or suspended", tone: allNeedsAttention.length ? "text-rose-300" : "text-white/50" },
         ].map((tile) => (
           <div key={tile.label} className="bg-[#012a26] px-5 py-3.5 sm:px-8">
-            <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/45">{tile.label}</dt>
+            <dt className="text-[11px] font-bold text-white/45">{tile.label}</dt>
             <dd className={`m-0 mt-1 text-2xl font-extrabold tabular-nums ${tile.tone}`}>{tile.value === null ? <span className="inline-block h-6 w-8 rounded-md bg-white/10 align-middle" /> : tile.value}</dd>
             <p className="m-0 hidden truncate text-[11px] text-white/45 sm:block">{tile.hint}</p>
           </div>
@@ -683,7 +683,7 @@ export default function PendingProps() {
       <div className={shell} aria-busy="true" aria-label="Loading listings">
         {header}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {[0, 1, 2].map((i) => <div key={i} className="h-72 rounded-2xl border border-solid border-slate-200 bg-white" />)}
+          {[0, 1, 2].map((i) => <div key={i} className="h-72 rounded-lg border border-solid border-slate-200 bg-white" />)}
         </div>
       </div>
     );
@@ -694,13 +694,13 @@ export default function PendingProps() {
     return (
       <div className={shell}>
         {header}
-        <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-solid border-rose-200 bg-rose-50 p-5">
+        <div className="flex flex-wrap items-center gap-4 rounded-lg border border-solid border-rose-200 bg-rose-50 p-5">
           <AlertCircle className="h-6 w-6 shrink-0 text-rose-600" />
           <div className="min-w-0 flex-1">
             <p className="m-0 text-sm font-bold text-rose-900">Your listings could not be loaded</p>
             <p className="m-0 mt-0.5 text-xs text-rose-700">{error}</p>
           </div>
-          <button type="button" onClick={() => window.location.reload()} className="inline-flex h-9 items-center gap-1.5 rounded-xl border-0 bg-rose-600 px-3.5 text-xs font-bold text-white hover:bg-rose-700">
+          <button type="button" onClick={() => window.location.reload()} className="inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-rose-600 px-3.5 text-xs font-bold text-white hover:bg-rose-700">
             <RefreshCw className="h-3.5 w-3.5" /> Try again
           </button>
         </div>
@@ -713,24 +713,24 @@ export default function PendingProps() {
     return (
       <div className={shell}>
         {header}
-        <section className="overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white">
+        <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
           <div className="flex flex-col items-center px-6 pb-6 pt-8 text-center">
-            <span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-[#02665e]"><CheckCircle className="h-7 w-7" /></span>
+            <span className="grid h-14 w-14 place-items-center rounded-lg bg-emerald-50 text-[#02665e]"><CheckCircle className="h-7 w-7" /></span>
             <h2 className="m-0 mt-4 text-lg font-bold text-slate-900">Nothing is waiting</h2>
             <p className="m-0 mt-1 max-w-md text-sm leading-6 text-slate-500">
               You have no drafts, nothing in review and nothing that needs fixing. Your live listings are under My properties.
             </p>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
-              <Link href="/owner/properties/add" className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#02665e] px-4 text-sm font-bold text-white no-underline hover:bg-[#014d47]">
+              <Link href="/owner/properties/add" className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#02665e] px-4 text-sm font-bold text-white no-underline hover:bg-[#014d47]">
                 <Plus className="h-4 w-4" /> Add a property
               </Link>
-              <Link href="/owner/properties/approved" className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-50">
+              <Link href="/owner/properties/approved" className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-50">
                 <Building2 className="h-4 w-4" /> My properties
               </Link>
             </div>
           </div>
           <div className="bg-[#012a26] px-5 py-5 sm:px-8">
-            <p className="m-0 mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-[#5eead4]">How a new listing goes live</p>
+            <p className="m-0 mb-3 text-[11px] font-bold text-[#5eead4]">How a new listing goes live</p>
             <Lifecycle current={-1} />
           </div>
         </section>

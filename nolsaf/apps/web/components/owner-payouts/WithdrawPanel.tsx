@@ -153,10 +153,10 @@ export default function WithdrawPanel({
               value={amount} onChange={(event) => setAmount(event.target.value)}
               disabled={busy || maxToday <= 0}
               aria-describedby="withdrawal-amount-hint"
-              className="h-11 min-w-0 flex-1 rounded-xl border border-solid border-slate-300 bg-white px-3 text-sm font-semibold tabular-nums text-slate-900 outline-none focus:border-[#02665e] disabled:bg-slate-100"
+              className="h-11 min-w-0 flex-1 rounded-md border border-solid border-slate-300 bg-white px-3 text-sm font-semibold tabular-nums text-slate-900 outline-none focus:border-[#02665e] disabled:bg-slate-100"
             />
             <button type="button" onClick={() => setAmount(String(maxToday))} disabled={busy || maxToday <= 0}
-              className="h-11 rounded-xl border border-solid border-emerald-300 bg-white px-3 text-xs font-semibold text-[#02665e] disabled:opacity-50">Max today</button>
+              className="h-11 rounded-md border border-solid border-emerald-300 bg-white px-3 text-xs font-semibold text-[#02665e] disabled:opacity-50">Max today</button>
           </div>
           <p id="withdrawal-amount-hint" className="m-0 text-xs text-slate-500">
             {maxToday > 0 ? "Any amount up to today's limit. The rest stays in your ready balance." :
@@ -166,7 +166,7 @@ export default function WithdrawPanel({
             type="button"
             onClick={requestCode}
             disabled={busy || readyCount === 0 || !validAmount}
-            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <LockKeyhole className="h-4 w-4" aria-hidden />}
             {busy ? "Sending code..." : `Withdraw ${formatTzs(validAmount ? chosenAmount : 0)}`}
@@ -176,7 +176,7 @@ export default function WithdrawPanel({
       )}
 
       {challenge && (
-        <div className="rounded-xl border border-solid border-slate-200 bg-slate-50/70 p-4">
+        <div className="rounded-md border border-solid border-slate-200 bg-slate-50/70 p-4">
           <div className="flex items-start gap-3">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#02665e]/10 text-[#02665e]">
               <ShieldCheck className="h-5 w-5" aria-hidden />
@@ -236,7 +236,7 @@ export default function WithdrawPanel({
               type="button"
               onClick={confirm}
               disabled={busy || code.length !== 6}
-              className="inline-flex h-11 items-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60"
+              className="inline-flex h-11 items-center gap-2 rounded-md border-0 bg-[#02665e] px-5 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60"
             >
               {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
               Confirm withdrawal
@@ -245,7 +245,7 @@ export default function WithdrawPanel({
               type="button"
               onClick={requestCode}
               disabled={busy || Date.now() - sentAt < RESEND_AFTER_MS}
-              className="inline-flex h-11 items-center rounded-xl border border-solid border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className="inline-flex h-11 items-center rounded-md border border-solid border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               Resend code
             </button>
@@ -256,7 +256,7 @@ export default function WithdrawPanel({
                 setCode("");
                 setError(null);
               }}
-              className="inline-flex h-11 items-center rounded-xl border-0 bg-transparent px-2 text-sm font-medium text-slate-500 hover:text-slate-800"
+              className="inline-flex h-11 items-center rounded-md border-0 bg-transparent px-2 text-sm font-medium text-slate-500 hover:text-slate-800"
             >
               Cancel
             </button>
@@ -265,7 +265,7 @@ export default function WithdrawPanel({
       )}
 
       {done && (
-        <p className="m-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
+        <p className="m-0 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
           {done}
         </p>
       )}

@@ -19,7 +19,7 @@ export default function Revenue() {
 
       {data && (
         <>
-          <div className="bg-white border rounded-2xl p-3">
+          <div className="bg-white border rounded-lg p-3">
             <div className="text-sm font-medium mb-2">Amount Paid vs Your Payout</div>
             <div className="w-full h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -43,7 +43,7 @@ export default function Revenue() {
             </div>
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wide">
+                <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500">
                   <th className="text-left px-5 py-3 font-medium">Property</th>
                   <th className="text-right px-5 py-3 font-medium">Your Payout</th>
                 </tr>
@@ -59,7 +59,7 @@ export default function Revenue() {
             </table>
           </div>
 
-          <div className="bg-white border rounded-2xl p-3 overflow-x-auto">
+          <div className="bg-white border rounded-lg p-3 overflow-x-auto">
             <div className="text-sm font-medium mb-2">Invoices</div>
             <table className="w-full text-sm">
               <thead><tr className="[&>th]:text-left [&>th]:py-2">
