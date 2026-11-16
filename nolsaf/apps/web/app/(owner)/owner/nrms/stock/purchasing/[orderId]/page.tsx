@@ -231,7 +231,7 @@ export default function PurchaseOrderPage() {
     return (
       <div className="space-y-3">
         <Link href="/owner/nrms/stock/purchasing?tab=orders" className="inline-flex items-center gap-1.5 text-sm font-bold text-brand no-underline hover:underline"><ArrowLeft className="h-4 w-4" />Purchasing</Link>
-        <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>
+        <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>
       </div>
     );
   }
@@ -258,7 +258,7 @@ export default function PurchaseOrderPage() {
       <section className={cardClass}>
         <div className="flex flex-wrap items-start justify-between gap-4 px-4 py-4 sm:px-6 sm:py-5">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand"><FileText className="h-5 w-5" /></span>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand"><FileText className="h-5 w-5" /></span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="m-0 text-2xl font-bold tracking-tight text-neutral-950">{order.orderNumber}</h1>
@@ -295,16 +295,16 @@ export default function PurchaseOrderPage() {
       </section>
 
       {notice && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+        <div className="flex items-center justify-between gap-3 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
           <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" />{notice}</span>
           <button type="button" onClick={() => setNotice(null)} className="border-0 bg-transparent p-0 text-sm font-bold text-emerald-800 [font-family:inherit] hover:underline">Dismiss</button>
         </div>
       )}
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-      {order.status === "DRAFT" && order.closeReason && <div className="flex items-start gap-2 rounded-xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><RotateCcw className="mt-0.5 h-4 w-4 shrink-0" />{order.closeReason}</div>}
-      {order.status === "PENDING_APPROVAL" && !actions.approve && <div className="flex items-start gap-2 rounded-xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Above {formatMoney(detail.limits.purchaseOrderLimit, currency)}, so the owner approves it before it goes to the supplier.</div>}
-      {(order.status === "CANCELLED" || order.status === "CLOSED_SHORT") && order.closeReason && <div className="flex items-start gap-2 rounded-xl border border-solid border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700"><XCircle className="mt-0.5 h-4 w-4 shrink-0" />{order.status === "CANCELLED" ? `Cancelled by ${order.cancelledBy ?? "someone"}` : `Closed short by ${order.closedBy ?? "someone"}`}: {order.closeReason}</div>}
-      {sameHands.length > 0 && <div className="flex items-start gap-2 rounded-xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />{order.approvedBy ?? "The approver"} approved this order and also received {sameHands.length === 1 ? "a delivery" : `${sameHands.length} deliveries`} on it alone. Allowed, but a second person at the door is safer.</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {order.status === "DRAFT" && order.closeReason && <div className="flex items-start gap-2 rounded-md border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><RotateCcw className="mt-0.5 h-4 w-4 shrink-0" />{order.closeReason}</div>}
+      {order.status === "PENDING_APPROVAL" && !actions.approve && <div className="flex items-start gap-2 rounded-md border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Above {formatMoney(detail.limits.purchaseOrderLimit, currency)}, so the owner approves it before it goes to the supplier.</div>}
+      {(order.status === "CANCELLED" || order.status === "CLOSED_SHORT") && order.closeReason && <div className="flex items-start gap-2 rounded-md border border-solid border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700"><XCircle className="mt-0.5 h-4 w-4 shrink-0" />{order.status === "CANCELLED" ? `Cancelled by ${order.cancelledBy ?? "someone"}` : `Closed short by ${order.closedBy ?? "someone"}`}: {order.closeReason}</div>}
+      {sameHands.length > 0 && <div className="flex items-start gap-2 rounded-md border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />{order.approvedBy ?? "The approver"} approved this order and also received {sameHands.length === 1 ? "a delivery" : `${sameHands.length} deliveries`} on it alone. Allowed, but a second person at the door is safer.</div>}
 
       {reasonFor && (
         <div className={`${cardClass} p-4 sm:p-5`}>

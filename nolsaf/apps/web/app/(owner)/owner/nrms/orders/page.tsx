@@ -261,16 +261,16 @@ export default function NrmsOrdersPage() {
     <div className="mx-auto max-w-[1500px] space-y-4 pb-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">{serviceLabel}</p><h2 className="mb-0 mt-1 text-xl font-bold text-neutral-950">{outletScoped ? `${outlet?.name} order control` : "Outlet order control"}</h2><p className="mb-0 mt-1 text-xs text-neutral-500">{outletScoped ? `Create and manage orders for ${outlet?.name} only.` : "Itemised service orders for room guests and walk-in customers."}</p></div>
-        <button type="button" onClick={() => void load()} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 hover:bg-neutral-50"><RefreshCw className="h-4 w-4" />Refresh</button>
+        <button type="button" onClick={() => void load()} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 hover:bg-neutral-50"><RefreshCw className="h-4 w-4" />Refresh</button>
       </div>
 
-      {error && <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+      {error && <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
 
       {outlets.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-14 text-center"><StoreIcon /><h3 className="mt-3 text-base font-bold text-neutral-900">No outlet configured</h3><p className="mt-1 text-sm text-neutral-500">Create a restaurant or bar under Outlets & menus before recording orders.</p></div>
+        <div className="rounded-lg border border-dashed border-neutral-300 bg-white px-6 py-14 text-center"><StoreIcon /><h3 className="mt-3 text-base font-bold text-neutral-900">No outlet configured</h3><p className="mt-1 text-sm text-neutral-500">Create a restaurant or bar under Outlets & menus before recording orders.</p></div>
       ) : (
         <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(23rem,0.8fr)]">
-          <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+          <section className="min-w-0 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-sm">
             <div className="border-b border-neutral-200 bg-neutral-50/70 p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
@@ -280,7 +280,7 @@ export default function NrmsOrdersPage() {
                     <p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Choose who is being served, then browse an outlet menu.</p>
                   </div>
                 </div>
-                <span className="shrink-0 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-emerald-700">Step 1 · Destination</span>
+                <span className="shrink-0 rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-emerald-700">Step 1 · Destination</span>
               </div>
               <label className="mt-4 block min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Serve order to<span className="text-red-500"> *</span><select value={selection} onChange={(event) => setSelection(event.target.value)} className={`mt-1.5 box-border !h-11 w-full min-w-0 rounded-lg border px-3 py-0 text-sm font-semibold normal-case tracking-normal outline-none transition focus:bg-white focus:ring-2 ${selection ? "border-emerald-300 bg-emerald-50/50 text-emerald-900 focus:border-emerald-500 focus:ring-emerald-500/10" : "border-neutral-300 bg-white text-neutral-600 focus:border-emerald-500 focus:ring-emerald-500/10"}`}>
                 <option value="">Select room guest, table or walk-in</option>
@@ -302,14 +302,14 @@ export default function NrmsOrdersPage() {
             <div className="p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">{outletScoped ? "Outlet workspace" : "Step 2 · Choose outlet"}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{outletScoped ? `Showing only ${outlet?.name} and its menu.` : "Switching outlets clears the current item selection."}</p></div>
-                {outlet && <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-bold text-emerald-700">{outlet.menuItems.length} menu {outlet.menuItems.length === 1 ? "item" : "items"}</span>}
+                {outlet && <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-[9px] font-bold text-emerald-700">{outlet.menuItems.length} menu {outlet.menuItems.length === 1 ? "item" : "items"}</span>}
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
                 {visibleOutlets.map((item) => {
                   const selected = item.id === outletId;
                   const OutletIcon = item.type === "BAR" ? Wine : UtensilsCrossed;
                   return (
-                    <button key={item.id} type="button" aria-pressed={selected} disabled={outletScoped} onClick={() => { if (!selected) { setOutletId(item.id); setCart({}); } }} className={`box-border flex min-h-16 min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-default ${selected ? "border-emerald-300 bg-emerald-50/80 shadow-sm ring-1 ring-emerald-100" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
+                    <button key={item.id} type="button" aria-pressed={selected} disabled={outletScoped} onClick={() => { if (!selected) { setOutletId(item.id); setCart({}); } }} className={`box-border flex min-h-16 min-w-0 items-center gap-3 rounded-md border px-3 py-2.5 text-left transition disabled:cursor-default ${selected ? "border-emerald-300 bg-emerald-50/80 shadow-sm ring-1 ring-emerald-100" : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}>
                       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${selected ? "border-emerald-200 bg-white text-emerald-700" : item.type === "BAR" ? "border-sky-100 bg-sky-50 text-sky-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}><OutletIcon className="h-4 w-4" /></span>
                       <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-neutral-950">{item.name}</span><span className="mt-0.5 block truncate text-[9px] font-medium uppercase tracking-[0.08em] text-neutral-400">{item.code} · {item.menuItems.length} {item.menuItems.length === 1 ? "item" : "items"}</span></span>
                       {selected && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white"><Check className="h-3 w-3" /></span>}
@@ -318,16 +318,16 @@ export default function NrmsOrdersPage() {
                 })}
               </div>
 
-              <div className={`mt-4 flex items-center justify-between gap-3 rounded-xl border px-3.5 py-3 ${menuTone.header}`}>
+              <div className={`mt-4 flex items-center justify-between gap-3 rounded-md border px-3.5 py-3 ${menuTone.header}`}>
                 <div className="flex min-w-0 items-center gap-3"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ${menuTone.eyebrow} ${isBarMenu ? "ring-sky-100" : "ring-emerald-100"}`}><MenuItemIcon className="h-4 w-4" /></span><div className="min-w-0"><p className={`m-0 text-[9px] font-bold uppercase tracking-[0.14em] ${menuTone.eyebrow}`}>Menu</p><h3 className="mb-0 mt-0.5 truncate text-sm font-bold text-neutral-950">{outlet?.name ?? "Select an outlet"}</h3></div></div>
-                {selectedLines.length > 0 && <span className="shrink-0 rounded-full bg-neutral-900 px-2.5 py-1 text-[9px] font-bold text-white">{selectedLines.reduce((sum, line) => sum + line.quantity, 0)} in order</span>}
+                {selectedLines.length > 0 && <span className="shrink-0 rounded-md bg-neutral-900 px-2.5 py-1 text-[9px] font-bold text-white">{selectedLines.reduce((sum, line) => sum + line.quantity, 0)} in order</span>}
               </div>
               {menuCategories.length > 1 && (
                 <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1" aria-label="Menu categories">
                   <button type="button" onClick={() => setMenuCategory("ALL")} aria-pressed={menuCategory === "ALL"} className={`inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-[10px] font-bold transition ${menuCategory === "ALL" ? menuTone.filterActive : menuTone.filterIdle}`}>All <span className="ml-1.5 opacity-70">{outlet?.menuItems.length ?? 0}</span></button>
                   {menuCategories.map((category) => {
                     const count = (outlet?.menuItems ?? []).filter((item) => (item.category || "Uncategorised") === category).length;
-                    return <button key={category} type="button" onClick={() => setMenuCategory(category)} aria-pressed={menuCategory === category} className={`inline-flex h-8 shrink-0 items-center rounded-full border px-3 text-[10px] font-bold transition ${menuCategory === category ? menuTone.filterActive : menuTone.filterIdle}`}>{category}<span className="ml-1.5 opacity-70">{count}</span></button>;
+                    return <button key={category} type="button" onClick={() => setMenuCategory(category)} aria-pressed={menuCategory === category} className={`inline-flex h-8 shrink-0 items-center rounded-md border px-3 text-[10px] font-bold transition ${menuCategory === category ? menuTone.filterActive : menuTone.filterIdle}`}>{category}<span className="ml-1.5 opacity-70">{count}</span></button>;
                   })}
                 </div>
               )}
@@ -336,23 +336,23 @@ export default function NrmsOrdersPage() {
                   const outOfStock = menuItem.inStock === false;
                   const quantity = cart[menuItem.id] ?? 0;
                   return (
-                    <button key={menuItem.id} type="button" onClick={() => changeQuantity(menuItem.id, 1)} disabled={!canCreate || outOfStock} title={outOfStock ? "Out of stock today" : `Add ${menuItem.name} to the order`} className={`group relative box-border flex min-h-[5.25rem] min-w-0 items-center gap-3 overflow-hidden rounded-xl border p-3 text-left transition duration-200 disabled:cursor-not-allowed ${outOfStock ? "border-neutral-200 bg-neutral-50 opacity-60" : quantity > 0 ? menuTone.cardActive : `${menuTone.cardIdle} disabled:opacity-50`}`}>
-                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${menuTone.icon}`}><MenuItemIcon className="h-[18px] w-[18px]" /></span>
-                      <span className="min-w-0 flex-1"><span className="flex min-w-0 items-center gap-2"><span className="truncate text-xs font-bold text-neutral-950">{menuItem.name}</span>{quantity > 0 && <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold ${menuTone.quantity}`}>×{quantity}</span>}</span><span className="mt-1 block truncate text-[9px] font-medium text-neutral-400">{menuItem.category || "Uncategorised"}</span><strong className={`mt-2 block text-xs tabular-nums ${menuTone.price}`}>{money(menuItem.price, outlet?.currency ?? "Currency not set")}</strong></span>
-                      {outOfStock ? <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[9px] font-bold text-red-600">Out</span> : <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border shadow-sm transition ${menuTone.add}`}><Plus className="h-4 w-4" /></span>}
+                    <button key={menuItem.id} type="button" onClick={() => changeQuantity(menuItem.id, 1)} disabled={!canCreate || outOfStock} title={outOfStock ? "Out of stock today" : `Add ${menuItem.name} to the order`} className={`group relative box-border flex min-h-[5.25rem] min-w-0 items-center gap-3 overflow-hidden rounded-md border p-3 text-left transition duration-200 disabled:cursor-not-allowed ${outOfStock ? "border-neutral-200 bg-neutral-50 opacity-60" : quantity > 0 ? menuTone.cardActive : `${menuTone.cardIdle} disabled:opacity-50`}`}>
+                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ring-1 ring-inset ${menuTone.icon}`}><MenuItemIcon className="h-[18px] w-[18px]" /></span>
+                      <span className="min-w-0 flex-1"><span className="flex min-w-0 items-center gap-2"><span className="truncate text-xs font-bold text-neutral-950">{menuItem.name}</span>{quantity > 0 && <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[8px] font-bold ${menuTone.quantity}`}>×{quantity}</span>}</span><span className="mt-1 block truncate text-[9px] font-medium text-neutral-400">{menuItem.category || "Uncategorised"}</span><strong className={`mt-2 block text-xs tabular-nums ${menuTone.price}`}>{money(menuItem.price, outlet?.currency ?? "Currency not set")}</strong></span>
+                      {outOfStock ? <span className="shrink-0 rounded-md bg-red-50 px-2 py-0.5 text-[9px] font-bold text-red-600">Out</span> : <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border shadow-sm transition ${menuTone.add}`}><Plus className="h-4 w-4" /></span>}
                     </button>
                   );
                 })}
               </div>
-              {visibleMenuItems.length === 0 && <div className="mt-3 rounded-xl border border-dashed border-neutral-200 px-4 py-8 text-center text-xs text-neutral-400">{(outlet?.menuItems.length ?? 0) === 0 ? "No active items entered for this outlet." : "No active items in this category."}</div>}
+              {visibleMenuItems.length === 0 && <div className="mt-3 rounded-md border border-dashed border-neutral-200 px-4 py-8 text-center text-xs text-neutral-400">{(outlet?.menuItems.length ?? 0) === 0 ? "No active items entered for this outlet." : "No active items in this category."}</div>}
             </div>
           </section>
 
-          <section className="min-w-0 self-start rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm xl:sticky xl:top-4">
-            <div className="flex items-center justify-between gap-3"><div><p className="m-0 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-700">Step 3 · Review &amp; confirm</p><h3 className="mb-0 mt-0.5 text-sm font-bold text-neutral-900">Current order</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Confirmed orders enter the outlet queue immediately.</p></div><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ShoppingBasket className="h-5 w-5" /></span></div>
+          <section className="min-w-0 self-start rounded-lg border border-neutral-200 bg-white p-4 shadow-sm xl:sticky xl:top-4">
+            <div className="flex items-center justify-between gap-3"><div><p className="m-0 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-700">Step 3 · Review &amp; confirm</p><h3 className="mb-0 mt-0.5 text-sm font-bold text-neutral-900">Current order</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Confirmed orders enter the outlet queue immediately.</p></div><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><ShoppingBasket className="h-5 w-5" /></span></div>
             <div className={`mt-3 space-y-2 ${selectedLines.length === 0 ? "min-h-28" : ""}`}>
-              {selectedLines.length === 0 ? <div className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 bg-neutral-50/50 px-4 py-7 text-center"><ShoppingBasket className="h-5 w-5 text-neutral-300" /><p className="mb-0 mt-2 text-xs font-bold text-neutral-500">Your order is empty</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">Choose an item from the menu to add it here.</p></div> : selectedLines.map(({ item, quantity }) => (
-                <div key={item.id} className="flex min-w-0 items-center gap-3 rounded-xl bg-neutral-50 px-3 py-2.5"><div className="min-w-0 flex-1"><p className="m-0 truncate text-xs font-bold text-neutral-800">{item.name}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{money(item.price, outlet?.currency ?? "Currency not set")} each</p></div><div className="flex items-center gap-1"><button type="button" onClick={() => changeQuantity(item.id, -1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-200 bg-white"><Minus className="h-3 w-3" /></button><span className="w-6 text-center text-xs font-bold">{quantity}</span><button type="button" onClick={() => changeQuantity(item.id, 1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-200 bg-white"><Plus className="h-3 w-3" /></button></div><strong className="w-24 shrink-0 text-right text-xs tabular-nums">{money(item.price * quantity, outlet?.currency ?? "Currency not set")}</strong></div>
+              {selectedLines.length === 0 ? <div className="flex min-h-28 flex-col items-center justify-center rounded-md border border-dashed border-neutral-200 bg-neutral-50/50 px-4 py-7 text-center"><ShoppingBasket className="h-5 w-5 text-neutral-300" /><p className="mb-0 mt-2 text-xs font-bold text-neutral-500">Your order is empty</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">Choose an item from the menu to add it here.</p></div> : selectedLines.map(({ item, quantity }) => (
+                <div key={item.id} className="flex min-w-0 items-center gap-3 rounded-md bg-neutral-50 px-3 py-2.5"><div className="min-w-0 flex-1"><p className="m-0 truncate text-xs font-bold text-neutral-800">{item.name}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{money(item.price, outlet?.currency ?? "Currency not set")} each</p></div><div className="flex items-center gap-1"><button type="button" onClick={() => changeQuantity(item.id, -1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-200 bg-white"><Minus className="h-3 w-3" /></button><span className="w-6 text-center text-xs font-bold">{quantity}</span><button type="button" onClick={() => changeQuantity(item.id, 1)} className="flex h-7 w-7 items-center justify-center rounded-lg border border-neutral-200 bg-white"><Plus className="h-3 w-3" /></button></div><strong className="w-24 shrink-0 text-right text-xs tabular-nums">{money(item.price * quantity, outlet?.currency ?? "Currency not set")}</strong></div>
               ))}
             </div>
             <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
@@ -374,15 +374,15 @@ export default function NrmsOrdersPage() {
       )}
 
       <KaribuPanel propertyId={selectedPropertyId ?? null} refreshKey={karibuRefresh} />
-      <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Live order queue · {outletScoped ? outlet?.name : "in-room"}</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{outletScoped ? `Only active room and in-house guest orders from ${outlet?.name}.` : "Room and in-house guest orders. Table and walk-in orders live in Tables & tabs."}</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-500">{orders.length} orders</span></div>
+      <section className="rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Live order queue · {outletScoped ? outlet?.name : "in-room"}</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{outletScoped ? `Only active room and in-house guest orders from ${outlet?.name}.` : "Room and in-house guest orders. Table and walk-in orders live in Tables & tabs."}</p></div><span className="rounded-md bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-500">{orders.length} orders</span></div>
         <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
           {orders.map((order) => {
             const tenderRequired = order.status === "SERVING" && order.settlementMode === "OUTLET_PAYMENT";
             const tenderSelected = Boolean(settlementTender[order.id]);
             const advanceDisabled = busy === `advance-${order.id}` || (tenderRequired && !tenderSelected);
             return (
-              <article key={order.id} className="min-w-0 rounded-xl border border-neutral-200 p-3">
+              <article key={order.id} className="min-w-0 rounded-md border border-neutral-200 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0"><p className="m-0 truncate text-xs font-bold text-neutral-900">{order.orderNumber} · {order.outlet.name}</p><p className="mb-0 mt-1 truncate text-[10px] text-neutral-400">{order.reservation ? `${orderRoomLabel(order)} · ${orderGuestLabel(order)}` : order.orderPoint ? `${order.orderPoint.type === "ROOM" ? "Room" : "Table"} ${order.orderPoint.label} · Guest QR order` : `${orderRoomLabel(order)} · ${orderGuestLabel(order)}`}</p></div>
                   <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ${STATUS_STYLE[order.status] ?? "bg-neutral-100 text-neutral-600"}`}>{order.status === "PLACED" ? "NEW · QR" : order.status.replaceAll("_", " ")}</span>
@@ -418,12 +418,12 @@ export default function NrmsOrdersPage() {
             );
           })}
         </div>
-        {orders.length === 0 && <div className="rounded-xl border border-dashed border-neutral-200 py-10 text-center"><Check className="mx-auto h-5 w-5 text-emerald-600" /><p className="mb-0 mt-2 text-xs font-bold text-neutral-600">No active outlet orders</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">Completed orders are available under Room order history.</p></div>}
+        {orders.length === 0 && <div className="rounded-md border border-dashed border-neutral-200 py-10 text-center"><Check className="mx-auto h-5 w-5 text-emerald-600" /><p className="mb-0 mt-2 text-xs font-bold text-neutral-600">No active outlet orders</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">Completed orders are available under Room order history.</p></div>}
       </section>
 
       {reasonAction && (
         <div className="fixed inset-0 z-[11000] flex items-center justify-center overflow-y-auto bg-neutral-950/45 p-3 sm:p-4">
-          <section className="box-border max-h-[calc(100dvh-1.5rem)] w-full max-w-[420px] overflow-y-auto rounded-xl bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:p-5">
+          <section className="box-border max-h-[calc(100dvh-1.5rem)] w-full max-w-[420px] overflow-y-auto rounded-md bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:p-5">
             <div className="flex min-w-0 items-center gap-2"><AlertTriangle className="h-5 w-5 shrink-0 text-red-600" /><h3 className="m-0 min-w-0 truncate text-base font-bold text-neutral-950">Cancel order</h3></div>
             <p className="mb-0 mt-2 text-xs leading-5 text-neutral-500">This action is permanently recorded with your account and timestamp.</p>
             <textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={300} placeholder="Reason required" className="mt-4 box-border h-24 w-full max-w-full resize-none rounded-lg border border-neutral-300 p-3 text-sm outline-none focus:border-red-400" />
@@ -438,4 +438,4 @@ export default function NrmsOrdersPage() {
   );
 }
 
-function StoreIcon() { return <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-neutral-100 text-neutral-500"><UtensilsCrossed className="h-5 w-5" /></span>; }
+function StoreIcon() { return <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-md bg-neutral-100 text-neutral-500"><UtensilsCrossed className="h-5 w-5" /></span>; }

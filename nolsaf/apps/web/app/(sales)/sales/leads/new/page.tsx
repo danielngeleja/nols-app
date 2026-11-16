@@ -15,6 +15,7 @@ export default function NewSalesLeadPage() {
   const [error, setError] = useState("");
   const [warning, setWarning] = useState<any>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [ownRef, setOwnRef] = useState<string | null>(null);
 
   const submit = async (value: SalesLeadFormValue) => {
     setSubmitting(true);
@@ -30,6 +31,7 @@ export default function NewSalesLeadPage() {
       }
     } catch (requestError: any) {
       setError(requestError?.response?.data?.error || "Could not register the lead.");
+      setOwnRef(requestError?.response?.data?.ownRef || null);
     } finally {
       setSubmitting(false);
     }
@@ -58,7 +60,10 @@ export default function NewSalesLeadPage() {
         {error ? (
           <p className="mb-0 mt-4 flex items-start gap-2 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            {error}
+            <span>
+              {error}
+              {ownRef ? <> <Link href={`/sales/leads/${ownRef}`} className="font-semibold text-red-800 underline">Open your lead</Link></> : null}
+            </span>
           </p>
         ) : null}
         {warning ? (

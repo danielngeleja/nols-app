@@ -155,7 +155,7 @@ export default function CalendarFeeds({ propertyId, providerCode, providerName, 
 
   return (
     <div className="bg-neutral-50/60 p-4 sm:p-5 lg:p-6">
-      <div className="mb-4 flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3.5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-4 flex flex-col gap-3 rounded-md border border-neutral-200 bg-white px-4 py-3.5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
             <Clock className="h-4 w-4" />
@@ -163,7 +163,7 @@ export default function CalendarFeeds({ propertyId, providerCode, providerName, 
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <p className="m-0 text-sm font-bold text-neutral-950">Calendar sync</p>
-              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800">Every few hours</span>
+              <span className="rounded-md bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800">Every few hours</span>
             </div>
             <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">Availability dates only. No guest names, rates or booking details are shared.</p>
           </div>
@@ -183,7 +183,7 @@ export default function CalendarFeeds({ propertyId, providerCode, providerName, 
       {error && <div className="mb-4 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
       {notice && <div className="mb-4 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{notice}</div>}
 
-      <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+      <section className="overflow-hidden rounded-md border border-neutral-200 bg-white shadow-sm">
         <div className="flex items-start gap-3 border-b border-neutral-100 px-4 py-4 sm:px-5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-950 text-white"><Plus className="h-4 w-4" /></span>
           <div>
@@ -275,13 +275,13 @@ export default function CalendarFeeds({ propertyId, providerCode, providerName, 
           <h3 className="m-0 text-sm font-bold text-neutral-950">Connected listings</h3>
           <p className="mb-0 mt-1 text-xs text-neutral-500">Monitor both calendar directions and resolve sync issues.</p>
         </div>
-        {!loading && <span className="rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-[11px] font-bold text-neutral-600">{grouped.length} {grouped.length === 1 ? "listing" : "listings"}</span>}
+        {!loading && <span className="rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-[11px] font-bold text-neutral-600">{grouped.length} {grouped.length === 1 ? "listing" : "listings"}</span>}
       </div>
       <div className="space-y-3">
-        {loading && <div className="flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white py-10 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading calendars…</div>}
-        {!loading && !grouped.length && <div className="rounded-xl border border-dashed border-neutral-300 bg-white px-5 py-10 text-center"><span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-neutral-100 text-neutral-500"><CalendarDays className="h-5 w-5" /></span><p className="mb-0 mt-3 text-sm font-bold text-neutral-800">No connected listings</p><p className="mx-auto mb-0 mt-1 max-w-sm text-xs leading-5 text-neutral-500">Complete the two steps above to keep availability aligned with {providerName}.</p></div>}
+        {loading && <div className="flex items-center justify-center gap-2 rounded-md border border-neutral-200 bg-white py-10 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading calendars…</div>}
+        {!loading && !grouped.length && <div className="rounded-md border border-dashed border-neutral-300 bg-white px-5 py-10 text-center"><span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-neutral-100 text-neutral-500"><CalendarDays className="h-5 w-5" /></span><p className="mb-0 mt-3 text-sm font-bold text-neutral-800">No connected listings</p><p className="mx-auto mb-0 mt-1 max-w-sm text-xs leading-5 text-neutral-500">Complete the two steps above to keep availability aligned with {providerName}.</p></div>}
         {grouped.map(({ roomType, importFeed, exportFeed }) => (
-          <div key={roomType.id} className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <div key={roomType.id} className="overflow-hidden rounded-md border border-neutral-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 bg-neutral-50/60 px-4 py-3.5">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-neutral-700 shadow-sm ring-1 ring-neutral-200"><CalendarDays className="h-4 w-4" /></span>
@@ -291,8 +291,8 @@ export default function CalendarFeeds({ propertyId, providerCode, providerName, 
                 </div>
               </div>
               {importFeed?.lastError
-                ? <span className="rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-red-700">Needs attention</span>
-                : <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Active</span>}
+                ? <span className="rounded-md bg-red-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-red-700">Needs attention</span>
+                : <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Active</span>}
             </div>
 
             <div className="grid gap-4 p-4 lg:grid-cols-2">

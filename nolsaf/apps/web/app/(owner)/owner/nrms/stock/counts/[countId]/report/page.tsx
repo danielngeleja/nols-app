@@ -78,7 +78,7 @@ export default function CountReportPage() {
       <section className={cardClass}>
         <div className="flex flex-wrap items-start justify-between gap-4 px-4 pt-4 sm:px-6 sm:pt-5">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-700"><TrendingDown className="h-5 w-5" /></span>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-700"><TrendingDown className="h-5 w-5" /></span>
             <div className="min-w-0">
               <h1 className="m-0 text-2xl font-bold tracking-tight text-neutral-950">Variance report · {report.count.locationName}</h1>
               <p className="m-0 mt-1 text-sm text-neutral-500">{report.count.countNumber} · {formatDay(report.window.from)} to {formatDay(report.window.to)}{report.count.blind ? " · blind count" : " · open count"}</p>

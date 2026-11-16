@@ -148,7 +148,7 @@ export default function ItemModal({ propertyId, data, item, onClose, onSaved }: 
                 ["WHOLE", "Whole units only", "A beer, a can, a piece. A sale can never go below what is on the shelf."],
                 ["PARTIAL", "In parts too", "Half a piece, a share of a loaf. For spirits, count in millilitres instead."],
               ] as const).map(([value, title, hint]) => (
-                <label key={value} className={`flex cursor-pointer gap-2 rounded-xl border border-solid p-3 ${countStyle === value ? "border-brand bg-brand/5" : "border-neutral-300 bg-white"}`}>
+                <label key={value} className={`flex cursor-pointer gap-2 rounded-md border border-solid p-3 ${countStyle === value ? "border-brand bg-brand/5" : "border-neutral-300 bg-white"}`}>
                   <input type="radio" name="countStyle" checked={countStyle === value} onChange={() => setCountStyle(value)} className={`${radioClass} mt-0.5`} />
                   <span><span className="block text-sm font-bold text-neutral-900">{title}</span><span className="mt-0.5 block text-[13px] text-neutral-500">{hint}</span></span>
                 </label>

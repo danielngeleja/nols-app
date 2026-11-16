@@ -212,6 +212,10 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Group stay deposit paid",
           body: `The deposit of ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} for group stay ${data.reference || ""}${data.destination ? ` to ${data.destination}` : ""} was paid by ${data.provider || "the payment provider"}. The booking is confirmed.`
         },
+        property_price_watch: {
+          title: "Price change to check",
+          body: `${data.propertyTitle || "A property"}${data.roomType ? `, ${data.roomType}` : ""}: ${data.flagReason || "large price change"} (${data.priceBefore ?? "?"} to ${data.priceAfter ?? "?"} ${data.currency || "TZS"}). Owner's reason: ${data.reason || "none given"}.`
+        },
         sales_agency_shortlist_review: {
           title: "Agency group shortlist needs approval",
           body: `A sales partner shortlisted offers for a large group stay (request ${data.reference || ""}${data.rooms ? `, ${data.rooms} rooms` : ""}). Check the offers and release them to the client.`

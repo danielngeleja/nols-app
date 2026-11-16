@@ -14,6 +14,7 @@ import { prisma } from "@nolsaf/prisma";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { publicCacheKey, withCache } from "../lib/performance.js";
 import { signOperatorVerificationToken, verifyOperatorVerificationToken } from "../lib/operatorVerificationToken.js";
+import { operatorCertificateChecks, operatorCertificateReference } from "../lib/propertyCertificate.js";
 
 const router = Router();
 
@@ -57,7 +58,8 @@ function buildPublicOperatorVerification(agent: { id: number; operatorProfile: u
   const approvedAt = String(source.approvedAt || source.reviewedAt || safeObject(source.review).reviewedAt || "").trim();
   return {
     status: "VERIFIED" as const,
-    certificateId: `NOLS-TO-${String(agent.id).padStart(6, "0")}`,
+    // Signed, never the row id: certificates cannot be guessed or counted.
+    certificateId: approvedAt ? operatorCertificateReference(agent.id, approvedAt) : null,
     approvedAt: approvedAt || null,
     verificationUrl: approvedAt
       ? `/verify/operator?t=${encodeURIComponent(signOperatorVerificationToken(agent.id, approvedAt))}`
@@ -376,7 +378,7 @@ router.get(
 
     const agent = await prisma.agent.findFirst({
       where: { id: payload.agentId, status: "ACTIVE" },
-      select: { id: true, operatorProfile: true },
+      select: { id: true, userId: true, publicKey: true, operatorProfile: true },
     });
     const profile = approvedProfile(agent?.operatorProfile);
     const source = safeObject(agent?.operatorProfile);
@@ -389,12 +391,23 @@ router.get(
 
     const companyName = String(profile.companyName || profile.businessName || profile.operatorName || "NoLSAF Tour Operator").trim();
     const location = String(profile.physicalLocation || profile.businessAddress || "").trim();
+    // What NoLSAF actually approved, by kind only: never a document number or file.
+    const approvedDocs = agent.userId
+      ? await prisma.userDocument.findMany({
+          where: { userId: agent.userId, status: "APPROVED" },
+          select: { type: true },
+        }).catch(() => [] as Array<{ type: string | null }>)
+      : [];
     return res.json({
       ok: true,
       valid: true,
       certificate: {
         issuer: "NoLS Africa Co Ltd",
-        operator: { id: agent.id, companyName, location },
+        reference: operatorCertificateReference(agent.id, approvedAt),
+        checkedAt: new Date().toISOString(),
+        checks: operatorCertificateChecks(approvedDocs.map((doc) => doc.type)),
+        profilePath: agent.publicKey ? `/public/tour-packages/operators/${encodeURIComponent(agent.publicKey)}` : null,
+        operator: { companyName, location },
         verification: {
           status: "VERIFIED",
           verifiedAt: approvedAt,

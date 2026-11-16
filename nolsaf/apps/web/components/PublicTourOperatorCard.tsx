@@ -128,7 +128,7 @@ export default function PublicTourOperatorCard({
 
   const hasPublicKey = /^[a-z0-9]{20,40}$/.test(agentPublicKey);
   const href = hasValidAgentId && hasPublicKey
-    ? `/public/tour-packages/operators/${agentPublicKey}/submitted-profile/${slugifyProfile(companyName)}`
+    ? `/public/tour-packages/operators/${agentPublicKey}/${slugifyProfile(companyName)}`
     : null;
 
   const rating = Number(profile.tripConfidence?.averageRating || 0);

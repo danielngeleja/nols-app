@@ -11,6 +11,8 @@ import { auditLog } from "../lib/audit.js";
 import { regenerateAndSaveLayout } from "../lib/autoLayout.js";
 import { ensureRoomsSpecCodes } from "../lib/roomSelectionCode.js";
 import { invalidateCache, cacheKeys } from "../lib/performance.js";
+import { LARGE_CHANGE_PERCENT, checkPriceChange } from "../lib/priceGuardrails.js";
+import { notifyAdmins } from "../lib/notifications.js";
 import { customerRecordReference } from "../lib/customerBookingReference.js";
 
 // ---------- Schemas & Helpers ----------
@@ -685,6 +687,11 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
         
         if (value instanceof Date) {
           result[key] = value.toISOString();
+        } else if (Prisma.Decimal.isDecimal(value)) {
+          // Decimal columns (latitude, longitude, basePrice) must reach the client
+          // as numbers. Walking them as plain objects sent { s, e, d }, which made
+          // a set map pin read as missing and the editor lose it on reopen.
+          result[key] = Number(value.toString());
         } else if (typeof value === 'bigint') {
           result[key] = value.toString();
         } else if (value === null || value === undefined) {
@@ -907,21 +914,105 @@ router.patch("/:id/room-price", (async (req: AuthedRequest, res) => {
       roomIndex: z.number().int().min(0),
       pricePerNight: z.number().positive().max(100_000_000),
       discountPercent: z.number().min(0).max(90).nullable().optional(),
+      // Pricing control: a large change is confirmed by the owner with a reason.
+      confirmLargeChange: z.boolean().optional(),
+      reason: z.string().trim().max(300).optional().nullable(),
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Enter a price above zero and a discount between 0 and 90%" });
 
-    const exists = await prisma.property.findFirst({ where: { id, ownerId }, select: { id: true, roomsSpec: true } });
+    const exists = await prisma.property.findFirst({ where: { id, ownerId }, select: { id: true, title: true, currency: true, roomsSpec: true } });
     if (!exists) return res.status(404).json({ error: "Property not found" });
     const spec = typeof exists.roomsSpec === "string" ? JSON.parse(exists.roomsSpec as any) : exists.roomsSpec;
     if (!Array.isArray(spec) || parsed.data.roomIndex >= spec.length) return res.status(400).json({ error: "Room not found" });
 
     const before = spec[parsed.data.roomIndex];
     const discount = parsed.data.discountPercent && parsed.data.discountPercent > 0 ? parsed.data.discountPercent : null;
+    const priceBefore = Number(before?.pricePerNight ?? before?.price);
+    const priceBeforeOk = Number.isFinite(priceBefore) && priceBefore > 0 ? priceBefore : null;
+    const discountBefore = Number(before?.discountPercent) > 0 ? Number(before.discountPercent) : null;
+    const roomKey = String(before?.code || before?.roomCode || before?.roomType || `room-${parsed.data.roomIndex}`).slice(0, 120);
+    const reason = parsed.data.reason ? String(parsed.data.reason).trim() || null : null;
+
+    // History drives the discount cooldown and the repeated-swing check. If the
+    // price history table is not migrated yet, both are skipped and the other
+    // guardrails still apply.
+    const history = (prisma as any).propertyPriceChange;
+    let recentLargeChanges = 0;
+    let lastRaisedAt: Date | null = null;
+    let historyReady = true;
+    try {
+      const dayAgo = new Date(Date.now() - 86_400_000);
+      const [recent, raised] = await Promise.all([
+        history.findMany({ where: { propertyId: id, createdAt: { gte: dayAgo } }, select: { changePercent: true } }),
+        history.findFirst({ where: { propertyId: id, roomKey, changePercent: { gt: 0 } }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+      ]);
+      recentLargeChanges = recent.filter((r: any) => Math.abs(Number(r.changePercent ?? 0)) > LARGE_CHANGE_PERCENT).length;
+      lastRaisedAt = raised?.createdAt ?? null;
+    } catch {
+      historyReady = false;
+    }
+
+    const verdict = checkPriceChange({
+      before: priceBeforeOk,
+      after: parsed.data.pricePerNight,
+      discountBefore,
+      discountAfter: discount,
+      confirmLargeChange: parsed.data.confirmLargeChange,
+      reason,
+      recentLargeChanges,
+      lastRaisedAt,
+    });
+    if (!verdict.ok) {
+      return res.status(verdict.code === "CONFIRM_REQUIRED" ? 409 : 400).json({
+        error: verdict.error,
+        code: verdict.code,
+        changePercent: verdict.changePercent,
+        ...(verdict.code === "DISCOUNT_COOLDOWN" && verdict.allowDiscountFrom ? { allowDiscountFrom: verdict.allowDiscountFrom.toISOString() } : {}),
+      });
+    }
+
     const nextSpec = spec.map((room: any, index: number) =>
       index === parsed.data.roomIndex ? { ...room, pricePerNight: parsed.data.pricePerNight, price: parsed.data.pricePerNight, discountPercent: discount } : room,
     );
     await prisma.property.update({ where: { id }, data: { roomsSpec: ensureRoomsSpecCodes(nextSpec) as any } });
     await invalidateCache(cacheKeys.property(id)).catch(() => {});
+
+    const priceChanged = priceBeforeOk !== parsed.data.pricePerNight || discountBefore !== discount;
+    if (historyReady && priceChanged) {
+      await history
+        .create({
+          data: {
+            propertyId: id,
+            roomKey,
+            roomType: before?.roomType ? String(before.roomType).slice(0, 160) : null,
+            currency: String(exists.currency || "TZS").slice(0, 3),
+            priceBefore: priceBeforeOk,
+            priceAfter: parsed.data.pricePerNight,
+            discountBefore,
+            discountAfter: discount,
+            changePercent: verdict.changePercent,
+            reason,
+            flagged: verdict.flagged,
+            flagReason: verdict.flagReason,
+            changedById: ownerId,
+          },
+        })
+        .catch(() => undefined);
+    }
+    if (verdict.flagged) {
+      void notifyAdmins("property_price_watch", {
+        propertyId: id,
+        propertyTitle: exists.title,
+        roomType: before?.roomType ?? null,
+        priceBefore: priceBeforeOk != null ? Math.round(priceBeforeOk).toLocaleString("en-US") : null,
+        priceAfter: Math.round(parsed.data.pricePerNight).toLocaleString("en-US"),
+        currency: exists.currency || "TZS",
+        flagReason: verdict.flagReason,
+        reason,
+        href: "/admin/properties",
+      }).catch(() => undefined);
+    }
+
     await auditLog({
       actorId: ownerId,
       actorRole: req.user!.role,
@@ -929,11 +1020,11 @@ router.patch("/:id/room-price", (async (req: AuthedRequest, res) => {
       entity: "PROPERTY",
       entityId: id,
       before: { room: before?.roomType ?? null, pricePerNight: before?.pricePerNight ?? null, discountPercent: before?.discountPercent ?? null },
-      after: { room: before?.roomType ?? null, pricePerNight: parsed.data.pricePerNight, discountPercent: discount },
+      after: { room: before?.roomType ?? null, pricePerNight: parsed.data.pricePerNight, discountPercent: discount, changePercent: verdict.changePercent, reason, flagged: verdict.flagged },
       ip: req.ip,
       ua: req.headers["user-agent"] as string,
     });
-    res.json({ ok: true, roomIndex: parsed.data.roomIndex, pricePerNight: parsed.data.pricePerNight, discountPercent: discount });
+    res.json({ ok: true, roomIndex: parsed.data.roomIndex, pricePerNight: parsed.data.pricePerNight, discountPercent: discount, changePercent: verdict.changePercent, flagged: verdict.flagged });
   } catch (e: any) {
     res.status(400).json({ error: e?.message ?? "Failed to update the room price" });
   }

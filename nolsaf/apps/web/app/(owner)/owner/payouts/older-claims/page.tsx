@@ -103,7 +103,7 @@ export default function OlderClaimsPage() {
   return (
     <div className="space-y-4">
       {/* Figures first, so the owner sees what is still owed before reading rows. */}
-      <section className="grid grid-cols-1 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white sm:grid-cols-3">
+      <section className="grid grid-cols-1 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white sm:grid-cols-3">
         {[
           { label: "Open claims", value: String(items.length), hint: items.length === 1 ? "claim still finishing" : "claims still finishing" },
           { label: "Still to be paid", value: formatTzs(totals.all), hint: "across all open claims" },
@@ -117,14 +117,14 @@ export default function OlderClaimsPage() {
             key={card.label}
             className={`px-5 py-4 ${i > 0 ? "border-0 border-t border-solid border-slate-100 sm:border-l sm:border-t-0" : ""}`}
           >
-            <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{card.label}</p>
+            <p className="m-0 text-[11px] font-semibold text-slate-500">{card.label}</p>
             <p className="m-0 mt-1 text-xl font-bold tabular-nums text-slate-900">{card.value}</p>
             <p className="m-0 mt-0.5 text-xs text-slate-500">{card.hint}</p>
           </div>
         ))}
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
         <div className="flex items-start gap-3 border-0 border-b border-solid border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-5">
           <Archive className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
           <p className="m-0 text-xs leading-5 text-slate-600">
@@ -158,7 +158,7 @@ export default function OlderClaimsPage() {
                       <th
                         key={head || "action"}
                         scope="col"
-                        className={`px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 ${i === 3 ? "text-right" : "text-left"}`}
+                        className={`px-5 py-2.5 text-[11px] font-semibold text-slate-500 ${i === 3 ? "text-right" : "text-left"}`}
                       >
                         {head || <span className="sr-only">Action</span>}
                       </th>

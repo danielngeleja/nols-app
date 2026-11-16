@@ -74,14 +74,14 @@ export default function OwnerRevenueInvoiceView() {
   if (err && !inv) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center space-y-4">
-        <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-red-50 border border-red-200 mx-auto">
+        <div className="inline-flex items-center justify-center h-14 w-14 rounded-lg bg-red-50 border border-solid border-red-200 mx-auto">
           <FileText className="h-6 w-6 text-red-400" aria-hidden />
         </div>
         <h1 className="text-2xl font-black text-slate-900">Unable to open invoice</h1>
-        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-2xl px-4 py-3">{err}</p>
+        <p className="text-sm text-red-700 bg-red-50 border border-solid border-red-200 rounded-lg px-4 py-3">{err}</p>
         <Link
           href="/owner/payouts/history"
-          className="no-underline inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition shadow-sm mx-auto"
+          className="no-underline inline-flex items-center gap-2 rounded-md border border-solid border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition shadow-sm mx-auto"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />
           Back to Revenue
@@ -134,7 +134,7 @@ export default function OwnerRevenueInvoiceView() {
     <div className="space-y-5 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
 
       {/* ── Hero ── */}
-      <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+      <div className="rounded-lg overflow-hidden border border-solid border-slate-200 shadow-sm">
         {/* Teal header band */}
         <div className="relative bg-gradient-to-r from-[#02665e] to-[#034e47] px-5 sm:px-6 lg:px-8 py-4 sm:py-5">
           {/* Dot pattern */}
@@ -145,7 +145,7 @@ export default function OwnerRevenueInvoiceView() {
                 <FileText className="h-4.5 w-4.5 text-white" aria-hidden />
               </div>
               <div>
-                <div className="text-white/60 text-[10px] font-bold uppercase tracking-widest">Invoice</div>
+                <div className="text-white/60 text-[10px] font-bold">Invoice</div>
                 <div className="text-white text-sm font-bold">{invoiceNumber}</div>
               </div>
             </div>
@@ -178,24 +178,24 @@ export default function OwnerRevenueInvoiceView() {
               <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">{invoiceNumber}</h1>
               <p className="mt-0.5 text-sm text-slate-500 truncate">{propertyTitle}</p>
             </div>
-            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest flex-shrink-0 ${statusStyle}`}>
+            <span className={`inline-flex items-center rounded-md border border-solid px-3 py-1 text-[10px] font-bold flex-shrink-0 ${statusStyle}`}>
               {status}
             </span>
           </div>
 
           <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <div className="rounded-xl bg-[#02665e]/5 border border-[#02665e]/10 px-3.5 py-3">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Amount</div>
+            <div className="rounded-md bg-[#02665e]/5 border border-solid border-[#02665e]/10 px-3.5 py-3">
+              <div className="text-[10px] font-bold text-slate-400">Amount</div>
               <div className="mt-1 text-lg font-extrabold text-[#02665e]">{formattedTotal}</div>
             </div>
             {inv?.createdAt && (
-              <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-3">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Issued</div>
+              <div className="rounded-md bg-slate-50 border border-solid border-slate-100 px-3.5 py-3">
+                <div className="text-[10px] font-bold text-slate-400">Issued</div>
                 <div className="mt-1 text-sm font-bold text-slate-800">{new Date(inv.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</div>
               </div>
             )}
-            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-3 col-span-2 sm:col-span-1">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Property</div>
+            <div className="rounded-md bg-slate-50 border border-solid border-slate-100 px-3.5 py-3 col-span-2 sm:col-span-1">
+              <div className="text-[10px] font-bold text-slate-400">Property</div>
               <div className="mt-1 text-sm font-bold text-slate-800 truncate">{propertyTitle}</div>
             </div>
           </div>
@@ -203,18 +203,18 @@ export default function OwnerRevenueInvoiceView() {
       </div>
 
       {/* ── Invoice Details ── */}
-      <div className="relative rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="relative rounded-lg border border-solid border-slate-200 shadow-sm overflow-hidden">
         {/* Cross-hatch background */}
         <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%), repeating-linear-gradient(-45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%)', backgroundSize: '20px 20px' }} />
 
         {/* Sender / Receiver */}
         <div className="relative grid grid-cols-1 sm:grid-cols-2 bg-white/80">
-          <div className="p-5 sm:p-6 sm:border-r border-b sm:border-b-0 border-slate-100/80">
+          <div className="border-0 p-5 sm:p-6 sm:border-r border-solid border-b sm:border-b-0 border-slate-100/80">
             <div className="flex items-center gap-2 mb-3">
               <div className="h-7 w-7 rounded-lg bg-[#02665e]/10 flex items-center justify-center">
                 <User className="h-3.5 w-3.5 text-[#02665e]" aria-hidden />
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[#02665e]/60">From</span>
+              <span className="text-[10px] font-bold text-[#02665e]/60">From</span>
             </div>
             <div className="font-bold text-slate-900 text-base leading-snug">{senderName}</div>
             {senderPhone && senderPhone !== "—" ? (
@@ -229,7 +229,7 @@ export default function OwnerRevenueInvoiceView() {
               <div className="h-7 w-7 rounded-lg bg-[#02665e]/10 flex items-center justify-center">
                 <Building2 className="h-3.5 w-3.5 text-[#02665e]" aria-hidden />
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-[#02665e]/60">To</span>
+              <span className="text-[10px] font-bold text-[#02665e]/60">To</span>
             </div>
             <div className="font-bold text-slate-900 text-base leading-snug">{inv?.receiverName || "NoLS Africa Co LTD"}</div>
             <a href={`mailto:${inv?.receiverEmail || "payments@nolsaf.com"}`} className="no-underline text-[13px] text-slate-500 hover:text-[#02665e] mt-1.5 flex items-center gap-1.5">
@@ -242,8 +242,8 @@ export default function OwnerRevenueInvoiceView() {
 
         {/* Perforated tear line */}
         <div className="relative h-5 bg-white/40 flex items-center">
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 h-5 w-5 rounded-full bg-slate-100 border border-slate-200" />
-          <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-5 w-5 rounded-full bg-slate-100 border border-slate-200" />
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 h-5 w-5 rounded-full bg-slate-100 border border-solid border-slate-200" />
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-5 w-5 rounded-full bg-slate-100 border border-solid border-slate-200" />
           <div className="w-full border-t-2 border-dashed border-slate-200/80" />
         </div>
 
@@ -261,12 +261,12 @@ export default function OwnerRevenueInvoiceView() {
           <div className="absolute inset-0 opacity-[0.07]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 0, transparent 50%), repeating-linear-gradient(-45deg, #fff 0, #fff 1px, transparent 0, transparent 50%)', backgroundSize: '16px 16px' }} />
           <div className="relative px-5 sm:px-6 py-5 sm:py-6 flex items-center justify-between gap-4">
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-widest text-white/60">Owner Payout</div>
+              <div className="text-[11px] font-bold text-white/60">Owner Payout</div>
               <div className="text-[11px] text-white/40 mt-0.5">Amount to be released</div>
             </div>
             <div className="text-right">
               <div className="text-2xl sm:text-3xl font-black text-white tracking-tight">{formattedTotal}</div>
-              <span className={`mt-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${status.toUpperCase() === 'PAID' ? 'bg-emerald-400/20 text-emerald-200' : 'bg-white/15 text-white/70'}`}>{status.toUpperCase() === "PAID" ? "DISBURSED" : status}</span>
+              <span className={`mt-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold ${status.toUpperCase() === 'PAID' ? 'bg-emerald-400/20 text-emerald-200' : 'bg-white/15 text-white/70'}`}>{status.toUpperCase() === "PAID" ? "DISBURSED" : status}</span>
             </div>
           </div>
         </div>
@@ -274,8 +274,8 @@ export default function OwnerRevenueInvoiceView() {
 
       {/* ── Paid notice ── */}
       {status.toUpperCase() === "PAID" ? (
-        <div className="relative overflow-hidden rounded-2xl bg-emerald-950 border border-emerald-900 p-5">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-400/70 mb-1">Disbursement Confirmed</div>
+        <div className="relative overflow-hidden rounded-lg bg-emerald-950 border border-solid border-emerald-900 p-5">
+          <div className="text-[10px] font-bold text-emerald-400/70 mb-1">Disbursement Confirmed</div>
           <div className="text-sm font-bold text-emerald-300">This invoice has been disbursed. You can view the receipt from your Disbursed list.</div>
         </div>
       ) : null}
@@ -287,7 +287,7 @@ export default function OwnerRevenueInvoiceView() {
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="px-5 sm:px-6 py-3.5 flex items-center justify-between gap-4">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex-shrink-0">{label}</div>
+      <div className="text-[10px] font-bold text-slate-500 flex-shrink-0">{label}</div>
       <div className={`text-sm text-right text-slate-800 ${mono ? "font-mono font-bold tracking-widest" : "font-medium"}`}>{value}</div>
     </div>
   );

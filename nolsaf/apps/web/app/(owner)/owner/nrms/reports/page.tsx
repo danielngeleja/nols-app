@@ -1308,10 +1308,10 @@ export default function NrmsReportsPage() {
 
       {/* Hero in the admin NRMS style: identity, the period the numbers cover,
           and the export actions. */}
-      <header className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-5 text-white shadow-sm sm:p-6 print:border-0 print:bg-none print:p-0 print:text-neutral-900 print:shadow-none">
+      <header className="relative overflow-hidden rounded-lg border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-5 text-white shadow-sm sm:p-6 print:border-0 print:bg-none print:p-0 print:text-neutral-900 print:shadow-none">
         <div className="relative flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3.5">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-emerald-200 print:hidden"><FileText className="h-5 w-5" /></span>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-white/20 bg-white/10 text-emerald-200 print:hidden"><FileText className="h-5 w-5" /></span>
             <div className="min-w-0">
               <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200 print:text-emerald-700">NRMS reports</p>
               <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl print:text-neutral-950">Property reporting centre</h1>
@@ -1330,9 +1330,9 @@ export default function NrmsReportsPage() {
         </div>
       </header>
 
-      {pdfError && <div role="alert" className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{pdfError}</span><button type="button" onClick={() => setPdfError(null)} aria-label="Dismiss PDF error" className="inline-flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-red-100 text-red-800"><X className="h-3.5 w-3.5" /></button></div>}
+      {pdfError && <div role="alert" className="flex items-center gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{pdfError}</span><button type="button" onClick={() => setPdfError(null)} aria-label="Dismiss PDF error" className="inline-flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-red-100 text-red-800"><X className="h-3.5 w-3.5" /></button></div>}
 
-      {exportError && <div role="alert" className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{exportError}</span><button type="button" onClick={() => setExportError(null)} aria-label="Dismiss export error" className="inline-flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-red-100 text-red-800"><X className="h-3.5 w-3.5" /></button></div>}
+      {exportError && <div role="alert" className="flex items-center gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{exportError}</span><button type="button" onClick={() => setExportError(null)} aria-label="Dismiss export error" className="inline-flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-red-100 text-red-800"><X className="h-3.5 w-3.5" /></button></div>}
 
       {pdfPortalTarget && pdfIdentity && activePdfSelection && data && financeData && currencyReport && (() => {
         const reportNode = <div ref={pdfRef}><ConsolidatedPdfReport data={data} finance={financeData} currencyReport={currencyReport} identity={pdfIdentity} money={money} selection={activePdfSelection} /></div>;
@@ -1344,10 +1344,10 @@ export default function NrmsReportsPage() {
       {/* One control bar that wraps instead of scrolling sideways: what to
           report, over which period, then run. Run only lights up when the
           dates on screen differ from the report being shown. */}
-      <section className="flex flex-wrap items-center gap-2.5 rounded-2xl border border-neutral-200 bg-white p-2.5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] print:hidden" aria-label="Report controls">
+      <section className="flex flex-wrap items-center gap-2.5 rounded-lg border border-neutral-200 bg-white p-2.5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] print:hidden" aria-label="Report controls">
         <ReportSelector value={activeReport} onChange={setActiveReport} />
 
-        <div className="inline-flex h-10 shrink-0 items-center gap-0.5 rounded-xl bg-neutral-100 p-1" aria-label="Quick report periods">
+        <div className="inline-flex h-10 shrink-0 items-center gap-0.5 rounded-md bg-neutral-100 p-1" aria-label="Quick report periods">
           {([["today", "Today"], ["month", "This month"], ["90d", "90 days"], ["year", "This year"]] as Array<[RangePreset, string]>).map(([key, text]) => (
             <button
               key={key}
@@ -1361,7 +1361,7 @@ export default function NrmsReportsPage() {
           ))}
         </div>
 
-        <div className="flex h-10 shrink-0 items-stretch overflow-hidden rounded-xl bg-white ring-1 ring-neutral-200 focus-within:ring-emerald-300">
+        <div className="flex h-10 shrink-0 items-stretch overflow-hidden rounded-md bg-white ring-1 ring-neutral-200 focus-within:ring-emerald-300">
           <span className="flex items-center pl-3 pr-1 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">From</span>
           <div className="w-[132px] [&_button]:!h-10 [&_button]:!rounded-none [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!shadow-none [&_button]:!text-[13px] [&_button]:!font-semibold">
             <DatePickerField label="Report start date" value={draftRange.from} max={draftRange.to} onChangeAction={(next) => { setActivePreset(null); setDraftRange((current) => ({ ...current, from: next })); }} widthClassName="!w-full" size="sm" twoMonths={false} allowPast />
@@ -1372,14 +1372,14 @@ export default function NrmsReportsPage() {
           </div>
         </div>
 
-        {data && data.currencies.length > 1 && <label className="inline-flex"><span className="sr-only">Currency</span><select value={selectedCurrency} onChange={(event) => setSelectedCurrency(event.target.value)} className="h-10 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10">{data.currencies.map((item) => <option key={item.currency}>{item.currency}</option>)}</select></label>}
+        {data && data.currencies.length > 1 && <label className="inline-flex"><span className="sr-only">Currency</span><select value={selectedCurrency} onChange={(event) => setSelectedCurrency(event.target.value)} className="h-10 rounded-md border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10">{data.currencies.map((item) => <option key={item.currency}>{item.currency}</option>)}</select></label>}
 
         {(() => {
           const invalid = !draftRange.from || !draftRange.to || draftRange.from > draftRange.to;
           const pending = draftRange.from !== range.from || draftRange.to !== range.to;
           return (
             <button type="button" onClick={() => setRange(draftRange)} disabled={invalid || !pending || loading}
-              className={`ml-auto inline-flex h-10 items-center gap-2 rounded-xl border-0 px-4 text-xs font-bold transition ${pending && !invalid ? "bg-[#073c35] text-white shadow-sm hover:bg-emerald-800" : "bg-neutral-100 text-neutral-400"}`}>
+              className={`ml-auto inline-flex h-10 items-center gap-2 rounded-md border-0 px-4 text-xs font-bold transition ${pending && !invalid ? "bg-[#073c35] text-white shadow-sm hover:bg-emerald-800" : "bg-neutral-100 text-neutral-400"}`}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : pending ? <CalendarCheck2 className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
               {invalid ? "Check dates" : pending ? "Run report" : "Up to date"}
             </button>
@@ -1387,11 +1387,11 @@ export default function NrmsReportsPage() {
         })()}
       </section>
 
-      {error && <div role="alert" className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{error}</span><button type="button" onClick={() => void loadReports()} className="rounded-lg border-0 bg-red-100 px-3 py-1.5 text-xs font-bold text-red-800">Try again</button></div>}
+      {error && <div role="alert" className="flex items-center gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{error}</span><button type="button" onClick={() => void loadReports()} className="rounded-lg border-0 bg-red-100 px-3 py-1.5 text-xs font-bold text-red-800">Try again</button></div>}
 
       <section className="min-w-0 print:block">
         <div className="min-w-0">
-          {loading && !data ? <div className="flex min-h-[420px] items-center justify-center rounded-2xl border border-neutral-200 bg-white text-sm text-neutral-500"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Generating property reports…</div> : data && currencyReport ? (
+          {loading && !data ? <div className="flex min-h-[420px] items-center justify-center rounded-lg border border-neutral-200 bg-white text-sm text-neutral-500"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Generating property reports…</div> : data && currencyReport ? (
             <div className="space-y-4">
               <div className="hidden items-center justify-between border-b border-neutral-200 pb-3 print:flex"><div><strong className="text-base">{REPORTS.find((report) => report.key === activeReport)?.label}</strong><p className="m-0 text-xs text-neutral-500">{data.property.title} · {data.range.from} to {data.range.to}</p></div><span className="text-xs font-bold text-neutral-500">{currency}</span></div>
               {activeReport === "manager" && <ManagerReport data={data} currencyReport={currencyReport} money={money} />}
@@ -1448,7 +1448,7 @@ function PrintPackDialog({ open, busy, currentReport, onClose, onGenerate }: { o
       <DialogBackdrop className="fixed inset-0 bg-neutral-950/45 backdrop-blur-[2px]" />
       <div className="fixed inset-0 overflow-y-auto p-3 sm:p-5">
         <div className="flex min-h-full items-center justify-center">
-          <DialogPanel className="w-full max-w-[900px] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_30px_90px_-30px_rgba(15,23,42,0.65)]">
+          <DialogPanel className="w-full max-w-[900px] overflow-hidden rounded-md border border-neutral-200 bg-white shadow-[0_30px_90px_-30px_rgba(15,23,42,0.65)]">
             <header className="flex items-start justify-between gap-4 border-b border-neutral-200 px-5 py-4">
               <div className="flex min-w-0 items-start gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#073c35] text-white"><Printer className="h-4 w-4" /></span>
@@ -1497,7 +1497,7 @@ function ReportSelector({ value, onChange }: { value: ReportKey; onChange: (repo
 
   return (
     <div className="w-[200px] shrink-0 print:hidden">
-      <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} className="flex h-10 w-full items-center gap-2 rounded-xl border border-neutral-200 bg-white px-2.5 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/40 focus:outline-none focus:ring-2 focus:ring-emerald-500/15">
+      <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open} className="flex h-10 w-full items-center gap-2 rounded-md border border-neutral-200 bg-white px-2.5 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/40 focus:outline-none focus:ring-2 focus:ring-emerald-500/15">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
             <SelectedIcon className="h-3.5 w-3.5" />
           </span>
@@ -1512,7 +1512,7 @@ function ReportSelector({ value, onChange }: { value: ReportKey; onChange: (repo
       <Dialog open={open} onClose={setOpen} className="relative z-[10000]">
         <DialogBackdrop className="fixed inset-0 bg-neutral-950/35 backdrop-blur-[2px]" />
         <div className="fixed inset-0 flex items-center justify-center overflow-y-auto p-4">
-          <DialogPanel className="w-full max-w-[540px] overflow-hidden rounded-2xl border border-white/60 bg-white shadow-[0_30px_90px_-30px_rgba(15,23,42,0.55)]">
+          <DialogPanel className="w-full max-w-[540px] overflow-hidden rounded-lg border border-white/60 bg-white shadow-[0_30px_90px_-30px_rgba(15,23,42,0.55)]">
             <header className="flex items-center gap-3 border-b border-neutral-100 px-4 py-3.5">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#073c35] text-white"><FileText className="h-4 w-4" /></span>
               <div className="min-w-0 flex-1">
@@ -1534,7 +1534,7 @@ function ReportSelector({ value, onChange }: { value: ReportKey; onChange: (repo
                       onChange(report.key);
                       setOpen(false);
                     }}
-                    className={`flex min-h-[68px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${isSelected ? "border-emerald-200 bg-emerald-50" : "border-neutral-200 bg-white hover:border-emerald-200 hover:bg-neutral-50"}`}
+                    className={`flex min-h-[68px] w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left transition ${isSelected ? "border-emerald-200 bg-emerald-50" : "border-neutral-200 bg-white hover:border-emerald-200 hover:bg-neutral-50"}`}
                   >
                     <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${isSelected ? "bg-emerald-200/70 text-emerald-900" : "bg-neutral-100 text-neutral-500"}`}>
                       <Icon className="h-4 w-4" />
@@ -1563,7 +1563,7 @@ function ManagerReport({ data, currencyReport, money }: { data: ReportsResponse;
     <ReportTitle icon={ClipboardCheck} eyebrow="Management control" title="Daily manager report" text="The essential operational and financial position for the selected period." />
     <section className="grid gap-2 sm:grid-cols-3 xl:grid-cols-6"><Metric label="Arrivals" value={manager.arrivals} icon={CalendarDays} /><Metric label="Departures" value={manager.departures} icon={ArrowUpRight} /><Metric label="In house now" value={manager.inHouse} icon={Users} tone="emerald" /><Metric label="Open orders" value={manager.openOrders} icon={Clock3} tone={manager.openOrders ? "amber" : "neutral"} /><Metric label="Cancellations" value={manager.cancellations} icon={XCircle} tone={manager.cancellations ? "red" : "neutral"} /><Metric label="No-shows" value={manager.noShows} icon={AlertCircle} tone={manager.noShows ? "red" : "neutral"} /></section>
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MoneyMetric label="Total hotel revenue" value={money(summary.totalRevenue)} note="Rooms, folio extras and outlet-paid sales" icon={TrendingUp} tone="emerald" /><MoneyMetric label="Total collected" value={money(summary.totalCollected)} note="Guest, agency and outlet collections" icon={WalletCards} tone="blue" /><MoneyMetric label="Outstanding folios" value={money(summary.amountDue)} note={`${dueGuests} guest · ${summary.agencyFoliosDue} agency ${summary.agencyFoliosDue === 1 ? "folio" : "folios"} due`} icon={ReceiptText} tone={summary.amountDue > 0 ? "amber" : "emerald"} /><MoneyMetric label="Outlet-paid revenue" value={money(summary.outletPaidRevenue)} note="Collected directly by restaurant and bar" icon={Store} tone="violet" /></section>
-    <section className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]"><Panel title="Room position" description="Current physical room availability"><div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-neutral-200 sm:grid-cols-5"><SmallStat label="All rooms" value={manager.rooms.total} /><SmallStat label="Operational" value={manager.rooms.active} /><SmallStat label="Occupied" value={manager.rooms.occupiedNow} /><SmallStat label="Available" value={manager.rooms.availableNow} good /><SmallStat label="Out of service" value={manager.rooms.outOfService} warning={manager.rooms.outOfService > 0} /></div></Panel><Panel title="Management attention" description="Items that should be reviewed before closing the day"><div className="space-y-2"><AttentionRow ok={data.control.status === "BALANCED"} text={data.control.status === "BALANCED" ? "Automated report reconciliation is balanced." : `${data.control.warnings.length} report data-quality items require review.`} /><AttentionRow ok={summary.amountDue <= 0.005} text={summary.amountDue > 0 ? `${dueGuests} folios still have an outstanding balance.` : "All report-period folios are settled."} /><AttentionRow ok={manager.openOrders === 0} text={manager.openOrders ? `${manager.openOrders} outlet orders are still open.` : "No restaurant or bar orders are waiting."} /><AttentionRow ok={manager.rooms.outOfService === 0} text={manager.rooms.outOfService ? `${manager.rooms.outOfService} rooms are unavailable for sale.` : "All configured rooms are operational."} /></div></Panel></section>
+    <section className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]"><Panel title="Room position" description="Current physical room availability"><div className="grid grid-cols-2 gap-px overflow-hidden rounded-md bg-neutral-200 sm:grid-cols-5"><SmallStat label="All rooms" value={manager.rooms.total} /><SmallStat label="Operational" value={manager.rooms.active} /><SmallStat label="Occupied" value={manager.rooms.occupiedNow} /><SmallStat label="Available" value={manager.rooms.availableNow} good /><SmallStat label="Out of service" value={manager.rooms.outOfService} warning={manager.rooms.outOfService > 0} /></div></Panel><Panel title="Management attention" description="Items that should be reviewed before closing the day"><div className="space-y-2"><AttentionRow ok={data.control.status === "BALANCED"} text={data.control.status === "BALANCED" ? "Automated report reconciliation is balanced." : `${data.control.warnings.length} report data-quality items require review.`} /><AttentionRow ok={summary.amountDue <= 0.005} text={summary.amountDue > 0 ? `${dueGuests} folios still have an outstanding balance.` : "All report-period folios are settled."} /><AttentionRow ok={manager.openOrders === 0} text={manager.openOrders ? `${manager.openOrders} outlet orders are still open.` : "No restaurant or bar orders are waiting."} /><AttentionRow ok={manager.rooms.outOfService === 0} text={manager.rooms.outOfService ? `${manager.rooms.outOfService} rooms are unavailable for sale.` : "All configured rooms are operational."} /></div></Panel></section>
   </>;
 }
 
@@ -1650,7 +1650,7 @@ function FnbReport({ data, currency, money }: { data: ReportsResponse; currency:
           <div className="mt-3 flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2.5 text-xs"><span className="font-bold text-neutral-800">Result after losses</span><span className={`font-bold tabular-nums ${(row?.afterLosses ?? 0) < 0 ? "text-red-700" : "text-neutral-950"}`}>{money(row?.afterLosses ?? 0)}</span></div>
         </Panel>
         <Panel title="Supplier balances" description="Unpaid supplier invoices as of the report end">
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-neutral-200">{[{ key: "total", text: "Owed to suppliers", value: fnb.payables.total }, { key: "old", text: "Over 60 days", value: fnb.payables.buckets.d61_90 + fnb.payables.buckets.d90plus }].map((item) => <div key={item.key} className="bg-white px-3 py-3"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{item.text}</p><p className={`mb-0 mt-1 text-lg font-bold tabular-nums ${item.key === "old" && item.value > 0 ? "text-red-700" : "text-neutral-900"}`}>{money(item.value)}</p></div>)}</div>
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md bg-neutral-200">{[{ key: "total", text: "Owed to suppliers", value: fnb.payables.total }, { key: "old", text: "Over 60 days", value: fnb.payables.buckets.d61_90 + fnb.payables.buckets.d90plus }].map((item) => <div key={item.key} className="bg-white px-3 py-3"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{item.text}</p><p className={`mb-0 mt-1 text-lg font-bold tabular-nums ${item.key === "old" && item.value > 0 ? "text-red-700" : "text-neutral-900"}`}>{money(item.value)}</p></div>)}</div>
           <p className="mb-0 mt-3 text-[11px] text-neutral-500">The full invoice list is in Receivables aging.</p>
         </Panel>
       </section>
@@ -1673,7 +1673,7 @@ function TaxReport({ data, finance, currency, money }: { data: ReportsResponse; 
       <MoneyMetric label="Not yet at TRA" value={String(backlog)} note={backlog ? "Pending or failed receipts, all dates" : "Nothing waiting"} icon={AlertCircle} tone={backlog ? "amber" : "emerald"} />
     </section>
     {on && fiscal!.inRange && <Panel title="Receipts by status" description="Fiscal receipts for sales in this period">
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-neutral-200 sm:grid-cols-5">{["CONFIRMED", "PENDING", "SENDING", "FAILED", "DEAD_LETTER"].map((status) => <div key={status} className="bg-white px-3 py-3"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{label(status)}</p><p className={`mb-0 mt-1 text-lg font-bold tabular-nums ${(status === "FAILED" || status === "DEAD_LETTER") && (fiscal!.inRange!.byStatus[status] ?? 0) > 0 ? "text-red-700" : "text-neutral-900"}`}>{fiscal!.inRange!.byStatus[status] ?? 0}</p></div>)}</div>
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md bg-neutral-200 sm:grid-cols-5">{["CONFIRMED", "PENDING", "SENDING", "FAILED", "DEAD_LETTER"].map((status) => <div key={status} className="bg-white px-3 py-3"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{label(status)}</p><p className={`mb-0 mt-1 text-lg font-bold tabular-nums ${(status === "FAILED" || status === "DEAD_LETTER") && (fiscal!.inRange!.byStatus[status] ?? 0) > 0 ? "text-red-700" : "text-neutral-900"}`}>{fiscal!.inRange!.byStatus[status] ?? 0}</p></div>)}</div>
     </Panel>}
     <Panel title="Tax register" description="Tax separately captured in the accounting ledger">
       <DataTable headers={["Transaction", "Date and time", "Tax basis", "Tax payable"]}>{rows.map((row) => <tr key={row.transactionNumber}><Cell strong>{row.transactionNumber}</Cell><Cell>{shortDate(row.occurredAt)}</Cell><Cell>{row.description}</Cell><Cell align="right" strong>{money(row.tax)}</Cell></tr>)}</DataTable>
@@ -1759,7 +1759,7 @@ function PaymentsReport({ data, rows, currencyReport, money }: { data: ReportsRe
         <DataTable headers={["Method", "Transactions", "Amount"]}>{methods.map((row) => <tr key={row.method}><Cell strong>{label(row.method)}</Cell><Cell>{row.transactions}</Cell><Cell align="right" strong>{money(row.amount)}</Cell></tr>)}</DataTable>
         {methods.length === 0 && <TableEmpty text="No payments were recorded in this period." />}
       </Panel>
-      {!data.payments.cashVarianceAvailable && <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><p className="m-0"><strong>Cash variance is not calculated yet.</strong> NRMS can report recorded cash, but expected-versus-counted cash requires a cashier shift-closing record. No variance is guessed.</p></div>}
+      {!data.payments.cashVarianceAvailable && <div className="flex gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><p className="m-0"><strong>Cash variance is not calculated yet.</strong> NRMS can report recorded cash, but expected-versus-counted cash requires a cashier shift-closing record. No variance is guessed.</p></div>}
       <Panel title="Payment history" description="Select any column heading to sort. Newest collections appear first by default.">
         <DataTable headers={[
           header("Date and time", "occurredAt"),
@@ -2165,7 +2165,7 @@ function AuditReport({ rows }: { rows: AuditRow[] }) {
 }
 
 function ReportTitle({ icon: Icon, eyebrow, title, text }: { icon: IconType; eyebrow: string; title: string; text: string }) {
-  return <header className="flex items-center gap-3 px-1 pt-1"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700"><Icon className="h-[18px] w-[18px]" /></span><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-700">{eyebrow}</p><h2 className="mb-0 mt-0.5 text-lg font-bold tracking-tight text-neutral-950">{title}</h2><p className="mb-0 mt-0.5 text-xs leading-5 text-neutral-500">{text}</p></div></header>;
+  return <header className="flex items-center gap-3 px-1 pt-1"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700"><Icon className="h-[18px] w-[18px]" /></span><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-700">{eyebrow}</p><h2 className="mb-0 mt-0.5 text-lg font-bold tracking-tight text-neutral-950">{title}</h2><p className="mb-0 mt-0.5 text-xs leading-5 text-neutral-500">{text}</p></div></header>;
 }
 
 function Metric({ label: text, value, icon: Icon, tone = "neutral" }: { label: string; value: string | number; icon: IconType; tone?: "neutral" | "emerald" | "amber" | "red" }) {
@@ -2173,16 +2173,16 @@ function Metric({ label: text, value, icon: Icon, tone = "neutral" }: { label: s
   // Admin NRMS metric card: tinted icon tile, small caps label, bold figure.
   // A non-zero warning figure picks up its tone so it reads before the label.
   const figure = tone === "amber" ? "text-amber-700" : tone === "red" ? "text-red-700" : "text-slate-950";
-  return <article className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${colors[tone]}`}><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 truncate text-[10px] font-bold uppercase tracking-wide text-slate-500">{text}</p><p className={`mb-0 mt-1 text-lg font-bold tabular-nums ${figure}`}>{value}</p></div></article>;
+  return <article className="flex min-w-0 items-center gap-3 rounded-md border border-slate-200 bg-white px-4 py-3"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${colors[tone]}`}><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 truncate text-[10px] font-bold uppercase tracking-wide text-slate-500">{text}</p><p className={`mb-0 mt-1 text-lg font-bold tabular-nums ${figure}`}>{value}</p></div></article>;
 }
 
 function MoneyMetric({ label: text, value, note, icon: Icon, tone }: { label: string; value: string; note: string; icon: IconType; tone: "emerald" | "blue" | "violet" | "amber" }) {
   const colors = { emerald: "bg-emerald-50 text-emerald-700", blue: "bg-blue-50 text-blue-700", violet: "bg-violet-50 text-violet-700", amber: "bg-amber-50 text-amber-700" };
-  return <article className="flex min-h-[116px] min-w-0 flex-col rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm"><div className="flex items-start justify-between gap-2"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">{text}</p><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${colors[tone]}`}><Icon className="h-3.5 w-3.5" /></span></div><p className="mb-0 mt-2 truncate text-lg font-bold tabular-nums tracking-tight text-neutral-950">{value}</p><p className="mb-0 mt-auto pt-1.5 text-[10px] leading-4 text-neutral-500">{note}</p></article>;
+  return <article className="flex min-h-[116px] min-w-0 flex-col rounded-md border border-neutral-200 bg-white p-3.5 shadow-sm"><div className="flex items-start justify-between gap-2"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">{text}</p><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${colors[tone]}`}><Icon className="h-3.5 w-3.5" /></span></div><p className="mb-0 mt-2 truncate text-lg font-bold tabular-nums tracking-tight text-neutral-950">{value}</p><p className="mb-0 mt-auto pt-1.5 text-[10px] leading-4 text-neutral-500">{note}</p></article>;
 }
 
 function Panel({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
-  return <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm"><header className="border-b border-neutral-100 px-4 py-3"><h3 className="m-0 text-sm font-bold text-neutral-950">{title}</h3><p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">{description}</p></header><div className="min-w-0 p-3 sm:p-4">{children}</div></section>;
+  return <section className="min-w-0 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-sm"><header className="border-b border-neutral-100 px-4 py-3"><h3 className="m-0 text-sm font-bold text-neutral-950">{title}</h3><p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">{description}</p></header><div className="min-w-0 p-3 sm:p-4">{children}</div></section>;
 }
 
 function DataTable({ headers, children }: { headers: React.ReactNode[]; children: React.ReactNode }) {
@@ -2248,7 +2248,7 @@ function SettlementBadge({ value }: { value: GuestBalance["settlementStatus"] })
 }
 
 function InfoNote({ children }: { children: React.ReactNode }) {
-  return <div className="flex gap-2.5 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-[11px] leading-5 text-blue-900"><FileSearch className="mt-0.5 h-4 w-4 shrink-0" /><p className="m-0">{children}</p></div>;
+  return <div className="flex gap-2.5 rounded-md border border-blue-100 bg-blue-50 px-4 py-3 text-[11px] leading-5 text-blue-900"><FileSearch className="mt-0.5 h-4 w-4 shrink-0" /><p className="m-0">{children}</p></div>;
 }
 
 function TableEmpty({ text }: { text: string }) {
@@ -2256,5 +2256,5 @@ function TableEmpty({ text }: { text: string }) {
 }
 
 function EmptyReport({ title, text }: { title: string; text: string }) {
-  return <div className="rounded-2xl border border-dashed border-neutral-300 bg-white px-6 py-20 text-center"><FileText className="mx-auto h-8 w-8 text-neutral-300" /><h3 className="mb-0 mt-3 text-base font-bold text-neutral-800">{title}</h3><p className="mb-0 mt-1 text-xs text-neutral-500">{text}</p></div>;
+  return <div className="rounded-lg border border-dashed border-neutral-300 bg-white px-6 py-20 text-center"><FileText className="mx-auto h-8 w-8 text-neutral-300" /><h3 className="mb-0 mt-3 text-base font-bold text-neutral-800">{title}</h3><p className="mb-0 mt-1 text-xs text-neutral-500">{text}</p></div>;
 }

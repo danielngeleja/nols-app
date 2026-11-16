@@ -429,7 +429,7 @@ export default function NrmsBillingPage() {
       <div className="space-y-4 py-6">
         <h1 className="text-xl font-semibold text-neutral-950">Usage and payments</h1>
         {error ? (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">
             <span>{error}</span>
             <button type="button" onClick={() => void load()} className="rounded-lg border border-red-200 bg-white px-3 py-2 font-semibold text-red-800 hover:bg-red-100">Retry loading</button>
           </div>
@@ -591,7 +591,7 @@ export default function NrmsBillingPage() {
         #owner-billing-workspace .completed-payments-table tbody tr:last-child td {border-bottom:0;}
       `}</style>
       {smokeScenario && (
-        <section className="rounded-2xl border border-violet-200 bg-violet-50/70 p-3.5 sm:p-4" aria-label="Billing UI smoke test controls">
+        <section className="rounded-lg border border-violet-200 bg-violet-50/70 p-3.5 sm:p-4" aria-label="Billing UI smoke test controls">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-2.5">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700"><FlaskConical className="h-4 w-4" /></span>
@@ -621,23 +621,23 @@ export default function NrmsBillingPage() {
         </section>
       )}
 
-      <section className="relative isolate overflow-hidden rounded-2xl border border-[#d8dfd6] bg-[#edf2e9] p-5">
+      <section className="relative isolate overflow-hidden rounded-lg border border-[#d8dfd6] bg-[#edf2e9] p-5">
         <div className="pointer-events-none absolute inset-y-0 right-0 -z-10 w-1/3 opacity-40" aria-hidden="true" style={{backgroundImage:'radial-gradient(circle, #9aa98f 1px, transparent 1px)',backgroundSize:'16px 16px',maskImage:'linear-gradient(to right,transparent,black)'}} />
         <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3.5">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-700 text-white">
               <ReceiptText className="h-5 w-5" />
             </span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS billing</p>
-                <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusBadge(account.status)}`}>{titleCase(account.status)}</span>
+                <span className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-bold ${statusBadge(account.status)}`}>{titleCase(account.status)}</span>
               </div>
               <h1 className="pt-2 text-xl font-semibold tracking-tight text-neutral-950 sm:text-2xl">Usage and payments</h1>
               <p className="mt-1 text-xs leading-5 text-neutral-500 sm:text-sm">Track external room-night charges, statements and payment tokens.</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-emerald-100 bg-white/85 px-3.5 py-2.5 shadow-sm">
+          <div className="flex shrink-0 items-center gap-2 rounded-md border border-emerald-100 bg-white/85 px-3.5 py-2.5 shadow-sm">
             <CircleDollarSign className="h-4 w-4 text-emerald-700" />
             <div>
               <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">PAYG rate</p>
@@ -648,7 +648,7 @@ export default function NrmsBillingPage() {
       </section>
 
       {error && (
-        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-800">
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-800">
           <span className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</span>
           {/token.*(expired|no longer usable)|expired.*token/i.test(error) && balance > 0 && (
             <button type="button" disabled={busy} onClick={() => void requestToken()} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-800 transition hover:bg-red-100 disabled:opacity-60">
@@ -660,14 +660,14 @@ export default function NrmsBillingPage() {
       )}
 
       {alert && (
-        <div className={`flex items-start gap-2.5 rounded-xl border p-3.5 text-sm font-medium ${alert.className}`}>
+        <div className={`flex items-start gap-2.5 rounded-md border p-3.5 text-sm font-medium ${alert.className}`}>
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{alert.text}</span>
         </div>
       )}
 
       {paymentNotice && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50 p-3.5 text-sm font-medium text-blue-800" role="status">
+        <div className="flex items-start gap-2.5 rounded-md border border-blue-200 bg-blue-50 p-3.5 text-sm font-medium text-blue-800" role="status">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{paymentNotice}</span>
         </div>
@@ -679,10 +679,10 @@ export default function NrmsBillingPage() {
         <SummaryCard icon={CreditCard} label="Available credit" value={money(availableCredit)} detail={`Limit ${money(limit)}`} tone="blue" />
       </div>
 
-      <section className="rounded-2xl border border-neutral-200 bg-[#f8fafb] p-4 sm:p-5">
+      <section className="rounded-lg border border-neutral-200 bg-[#f8fafb] p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
               <Gauge className="h-5 w-5" />
             </span>
             <div>
@@ -711,7 +711,7 @@ export default function NrmsBillingPage() {
       </section>
 
       <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.75fr)]">
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+        <section className="min-w-0 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
           <SectionHeader icon={History} title="Usage ledger" subtitle="Charged external room-nights only" count={ledgerEvents.length} />
           <div className="space-y-3 border-b border-[#d5e1dc] bg-white p-3 sm:p-4">
             <div className="relative"><Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input aria-label="Search usage ledger" value={ledgerQuery} onChange={(event) => {setLedgerQuery(event.target.value);setLedgerPage(1);}} placeholder="Search guest, room, reservation or source" className="h-10 w-full min-w-0 rounded-lg border border-[#cedcd5] bg-[#f9fcfa] pl-9 pr-3 text-xs text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" /></div>
@@ -744,10 +744,10 @@ export default function NrmsBillingPage() {
                           ? "bg-neutral-300"
                           : "bg-emerald-500";
                     return (
-                      <article key={event.id} className="group relative overflow-hidden rounded-xl border border-[#d6e0e5] bg-white transition hover:border-[#a9c6b8] hover:bg-[#f9fcfa]">
+                      <article key={event.id} className="group relative overflow-hidden rounded-md border border-[#d6e0e5] bg-white transition hover:border-[#a9c6b8] hover:bg-[#f9fcfa]">
                         <span className={`absolute inset-y-0 left-0 w-1 ${accent}`} aria-hidden="true" />
                         <div className="grid min-w-0 grid-cols-[3.25rem_minmax(0,1fr)] gap-3 p-3 pl-4 sm:grid-cols-[3.25rem_minmax(0,1fr)_auto] sm:items-center sm:gap-4 sm:p-3.5 sm:pl-5">
-                          <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl border border-neutral-200 bg-neutral-50 text-center">
+                          <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-md border border-neutral-200 bg-neutral-50 text-center">
                             <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">{date.month}</span>
                             <span className="mt-0.5 text-base font-black leading-none tabular-nums text-neutral-800">{date.day}</span>
                           </div>
@@ -771,7 +771,7 @@ export default function NrmsBillingPage() {
                           </div>
 
                           <div className="col-span-2 flex items-center justify-between gap-3 border-t border-neutral-100 pt-2.5 sm:col-span-1 sm:flex-col sm:items-end sm:border-0 sm:pt-0 sm:text-right">
-                            <span className={`rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.06em] ${meta.badgeCls}`}>{meta.badge}</span>
+                            <span className={`rounded-md px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.06em] ${meta.badgeCls}`}>{meta.badge}</span>
                             <span
                               className={`text-sm font-semibold tabular-nums ${
                                 meta.amountNode === "zero"
@@ -791,7 +791,7 @@ export default function NrmsBillingPage() {
                     );
                   })}
                 </div>
-                <nav aria-label="Usage ledger pagination" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d5e1dc] bg-[#eef4f1] px-3 py-3">
+                <nav aria-label="Usage ledger pagination" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#d5e1dc] bg-[#eef4f1] px-3 py-3">
                   <p className="text-[11px] text-slate-600">Showing {ledgerStart + 1}–{Math.min(ledgerStart + LEDGER_PAGE_SIZE, filteredLedgerEvents.length)} of {filteredLedgerEvents.length} entries</p>
                   <div className="flex items-center gap-2">
                     <button type="button" aria-label="Previous ledger page" disabled={currentLedgerPage === 1} onClick={() => setLedgerPage(currentLedgerPage - 1)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#cbd9d2] bg-white text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
@@ -801,21 +801,21 @@ export default function NrmsBillingPage() {
                 </nav>
               </>
             ) : (
-              ledgerEvents.length ? <div role="status" className="rounded-xl border border-[#d5e1dc] bg-white p-5 text-xs text-slate-600">No entries match these filters. Adjust the search or clear filters to view the ledger.</div> : <EmptyState icon={History} title="No usage recorded yet" text="External room-night charges will appear here after eligible stays are checked out." />
+              ledgerEvents.length ? <div role="status" className="rounded-md border border-[#d5e1dc] bg-white p-5 text-xs text-slate-600">No entries match these filters. Adjust the search or clear filters to view the ledger.</div> : <EmptyState icon={History} title="No usage recorded yet" text="External room-night charges will appear here after eligible stays are checked out." />
             )}
           </div>
         </section>
 
-        <section id="statements" className="min-w-0 scroll-mt-24 overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+        <section id="statements" className="min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-blue-100 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
           <div className="relative overflow-hidden border-b border-[#cad9e9] bg-[#edf3fa] px-4 py-4 sm:px-5">
             <div className="relative flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-white text-blue-700 shadow-sm"><FileText className="h-4 w-4" /></span>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-blue-100 bg-white text-blue-700 shadow-sm"><FileText className="h-4 w-4" /></span>
               <div className="min-w-0">
                 <h2 className="truncate text-base font-semibold tracking-tight text-slate-900">Statements to pay</h2>
                 {activeStatements.length > 0 ? (
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
                       <span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden="true" />
                       {activeStatements.length} {activeStatements.length === 1 ? "statement" : "statements"} outstanding
                     </span>
@@ -835,14 +835,14 @@ export default function NrmsBillingPage() {
           </div>
 
           <div className="space-y-3 bg-neutral-50/70 p-3 sm:p-4">
-            <article className="overflow-hidden rounded-xl border border-[#c3ddcf] bg-[#f3faf6]">
+            <article className="overflow-hidden rounded-md border border-[#c3ddcf] bg-[#f3faf6]">
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Gauge className="h-[18px] w-[18px]" /></span>
                   <div className="min-w-0">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <p className="truncate text-sm font-bold text-neutral-900">Live usage</p>
-                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+                      <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
                         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" aria-hidden="true" />
                         Collecting
                       </span>
@@ -865,14 +865,14 @@ export default function NrmsBillingPage() {
             </article>
             {activeStatements.length ? (
               activeStatements.map((statement: any) => (
-                <article key={statement.id} className="overflow-hidden rounded-xl border border-[#cbd9e8] bg-white">
+                <article key={statement.id} className="overflow-hidden rounded-md border border-[#cbd9e8] bg-white">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d8e2ed] bg-[#f0f5fb] px-4 py-3.5">
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-white text-blue-700 shadow-sm"><ReceiptText className="h-[18px] w-[18px]" /></span>
                       <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <p className="truncate text-sm font-bold text-neutral-900">Statement #{statement.id}</p>
-                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${statusBadge(statement.status)}`}>{titleCase(statement.status)}</span>
+                          <span className={`inline-flex rounded-md border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${statusBadge(statement.status)}`}>{titleCase(statement.status)}</span>
                         </div>
                         <p className="mt-1 text-[10px] text-neutral-400">
                           NRMS room-night settlement
@@ -912,7 +912,7 @@ export default function NrmsBillingPage() {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
-                            <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${statusBadge(token.status)}`}>{titleCase(token.status)}</span>
+                            <span className={`rounded-md border px-2 py-0.5 text-[9px] font-bold ${statusBadge(token.status)}`}>{titleCase(token.status)}</span>
                             <button
                               type="button"
                               aria-label="Copy settlement reference"
@@ -1011,7 +1011,7 @@ export default function NrmsBillingPage() {
         </section>
       </div>
 
-      <section className="min-w-0 overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+      <section className="min-w-0 overflow-hidden rounded-lg border border-emerald-100 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader
           icon={CheckCircle2}
           title="Completed payments"
@@ -1022,7 +1022,7 @@ export default function NrmsBillingPage() {
           {completedStatements.length ? (
             <>
               {receiptError && <p role="alert" className="mb-3 text-xs text-red-700">{receiptError}</p>}
-              <div className="overflow-x-auto rounded-xl border border-[#cddfd5] bg-white">
+              <div className="overflow-x-auto rounded-md border border-[#cddfd5] bg-white">
               <table className="completed-payments-table w-full min-w-[1050px] table-fixed text-left text-xs"><colgroup>{[9,19,12,12,17,19,12].map((width, index) => <col key={index} style={{width:`${width}%`}} />)}</colgroup><thead className="bg-[#eef4f1]"><tr>{['Statement ID','Settlement reference','Amount paid','Payment method','Paid at (EAT)','Verification / reconciliation','Receipt'].map((label) => <th key={label} className="px-3 py-3 text-[10px] font-medium text-slate-600">{label}</th>)}</tr></thead><tbody>
               {visibleCompletedStatements.map((statement: any) => {
                 const paidToken = statement.tokens?.find((token: any) => String(token.status).toUpperCase() === "PAID" && token.payment) ?? statement.tokens?.find((token: any) => String(token.status).toUpperCase() === "PAID");
@@ -1046,7 +1046,7 @@ export default function NrmsBillingPage() {
               </div>
 
               {!showAllCompleted && completedStatements.length > COMPLETED_PREVIEW_COUNT && (
-                <div className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-100 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                <div className="mt-4 flex flex-col gap-3 rounded-md border border-emerald-100 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                   <p className="text-[11px] font-medium text-neutral-500">
                     Showing the <strong className="text-neutral-800">2 most recent</strong> of <strong className="text-neutral-800">{completedStatements.length}</strong> completed payments
                   </p>
@@ -1064,7 +1064,7 @@ export default function NrmsBillingPage() {
               )}
 
               {showAllCompleted && (
-                <div className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-100 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                <div className="mt-4 flex flex-col gap-3 rounded-md border border-emerald-100 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                   <p className="text-[11px] font-medium text-neutral-500">
                     Showing <strong className="text-neutral-800">{completedPageStart + 1}–{Math.min(completedPageStart + COMPLETED_PAGE_SIZE, completedStatements.length)}</strong> of <strong className="text-neutral-800">{completedStatements.length}</strong> completed payments
                   </p>
@@ -1138,8 +1138,8 @@ function SummaryCard({ icon: Icon, label, value, detail, tone }: { icon: LucideI
     blue: "border-[#bfd4eb] bg-[#eaf2fb]",
   } as const;
   return (
-    <div className={`flex min-w-0 items-center gap-3.5 rounded-xl border p-4 ${surfaces[tone]}`}>
-      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${tones[tone]}`}><Icon className="h-5 w-5" /></span>
+    <div className={`flex min-w-0 items-center gap-3.5 rounded-md border p-4 ${surfaces[tone]}`}>
+      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md border ${tones[tone]}`}><Icon className="h-5 w-5" /></span>
       <div className="min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{label}</p>
         <p className="mt-1 break-words text-lg font-semibold tracking-tight text-neutral-950">{value}</p>
@@ -1163,13 +1163,13 @@ function SectionHeader({ icon: Icon, title, subtitle, count }: { icon: LucideIco
     <div className="relative overflow-hidden border-b border-[#d5e1dc] bg-[#eef4f1] px-4 py-4 sm:px-5">
       <div className="relative flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Icon className="h-4 w-4" /></span>
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Icon className="h-4 w-4" /></span>
         <div className="min-w-0">
           <h2 className="truncate text-sm font-bold text-neutral-900">{title}</h2>
           <p className="mt-0.5 truncate text-[11px] text-neutral-400">{subtitle}</p>
         </div>
       </div>
-      <span className="rounded-full border border-emerald-100 bg-white px-2.5 py-1 text-[10px] font-bold text-emerald-700 shadow-sm">{count} {count === 1 ? "entry" : "entries"}</span>
+      <span className="rounded-md border border-emerald-100 bg-white px-2.5 py-1 text-[10px] font-bold text-emerald-700 shadow-sm">{count} {count === 1 ? "entry" : "entries"}</span>
       </div>
     </div>
   );
@@ -1178,7 +1178,7 @@ function SectionHeader({ icon: Icon, title, subtitle, count }: { icon: LucideIco
 function EmptyState({ icon: Icon, title, text, compact = false }: { icon: LucideIcon; title: string; text: string; compact?: boolean }) {
   return (
     <div className={`flex flex-col items-center justify-center px-5 text-center ${compact ? "min-h-44 py-7" : "min-h-52 py-9"}`}>
-      <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 text-neutral-300"><Icon className="h-5 w-5" /></span>
+      <span className="flex h-11 w-11 items-center justify-center rounded-lg border border-dashed border-neutral-200 bg-neutral-50 text-neutral-300"><Icon className="h-5 w-5" /></span>
       <p className="mt-3 text-sm font-bold text-neutral-700">{title}</p>
       <p className="mt-1 max-w-xs text-xs leading-5 text-neutral-400">{text}</p>
       <div className="mt-3 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald-700/60">

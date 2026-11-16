@@ -31,6 +31,12 @@ vi.mock("../middleware/rateLimit.js", () => ({
   limitSalesAdminWrite: (_req: any, _res: any, next: any) => next(),
 }));
 vi.mock("../lib/salesSelfDealing.js", () => ({ loadPartnerIdentity: vi.fn(async () => null), partnerOwnsPropertyReason: vi.fn(async () => null) }));
+// Listing history is covered in salesListingGuard.test.ts; here no property was live before its lead.
+vi.mock("../lib/salesListingHistory.js", async (importActual) => ({
+  ...(await importActual<typeof import("../lib/salesListingHistory.js")>()),
+  loadPropertyListedAt: vi.fn(async () => null),
+  loadPropertiesListedAt: vi.fn(async () => new Map()),
+}));
 vi.mock("../lib/salesVisitView.js", () => ({ serializeVisit: (v: any) => v, visitSelect: {} }));
 vi.mock("../lib/salesOwnerConfirmation.js", () => ({
   latestOwnerConfirmation: h.latestOwnerConfirmation,

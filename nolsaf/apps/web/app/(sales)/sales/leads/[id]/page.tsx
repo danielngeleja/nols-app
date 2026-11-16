@@ -245,7 +245,18 @@ export default function SalesLeadDetailPage() {
   const canRequestConversion = lead
     ? !["CONVERSION_REQUESTED", "CONVERTED", "LOST", "CANCELLED"].includes(lead.status)
     : false;
-  const canChangeStatus = lead ? !["CONVERSION_REQUESTED", "CONVERTED"].includes(lead.status) : false;
+  // Mirrors conversionEvidenceMissing in the API, which has the final say.
+  const conversionMissing: string[] = [];
+  if (lead) {
+    if (!lead.contactPhone?.trim() && !lead.contactEmail?.trim()) conversionMissing.push("Add the owner's phone or email.");
+    if (!lead.activities.some((activity) => ["VISIT", "CALL", "MEETING", "EMAIL"].includes(activity.type))) {
+      conversionMissing.push("Log at least one call, meeting, email or visit with the owner.");
+    }
+    if (Date.now() - new Date(lead.createdAt).getTime() < 24 * 60 * 60 * 1000) {
+      conversionMissing.push("Wait until the lead is 24 hours old.");
+    }
+  }
+  const canChangeStatus = lead ?!["CONVERSION_REQUESTED", "CONVERTED"].includes(lead.status) : false;
   const statusSaveDisabled = !lead || saving || statusEdit === lead.status || (statusEdit === "LOST" && lostReason.trim().length < 2);
 
   return (
@@ -328,6 +339,11 @@ export default function SalesLeadDetailPage() {
                     <p className="mb-0 mt-1 text-xs leading-5 text-amber-900/75">
                       An administrator will verify the property and attribution. This does not approve earnings.
                     </p>
+                    {conversionMissing.length ? (
+                      <ul className="mb-0 mt-2 list-disc space-y-0.5 pl-4 text-xs font-semibold text-amber-950">
+                        {conversionMissing.map((item) => <li key={item}>{item}</li>)}
+                      </ul>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -340,7 +356,7 @@ export default function SalesLeadDetailPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={saving}
+                    disabled={saving || conversionMissing.length > 0}
                     onClick={requestConversion}
                     className="min-h-10 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white disabled:opacity-50"
                   >
@@ -365,6 +381,7 @@ export default function SalesLeadDetailPage() {
                 </div>
                 <SalesLeadForm
                   key={lead.updatedAt}
+                  checkRef={String(id)}
                   initial={{
                     propertyName: lead.propertyName,
                     contactPerson: lead.contactPerson || "",

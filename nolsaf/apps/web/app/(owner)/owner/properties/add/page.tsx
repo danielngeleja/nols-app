@@ -2298,17 +2298,17 @@ export default function AddProperty() {
             }
           }}
         >
-          <div className="bg-[#02665e] rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+          <div className="bg-[#02665e] rounded-lg shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
             {/* Header */}
             <div className="px-5 pt-5 pb-4 text-center">
-              <div className="flex items-center justify-center w-12 h-12 mx-auto mb-3 rounded-xl bg-white/20">
+              <div className="flex items-center justify-center w-12 h-12 mx-auto mb-3 rounded-md bg-white/20">
                 <CheckCircle2 className="w-6 h-6 text-white" />
               </div>
               <h2 className="text-base font-bold text-white">Submitted for Review!</h2>
             </div>
 
             {/* Review Timeline */}
-            <div className="mx-5 rounded-lg bg-white/10 border border-white/20 p-3 mb-2">
+            <div className="mx-5 rounded-lg bg-white/10 border border-solid border-white/20 p-3 mb-2">
               <div className="flex items-start gap-2.5">
                 <Clock className="w-4 h-4 text-white/70 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
@@ -2321,7 +2321,7 @@ export default function AddProperty() {
             </div>
 
             {/* What Happens Next */}
-            <div className="mx-5 rounded-lg bg-white/10 border border-white/20 p-3 mb-2">
+            <div className="mx-5 rounded-lg bg-white/10 border border-solid border-white/20 p-3 mb-2">
               <div className="flex items-start gap-2.5">
                 <Bell className="w-4 h-4 text-white/70 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
@@ -2336,7 +2336,7 @@ export default function AddProperty() {
             </div>
 
             {/* Status note */}
-            <div className="mx-5 rounded-lg bg-white/5 border border-white/10 p-2.5 mb-4">
+            <div className="mx-5 rounded-lg bg-white/5 border border-solid border-white/10 p-2.5 mb-4">
               <p className="text-[10px] text-white/60 text-center">
                 View your property status in the <strong className="text-white/80">Pending Properties</strong> section.
               </p>
@@ -2367,7 +2367,7 @@ export default function AddProperty() {
           onClick={() => setShowMismatchModal(false)}
         >
           <div
-            className="bg-[#02665e] rounded-2xl shadow-2xl max-w-sm w-full p-5 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            className="bg-[#02665e] rounded-lg shadow-2xl max-w-sm w-full p-5 animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -2391,7 +2391,7 @@ export default function AddProperty() {
             </div>
 
             {/* Mismatch details */}
-            <div className="rounded-lg bg-white/10 border border-white/20 p-3 mb-3">
+            <div className="rounded-lg bg-white/10 border border-solid border-white/20 p-3 mb-3">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-3.5 h-3.5 text-amber-300 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-white/90 leading-relaxed">{pinRegionMismatch}</p>
@@ -2399,31 +2399,31 @@ export default function AddProperty() {
             </div>
 
             {/* Manual coordinate entry */}
-            <div className="rounded-lg bg-white/10 border border-white/20 p-3 mb-3">
+            <div className="rounded-lg bg-white/10 border border-solid border-white/20 p-3 mb-3">
               <h4 className="text-[11px] font-bold text-white mb-2 flex items-center gap-1.5">
                 <Crosshair className="w-3 h-3 text-white/70" />
                 Enter Coordinates Manually
               </h4>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] font-semibold text-white/60 uppercase tracking-wide mb-1">Lat</label>
+                  <label className="block text-[10px] font-semibold text-white/60 mb-1">Lat</label>
                   <input
                     type="number"
                     step="any"
                     value={manualLat}
                     onChange={(e) => setManualLat(e.target.value)}
-                    className="w-full h-8 rounded-lg border border-white/30 bg-white/10 px-2.5 text-xs text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-white/50 focus:border-white/50"
+                    className="w-full h-8 rounded-lg border border-solid border-white/30 bg-white/10 px-2.5 text-xs text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-white/50 focus:border-white/50"
                     placeholder="-6.7924"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-semibold text-white/60 uppercase tracking-wide mb-1">Lng</label>
+                  <label className="block text-[10px] font-semibold text-white/60 mb-1">Lng</label>
                   <input
                     type="number"
                     step="any"
                     value={manualLng}
                     onChange={(e) => setManualLng(e.target.value)}
-                    className="w-full h-8 rounded-lg border border-white/30 bg-white/10 px-2.5 text-xs text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-white/50 focus:border-white/50"
+                    className="w-full h-8 rounded-lg border border-solid border-white/30 bg-white/10 px-2.5 text-xs text-white placeholder-white/40 focus:outline-none focus:ring-1 focus:ring-white/50 focus:border-white/50"
                     placeholder="39.2083"
                   />
                 </div>
@@ -2438,7 +2438,7 @@ export default function AddProperty() {
                   setShowMismatchModal(false);
                   scrollToStep(0);
                 }}
-                className="flex-1 h-9 rounded-lg border border-white/30 bg-white/10 text-xs font-semibold text-white hover:bg-white/20 transition"
+                className="flex-1 h-9 rounded-lg border border-solid border-white/30 bg-white/10 text-xs font-semibold text-white hover:bg-white/20 transition"
               >
                 Move Pin on Map
               </button>
@@ -2470,7 +2470,7 @@ export default function AddProperty() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowSubmitConfirm(false)} />
           <div
-            className="relative w-full max-w-sm rounded-2xl bg-[#02665e] shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            className="relative w-full max-w-sm rounded-lg bg-[#02665e] shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
           >
             {/* Header */}
             <div className="px-5 pt-5 pb-4">
@@ -2481,7 +2481,7 @@ export default function AddProperty() {
               <p className="mt-1 text-xs text-white/70">You won&apos;t be able to edit while it&apos;s pending approval.</p>
             </div>
             {/* Body */}
-            <div className="mx-5 rounded-lg bg-white/10 border border-white/20 p-3 mb-4 space-y-2">
+            <div className="mx-5 rounded-lg bg-white/10 border border-solid border-white/20 p-3 mb-4 space-y-2">
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
                 <span className="text-xs text-white/90">Our team will verify your property details</span>
@@ -2496,7 +2496,7 @@ export default function AddProperty() {
               <button
                 type="button"
                 onClick={() => setShowSubmitConfirm(false)}
-                className="flex-1 h-9 rounded-lg border border-white/30 bg-white/10 text-xs font-semibold text-white hover:bg-white/20 transition"
+                className="flex-1 h-9 rounded-lg border border-solid border-white/30 bg-white/10 text-xs font-semibold text-white hover:bg-white/20 transition"
               >
                 Cancel
               </button>
@@ -2519,7 +2519,7 @@ export default function AddProperty() {
           onClick={(e) => { if (e.target === e.currentTarget) setSubmitMismatch(null); }}
         >
           <div
-            className="relative w-full max-w-md rounded-2xl bg-[#02665e] shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+            className="relative w-full max-w-md rounded-lg bg-[#02665e] shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
             role="dialog"
             aria-modal="true"
             aria-label="Location mismatch"
@@ -2549,7 +2549,7 @@ export default function AddProperty() {
 
               {/* Which fields are off */}
               {submitMismatch.mismatches.length > 0 ? (
-                <div className="rounded-lg bg-white/10 border border-white/20 p-3 space-y-2">
+                <div className="rounded-lg bg-white/10 border border-solid border-white/20 p-3 space-y-2">
                   {submitMismatch.mismatches.map((m, i) => (
                     <div key={i} className="flex items-start gap-2">
                       <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
@@ -2558,7 +2558,7 @@ export default function AddProperty() {
                   ))}
                 </div>
               ) : (
-                <div className="rounded-lg bg-white/10 border border-white/20 p-3">
+                <div className="rounded-lg bg-white/10 border border-solid border-white/20 p-3">
                   <div className="flex items-start gap-2">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
                     <span className="text-[11px] leading-relaxed text-white/90">{submitMismatch.message}</span>
@@ -2567,7 +2567,7 @@ export default function AddProperty() {
               )}
 
               {/* Reassurance: nothing is lost */}
-              <div className="flex items-start gap-2 rounded-lg bg-white/5 border border-white/10 p-2.5">
+              <div className="flex items-start gap-2 rounded-lg bg-white/5 border border-solid border-white/10 p-2.5">
                 <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-300" />
                 <span className="text-[11px] leading-relaxed text-white/70">
                   Everything you&rsquo;ve entered stays saved. You&rsquo;ll come straight back here to submit.
@@ -2579,7 +2579,7 @@ export default function AddProperty() {
                 <button
                   type="button"
                   onClick={() => setSubmitMismatch(null)}
-                  className="flex-1 h-9 rounded-lg border border-white/30 bg-white/10 text-xs font-semibold text-white hover:bg-white/20 transition"
+                  className="flex-1 h-9 rounded-lg border border-solid border-white/30 bg-white/10 text-xs font-semibold text-white hover:bg-white/20 transition"
                 >
                   Cancel
                 </button>

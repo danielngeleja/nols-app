@@ -60,7 +60,7 @@ export default function SuppliersTab({ propertyId, overview, refreshKey, onChang
         </div>
         {overview.canReceive && <button type="button" onClick={() => setEditing("new")} className={primaryButton}><UserPlus className="h-4 w-4" />Add supplier</button>}
       </div>
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {!rows ? (
         <div className={`${cardClass} flex min-h-[20vh] items-center justify-center text-neutral-300`}><Loader2 className="h-6 w-6 animate-spin" /></div>
@@ -129,7 +129,7 @@ function Stat({ label, value, warn, muted }: { label: string; value: string; war
 /** Two-letter badge so a long list of suppliers scans by eye. */
 function Initials({ name, large }: { name: string; large?: boolean }) {
   const letters = name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]?.toUpperCase() ?? "").join("") || "?";
-  return <span className={`flex shrink-0 items-center justify-center rounded-xl bg-brand/10 font-bold text-brand ${large ? "h-14 w-14 text-lg" : "h-10 w-10 text-sm"}`}>{letters}</span>;
+  return <span className={`flex shrink-0 items-center justify-center rounded-md bg-brand/10 font-bold text-brand ${large ? "h-14 w-14 text-lg" : "h-10 w-10 text-sm"}`}>{letters}</span>;
 }
 
 /** wa.me wants the number in international form without the plus. */
@@ -273,7 +273,7 @@ function SectionTitle({ icon: Icon, title, hint }: { icon: typeof Phone; title: 
 
 function EmptyBox({ icon: Icon, text }: { icon: typeof Phone; text: string }) {
   return (
-    <div className="mt-2 flex items-center gap-3 rounded-xl border border-dashed border-neutral-300 bg-neutral-50/60 px-4 py-4">
+    <div className="mt-2 flex items-center gap-3 rounded-md border border-dashed border-neutral-300 bg-neutral-50/60 px-4 py-4">
       <Icon className="h-5 w-5 shrink-0 text-neutral-300" />
       <p className="m-0 text-sm text-neutral-500">{text}</p>
     </div>
@@ -318,7 +318,7 @@ function SupplierDetailModal({ supplierId, summary, currency, onEdit, onClose }:
         <div className="flex min-h-[20vh] items-center justify-center text-neutral-300">{error ? <p className="text-sm text-red-700">{error}</p> : <Loader2 className="h-6 w-6 animate-spin" />}</div>
       ) : (
         <div className="space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-solid border-neutral-200 bg-neutral-50/60 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-solid border-neutral-200 bg-neutral-50/60 p-4">
             <div className="flex min-w-0 items-center gap-3">
               <Initials name={supplier.name} large />
               <div className="min-w-0">
@@ -338,7 +338,7 @@ function SupplierDetailModal({ supplierId, summary, currency, onEdit, onClose }:
           </div>
 
           {summary && (
-            <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-solid border-neutral-200 sm:grid-cols-4">
+            <div className="grid grid-cols-2 overflow-hidden rounded-md border border-solid border-neutral-200 sm:grid-cols-4">
               <Stat label="Deliveries" value={summary.stats.receipts ? String(summary.stats.receipts) : "None"} muted={!summary.stats.receipts} />
               <Stat label="Bought" value={summary.stats.spend ? formatMoney(summary.stats.spend, currency) : "-"} muted={!summary.stats.spend} />
               <Stat label="On credit" value={summary.stats.onCredit ? formatMoney(summary.stats.onCredit, currency) : "-"} warn={summary.stats.onCredit > 0} muted={!summary.stats.onCredit} />
@@ -377,7 +377,7 @@ function SupplierDetailModal({ supplierId, summary, currency, onEdit, onClose }:
             {data.prices.length === 0 ? (
               <EmptyBox icon={Tags} text="Prices fill in by themselves from the first delivery. Once they appear you can set an agreed price, and anything above it is flagged." />
             ) : (
-              <div className="mt-2 overflow-x-auto rounded-xl border border-solid border-neutral-200">
+              <div className="mt-2 overflow-x-auto rounded-md border border-solid border-neutral-200">
                 <table className="w-full min-w-[620px] border-collapse text-left">
                   <thead>
                     <tr className="bg-neutral-50/80 text-xs font-bold uppercase tracking-wide text-neutral-500">
@@ -417,7 +417,7 @@ function SupplierDetailModal({ supplierId, summary, currency, onEdit, onClose }:
             {data.receipts.length === 0 ? (
               <EmptyBox icon={Truck} text="Nothing received from this supplier yet. Deliveries recorded under New delivery or against an order show here." />
             ) : (
-              <ul className="m-0 mt-2 list-none divide-y divide-neutral-100 rounded-xl border border-solid border-neutral-200 p-0">
+              <ul className="m-0 mt-2 list-none divide-y divide-neutral-100 rounded-md border border-solid border-neutral-200 p-0">
                 {data.receipts.map((row) => {
                   const state = RECEIPT_STATUS[row.status] ?? { label: row.status, tone: "muted" as const };
                   return (

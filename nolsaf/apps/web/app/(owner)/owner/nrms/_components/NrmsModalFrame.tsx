@@ -58,7 +58,7 @@ export default function ModalFrame({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`relative flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-2xl sm:max-h-[calc(100dvh-3rem)] ${compact ? (small ? "max-w-sm" : "max-w-2xl") : extraWide ? "max-w-[980px]" : wide ? "max-w-2xl" : small ? "max-w-sm" : "max-w-md"}`}
+        className={`relative flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 flex-col overflow-hidden rounded-lg border border-white/70 bg-white shadow-2xl sm:max-h-[calc(100dvh-3rem)] ${compact ? (small ? "max-w-sm" : "max-w-2xl") : extraWide ? "max-w-[980px]" : wide ? "max-w-2xl" : small ? "max-w-sm" : "max-w-md"}`}
       >
         <div className={`flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 ${compact ? "px-4 py-2.5" : "px-5 py-4 sm:px-6"}`}>
           {compact ? (
@@ -69,7 +69,7 @@ export default function ModalFrame({
             </div>
           ) : (
             <div className="flex min-w-0 items-center gap-3">
-              {icon && <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white">{icon}</span>}
+              {icon && <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-700 text-white">{icon}</span>}
               <div className="min-w-0">
                 <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS</p>
                 <h3 className="mb-0 mt-0.5 text-lg font-bold tracking-tight text-neutral-950">{title}</h3>

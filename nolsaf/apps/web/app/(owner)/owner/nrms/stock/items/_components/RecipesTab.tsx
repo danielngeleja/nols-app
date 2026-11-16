@@ -116,7 +116,7 @@ export default function RecipesTab({ workspace, onAddItem, onCatalogue }: { work
   return (
     <div className="space-y-4">
       {goods.length === 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50/70 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-solid border-amber-200 bg-amber-50/70 px-4 py-3">
           <p className="m-0 text-sm text-amber-900">Add stock items first, then come back to say what each menu item uses.</p>
           <div className="flex flex-wrap gap-2">
             {onCatalogue && <button type="button" onClick={onCatalogue} className={outlineButton}><Library className="h-4 w-4" />Starter catalogue</button>}
@@ -215,7 +215,7 @@ export default function RecipesTab({ workspace, onAddItem, onCatalogue }: { work
                   )}
 
                   {quickOpen && (
-                    <div className="mx-4 mb-3 space-y-2 rounded-xl border border-solid border-neutral-300 bg-white p-2.5 shadow-sm">
+                    <div className="mx-4 mb-3 space-y-2 rounded-md border border-solid border-neutral-300 bg-white p-2.5 shadow-sm">
                       <p className="m-0 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500">One serving uses</p>
                       <div className="flex flex-wrap items-center gap-2">
                         <select value={quickGood} onChange={(event) => { const next = event.target.value ? Number(event.target.value) : ""; setQuickGood(next); const unit = next ? goodById.get(next)?.baseUnit : undefined; setQuickQty(unit === "ML" ? "25" : unit === "G" ? "250" : "1"); }} className={`${smallFieldClass} min-w-[180px] flex-1 text-sm`}>
@@ -249,7 +249,7 @@ export default function RecipesTab({ workspace, onAddItem, onCatalogue }: { work
         ) : (
           <section className={`${cardClass} h-max overflow-hidden`}>
             <div className="flex items-center gap-3 border-0 border-b border-solid border-neutral-200 px-5 py-4">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand/10 text-brand"><BookOpen className="h-5 w-5" /></span>
+              <span className="flex h-10 w-10 items-center justify-center rounded-md bg-brand/10 text-brand"><BookOpen className="h-5 w-5" /></span>
               <div>
                 <p className="m-0 text-[15px] font-bold text-neutral-900">Choose a menu item on the left</p>
                 <p className="m-0 mt-0.5 text-[13px] text-neutral-500">Its recipe opens here, with cost and margin as you type.</p>

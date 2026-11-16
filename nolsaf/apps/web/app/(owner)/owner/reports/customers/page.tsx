@@ -18,7 +18,7 @@ export default function Customers() {
 
       {data && (
         <>
-          <div className="bg-white border rounded-2xl p-3">
+          <div className="bg-white border border-solid rounded-lg p-3">
             <div className="text-sm font-medium mb-2">Guests by Nationality</div>
             <div className="w-full h-64">
               <ResponsiveContainer>
@@ -39,7 +39,7 @@ export default function Customers() {
             </div>
           </div>
 
-          <div className="bg-white border rounded-2xl p-3">
+          <div className="bg-white border border-solid rounded-lg p-3">
             <div className="flex items-center justify-between gap-3 mb-2">
               <div className="text-sm font-medium">Top Customers</div>
               <div className="text-xs text-slate-500">Sorted by spend</div>
@@ -47,7 +47,7 @@ export default function Customers() {
 
             <div className="overflow-x-auto">
               <div className="min-w-[680px]">
-                <div className="max-h-[520px] overflow-auto rounded-xl border">
+                <div className="max-h-[520px] overflow-auto rounded-md border border-solid">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 z-10 bg-slate-50">
                       <tr className="text-xs font-semibold tracking-wide text-slate-600">

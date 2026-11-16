@@ -93,7 +93,7 @@ export default function DeliveriesTab({ propertyId, overview, onNew, refreshKey,
         {overview.canReceive && <button type="button" onClick={onNew} className={primaryButton}><Truck className="h-4 w-4" />New delivery</button>}
       </div>
 
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       <div className={`${cardClass} overflow-hidden`}>
         {!rows ? (
@@ -211,7 +211,7 @@ export function ReceiptDetailModal({ receiptId, currency, onClose, onChanged }: 
             <Fact label="Rejected value" value={receipt.rejectedValue > 0 ? formatMoney(receipt.rejectedValue, currency) : "None"} />
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-solid border-neutral-200">
+          <div className="overflow-x-auto rounded-md border border-solid border-neutral-200">
             <table className="w-full min-w-[760px] border-collapse text-left">
               <thead>
                 <tr className="bg-neutral-50/80 text-xs font-bold uppercase tracking-wide text-neutral-500">
@@ -253,7 +253,7 @@ export function ReceiptDetailModal({ receiptId, currency, onClose, onChanged }: 
           {(receipt.photoUrl || receipt.note || receipt.decisionNote || receipt.voidReason) && (
             <div className="grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
               {receipt.photoUrl && (
-                <a href={receipt.photoUrl} target="_blank" rel="noreferrer" className="block h-28 w-28 overflow-hidden rounded-xl border border-solid border-neutral-300">
+                <a href={receipt.photoUrl} target="_blank" rel="noreferrer" className="block h-28 w-28 overflow-hidden rounded-md border border-solid border-neutral-300">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={receipt.photoUrl} alt="Delivery note" className="h-full w-full object-cover" />
                 </a>
@@ -295,7 +295,7 @@ export function ReceiptDetailModal({ receiptId, currency, onClose, onChanged }: 
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-neutral-50 px-3 py-2.5">
+    <div className="rounded-md bg-neutral-50 px-3 py-2.5">
       <p className="m-0 text-xs text-neutral-500">{label}</p>
       <p className="m-0 mt-0.5 truncate text-[15px] font-bold text-neutral-900">{value}</p>
     </div>

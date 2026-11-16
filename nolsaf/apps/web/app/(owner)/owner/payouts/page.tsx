@@ -90,7 +90,7 @@ export default function PayoutsOverviewPage() {
   }
 
   if (error) {
-    return <p className="m-0 rounded-2xl border border-solid border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-800">{error}</p>;
+    return <p className="m-0 rounded-lg border border-solid border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-800">{error}</p>;
   }
 
   if (!enabled) return <UpcomingFlowNotice />;
@@ -99,7 +99,7 @@ export default function PayoutsOverviewPage() {
 
   return (
     <div className="space-y-5">
-      <section id="withdraw" className="scroll-mt-6 rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-7">
+      <section id="withdraw" className="scroll-mt-6 rounded-lg border border-solid border-slate-200 bg-white p-5 sm:p-7">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <p className="m-0 text-sm font-medium text-slate-500">Ready to withdraw</p>
@@ -120,14 +120,14 @@ export default function PayoutsOverviewPage() {
               )}
             </p>
           </div>
-          <div className="min-w-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50/40 p-4 lg:w-[21rem]">
+          <div className="min-w-0 rounded-md border border-solid border-emerald-200 bg-emerald-50/40 p-4 lg:w-[21rem]">
             <h2 className="m-0 mb-3 text-sm font-bold text-slate-900">Withdraw earnings</h2>
             <WithdrawPanel readyTotal={figures.readyTotal} readyCount={figures.ready.length} recoveryDue={recoveryDue} dailyLimit={dailyLimit} dailyRemaining={dailyRemaining} dailyResetAt={dailyResetAt} onDone={() => void reload()} />
           </div>
         </div>
 
         {recoveryDue > 0 && (
-          <p className="m-0 mt-5 rounded-xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="m-0 mt-5 rounded-md border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             {formatTzs(recoveryDue)} from an earlier refund is still owed. It is taken from your next withdrawal (policy 6.3.3), and our
             team reviews your payouts until it is cleared.
           </p>
@@ -156,7 +156,7 @@ export default function PayoutsOverviewPage() {
               detail: `${figures.paidMonthCount} ${figures.paidMonthCount === 1 ? "payout" : "payouts"}`,
             },
           ].map((tile) => (
-            <div key={tile.label} className="rounded-xl bg-slate-50 px-4 py-3.5">
+            <div key={tile.label} className="rounded-md bg-slate-50 px-4 py-3.5">
               <dt className="text-xs font-medium text-slate-500">{tile.label}</dt>
               <dd className="m-0 mt-1 text-lg font-bold tabular-nums text-slate-900">{tile.value}</dd>
               <dd className="m-0 mt-0.5 truncate text-[11px] text-slate-500">{tile.detail}</dd>
@@ -165,7 +165,7 @@ export default function PayoutsOverviewPage() {
         </dl>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
         <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 px-5 py-4">
           <div>
             <h2 className="m-0 text-base font-bold text-slate-900">In progress</h2>

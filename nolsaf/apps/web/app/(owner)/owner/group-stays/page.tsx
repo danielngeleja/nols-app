@@ -101,7 +101,7 @@ export default function OwnerGroupStaysPage() {
         title="Assigned to me"
         subtitle="Group stays NoLSAF placed at your properties: who is coming, when, and what they need."
         actions={
-          <Link href="/owner/group-stays/claims" className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
+          <Link href="/owner/group-stays/claims" className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
             <HandHeart className="h-4 w-4" aria-hidden /> Find stays to claim
           </Link>
         }
@@ -114,31 +114,31 @@ export default function OwnerGroupStaysPage() {
       />
 
       {error && (
-        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           <span className="flex-1">{error}</span>
           <button type="button" onClick={() => void load()} className="inline-flex h-8 items-center gap-1.5 rounded-lg border-0 bg-rose-600 px-3 text-xs font-bold text-white"><RefreshCw className="h-3.5 w-3.5" /> Try again</button>
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
         <div className="px-3 sm:px-4"><StatusTabs tabs={tabs} value={status} onChange={setStatus} /></div>
 
         {groupStays === null ? (
           <ul className="m-0 list-none p-0" aria-busy="true">
             {[0, 1, 2].map((i) => (
               <li key={i} className="flex items-center gap-4 border-0 border-b border-solid border-slate-100 px-5 py-4">
-                <div className="h-14 w-12 rounded-xl bg-slate-100" />
+                <div className="h-14 w-12 rounded-md bg-slate-100" />
                 <div className="flex-1 space-y-2"><div className="h-3.5 w-48 rounded-full bg-slate-100" /><div className="h-3 w-80 max-w-full rounded-full bg-slate-50" /></div>
               </li>
             ))}
           </ul>
         ) : shown.length === 0 ? (
           <div className="flex flex-col items-center px-6 py-12 text-center">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500"><Users className="h-6 w-6" aria-hidden /></span>
+            <span className="grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-500"><Users className="h-6 w-6" aria-hidden /></span>
             <p className="m-0 mt-3 text-sm font-bold text-slate-900">{status ? `No ${humanize(status).toLowerCase()} group stays` : "No group stays assigned to you yet"}</p>
             <p className="m-0 mt-1 max-w-sm text-xs leading-5 text-slate-500">When NoLSAF places a group at one of your properties, or accepts one of your offers, it appears here.</p>
             {!status && (
-              <Link href="/owner/group-stays/claims" className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#02665e] px-4 text-xs font-bold text-white no-underline hover:bg-[#014d47]">
+              <Link href="/owner/group-stays/claims" className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-md bg-[#02665e] px-4 text-xs font-bold text-white no-underline hover:bg-[#014d47]">
                 See stays open to claim <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             )}
@@ -149,7 +149,7 @@ export default function OwnerGroupStaysPage() {
               <div key={section.key}>
                 <div className="mb-3 flex items-baseline gap-2">
                   <h2 className="m-0 text-sm font-bold text-slate-900">{section.label}</h2>
-                  <span className="rounded-full bg-slate-100 px-2 text-[11px] font-bold tabular-nums text-slate-600">{section.items.length}</span>
+                  <span className="rounded-md bg-slate-100 px-2 text-[11px] font-bold tabular-nums text-slate-600">{section.items.length}</span>
                   <span className="text-xs text-slate-400">{section.hint}</span>
                 </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
@@ -194,24 +194,24 @@ function StayCard({ gs }: { gs: GroupStay }) {
   const end = gs.checkOut ? new Date(gs.checkOut).getTime() : NaN;
   const progress = Number.isFinite(start) && Number.isFinite(end) && end > start ? Math.min(100, Math.max(0, ((Date.now() - start) / (end - start)) * 100)) : 0;
   return (
-    <Link href={`/owner/group-stays/${encodeURIComponent(gs.reference ?? String(gs.id))}`} className="group flex flex-col overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white no-underline shadow-[0_10px_30px_-26px_rgba(15,23,42,0.5)] transition hover:border-[#02665e]/35 hover:shadow-[0_18px_40px_-26px_rgba(1,42,38,0.5)]">
+    <Link href={`/owner/group-stays/${encodeURIComponent(gs.reference ?? String(gs.id))}`} className="group flex flex-col overflow-hidden rounded-lg border border-solid border-slate-200 bg-white no-underline shadow-[0_10px_30px_-26px_rgba(15,23,42,0.5)] transition hover:border-[#02665e]/35 hover:shadow-[0_18px_40px_-26px_rgba(1,42,38,0.5)]">
       <div className="px-5 pt-4">
         <div className="flex items-center justify-between gap-2">
-          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ring-1 ring-inset ${tone.chip}`}>{humanize(gs.status)}</span>
+          <span className={`rounded-md px-2.5 py-0.5 text-[11px] font-bold ring-1 ring-inset ${tone.chip}`}>{humanize(gs.status)}</span>
           <span className="text-[11px] font-semibold text-slate-400">Group #{gs.id}</span>
         </div>
         <h3 className="m-0 mt-2.5 text-lg font-bold leading-snug text-slate-900">{humanize(gs.groupType) || "Group"} group</h3>
         <p className="m-0 mt-0.5 flex items-center gap-1.5 truncate text-xs text-slate-500"><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />{place}</p>
       </div>
 
-      <dl className="m-0 mx-5 mt-4 grid grid-cols-3 overflow-hidden rounded-xl bg-slate-50 ring-1 ring-inset ring-slate-200">
+      <dl className="m-0 mx-5 mt-4 grid grid-cols-3 overflow-hidden rounded-md bg-slate-50 ring-1 ring-inset ring-slate-200">
         {[
           { label: "Guests", value: gs.headcount, Icon: Users },
           { label: "Rooms", value: gs.roomsNeeded, Icon: BedDouble },
           { label: "Nights", value: nights ?? "?", Icon: Moon },
         ].map((fact, index) => (
           <div key={fact.label} className={`px-3 py-2.5 ${index > 0 ? "border-0 border-l border-solid border-slate-200" : ""}`}>
-            <dt className="flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400"><fact.Icon className="h-3 w-3" aria-hidden />{fact.label}</dt>
+            <dt className="flex items-center gap-1 text-[11px] font-bold text-slate-400"><fact.Icon className="h-3 w-3" aria-hidden />{fact.label}</dt>
             <dd className="m-0 mt-0.5 text-xl font-extrabold tabular-nums text-slate-900">{fact.value}</dd>
           </div>
         ))}
@@ -219,8 +219,8 @@ function StayCard({ gs }: { gs: GroupStay }) {
 
       <div className="mx-5 mt-4">
         <div className="flex items-center justify-between gap-2 text-xs">
-          <span><span className="block text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400">Arrive</span><span className="font-semibold text-slate-800">{dayLabel(gs.checkIn)}</span></span>
-          <span className="text-right"><span className="block text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400">Leave</span><span className="font-semibold text-slate-800">{dayLabel(gs.checkOut)}</span></span>
+          <span><span className="block text-[11px] font-bold text-slate-400">Arrive</span><span className="font-semibold text-slate-800">{dayLabel(gs.checkIn)}</span></span>
+          <span className="text-right"><span className="block text-[11px] font-bold text-slate-400">Leave</span><span className="font-semibold text-slate-800">{dayLabel(gs.checkOut)}</span></span>
         </div>
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
           <div className={`h-full rounded-full ${tone.tile.split(" ")[0]}`} style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }} />

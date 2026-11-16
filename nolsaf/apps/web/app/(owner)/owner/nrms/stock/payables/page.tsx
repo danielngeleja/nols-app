@@ -81,7 +81,7 @@ export default function SupplierPayablesPage() {
       <section className={`${cardClass} overflow-hidden`}>
         <div className="flex flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand text-white shadow-sm"><HandCoins className="h-6 w-6" /></span>
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand text-white shadow-sm"><HandCoins className="h-6 w-6" /></span>
             <div className="min-w-0">
               <h1 className="m-0 truncate text-2xl font-bold tracking-tight text-neutral-950">Supplier payables</h1>
               <p className="m-0 mt-0.5 text-sm text-neutral-500">Debts for goods taken on credit, counted from what was accepted at the door.</p>
@@ -95,10 +95,10 @@ export default function SupplierPayablesPage() {
 
         <div className="grid grid-cols-1 gap-3 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-4 py-4 sm:grid-cols-2 sm:px-6 xl:grid-cols-4">
           {(tiles.length ? tiles : Array.from({ length: 4 }, () => null)).map((tile, index) => {
-            if (!tile) return <div key={index} className="h-[92px] animate-pulse rounded-xl border border-solid border-neutral-200 bg-white" />;
+            if (!tile) return <div key={index} className="h-[92px] animate-pulse rounded-md border border-solid border-neutral-200 bg-white" />;
             const tone = TILE_TONE[tile.tone];
             return (
-              <div key={tile.label} className={`flex items-start gap-3 rounded-xl border border-solid bg-white p-3.5 shadow-sm ${tone.ring}`}>
+              <div key={tile.label} className={`flex items-start gap-3 rounded-md border border-solid bg-white p-3.5 shadow-sm ${tone.ring}`}>
                 <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone.chip}`}><tile.icon className="h-4 w-4" /></span>
                 <div className="min-w-0">
                   <p className="m-0 text-[11px] font-bold uppercase tracking-wide text-neutral-500">{tile.label}</p>
@@ -121,12 +121,12 @@ export default function SupplierPayablesPage() {
       </section>
 
       {notice && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+        <div className="flex items-center justify-between gap-3 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
           <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" />{notice}</span>
           <button type="button" onClick={() => setNotice(null)} className="border-0 bg-transparent p-0 text-sm font-bold text-emerald-800 [font-family:inherit] hover:underline">Dismiss</button>
         </div>
       )}
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {!summary && !error ? (
         <div className="flex min-h-[30vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>
@@ -253,7 +253,7 @@ function InvoicesTab({ propertyId, currency, refreshKey, onChanged }: { property
           <button key={String(value)} type="button" onClick={() => setFlaggedOnly(value)} className={`h-8 rounded-full border border-solid px-3 text-[13px] font-bold [font-family:inherit] ${flaggedOnly === value ? "border-brand bg-brand text-white" : "border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50"}`}>{label}</button>
         ))}
       </div>
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       <div className={`${cardClass} overflow-hidden`}>
         {!rows ? <div className="flex min-h-[20vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>
           : rows.length === 0 ? <EmptyState icon={FileText} title="No invoices here" body="Record each supplier invoice against the deliveries it bills, so a bill for goods that never arrived is caught." />
@@ -275,7 +275,7 @@ function PaymentsTab({ propertyId, currency, refreshKey, onChanged }: { property
   useEffect(() => { void load(); }, [load, refreshKey]);
   return (
     <div className="space-y-3">
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       <div className={`${cardClass} overflow-hidden`}>
         {!rows ? <div className="flex min-h-[20vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>
           : rows.length === 0 ? <EmptyState icon={Banknote} title="No payments recorded" body="Record each payment to a supplier with its M-Pesa code or bank reference. It posts to the books at Night Audit." />

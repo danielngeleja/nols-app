@@ -79,9 +79,9 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
 
   const supportBanner = isSupportSession ? (
     <section aria-label="Admin support session" className="relative z-[70] box-border w-full min-w-0 max-w-full">
-      <div className={`box-border w-full min-w-0 overflow-hidden rounded-2xl border shadow-[0_16px_40px_-20px_rgba(1,42,38,0.5),0_4px_14px_-7px_rgba(1,42,38,0.18)] ${urgentSupportSession ? "border-rose-300 bg-rose-50" : "border-[#b9ddd6] bg-white"}`}>
+      <div className={`box-border w-full min-w-0 overflow-hidden rounded-lg border shadow-[0_16px_40px_-20px_rgba(1,42,38,0.5),0_4px_14px_-7px_rgba(1,42,38,0.18)] ${urgentSupportSession ? "border-rose-300 bg-rose-50" : "border-[#b9ddd6] bg-white"}`}>
         <div className="flex min-h-[4.5rem] min-w-0 items-center gap-3 px-3 py-2.5 sm:gap-4 sm:px-4">
-          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${urgentSupportSession ? "bg-rose-100 text-rose-700" : "bg-[#e7f6f1] text-[#02665e]"}`} aria-hidden="true">
+          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-md ${urgentSupportSession ? "bg-rose-100 text-rose-700" : "bg-[#e7f6f1] text-[#02665e]"}`} aria-hidden="true">
             <ShieldCheck className="h-5 w-5" strokeWidth={2.2} />
           </span>
           <div className="min-w-0 flex-1">
@@ -89,7 +89,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
               <strong className={`text-sm font-bold leading-tight sm:text-base ${urgentSupportSession ? "text-rose-950" : "text-[#123c37]"}`}>
                 {supportSession?.impersonated ? "Support session" : "Support session ended"}
               </strong>
-              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] ${urgentSupportSession ? "border-rose-300 bg-white/80 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${urgentSupportSession ? "border-rose-300 bg-white/80 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
                 {supportSession?.impersonated ? "Read only" : "Expired"}
               </span>
             </div>
@@ -110,14 +110,14 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
             onClick={returnToAdmin}
             disabled={returning}
             aria-label={supportSession?.canReturn ? "Return to Admin" : "Sign out of support session"}
-            className={`inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-semibold text-white shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-wait disabled:opacity-60 sm:px-4 sm:text-sm ${urgentSupportSession ? "border-rose-700 bg-rose-700 hover:bg-rose-800 focus-visible:outline-rose-700" : "border-[#02665e] bg-[#02665e] hover:bg-[#014e49] focus-visible:outline-[#02665e]"}`}
+            className={`inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border px-3 text-xs font-semibold text-white shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-wait disabled:opacity-60 sm:px-4 sm:text-sm ${urgentSupportSession ? "border-rose-700 bg-rose-700 hover:bg-rose-800 focus-visible:outline-rose-700" : "border-[#02665e] bg-[#02665e] hover:bg-[#014e49] focus-visible:outline-[#02665e]"}`}
           >
             {supportSession?.canReturn ? <ArrowLeft className="h-4 w-4" aria-hidden="true" /> : <LogOut className="h-4 w-4" aria-hidden="true" />}
             <span className="hidden sm:inline">{returning ? "Returning…" : supportSession?.canReturn ? "Return to Admin" : "Sign out"}</span>
             <span className="sm:hidden">{returning ? "Wait…" : supportSession?.canReturn ? "Return" : "Sign out"}</span>
           </button>
         </div>
-        {returnError && <p role="alert" className="border-t border-rose-100 bg-rose-50 px-4 py-2 text-xs font-medium text-rose-800">{returnError}</p>}
+        {returnError && <p role="alert" className="border-0 border-t border-solid border-rose-100 bg-rose-50 px-4 py-2 text-xs font-medium text-rose-800">{returnError}</p>}
       </div>
     </section>
   ) : null;

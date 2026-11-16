@@ -725,6 +725,25 @@ export const limitSalesLeadRead = rateLimit({
   },
 });
 
+/**
+ * The new-lead "is this property free?" lookup. Tight on purpose: it answers
+ * about other partners' prospects, so typing names to map the market must run
+ * out quickly. The form debounces, so honest use stays far below this.
+ */
+export const limitSalesLeadCheck = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many property checks. Please wait a few minutes and try again." },
+  keyGenerator: (req) => {
+    const userId = (req as any)?.user?.id;
+    return Number.isInteger(userId)
+      ? `sales-lead-check:${userId}`
+      : `sales-lead-check:${req.ip || req.socket.remoteAddress || "unknown"}`;
+  },
+});
+
 export const limitSalesLeadWrite = rateLimit({
   windowMs: 15 * 60_000,
   limit: 100,

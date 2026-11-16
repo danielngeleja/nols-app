@@ -8,7 +8,7 @@ export default function NrmsOperationalFooter() {
   return (
     <footer
       aria-label="NRMS workspace resources"
-      className="mx-3 mb-3 mt-2 shrink-0 rounded-2xl border border-neutral-200 bg-white px-3.5 py-2 shadow-sm sm:px-5"
+      className="mx-3 mb-3 mt-2 shrink-0 rounded-lg border border-neutral-200 bg-white px-3.5 py-2 shadow-sm sm:px-5"
     >
       <div className="flex items-center justify-between gap-3 text-xs font-bold text-neutral-500">
         <Link

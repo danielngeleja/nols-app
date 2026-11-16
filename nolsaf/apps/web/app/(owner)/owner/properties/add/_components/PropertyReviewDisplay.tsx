@@ -39,7 +39,7 @@ export function PropertyReviewDisplay({
   return (
     <div className="space-y-6">
       {/* Property Basics Section - Matches Approved Property View */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-md border border-solid border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-3 mb-5">
           <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
             <CheckCircle2 className="w-5 h-5 text-emerald-600" />
@@ -72,7 +72,7 @@ export function PropertyReviewDisplay({
       </div>
 
       {/* Room Types Section - Matches Approved Property View */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-md border border-solid border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-3 mb-5">
           <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
             <CheckCircle2 className="w-5 h-5 text-emerald-600" />

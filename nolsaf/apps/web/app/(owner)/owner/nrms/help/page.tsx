@@ -125,7 +125,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 function SectionHead({ icon: Icon, tone, title, subtitle, right }: { icon: typeof ClipboardList; tone: string; title: string; subtitle: string; right?: ReactNode }) {
   return (
     <div className="mb-3 flex flex-wrap items-center gap-3">
-      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white ${tone}`}><Icon className="h-4 w-4" /></span>
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-white ${tone}`}><Icon className="h-4 w-4" /></span>
       <div className="min-w-0 flex-1">
         <h2 className="m-0 text-base font-bold text-neutral-950 sm:text-lg">{title}</h2>
         <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">{subtitle}</p>
@@ -222,19 +222,19 @@ export default function NrmsHelpPage() {
       <style>{`#nrms-guide, #nrms-guide * { box-sizing: border-box; } #nrms-guide [class~="border"] { border-style: solid; }`}</style>
 
       {/* Hero: who and where, plus the search that answers anything below. */}
-      <header className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-5 text-white shadow-sm sm:p-7">
+      <header className="relative overflow-hidden rounded-lg border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-5 text-white shadow-sm sm:p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200">NRMS guide</p>
             <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-3xl">Everything about running NRMS</h1>
             <p className="mb-0 mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-200 sm:text-sm">
               <span className="font-semibold text-white">{state?.property.title ?? selectedProperty?.title ?? "Your property"}</span>
-              <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[11px] font-bold text-emerald-100"><ShieldCheck className="h-3 w-3" />You are {ROLE_LABEL[role] ?? role}</span>
+              <span className="inline-flex items-center gap-1 rounded-md border border-white/25 bg-white/10 px-2 py-0.5 text-[11px] font-bold text-emerald-100"><ShieldCheck className="h-3 w-3" />You are {ROLE_LABEL[role] ?? role}</span>
             </p>
           </div>
           <button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh live status" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/25 bg-white/10 text-white transition hover:bg-white/20 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
         </div>
-        <label className="relative mt-5 flex h-12 items-center rounded-xl bg-white px-3.5 text-neutral-900 shadow-sm focus-within:ring-4 focus-within:ring-emerald-300/40">
+        <label className="relative mt-5 flex h-12 items-center rounded-md bg-white px-3.5 text-neutral-900 shadow-sm focus-within:ring-4 focus-within:ring-emerald-300/40">
           <Search className="h-4 w-4 shrink-0 text-neutral-400" />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the guide: check-in, night audit, QR, billing, staff…" aria-label="Search the guide" className="h-full min-w-0 flex-1 border-0 bg-transparent px-2.5 text-sm outline-none" />
           {query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="grid h-7 w-7 place-items-center rounded-md border-0 bg-neutral-100 text-neutral-500 hover:text-neutral-900"><X className="h-3.5 w-3.5" /></button>}
@@ -242,13 +242,13 @@ export default function NrmsHelpPage() {
         {!q && (
           <nav aria-label="Guide sections" className="mt-3 flex flex-wrap gap-1.5">
             {[["setup", "Setup"], ["workspace", "Workspace"], ...sections.map((section) => [section.id, section.title] as [string, string]), ["roles", "Roles"], ["faq", "Questions"], ["support", "Support"]].map(([id, text]) => (
-              <a key={id} href={`#guide-${id}`} className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white no-underline transition hover:bg-white/20">{text}</a>
+              <a key={id} href={`#guide-${id}`} className="rounded-md border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white no-underline transition hover:bg-white/20">{text}</a>
             ))}
           </nav>
         )}
       </header>
 
-      {error && <div role="alert" className="flex items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><AlertTriangle className="h-4 w-4 shrink-0" /><span className="flex-1">{error} The guide below still works.</span><button type="button" onClick={() => void load()} className="rounded-lg border-0 bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-900">Try again</button></div>}
+      {error && <div role="alert" className="flex items-center gap-2.5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><AlertTriangle className="h-4 w-4 shrink-0" /><span className="flex-1">{error} The guide below still works.</span><button type="button" onClick={() => void load()} className="rounded-lg border-0 bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-900">Try again</button></div>}
 
       {q ? (
         /* Search results replace the page until the box is cleared. */
@@ -256,7 +256,7 @@ export default function NrmsHelpPage() {
           <p className="m-0 mb-3 text-sm text-neutral-600">{results.length ? <><strong className="text-neutral-900">{results.length}</strong> {results.length === 1 ? "answer" : "answers"} for “{q}”</> : q.length < 2 ? "Keep typing…" : <>No answers for “{q}”. Try another word, or <a href="#guide-support" onClick={() => setQuery("")} className="font-semibold text-emerald-700">contact support</a>.</>}</p>
           <div className="grid gap-3 sm:grid-cols-2">
             {results.map((hit, index) => (
-              <article key={`${hit.area}-${hit.title}-${index}`} className="flex flex-col rounded-xl border border-neutral-200 bg-white p-4">
+              <article key={`${hit.area}-${hit.title}-${index}`} className="flex flex-col rounded-md border border-neutral-200 bg-white p-4">
                 <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700">{hit.area}</p>
                 <h3 className="m-0 mt-1 text-sm font-bold text-neutral-900"><Highlight text={hit.title} query={q} /></h3>
                 <p className="m-0 mt-1 flex-1 text-xs leading-5 text-neutral-600"><Highlight text={hit.text} query={q} /></p>
@@ -267,13 +267,13 @@ export default function NrmsHelpPage() {
         </section>
       ) : <>
         {/* Live setup checklist */}
-        <section id="guide-setup" className="scroll-mt-4 overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+        <section id="guide-setup" className="scroll-mt-4 overflow-hidden rounded-lg border border-neutral-200 bg-white">
           <div className="flex flex-wrap items-center gap-4 p-4 sm:p-5">
             <div className="min-w-0 flex-1">
               <h2 className="m-0 text-base font-bold text-neutral-950 sm:text-lg">{loading && !state ? "Checking your setup…" : requiredDone === required.length ? "Your property is fully set up" : `${requiredDone} of ${required.length} setup steps done`}</h2>
               <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">{nextStep ? <>Next: <strong className="text-neutral-800">{nextStep.title}</strong></> : "Optional extras are listed below if you need them."}</p>
             </div>
-            {nextStep && managerView && <Link href={nextStep.href} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-xs font-bold text-white no-underline transition hover:bg-emerald-800">Continue setup <ArrowRight className="h-4 w-4" /></Link>}
+            {nextStep && managerView && <Link href={nextStep.href} className="inline-flex h-10 items-center gap-2 rounded-md bg-[#073c35] px-4 text-xs font-bold text-white no-underline transition hover:bg-emerald-800">Continue setup <ArrowRight className="h-4 w-4" /></Link>}
           </div>
           <div className="mx-4 mb-4 flex h-2 gap-1 sm:mx-5" aria-hidden="true">
             {required.map((item) => <span key={item.key} className={`h-full flex-1 rounded-full ${item.done ? "bg-emerald-500" : "bg-neutral-200"}`} />)}
@@ -286,7 +286,7 @@ export default function NrmsHelpPage() {
                 <li key={item.key} className="flex items-center gap-3 bg-white px-4 py-3 sm:px-5">
                   <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${item.done ? "bg-emerald-600 text-white" : item.optional ? "border border-dashed border-neutral-300 text-neutral-300" : "border border-neutral-300 text-neutral-300"}`}>{item.done ? <Check className="h-4 w-4" /> : null}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="m-0 flex flex-wrap items-center gap-1.5 text-sm font-semibold text-neutral-900">{item.title}{item.optional && <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-neutral-500">Optional</span>}</p>
+                    <p className="m-0 flex flex-wrap items-center gap-1.5 text-sm font-semibold text-neutral-900">{item.title}{item.optional && <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-neutral-500">Optional</span>}</p>
                     <p className="m-0 mt-0.5 truncate text-xs text-neutral-500">{item.detail}</p>
                   </div>
                   {!item.done && managerView && <Link href={item.href} className="shrink-0 rounded-lg border border-neutral-200 px-2.5 py-1.5 text-[11px] font-bold text-emerald-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50">Set up</Link>}
@@ -304,7 +304,7 @@ export default function NrmsHelpPage() {
               { icon: LogOut, label: "Leaving today", value: state.today.departures, href: "/owner/nrms/reservations", tone: "bg-amber-50 text-amber-700" },
               { icon: BedDouble, label: "In house now", value: state.today.inHouse, href: "/owner/nrms/calendar", tone: "bg-emerald-50 text-emerald-700" },
             ].map(({ icon: Icon, label: text, value, href, tone }) => (
-              <Link key={text} href={href} className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 no-underline transition hover:border-emerald-300">
+              <Link key={text} href={href} className="group flex items-center gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 no-underline transition hover:border-emerald-300">
                 <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone}`}><Icon className="h-4 w-4" /></span>
                 <div className="min-w-0 flex-1"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">{text}</p><p className="m-0 mt-0.5 text-lg font-bold tabular-nums text-slate-950">{value}</p></div>
                 <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-emerald-600" />
@@ -318,9 +318,9 @@ export default function NrmsHelpPage() {
           <SectionHead icon={CheckCircle2} tone="bg-[#02665e]" title="Your workspace" subtitle="Every part of running the property. Click any card to open it." />
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {modules.map(({ icon: Icon, title, text, href, stat }) => (
-              <Link key={title} href={href} className="group flex flex-col rounded-xl border border-neutral-200 bg-white p-4 no-underline transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
+              <Link key={title} href={href} className="group flex flex-col rounded-md border border-neutral-200 bg-white p-4 no-underline transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
                 <div className="flex items-start gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Icon className="h-5 w-5" /></span>
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Icon className="h-5 w-5" /></span>
                   <div className="min-w-0 flex-1">
                     <h3 className="m-0 text-sm font-bold text-neutral-900">{title}</h3>
                     <p className="m-0 mt-0.5 text-xs leading-5 text-neutral-500">{text}</p>
@@ -337,9 +337,9 @@ export default function NrmsHelpPage() {
         {sections.map((section) => {
           const isOpen = Boolean(open[section.id]);
           return (
-            <section key={section.id} id={`guide-${section.id}`} className="scroll-mt-4 overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+            <section key={section.id} id={`guide-${section.id}`} className="scroll-mt-4 overflow-hidden rounded-lg border border-neutral-200 bg-white">
               <button type="button" aria-expanded={isOpen} onClick={() => setOpen((current) => ({ ...current, [section.id]: !isOpen }))} className="flex w-full items-center gap-3 border-0 bg-transparent p-4 text-left sm:p-5">
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white ${section.tone}`}><section.icon className="h-4 w-4" /></span>
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-white ${section.tone}`}><section.icon className="h-4 w-4" /></span>
                 <span className="min-w-0 flex-1"><span className="block text-base font-bold text-neutral-950">{section.title}</span><span className="mt-0.5 block text-xs text-neutral-500 sm:text-sm">{section.subtitle} · {section.steps.length} steps</span></span>
                 <ChevronDown className={`h-5 w-5 shrink-0 text-neutral-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
               </button>
@@ -354,8 +354,8 @@ export default function NrmsHelpPage() {
                 </ol>
                 {section.id === "billing" && payg && (
                   <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2 sm:px-5">
-                    <div className="rounded-xl bg-neutral-50 p-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Account status</p><p className="m-0 mt-1 text-sm font-bold text-neutral-900">{payg.status.replaceAll("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}</p><p className="m-0 mt-0.5 text-xs text-neutral-500">{trialDaysLeft != null && trialDaysLeft > 0 ? `Trial ends in ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"}` : "Trial finished"}</p></div>
-                    <div className="rounded-xl bg-neutral-50 p-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Unpaid usage</p><p className={`m-0 mt-1 text-sm font-bold tabular-nums ${unpaidLimit > 0 && unpaid / unpaidLimit > 0.8 ? "text-amber-700" : "text-neutral-900"}`}>{usagePolicy?.currency ?? ""} {unpaid.toLocaleString()}</p>{unpaidLimit > 0 && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-200"><div className={`h-full rounded-full ${unpaid / unpaidLimit > 0.8 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, (unpaid / unpaidLimit) * 100)}%` }} /></div>}<p className="m-0 mt-1 text-[11px] text-neutral-500">Limit {usagePolicy?.currency ?? ""} {unpaidLimit.toLocaleString()} before access pauses</p></div>
+                    <div className="rounded-md bg-neutral-50 p-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Account status</p><p className="m-0 mt-1 text-sm font-bold text-neutral-900">{payg.status.replaceAll("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}</p><p className="m-0 mt-0.5 text-xs text-neutral-500">{trialDaysLeft != null && trialDaysLeft > 0 ? `Trial ends in ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"}` : "Trial finished"}</p></div>
+                    <div className="rounded-md bg-neutral-50 p-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Unpaid usage</p><p className={`m-0 mt-1 text-sm font-bold tabular-nums ${unpaidLimit > 0 && unpaid / unpaidLimit > 0.8 ? "text-amber-700" : "text-neutral-900"}`}>{usagePolicy?.currency ?? ""} {unpaid.toLocaleString()}</p>{unpaidLimit > 0 && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-200"><div className={`h-full rounded-full ${unpaid / unpaidLimit > 0.8 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, (unpaid / unpaidLimit) * 100)}%` }} /></div>}<p className="m-0 mt-1 text-[11px] text-neutral-500">Limit {usagePolicy?.currency ?? ""} {unpaidLimit.toLocaleString()} before access pauses</p></div>
                   </div>
                 )}
                 {section.href && <div className="flex flex-wrap gap-2 px-4 pb-4 sm:px-5">{section.href.map((link) => <Link key={link.to} href={link.to} className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50">{link.label} <ArrowRight className="h-3.5 w-3.5" /></Link>)}</div>}
@@ -371,7 +371,7 @@ export default function NrmsHelpPage() {
             {ROLES.map((item) => {
               const mine = item.key === role;
               return (
-                <div key={item.key} className={`flex items-start gap-3 rounded-xl border p-3.5 ${mine ? "border-emerald-300 bg-emerald-50" : "border-neutral-200 bg-white"}`}>
+                <div key={item.key} className={`flex items-start gap-3 rounded-md border p-3.5 ${mine ? "border-emerald-300 bg-emerald-50" : "border-neutral-200 bg-white"}`}>
                   <span className={`mt-0.5 inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${mine ? "bg-emerald-600 text-white" : "bg-neutral-100 text-neutral-700"}`}>{ROLE_LABEL[item.key]}</span>
                   <p className="m-0 text-xs leading-5 text-neutral-600">{item.scope}{mine && <strong className="mt-0.5 block text-emerald-800">This is your role.</strong>}</p>
                 </div>
@@ -381,7 +381,7 @@ export default function NrmsHelpPage() {
           <p className="m-0 mt-3 text-xs leading-5 text-neutral-500">Invite by email. The person needs a NoLSAF account under that email and must accept before the role applies. Outlet roles also need an outlet chosen. Revoking access needs a reason and is recorded.</p>
         </section>
 
-        <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <div className="flex gap-3 rounded-md border border-amber-200 bg-amber-50 p-4">
           <BadgeCheck className="h-5 w-5 shrink-0 text-amber-600" />
           <div><p className="m-0 text-sm font-semibold text-amber-900">NRMS stays tied to your Marketplace listing</p><p className="m-0 mt-1 text-xs leading-5 text-amber-800">It opens while the property is approved, and pauses if approval is withdrawn or usage goes unpaid past the limit. Both are reversible once resolved.</p></div>
         </div>
@@ -389,7 +389,7 @@ export default function NrmsHelpPage() {
         {/* FAQ accordion */}
         <section id="guide-faq" className="scroll-mt-4">
           <SectionHead icon={FileText} tone="bg-neutral-700" title="Frequently asked" subtitle="The questions owners and staff ask most." />
-          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+          <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
             {faqs.map((item, index) => {
               const isOpen = openFaq === index;
               return (
@@ -407,19 +407,19 @@ export default function NrmsHelpPage() {
       </>}
 
       {/* Support, pre-filled with the property so nobody has to explain it */}
-      <section id="guide-support" className="scroll-mt-4 rounded-2xl border border-neutral-200 bg-white p-5 sm:p-6">
+      <section id="guide-support" className="scroll-mt-4 rounded-lg border border-neutral-200 bg-white p-5 sm:p-6">
         <SectionHead icon={Headset} tone="bg-[#02b4f5]" title="Still need a hand?" subtitle="Reach a real person. Your property and role are included automatically." />
         <div className="grid gap-3 sm:grid-cols-3">
-          <a href={`https://wa.me/${SUPPORT_PHONE.replace(/[^\d]/g, "")}?text=${supportText}`} target="_blank" rel="noopener noreferrer" className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 no-underline transition hover:border-emerald-300">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 transition group-hover:bg-emerald-600"><MessageCircle className="h-4 w-4 text-emerald-600 group-hover:text-white" /></span>
+          <a href={`https://wa.me/${SUPPORT_PHONE.replace(/[^\d]/g, "")}?text=${supportText}`} target="_blank" rel="noopener noreferrer" className="group flex items-center gap-3 rounded-md border border-neutral-200 bg-white p-4 no-underline transition hover:border-emerald-300">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 transition group-hover:bg-emerald-600"><MessageCircle className="h-4 w-4 text-emerald-600 group-hover:text-white" /></span>
             <span><span className="block text-xs font-bold text-neutral-900">WhatsApp</span><span className="block text-[11px] text-neutral-500">Fastest way to reach us</span></span>
           </a>
-          <a href={`tel:${SUPPORT_PHONE}`} className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 no-underline transition hover:border-sky-300">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 transition group-hover:bg-sky-500"><Phone className="h-4 w-4 text-sky-600 group-hover:text-white" /></span>
+          <a href={`tel:${SUPPORT_PHONE}`} className="group flex items-center gap-3 rounded-md border border-neutral-200 bg-white p-4 no-underline transition hover:border-sky-300">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-sky-50 transition group-hover:bg-sky-500"><Phone className="h-4 w-4 text-sky-600 group-hover:text-white" /></span>
             <span><span className="block text-xs font-bold text-neutral-900">Call us</span><span className="block text-[11px] text-neutral-500">{process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+255 736 766 726"}</span></span>
           </a>
-          <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`NRMS help: ${state?.property.title ?? selectedProperty?.title ?? "property"}`)}&body=${supportText}`} className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 no-underline transition hover:border-neutral-300">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-100 transition group-hover:bg-neutral-700"><Mail className="h-4 w-4 text-neutral-600 group-hover:text-white" /></span>
+          <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`NRMS help: ${state?.property.title ?? selectedProperty?.title ?? "property"}`)}&body=${supportText}`} className="group flex items-center gap-3 rounded-md border border-neutral-200 bg-white p-4 no-underline transition hover:border-neutral-300">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-neutral-100 transition group-hover:bg-neutral-700"><Mail className="h-4 w-4 text-neutral-600 group-hover:text-white" /></span>
             <span><span className="block text-xs font-bold text-neutral-900">Email us</span><span className="block text-[11px] text-neutral-500">Replies within 24 hours</span></span>
           </a>
         </div>

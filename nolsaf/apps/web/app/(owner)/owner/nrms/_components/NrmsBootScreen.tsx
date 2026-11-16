@@ -112,7 +112,7 @@ export default function NrmsBootScreen({
               <p className="m-0 text-xs text-neutral-500">{notice}</p>
               {!offline && (
                 // A plain link reloads even if the client bundle is what stalled.
-                <a href="" className="mt-2.5 inline-flex min-h-9 items-center rounded-full border border-solid border-neutral-300 bg-white px-4 text-xs font-semibold text-neutral-700 no-underline transition hover:border-[#02665e] hover:text-[#02665e]">
+                <a href="" className="mt-2.5 inline-flex min-h-9 items-center rounded-md border border-solid border-neutral-300 bg-white px-4 text-xs font-semibold text-neutral-700 no-underline transition hover:border-[#02665e] hover:text-[#02665e]">
                   Retry
                 </a>
               )}

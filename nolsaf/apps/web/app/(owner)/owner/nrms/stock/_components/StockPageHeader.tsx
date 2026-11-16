@@ -39,7 +39,7 @@ export default function StockPageHeader<T extends string = string>({ icon: Icon,
     <section className={`${cardClass} overflow-hidden`}>
       <div className="flex flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand text-white shadow-sm"><Icon className="h-6 w-6" /></span>
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-brand text-white shadow-sm"><Icon className="h-6 w-6" /></span>
           <div className="min-w-0">
             <h1 className="m-0 truncate text-2xl font-bold tracking-tight text-neutral-950">{title}</h1>
             <p className="m-0 mt-0.5 text-sm text-neutral-500">{subtitle}</p>
@@ -50,10 +50,10 @@ export default function StockPageHeader<T extends string = string>({ icon: Icon,
 
       {tiles !== undefined && <div className={`grid grid-cols-1 gap-3 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-4 py-4 sm:grid-cols-2 sm:px-6 ${tiles && tiles.length === 3 ? "xl:grid-cols-3" : "xl:grid-cols-4"}`}>
         {(tiles ?? Array.from({ length: 4 }, () => null)).map((tile, index) => {
-          if (!tile) return <div key={index} className="h-[92px] animate-pulse rounded-xl border border-solid border-neutral-200 bg-white" />;
+          if (!tile) return <div key={index} className="h-[92px] animate-pulse rounded-md border border-solid border-neutral-200 bg-white" />;
           const tone = TILE_TONE[tile.tone ?? "neutral"];
           return (
-            <div key={tile.label} className={`flex items-start gap-3 rounded-xl border border-solid bg-white p-3.5 shadow-sm ${tone.ring}`}>
+            <div key={tile.label} className={`flex items-start gap-3 rounded-md border border-solid bg-white p-3.5 shadow-sm ${tone.ring}`}>
               <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone.chip}`}><tile.icon className="h-4 w-4" /></span>
               <div className="min-w-0">
                 <p className="m-0 text-[11px] font-bold uppercase tracking-wide text-neutral-500">{tile.label}</p>

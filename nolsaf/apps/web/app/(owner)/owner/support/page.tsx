@@ -211,7 +211,7 @@ export default function OwnerSupportPage() {
       <style>{`:where(#owner-support, #owner-support *, #owner-support *::before, #owner-support *::after) { box-sizing: border-box; border-width: 0; border-style: solid; border-color: #e2e8f0; }`}</style>
 
       {/* ── Header band with search ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -219,7 +219,7 @@ export default function OwnerSupportPage() {
         />
         <div className="relative grid gap-6 px-5 py-7 sm:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)] lg:items-end">
           <div className="min-w-0">
-            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Help and support</p>
+            <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Help and support</p>
             <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight sm:text-[34px]">How can we help?</h1>
             <p className="m-0 mt-2 max-w-xl text-sm leading-relaxed text-white/65">
               Answers for running your property on NoLSAF: checking guests in and out, getting paid, and keeping rooms available. The team is reachable any time.
@@ -232,7 +232,7 @@ export default function OwnerSupportPage() {
               value={query}
               onChange={(e) => { setQuery(e.target.value); setTopic("all"); }}
               placeholder="Search, for example withdraw, locked, block a room"
-              className="h-12 w-full rounded-2xl border-0 bg-white pl-11 pr-10 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:ring-4 focus:ring-[#5eead4]/40"
+              className="h-12 w-full rounded-lg border-0 bg-white pl-11 pr-10 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:ring-4 focus:ring-[#5eead4]/40"
             />
             {query ? (
               <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-lg border-0 bg-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-700">
@@ -256,21 +256,21 @@ export default function OwnerSupportPage() {
               rel={c.external ? "noreferrer" : undefined}
               className="group flex items-center gap-3 bg-[#012a26] px-5 py-4 text-white no-underline transition hover:bg-[#02362f] sm:px-6"
             >
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#5eead4]/10 text-[#5eead4]">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#5eead4]/10 text-[#5eead4]">
                 <c.Icon className="h-5 w-5" aria-hidden />
               </span>
               <span className="min-w-0">
-                <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-white/50">{c.label}</span>
+                <span className="block text-[11px] font-semibold text-white/50">{c.label}</span>
                 <span className="block truncate text-sm font-semibold">{c.value}</span>
               </span>
             </a>
           ))}
           <div className="flex items-center gap-3 bg-[#012a26] px-5 py-4 sm:px-6">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/10 text-white/70">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-white/10 text-white/70">
               <Clock className="h-5 w-5" aria-hidden />
             </span>
             <span className="min-w-0">
-              <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-white/50">Hours</span>
+              <span className="block text-[11px] font-semibold text-white/50">Hours</span>
               <span className="block text-sm font-semibold">Every day, 24 hours</span>
             </span>
           </div>
@@ -280,7 +280,7 @@ export default function OwnerSupportPage() {
       {/* ── Topics ── */}
       {!q ? (
         <section>
-          <p className="m-0 mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Browse by topic</p>
+          <p className="m-0 mb-3 text-[11px] font-semibold text-slate-500">Browse by topic</p>
           <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2 xl:grid-cols-5">
             {TOPICS.map((t) => {
               const count = FAQS.filter((f) => f.topic === t.key).length;
@@ -288,12 +288,12 @@ export default function OwnerSupportPage() {
               return (
                 <li key={t.key}>
                   <div
-                    className={`flex h-full flex-col rounded-2xl border bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition ${
+                    className={`flex h-full flex-col rounded-lg border bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition ${
                       on ? "border-[#02665e] ring-2 ring-[#02665e]/15" : "border-slate-300/80 hover:border-[#02665e]/40"
                     }`}
                   >
                     <button type="button" onClick={() => { setTopic(on ? "all" : t.key); setOpen(null); }} className="flex flex-1 appearance-none flex-col items-start border-0 bg-transparent p-0 text-left">
-                      <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#012a26] text-[#5eead4]">
+                      <span className="grid h-10 w-10 place-items-center rounded-md bg-[#012a26] text-[#5eead4]">
                         <t.Icon className="h-5 w-5" aria-hidden />
                       </span>
                       <span className="mt-3 text-sm font-bold text-slate-900">{t.label}</span>
@@ -313,7 +313,7 @@ export default function OwnerSupportPage() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         {/* ── Answers ── */}
-        <section className="overflow-hidden rounded-3xl border border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]">
+        <section className="overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-slate-200 px-5 py-4">
             <div>
               <p className="m-0 text-sm font-bold text-slate-900">
@@ -322,7 +322,7 @@ export default function OwnerSupportPage() {
               <p className="m-0 mt-0.5 text-xs text-slate-500">{results.length} {results.length === 1 ? "answer" : "answers"}</p>
             </div>
             {topic !== "all" || q ? (
-              <button type="button" onClick={() => { setTopic("all"); setQuery(""); }} className="h-8 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              <button type="button" onClick={() => { setTopic("all"); setQuery(""); }} className="h-8 rounded-lg border border-solid border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                 Show all questions
               </button>
             ) : null}
@@ -332,7 +332,7 @@ export default function OwnerSupportPage() {
             <div className="px-6 py-12 text-center">
               <p className="m-0 text-sm font-semibold text-slate-800">No answer matches that yet</p>
               <p className="m-0 mt-1 text-xs text-slate-500">Try another word, or message the team on WhatsApp. They reply any time of day.</p>
-              <a href={whatsapp} target="_blank" rel="noreferrer" className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-[#012a26] px-4 text-sm font-bold text-white no-underline hover:bg-[#02665e]">
+              <a href={whatsapp} target="_blank" rel="noreferrer" className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-[#012a26] px-4 text-sm font-bold text-white no-underline hover:bg-[#02665e]">
                 <MessageCircle className="h-4 w-4 text-[#5eead4]" aria-hidden /> Ask on WhatsApp
               </a>
             </div>
@@ -387,7 +387,7 @@ export default function OwnerSupportPage() {
 
         {/* ── Side: still stuck, guides, policies ── */}
         <aside className="space-y-4 lg:sticky lg:top-4">
-          <section className="rounded-3xl bg-[#012a26] p-5 text-white">
+          <section className="rounded-lg bg-[#012a26] p-5 text-white">
             <p className="m-0 text-sm font-bold">Still stuck?</p>
             <p className="m-0 mt-1 text-xs leading-relaxed text-white/65">Send these with your message and the team can help on the first reply:</p>
             <ul className="m-0 mt-3 list-none space-y-2 p-0 text-xs text-white/80">
@@ -404,17 +404,17 @@ export default function OwnerSupportPage() {
               ))}
             </ul>
             <div className="mt-4 grid gap-2">
-              <a href={whatsapp} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-between rounded-xl bg-[#5eead4] pl-4 pr-1.5 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
+              <a href={whatsapp} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center justify-between rounded-md bg-[#5eead4] pl-4 pr-1.5 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
                 Message on WhatsApp
                 <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]"><MessageCircle className="h-3.5 w-3.5" aria-hidden /></span>
               </a>
-              <a href={`mailto:${email}`} className="inline-flex h-10 items-center justify-between rounded-xl border border-white/15 bg-white/[0.06] px-4 text-sm font-semibold text-white no-underline hover:bg-white/10">
+              <a href={`mailto:${email}`} className="inline-flex h-10 items-center justify-between rounded-md border border-solid border-white/15 bg-white/[0.06] px-4 text-sm font-semibold text-white no-underline hover:bg-white/10">
                 Email the team <Mail className="h-4 w-4 text-white/60" aria-hidden />
               </a>
             </div>
           </section>
 
-          <section className="rounded-3xl border border-slate-300/80 bg-white p-5">
+          <section className="rounded-lg border border-solid border-slate-300/80 bg-white p-5">
             <p className="m-0 text-sm font-bold text-slate-900">Guides and policies</p>
             <ul className="m-0 mt-3 list-none space-y-1 p-0">
               {[
@@ -423,7 +423,7 @@ export default function OwnerSupportPage() {
                 { href: "/terms", label: "Terms and Conditions", Icon: FileText },
               ].map((l) => (
                 <li key={l.href}>
-                  <Link href={l.href} className="flex items-center justify-between gap-3 rounded-xl px-2 py-2.5 text-sm text-slate-700 no-underline transition hover:bg-slate-50 hover:text-[#02665e]">
+                  <Link href={l.href} className="flex items-center justify-between gap-3 rounded-md px-2 py-2.5 text-sm text-slate-700 no-underline transition hover:bg-slate-50 hover:text-[#02665e]">
                     <span className="flex min-w-0 items-center gap-2.5">
                       <l.Icon className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
                       <span className="truncate">{l.label}</span>

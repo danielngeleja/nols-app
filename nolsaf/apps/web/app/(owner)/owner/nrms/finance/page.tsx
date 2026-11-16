@@ -144,7 +144,7 @@ const FINANCE_TABS: Array<{ id: Tab; label: string; icon: typeof WalletCards }> 
 ];
 
 function Metric({ label, value, note, tone = "neutral" }: { label: string; value: string; note: string; tone?: "neutral" | "green" | "amber" }) {
-  return <div className={`min-w-0 rounded-xl p-4 ring-1 ${tone === "green" ? "ring-emerald-200 bg-emerald-50" : tone === "amber" ? "ring-amber-200 bg-amber-50" : "ring-neutral-200 bg-white"}`}><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mb-0 mt-1 text-xl font-bold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
+  return <div className={`min-w-0 rounded-md p-4 ring-1 ${tone === "green" ? "ring-emerald-200 bg-emerald-50" : tone === "amber" ? "ring-amber-200 bg-amber-50" : "ring-neutral-200 bg-white"}`}><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mb-0 mt-1 text-xl font-bold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
 }
 
 function codeLabel(value: string) {
@@ -152,7 +152,7 @@ function codeLabel(value: string) {
 }
 
 function ReviewMetric({ icon, label, value, note }: { icon: React.ReactNode; label: string; value: string; note: string }) {
-  return <div className="rounded-xl bg-neutral-50 p-3 ring-1 ring-neutral-200"><div className="flex items-center gap-2 text-neutral-500">{icon}<span className="text-[9px] font-bold uppercase tracking-[0.12em]">{label}</span></div><p className="mb-0 mt-2 text-lg font-extrabold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
+  return <div className="rounded-md bg-neutral-50 p-3 ring-1 ring-neutral-200"><div className="flex items-center gap-2 text-neutral-500">{icon}<span className="text-[9px] font-bold uppercase tracking-[0.12em]">{label}</span></div><p className="mb-0 mt-2 text-lg font-extrabold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
 }
 
 type AuditTone = "neutral" | "good" | "warn" | "bad";
@@ -165,7 +165,7 @@ const AUDIT_TONE_ICON: Record<AuditTone, React.ReactNode> = {
 
 /** Night Audit summary tile: the corner mark says whether the figure is fine, not just what it is. */
 function AuditTile({ icon, label, value, note, tone = "neutral" }: { icon: React.ReactNode; label: string; value: string; note: string; tone?: AuditTone }) {
-  return <div className="min-w-0 rounded-xl bg-white p-3.5 ring-1 ring-neutral-200">
+  return <div className="min-w-0 rounded-md bg-white p-3.5 ring-1 ring-neutral-200">
     <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-neutral-500">{icon}<span className="text-[9px] font-bold uppercase tracking-[0.12em]">{label}</span></span>{AUDIT_TONE_ICON[tone]}</div>
     <p className="mb-0 mt-2 truncate text-lg font-extrabold tabular-nums text-neutral-950">{value}</p>
     <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p>
@@ -450,7 +450,7 @@ export default function FinanceControlPage() {
     {/* Header: identity and page-wide actions on top, then a week strip that is
         both the date picker and an at-a-glance audit status for recent days,
         then the view tabs. Month-based views get a month strip instead. */}
-    <section className="overflow-hidden rounded-2xl bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
+    <section className="overflow-hidden rounded-lg bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
       {(() => {
         const status = data?.businessDay.status;
         const closeTime = data?.nightAuditPolicy.closeTime ?? "20:00";
@@ -497,7 +497,7 @@ export default function FinanceControlPage() {
           none: "border-0 bg-transparent text-neutral-400 ring-1 ring-neutral-200 hover:bg-white",
         };
         const tileStatusText = { closed: "text-emerald-700", due: "text-amber-700", trading: "text-sky-700", none: "text-neutral-400" };
-        const stepButton = "flex h-full min-h-[64px] w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent";
+        const stepButton = "flex h-full min-h-[64px] w-9 shrink-0 appearance-none items-center justify-center rounded-md border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent";
 
         return <>
           <header className="flex flex-wrap items-center gap-x-5 gap-y-3 px-5 py-4">
@@ -526,7 +526,7 @@ export default function FinanceControlPage() {
             {isDayScoped ? <div className="min-w-0 flex-1 space-y-3">
               {/* Control summary: what is closed, what waits for audit, what is trading. */}
               <div className="grid gap-2 sm:grid-cols-3">
-                <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-2.5 ring-1 ring-neutral-200">
+                <div className="flex items-center gap-3 rounded-md bg-white px-3.5 py-2.5 ring-1 ring-neutral-200">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-4 w-4" /></span>
                   <div className="min-w-0">
                     <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Last closed</p>
@@ -537,7 +537,7 @@ export default function FinanceControlPage() {
                     ) : <p className="m-0 text-sm font-bold text-neutral-500">{data ? "No day closed yet" : "..."}</p>}
                   </div>
                 </div>
-                <div className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 ring-1 ${toAudit.length ? "bg-amber-50 ring-amber-300" : "bg-white ring-neutral-200"}`}>
+                <div className={`flex items-center gap-3 rounded-md px-3.5 py-2.5 ring-1 ${toAudit.length ? "bg-amber-50 ring-amber-300" : "bg-white ring-neutral-200"}`}>
                   <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${toAudit.length ? "bg-amber-100 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>{toAudit.length ? <AlertTriangle className="h-4 w-4" /> : <BadgeCheck className="h-4 w-4" />}</span>
                   <div className="min-w-0 flex-1">
                     <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.12em] ${toAudit.length ? "text-amber-700" : "text-neutral-400"}`}>To audit</p>
@@ -549,7 +549,7 @@ export default function FinanceControlPage() {
                     </button>
                   )}
                 </div>
-                <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-2.5 ring-1 ring-neutral-200">
+                <div className="flex items-center gap-3 rounded-md bg-white px-3.5 py-2.5 ring-1 ring-neutral-200">
                   <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700"><Clock3 className="h-4 w-4" />{tradingDay && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />}</span>
                   <div className="min-w-0">
                     <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Trading now</p>
@@ -576,7 +576,7 @@ export default function FinanceControlPage() {
                         const monthShort = new Date(Date.UTC(y!, m! - 1, d!, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", month: "short" });
                         return (
                           <button key={day} type="button" onClick={() => goToDay(day)} aria-current={on ? "date" : undefined} title={`${dayLabel(day)} · ${state.label}`}
-                            className={`flex min-h-[64px] cursor-pointer appearance-none flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition ${on ? "border-0 bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)] ring-1 ring-[#073c35]" : tileSkin[state.tone]}`}>
+                            className={`flex min-h-[64px] cursor-pointer appearance-none flex-col items-center justify-center rounded-md px-1 py-2 text-center transition ${on ? "border-0 bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)] ring-1 ring-[#073c35]" : tileSkin[state.tone]}`}>
                             <span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{weekday}</span>
                             <span className="mt-0.5 text-base font-extrabold leading-none tabular-nums">{d}<span className={`ml-1 text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{monthShort}</span></span>
                             <span className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold ${on ? "text-emerald-200" : tileStatusText[state.tone]}`}>{state.tone === "closed" && <CheckCircle2 className="h-3 w-3" />}{state.tone === "trading" && <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-emerald-300" : "bg-emerald-500"}`} />}{state.label}</span>
@@ -585,14 +585,14 @@ export default function FinanceControlPage() {
                       })}
                     </div>
                   ) : (
-                    <div className="flex min-h-[64px] items-center justify-center rounded-xl px-4 text-center text-xs text-neutral-500 ring-1 ring-neutral-200">
+                    <div className="flex min-h-[64px] items-center justify-center rounded-md px-4 text-center text-xs text-neutral-500 ring-1 ring-neutral-200">
                       {data ? "No business days recorded yet. The first day opens when this property starts operating in NRMS." : "Loading the operating timeline..."}
                     </div>
                   )}
                 </div>
                 <button type="button" aria-label="Next recorded day" disabled={!nextRecorded} onClick={() => nextRecorded && goToDay(nextRecorded)} className={stepButton}><ChevronRight className="h-4 w-4" /></button>
                 {/* Older dates: the calendar, limited to the days this property could have records for. */}
-                <div className="relative flex w-10 shrink-0 items-center justify-center rounded-xl text-neutral-500 ring-1 ring-neutral-200 transition hover:bg-white hover:text-emerald-800" title="Find an older business date">
+                <div className="relative flex w-10 shrink-0 items-center justify-center rounded-md text-neutral-500 ring-1 ring-neutral-200 transition hover:bg-white hover:text-emerald-800" title="Find an older business date">
                   <CalendarCheck2 className="h-4 w-4" />
                   <div className="absolute inset-0 opacity-0 [&>*]:!h-full [&_button]:!h-full [&_button]:!w-full [&_button]:!min-w-0 [&_button]:!cursor-pointer [&_button]:!p-0"><DatePickerField label="Business date" value={businessDate} onChangeAction={(value) => goToDay(String(value))} widthClassName="!w-full" size="sm" twoMonths={false} allowPast min={timeline?.firstRecordedDate ?? undefined} max={today} /></div>
                 </div>
@@ -601,9 +601,9 @@ export default function FinanceControlPage() {
               {/* One light track, the selected month raised in brand green. The
                   old tiles never reset the browser's button border, which with
                   preflight off drew a thick grey outset frame round each one. */}
-              <button type="button" aria-label="Earlier months" onClick={() => setMonth(shiftMonth(month, -6))} className="flex w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800"><ChevronLeft className="h-4 w-4" /></button>
+              <button type="button" aria-label="Earlier months" onClick={() => setMonth(shiftMonth(month, -6))} className="flex w-9 shrink-0 appearance-none items-center justify-center rounded-md border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800"><ChevronLeft className="h-4 w-4" /></button>
               <div className="min-w-0 flex-1 overflow-x-auto">
-                <div role="tablist" aria-label="Reporting month" className="grid min-w-[480px] grid-cols-6 gap-1 rounded-2xl bg-white p-1 ring-1 ring-neutral-200">
+                <div role="tablist" aria-label="Reporting month" className="grid min-w-[480px] grid-cols-6 gap-1 rounded-lg bg-white p-1 ring-1 ring-neutral-200">
                   {stripMonths.map((value) => {
                     const on = value === month;
                     const [y, m] = value.split("-").map(Number);
@@ -613,7 +613,7 @@ export default function FinanceControlPage() {
                     const sub = current ? `Day ${Number(today.slice(8, 10))} of ${daysInMonth}` : `${daysInMonth} days`;
                     return (
                       <button key={value} type="button" role="tab" aria-selected={on} onClick={() => setMonth(value)}
-                        className={`relative flex h-14 appearance-none flex-col items-center justify-center rounded-xl border-0 px-1 text-center transition ${on ? "bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)]" : "bg-transparent text-neutral-700 hover:bg-neutral-100"}`}>
+                        className={`relative flex h-14 appearance-none flex-col items-center justify-center rounded-md border-0 px-1 text-center transition ${on ? "bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)]" : "bg-transparent text-neutral-700 hover:bg-neutral-100"}`}>
                         <span className="flex items-center gap-1.5 text-sm font-extrabold leading-none">
                           {label}<span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{y}</span>
                         </span>
@@ -625,7 +625,7 @@ export default function FinanceControlPage() {
                   })}
                 </div>
               </div>
-              <button type="button" aria-label="Later months" disabled={month >= thisMonth} onClick={() => setMonth([shiftMonth(month, 6), thisMonth].sort()[0]!)} className="flex w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"><ChevronRight className="h-4 w-4" /></button>
+              <button type="button" aria-label="Later months" disabled={month >= thisMonth} onClick={() => setMonth([shiftMonth(month, 6), thisMonth].sort()[0]!)} className="flex w-9 shrink-0 appearance-none items-center justify-center rounded-md border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"><ChevronRight className="h-4 w-4" /></button>
             </>}
           </div>
         </>;
@@ -670,18 +670,18 @@ export default function FinanceControlPage() {
         </div>
       </NrmsModalFrame>
     )}
-    {(error || message) && <div className={`rounded-xl px-4 py-3 text-xs font-semibold ring-1 ${error ? "ring-red-200 bg-red-50 text-red-700" : "ring-emerald-200 bg-emerald-50 text-emerald-700"}`}>{error || message}</div>}
+    {(error || message) && <div className={`rounded-md px-4 py-3 text-xs font-semibold ring-1 ${error ? "ring-red-200 bg-red-50 text-red-700" : "ring-emerald-200 bg-emerald-50 text-emerald-700"}`}>{error || message}</div>}
     {tab === "audit" && (
       <>
-        <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200">
+        <section className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-neutral-200">
           <header className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CalendarCheck2 className="h-5 w-5" /></span>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><CalendarCheck2 className="h-5 w-5" /></span>
             <div className="min-w-0 flex-1">
               <h3 className="m-0 text-base font-bold text-neutral-900">Night Audit · {dayLabel(businessDate)}</h3>
               <p className="mb-0 mt-1 text-xs text-neutral-500">Review every recorded activity and closing outcome before locking the date.</p>
             </div>
             {data?.businessDay.status === "NOT_OPENED" ? (
-              <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${BUSINESS_DAY_STATE.NOT_OPENED!.skin}`}>{BUSINESS_DAY_STATE.NOT_OPENED!.label}</span>
+              <span className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-bold ring-1 ${BUSINESS_DAY_STATE.NOT_OPENED!.skin}`}>{BUSINESS_DAY_STATE.NOT_OPENED!.label}</span>
             ) : (
               <button type="button" onClick={() => setConfirmNightAudit(true)} disabled={busy || data?.businessDay.status === "CLOSING"} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white transition hover:bg-[#0b5148] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"><ClipboardCheck className="h-4 w-4" />{data?.businessDay.status === "CLOSED" ? "View final report" : "Open full review"}</button>
             )}
@@ -743,7 +743,7 @@ export default function FinanceControlPage() {
               const ledger = review?.ledger;
               return (
                 <div className="space-y-4 p-4 shadow-[inset_0_1px_0_0_#f1f5f9] sm:p-5">
-                  <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
+                  <div className="rounded-md bg-neutral-50 p-4 ring-1 ring-neutral-200">
                     <div className="flex items-start gap-3">
                       <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${headline.skin}`}>{headline.icon}</span>
                       <div className="min-w-0 flex-1">
@@ -779,7 +779,7 @@ export default function FinanceControlPage() {
 
                   {data && data.businessDay.audits.length > 0 && <div>
                     <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">Audit history</p>
-                    <ul className="m-0 mt-2 list-none overflow-hidden rounded-xl p-0 ring-1 ring-neutral-200">
+                    <ul className="m-0 mt-2 list-none overflow-hidden rounded-md p-0 ring-1 ring-neutral-200">
                       {data.businessDay.audits.map((audit, index) => (
                         <li key={audit.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 bg-white px-3.5 py-2.5 text-[11px] ${index ? "shadow-[inset_0_1px_0_0_#f1f5f9]" : ""}`}>
                           {audit.status === "CLOSED" ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 shrink-0 text-red-600" />}
@@ -806,31 +806,31 @@ export default function FinanceControlPage() {
             onClose={() => { if (!busy) { setConfirmNightAudit(false); setAcknowledgeFiscalBacklog(false); } }}
             footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><button type="button" onClick={() => setConfirmNightAudit(false)} disabled={busy} className="min-h-10 rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700 disabled:opacity-50">Close review</button>{data?.businessDay.status === "OPEN" && <button type="button" onClick={() => void closeAudit()} disabled={!canManage || !canCloseSelectedDate || Boolean(data?.blockers.length) || busy || Boolean(fiscalBacklogWarning && !acknowledgeFiscalBacklog) || !data?.nightAuditReview?.ledger.balanced} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-amber-700 px-5 text-xs font-bold text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}Post ledger and close date</button>}</div>}
           >
-            {!data?.nightAuditReview ? <div className="rounded-xl bg-neutral-50 p-5 text-sm text-neutral-600 ring-1 ring-neutral-200">This historical close predates the expanded activity snapshot. Its report number and ledger remain available in Audit history and Accounting ledger.</div> : <div className="space-y-5">
+            {!data?.nightAuditReview ? <div className="rounded-md bg-neutral-50 p-5 text-sm text-neutral-600 ring-1 ring-neutral-200">This historical close predates the expanded activity snapshot. Its report number and ledger remain available in Audit history and Accounting ledger.</div> : <div className="space-y-5">
               <section>
-                <div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Operational activity</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Captured from {time(data.nightAuditReview.window.startedAt)} through {time(data.nightAuditReview.window.through)}.</p></div><span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-bold text-sky-700 ring-1 ring-sky-200">{data.nightAuditPolicy.closeTime} EAT boundary</span></div>
+                <div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Operational activity</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Captured from {time(data.nightAuditReview.window.startedAt)} through {time(data.nightAuditReview.window.through)}.</p></div><span className="rounded-md bg-sky-50 px-2.5 py-1 text-[10px] font-bold text-sky-700 ring-1 ring-sky-200">{data.nightAuditPolicy.closeTime} EAT boundary</span></div>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><ReviewMetric icon={<LogIn className="h-3.5 w-3.5" />} label="Checked in" value={String(data.nightAuditReview.operations.arrivals)} note="Arrivals completed in this business window" /><ReviewMetric icon={<LogOut className="h-3.5 w-3.5" />} label="Checked out" value={String(data.nightAuditReview.operations.departures)} note="Departures completed in this business window" /><ReviewMetric icon={<BedDouble className="h-3.5 w-3.5" />} label="In house" value={String(data.nightAuditReview.operations.inHouseAtReview)} note="Guests still checked in at review time" /><ReviewMetric icon={<CalendarCheck2 className="h-3.5 w-3.5" />} label="Reservations" value={String(data.nightAuditReview.operations.reservationsCreated)} note="Reservations created in this business window" /></div>
               </section>
 
-              <section className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200"><div className="flex items-center justify-between gap-3"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Cashier reconciliation</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Physical cash, recorded expectation and manager sign-off.</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${data.nightAuditReview.cashiers.open || data.nightAuditReview.cashiers.signedOff !== data.nightAuditReview.cashiers.total ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>{data.nightAuditReview.cashiers.signedOff}/{data.nightAuditReview.cashiers.total} signed off</span></div><div className="mt-3 grid gap-3 sm:grid-cols-3"><Metric label="Expected cash" value={cash(data.nightAuditReview.cashiers.expectedCash, data?.property.currency || "TZS")} note={`${data.nightAuditReview.cashiers.closed} closed shift${data.nightAuditReview.cashiers.closed === 1 ? "" : "s"}`} /><Metric label="Declared cash" value={cash(data.nightAuditReview.cashiers.declaredCash, data?.property.currency || "TZS")} note="Physical counts entered by cashiers or managers" /><Metric label="Variance" value={cash(data.nightAuditReview.cashiers.variance, data?.property.currency || "TZS")} note={data.nightAuditReview.cashiers.variance === 0 ? "Expected and declared cash agree" : "Explained variance retained in shift records"} tone={data.nightAuditReview.cashiers.variance === 0 ? "green" : "amber"} /></div></section>
+              <section className="rounded-md bg-neutral-50 p-4 ring-1 ring-neutral-200"><div className="flex items-center justify-between gap-3"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Cashier reconciliation</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Physical cash, recorded expectation and manager sign-off.</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${data.nightAuditReview.cashiers.open || data.nightAuditReview.cashiers.signedOff !== data.nightAuditReview.cashiers.total ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>{data.nightAuditReview.cashiers.signedOff}/{data.nightAuditReview.cashiers.total} signed off</span></div><div className="mt-3 grid gap-3 sm:grid-cols-3"><Metric label="Expected cash" value={cash(data.nightAuditReview.cashiers.expectedCash, data?.property.currency || "TZS")} note={`${data.nightAuditReview.cashiers.closed} closed shift${data.nightAuditReview.cashiers.closed === 1 ? "" : "s"}`} /><Metric label="Declared cash" value={cash(data.nightAuditReview.cashiers.declaredCash, data?.property.currency || "TZS")} note="Physical counts entered by cashiers or managers" /><Metric label="Variance" value={cash(data.nightAuditReview.cashiers.variance, data?.property.currency || "TZS")} note={data.nightAuditReview.cashiers.variance === 0 ? "Expected and declared cash agree" : "Explained variance retained in shift records"} tone={data.nightAuditReview.cashiers.variance === 0 ? "green" : "amber"} /></div></section>
 
-              <section><h4 className="m-0 text-sm font-bold text-neutral-900">Closing controls</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Every blocking control must clear. No override or bypass is available.</p><div className="mt-3 space-y-2">{data.nightAuditReview.controls.blockers.length ? data.nightAuditReview.controls.blockers.map((blocker) => { const next = blockerAction(blocker.code); return <div key={blocker.code} className="flex flex-wrap items-center gap-3 rounded-xl bg-red-50 p-3 ring-1 ring-red-200"><AlertTriangle className="h-4 w-4 shrink-0 text-red-600" /><div className="min-w-0 flex-1"><p className="m-0 text-xs font-bold text-red-900">{codeLabel(blocker.code)}</p><p className="mb-0 mt-1 text-[10px] text-red-700">{blocker.message}</p></div>{next && <button type="button" onClick={() => { setConfirmNightAudit(false); next.run(); }} className="h-8 rounded-lg border border-red-200 bg-white px-3 text-[10px] font-bold text-red-700">{next.label}</button>}</div>; }) : <div className="flex items-center gap-3 rounded-xl bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200"><CheckCircle2 className="h-4 w-4" />All blocking controls passed.</div>}{data.nightAuditReview.controls.warnings.map((warning) => <div key={warning.code} className="flex items-start gap-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /><div><p className="m-0 text-xs font-bold text-amber-900">{codeLabel(warning.code)}</p><p className="mb-0 mt-1 text-[10px] text-amber-800">{warning.message}</p></div></div>)}</div></section>
+              <section><h4 className="m-0 text-sm font-bold text-neutral-900">Closing controls</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Every blocking control must clear. No override or bypass is available.</p><div className="mt-3 space-y-2">{data.nightAuditReview.controls.blockers.length ? data.nightAuditReview.controls.blockers.map((blocker) => { const next = blockerAction(blocker.code); return <div key={blocker.code} className="flex flex-wrap items-center gap-3 rounded-md bg-red-50 p-3 ring-1 ring-red-200"><AlertTriangle className="h-4 w-4 shrink-0 text-red-600" /><div className="min-w-0 flex-1"><p className="m-0 text-xs font-bold text-red-900">{codeLabel(blocker.code)}</p><p className="mb-0 mt-1 text-[10px] text-red-700">{blocker.message}</p></div>{next && <button type="button" onClick={() => { setConfirmNightAudit(false); next.run(); }} className="h-8 rounded-lg border border-red-200 bg-white px-3 text-[10px] font-bold text-red-700">{next.label}</button>}</div>; }) : <div className="flex items-center gap-3 rounded-md bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200"><CheckCircle2 className="h-4 w-4" />All blocking controls passed.</div>}{data.nightAuditReview.controls.warnings.map((warning) => <div key={warning.code} className="flex items-start gap-3 rounded-md bg-amber-50 p-3 ring-1 ring-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /><div><p className="m-0 text-xs font-bold text-amber-900">{codeLabel(warning.code)}</p><p className="mb-0 mt-1 text-[10px] text-amber-800">{warning.message}</p></div></div>)}</div></section>
 
-              <section><div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Proposed ledger outcome</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Every activity below becomes an immutable balanced ledger transaction when you close.</p></div><div className="text-right"><p className="m-0 text-lg font-extrabold tabular-nums text-neutral-950">{cash(data.nightAuditReview.ledger.debitTotal, data?.property.currency || "TZS")}</p><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Debit = credit · {data.nightAuditReview.ledger.transactionCount} entries</p></div></div><div className="mt-3 overflow-hidden rounded-xl ring-1 ring-neutral-200"><div className="max-h-72 overflow-auto"><table className="w-full min-w-[680px] border-collapse text-left"><thead className="sticky top-0 bg-neutral-50 text-[9px] font-bold uppercase tracking-wide text-neutral-500"><tr><th className="px-3 py-2.5">Activity</th><th className="px-3 py-2.5">Type</th><th className="px-3 py-2.5">Time</th><th className="px-3 py-2.5 text-right">Debit</th><th className="px-3 py-2.5 text-right">Credit</th></tr></thead><tbody className="divide-y divide-neutral-100 text-[11px]">{data.nightAuditReview.ledger.activities.map((activity, index) => <tr key={`${activity.sourceType}-${index}`}><td className="max-w-[260px] px-3 py-2.5 font-semibold text-neutral-800">{activity.description}</td><td className="px-3 py-2.5 text-neutral-500">{codeLabel(activity.sourceType)}</td><td className="whitespace-nowrap px-3 py-2.5 text-neutral-500">{time(activity.occurredAt)}</td><td className="px-3 py-2.5 text-right tabular-nums text-neutral-700">{cash(activity.debit, activity.currency)}</td><td className="px-3 py-2.5 text-right tabular-nums text-neutral-700">{cash(activity.credit, activity.currency)}</td></tr>)}{!data.nightAuditReview.ledger.activities.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-xs text-neutral-400">No ledger activity is waiting to post for this date.</td></tr>}</tbody></table></div></div></section>
+              <section><div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Proposed ledger outcome</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Every activity below becomes an immutable balanced ledger transaction when you close.</p></div><div className="text-right"><p className="m-0 text-lg font-extrabold tabular-nums text-neutral-950">{cash(data.nightAuditReview.ledger.debitTotal, data?.property.currency || "TZS")}</p><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Debit = credit · {data.nightAuditReview.ledger.transactionCount} entries</p></div></div><div className="mt-3 overflow-hidden rounded-md ring-1 ring-neutral-200"><div className="max-h-72 overflow-auto"><table className="w-full min-w-[680px] border-collapse text-left"><thead className="sticky top-0 bg-neutral-50 text-[9px] font-bold uppercase tracking-wide text-neutral-500"><tr><th className="px-3 py-2.5">Activity</th><th className="px-3 py-2.5">Type</th><th className="px-3 py-2.5">Time</th><th className="px-3 py-2.5 text-right">Debit</th><th className="px-3 py-2.5 text-right">Credit</th></tr></thead><tbody className="divide-y divide-neutral-100 text-[11px]">{data.nightAuditReview.ledger.activities.map((activity, index) => <tr key={`${activity.sourceType}-${index}`}><td className="max-w-[260px] px-3 py-2.5 font-semibold text-neutral-800">{activity.description}</td><td className="px-3 py-2.5 text-neutral-500">{codeLabel(activity.sourceType)}</td><td className="whitespace-nowrap px-3 py-2.5 text-neutral-500">{time(activity.occurredAt)}</td><td className="px-3 py-2.5 text-right tabular-nums text-neutral-700">{cash(activity.debit, activity.currency)}</td><td className="px-3 py-2.5 text-right tabular-nums text-neutral-700">{cash(activity.credit, activity.currency)}</td></tr>)}{!data.nightAuditReview.ledger.activities.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-xs text-neutral-400">No ledger activity is waiting to post for this date.</td></tr>}</tbody></table></div></div></section>
 
-              <section className="rounded-xl bg-amber-50 p-4 ring-1 ring-amber-200"><h4 className="m-0 text-sm font-bold text-amber-950">What closing will do</h4><ul className="mb-0 mt-2 space-y-1.5 pl-4 text-[11px] leading-4 text-amber-900"><li>Post the balanced activities above to the accounting ledger and store this review in the Night Audit report.</li><li>Lock {dayLabel(businessDate)}. Later corrections must be recorded on an open business date with an audit reason.</li><li>Open the next sequential business date so hotel operations continue without a gap.</li></ul>{fiscalBacklogWarning && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg bg-white p-3 text-[11px] leading-4 text-amber-950 ring-1 ring-amber-300"><input type="checkbox" checked={acknowledgeFiscalBacklog} onChange={(event) => setAcknowledgeFiscalBacklog(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-amber-700" /><span><strong className="block">Acknowledge unresolved TRA delivery</strong>{fiscalBacklogWarning.message} I understand this acknowledgement is stored with the final Night Audit.</span></label>}</section>
+              <section className="rounded-md bg-amber-50 p-4 ring-1 ring-amber-200"><h4 className="m-0 text-sm font-bold text-amber-950">What closing will do</h4><ul className="mb-0 mt-2 space-y-1.5 pl-4 text-[11px] leading-4 text-amber-900"><li>Post the balanced activities above to the accounting ledger and store this review in the Night Audit report.</li><li>Lock {dayLabel(businessDate)}. Later corrections must be recorded on an open business date with an audit reason.</li><li>Open the next sequential business date so hotel operations continue without a gap.</li></ul>{fiscalBacklogWarning && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg bg-white p-3 text-[11px] leading-4 text-amber-950 ring-1 ring-amber-300"><input type="checkbox" checked={acknowledgeFiscalBacklog} onChange={(event) => setAcknowledgeFiscalBacklog(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-amber-700" /><span><strong className="block">Acknowledge unresolved TRA delivery</strong>{fiscalBacklogWarning.message} I understand this acknowledgement is stored with the final Night Audit.</span></label>}</section>
             </div>}
           </NrmsModalFrame>
         )}
       </>
     )}
 
-    {tab === "audit" && Boolean(data?.unclassifiedTenders?.length) && <section id="unclassified-tenders" className="scroll-mt-4 overflow-hidden rounded-xl ring-1 ring-amber-200 bg-white shadow-sm">
+    {tab === "audit" && Boolean(data?.unclassifiedTenders?.length) && <section id="unclassified-tenders" className="scroll-mt-4 overflow-hidden rounded-md ring-1 ring-amber-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 bg-amber-50/70 px-4 py-3 shadow-[inset_0_-1px_0_0_#fef3c7]"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Classify outlet payments</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">These older settled orders have no recorded tender. Select the actual method received before Night Audit.</p></div><span className="rounded-md ring-1 ring-amber-200 bg-white px-2 py-1 text-[9px] font-bold text-amber-800">{data?.unclassifiedTenders?.length} required</span></div>
       <div className="[&>*]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>*:last-child]:shadow-none">{data?.unclassifiedTenders?.map((order) => <div key={order.id} className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(180px,1fr)_minmax(150px,.8fr)_auto_180px_auto] md:items-center"><div className="min-w-0"><p className="m-0 truncate text-xs font-bold text-neutral-900">{order.orderNumber} · {order.outlet.name}</p><p className="mb-0 mt-1 truncate text-[10px] text-neutral-400">Settled {time(order.settledAt)}</p></div><div className="min-w-0"><p className="m-0 truncate text-[11px] font-semibold text-neutral-700">{order.guest}</p><p className="mb-0 mt-0.5 truncate text-[9px] text-neutral-400">{order.room}</p></div><strong className="whitespace-nowrap text-xs tabular-nums text-neutral-900">{cash(order.total, order.currency)}</strong><select value={tenderCorrections[order.id] ?? ""} onChange={(event) => setTenderCorrections((current) => ({ ...current, [order.id]: event.target.value }))} className="h-9 rounded-lg border border-neutral-200 bg-white px-2 text-[10px] font-bold text-neutral-700 outline-none focus:border-emerald-500" aria-label={`Payment method for ${order.orderNumber}`}><option value="">Select payment method</option><option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="BANK">Bank transfer</option><option value="OTHER">Other</option></select><button type="button" onClick={() => classifyTender(order.id)} disabled={!canManage || busy || !tenderCorrections[order.id]} className="h-9 whitespace-nowrap rounded-lg border-0 bg-neutral-900 px-3 text-[10px] font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400">Save method</button></div>)}</div>
     </section>}
 
-    {tab === "cashiers" && <section id="nrms-cashier-shifts" className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200">
+    {tab === "cashiers" && <section id="nrms-cashier-shifts" className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-neutral-200">
       <style>{`#nrms-cashier-shifts, #nrms-cashier-shifts * { box-sizing: border-box; }`}</style>
       <header className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:px-5">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><WalletCards className="h-5 w-5" /></span>
@@ -893,7 +893,7 @@ export default function FinanceControlPage() {
         })}
 
         {Boolean(data?.unassignedSales.count) && <article className="grid min-w-0 bg-amber-50/40 shadow-[inset_0_1px_0_0_#ededed] lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="min-w-0 px-4 py-4 sm:px-5"><div className="flex flex-wrap items-center gap-2"><h4 className="m-0 text-sm font-bold text-neutral-900">Other sales</h4><span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-800">OUTSIDE SHIFT</span></div><p className="mb-0 mt-1 text-xs text-neutral-600">{data!.unassignedSales.count} sale{data!.unassignedSales.count === 1 ? "" : "s"} · <strong>{cash(data!.unassignedSales.amount, data!.property.currency || "TZS")}</strong></p><div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-600">{[['Cash', 'CASH'], ['Mobile money', 'MOBILE_MONEY'], ['Bank', 'BANK'], ['Card', 'CARD']].map(([label, method]) => <span key={method}>{label} <strong className="tabular-nums text-neutral-800">{cash(data!.unassignedSales.byMethod.find((row) => row.method === method)?.amount ?? 0, data!.property.currency || "TZS")}</strong></span>)}</div></div>
+          <div className="min-w-0 px-4 py-4 sm:px-5"><div className="flex flex-wrap items-center gap-2"><h4 className="m-0 text-sm font-bold text-neutral-900">Other sales</h4><span className="rounded-md bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-800">OUTSIDE SHIFT</span></div><p className="mb-0 mt-1 text-xs text-neutral-600">{data!.unassignedSales.count} sale{data!.unassignedSales.count === 1 ? "" : "s"} · <strong>{cash(data!.unassignedSales.amount, data!.property.currency || "TZS")}</strong></p><div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-600">{[['Cash', 'CASH'], ['Mobile money', 'MOBILE_MONEY'], ['Bank', 'BANK'], ['Card', 'CARD']].map(([label, method]) => <span key={method}>{label} <strong className="tabular-nums text-neutral-800">{cash(data!.unassignedSales.byMethod.find((row) => row.method === method)?.amount ?? 0, data!.property.currency || "TZS")}</strong></span>)}</div></div>
           <aside className="bg-amber-50 px-4 py-4 text-xs leading-5 text-amber-900 shadow-[inset_1px_0_0_0_#fde68a] sm:px-5 lg:flex lg:items-center">Settled by an owner or manager with no open shift. No cashier is accountable for this cash.</aside>
         </article>}
 
@@ -902,7 +902,7 @@ export default function FinanceControlPage() {
     </section>}
 
     {tab === "expenses" && <div className="grid gap-4 xl:grid-cols-[.7fr_1.3fr]">
-      <section id="nrms-expense-form" className="h-fit min-w-0 rounded-2xl ring-1 ring-neutral-200 bg-white p-5 shadow-sm">
+      <section id="nrms-expense-form" className="h-fit min-w-0 rounded-lg ring-1 ring-neutral-200 bg-white p-5 shadow-sm">
         <style>{`#nrms-expense-form, #nrms-expense-form * { box-sizing: border-box; }`}</style>
         <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700"><Receipt className="h-4 w-4" /></span><div><h3 className="m-0 text-base font-bold">Record an expense</h3><p className="mb-0 mt-1 text-xs text-neutral-500">Posts to the general ledger when that business date's Night Audit closes, the same way charges and payments do.</p></div></div>
         <div className="mt-4 space-y-3">
@@ -917,9 +917,9 @@ export default function FinanceControlPage() {
         </div>
       </section>
 
-      <section id="nrms-expense-list" className="min-w-0 overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm">
+      <section id="nrms-expense-list" className="min-w-0 overflow-hidden rounded-lg ring-1 ring-neutral-200 bg-white shadow-sm">
         <style>{`#nrms-expense-list, #nrms-expense-list * { box-sizing: border-box; }`}</style>
-        <header className="flex flex-wrap items-center justify-between gap-3 shadow-[inset_0_-1px_0_0_#e5e5e5] px-5 py-4"><div><h3 className="m-0 text-base font-bold">Expenses this month</h3><p className="mb-0 mt-1 text-xs text-neutral-500">{month}, by date recorded.</p></div><span className="rounded-full bg-neutral-100 px-3 py-1.5 text-[10px] font-bold text-neutral-500">{expenses.filter((row) => !row.voidedAt).length} active</span></header>
+        <header className="flex flex-wrap items-center justify-between gap-3 shadow-[inset_0_-1px_0_0_#e5e5e5] px-5 py-4"><div><h3 className="m-0 text-base font-bold">Expenses this month</h3><p className="mb-0 mt-1 text-xs text-neutral-500">{month}, by date recorded.</p></div><span className="rounded-md bg-neutral-100 px-3 py-1.5 text-[10px] font-bold text-neutral-500">{expenses.filter((row) => !row.voidedAt).length} active</span></header>
         {expensesLoading && !expenses.length ? <div className="flex min-h-40 items-center justify-center text-neutral-400"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading expenses…</div> : (
           <div className="[&>*]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>*:last-child]:shadow-none">
             {expenses.map((row) => (
@@ -928,7 +928,7 @@ export default function FinanceControlPage() {
                   <div className="min-w-0 flex-1">
                     <p className={`m-0 truncate text-xs font-bold ${row.voidedAt ? "text-neutral-400 line-through" : "text-neutral-900"}`}>{row.description}</p>
                     <p className="mb-0 mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] leading-none text-neutral-400">
-                      <span className="rounded-full bg-neutral-100 px-1.5 py-1 font-bold text-neutral-500">{expenseCategoryLabel(row.category)}</span>
+                      <span className="rounded-md bg-neutral-100 px-1.5 py-1 font-bold text-neutral-500">{expenseCategoryLabel(row.category)}</span>
                       <span>{new Date(row.incurredAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</span>
                       <span aria-hidden>·</span>
                       <span>{row.paymentMethod ? row.paymentMethod.replace(/_/g, " ").toLowerCase() : "accrued, unpaid"}</span>
@@ -961,7 +961,7 @@ export default function FinanceControlPage() {
     </div>}
 
     {tab === "ledger" && <section className="space-y-4">
-      {profitAndLoss.length > 0 && <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
+      {profitAndLoss.length > 0 && <div className="rounded-lg ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
         <h3 className="m-0 text-sm font-bold">Profit and loss</h3>
         <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Revenue recognized less expenses posted for the selected range, including staff wages recorded on the Expenses tab and, where stock control is in use, the cost of goods sold. Depreciation is not tracked, so this is not a complete P&amp;L.</p>
         <div className="mt-3 space-y-3">{profitAndLoss.map((row) => <div key={row.currency} className="grid gap-3 sm:grid-cols-3">
@@ -970,7 +970,7 @@ export default function FinanceControlPage() {
           <Metric label={`Net (${row.currency})`} value={cash(row.net, row.currency)} note={row.net >= 0 ? "Profit for the range" : "Loss for the range"} tone={row.net >= 0 ? "green" : "amber"} />
         </div>)}</div>
       </div>}
-      {(grossProfit.length > 0 || data?.stock?.tracked) && <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
+      {(grossProfit.length > 0 || data?.stock?.tracked) && <div className="rounded-lg ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
         <h3 className="m-0 text-sm font-bold">Food and beverage gross profit</h3>
         <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Restaurant, bar and room service revenue against the cost of the goods sold, valued at what they cost when they left the shelf. Wastage, staff meals, complimentary and count losses are shown after it.</p>
         <div className="mt-3 space-y-3">
@@ -1008,7 +1008,7 @@ export default function FinanceControlPage() {
                     <span className={`h-2.5 w-2.5 self-center rounded-full ${style.dot}`} />
                     <h4 className="m-0 text-sm font-bold text-neutral-900">{style.label}</h4>
                     <span className="text-[11px] text-neutral-400">{accounts.length} account{accounts.length === 1 ? "" : "s"}</span>
-                    {flagged > 0 && <span className="inline-flex items-center gap-1 self-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800"><AlertTriangle className="h-3 w-3" />{flagged} to check</span>}
+                    {flagged > 0 && <span className="inline-flex items-center gap-1 self-center rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800"><AlertTriangle className="h-3 w-3" />{flagged} to check</span>}
                     <span className="ml-auto flex flex-wrap gap-x-3 text-right">
                       {[...totals.entries()].map(([currency, total]) => <span key={currency} className={`text-sm font-extrabold tabular-nums ${total < 0 ? "text-amber-700" : "text-neutral-900"}`}>{total < 0 ? "-" : ""}{cash(Math.abs(total), currency)}</span>)}
                     </span>
@@ -1020,7 +1020,7 @@ export default function FinanceControlPage() {
                       const flow = account.debit + account.credit;
                       const debitShare = flow > 0 ? Math.round((account.debit / flow) * 100) : 50;
                       return (
-                        <div key={`${account.accountCode}-${account.currency}`} className={`box-border flex min-w-0 flex-col rounded-2xl border border-solid bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:shadow-[0_14px_30px_-22px_rgba(15,23,42,0.45)] ${wrongSide ? "border-amber-300" : "border-neutral-200"}`}>
+                        <div key={`${account.accountCode}-${account.currency}`} className={`box-border flex min-w-0 flex-col rounded-lg border border-solid bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:shadow-[0_14px_30px_-22px_rgba(15,23,42,0.45)] ${wrongSide ? "border-amber-300" : "border-neutral-200"}`}>
                           <div className="flex items-start gap-2">
                             <span className="shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-500">{account.accountCode}</span>
                             <p className="m-0 min-w-0 flex-1 truncate text-[13px] font-semibold text-neutral-800" title={account.accountName}>{account.accountName}</p>
@@ -1049,7 +1049,7 @@ export default function FinanceControlPage() {
                     })}
 
                     {settled.map((account) => (
-                      <div key={`${account.accountCode}-${account.currency}`} className="box-border flex min-w-0 items-center gap-2 self-start rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3">
+                      <div key={`${account.accountCode}-${account.currency}`} className="box-border flex min-w-0 items-center gap-2 self-start rounded-lg border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3">
                         <span className="shrink-0 rounded-md bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-400">{account.accountCode}</span>
                         <p className="m-0 min-w-0 flex-1 truncate text-xs font-semibold text-neutral-500">{account.accountName}</p>
                         <span className="shrink-0 text-[10px] font-bold text-neutral-400">Settled · {cash(0, account.currency)}</span>
@@ -1062,7 +1062,7 @@ export default function FinanceControlPage() {
           </div>
         );
       })()}
-      <div className="overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-lg ring-1 ring-neutral-200 bg-white shadow-sm">
         <div className="shadow-[inset_0_-1px_0_0_#e5e5e5] p-4"><h3 className="m-0 text-sm font-bold">Double-entry journal</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Entries are generated once by source key and become immutable when the business date closes. Debit and credit match on every transaction. That balance is what makes the ledger correct.</p></div>
         <div className="overflow-x-auto overscroll-x-contain">
           <table className="min-w-[900px] border-collapse text-left text-xs">
@@ -1107,7 +1107,7 @@ export default function FinanceControlPage() {
       </div>
     </section>}
 
-    {tab === "tax" && <section className="overflow-hidden rounded-2xl bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
+    {tab === "tax" && <section className="overflow-hidden rounded-lg bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
         <div className="min-w-0">
           <h3 className="m-0 text-sm font-bold text-neutral-950">Tax register</h3>
@@ -1115,7 +1115,7 @@ export default function FinanceControlPage() {
               picker reading 27 Aug 2026. One format per page. */}
           <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">Tax captured separately on transactions for {dayLabel(businessDate)}.</p>
         </div>
-        <div className="rounded-xl bg-emerald-50 px-4 py-2.5 text-right ring-1 ring-emerald-200">
+        <div className="rounded-md bg-emerald-50 px-4 py-2.5 text-right ring-1 ring-emerald-200">
           <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700/70">Captured tax payable</p>
           <p className="mb-0 mt-0.5 text-lg font-bold tabular-nums text-emerald-900">{cash(data?.tax.total || 0, propertyCurrency)}</p>
         </div>
@@ -1175,7 +1175,7 @@ export default function FinanceControlPage() {
     {tab === "nbs" && data && <section className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Physical beds available" value={String(data.nbs.bedsAvailable)} note="Active room units and their configured bed counts" /><Metric label="Bed-nights available" value={data.nbs.bedNightsAvailable.toLocaleString()} note={`${data.nbs.bedsAvailable} beds × ${data.nbs.reportingDays} reporting days`} /><Metric label="Bed-nights occupied" value={data.nbs.bedNightsOccupied.toLocaleString()} note={`${data.nbs.roomNightsOccupied} occupied room-nights`} tone="green" /><Metric label="Bed occupancy rate" value={`${data.nbs.bedOccupancyRate.toFixed(1)}%`} note="Occupied bed-nights ÷ available bed-nights" tone="green" /></div>
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
-        <div className="overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-lg ring-1 ring-neutral-200 bg-white shadow-sm">
           <div className="shadow-[inset_0_-1px_0_0_#e5e5e5] px-5 py-4"><h3 className="m-0 text-sm font-bold">NBS monthly accommodation statistics</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Aggregate operational statistics only; no guest-identifying data is included.</p></div>
           <div className="space-y-2 p-3 text-xs">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-lg ring-1 ring-slate-200 bg-slate-50 px-4 py-3"><div className="flex min-w-0 items-center gap-3"><span className="h-2 w-2 shrink-0 rounded-full bg-slate-400" /><div><p className="m-0 font-semibold text-slate-800">Reporting days in month</p><p className="mb-0 mt-0.5 text-[9px] text-slate-500">Calendar coverage for the selected reporting month</p></div></div><strong className="min-w-12 text-right text-sm tabular-nums text-slate-900">{data.nbs.reportingDays}</strong></div>
@@ -1184,7 +1184,7 @@ export default function FinanceControlPage() {
             <div className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-lg px-4 py-3 ring-1 ${data.nbs.missingNationalityBedNights ? "ring-amber-200 bg-amber-50" : "ring-teal-100 bg-teal-50/70"}`}><div className="flex min-w-0 items-center gap-3"><span className={`h-2 w-2 shrink-0 rounded-full ${data.nbs.missingNationalityBedNights ? "bg-amber-500" : "bg-teal-500"}`} /><div><p className={`m-0 font-semibold ${data.nbs.missingNationalityBedNights ? "text-amber-950" : "text-teal-950"}`}>Bed-nights missing nationality</p><p className={`mb-0 mt-0.5 text-[9px] ${data.nbs.missingNationalityBedNights ? "text-amber-700" : "text-teal-700/70"}`}>{data.nbs.missingNationalityBedNights ? "Guest nationality records require completion" : "All occupied stays have nationality recorded"}</p></div></div><strong className={`min-w-12 text-right text-sm tabular-nums ${data.nbs.missingNationalityBedNights ? "text-amber-800" : "text-teal-800"}`}>{data.nbs.missingNationalityBedNights}</strong></div>
           </div>
         </div>
-        <aside className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5"><h3 className="m-0 text-sm font-bold">Submission readiness</h3><p className="mb-0 mt-3 text-xs leading-5 text-neutral-600">{data.nbs.methodology}</p>{data.nbs.missingNationalityBedNights > 0 && <div className="mt-4 rounded-xl ring-1 ring-amber-200 bg-amber-50 p-3 text-[10px] leading-4 text-amber-800">Complete missing guest nationalities before treating this month as submission-ready.</div>}<div className="mt-4 rounded-xl ring-1 ring-blue-200 bg-blue-50 p-3 text-[10px] leading-4 text-blue-800">Confirm every room’s physical bed count in Room setup. Guest capacity is not used as a substitute.</div></aside>
+        <aside className="rounded-lg border border-neutral-200 bg-neutral-50 p-5"><h3 className="m-0 text-sm font-bold">Submission readiness</h3><p className="mb-0 mt-3 text-xs leading-5 text-neutral-600">{data.nbs.methodology}</p>{data.nbs.missingNationalityBedNights > 0 && <div className="mt-4 rounded-md ring-1 ring-amber-200 bg-amber-50 p-3 text-[10px] leading-4 text-amber-800">Complete missing guest nationalities before treating this month as submission-ready.</div>}<div className="mt-4 rounded-md ring-1 ring-blue-200 bg-blue-50 p-3 text-[10px] leading-4 text-blue-800">Confirm every room’s physical bed count in Room setup. Guest capacity is not used as a substitute.</div></aside>
       </div>
     </section>}
   </div>;

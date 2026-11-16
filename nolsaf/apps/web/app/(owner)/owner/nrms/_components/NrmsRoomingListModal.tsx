@@ -76,7 +76,7 @@ const inputCls =
   "box-border h-10 w-full min-w-0 max-w-full rounded-lg border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 
 const textareaCls =
-  "box-border min-h-20 w-full min-w-0 max-w-full resize-y rounded-xl border border-solid border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+  "box-border min-h-20 w-full min-w-0 max-w-full resize-y rounded-md border border-solid border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 
 function fmtDate(value: string | null): string {
   if (!value) return "";
@@ -284,7 +284,7 @@ export default function NrmsRoomingListModal({
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-emerald-700" /></div>
       ) : !list ? (
         <div className="space-y-4">
-          <div className="flex items-start gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-start gap-3 rounded-md border border-solid border-emerald-200 bg-emerald-50 p-4">
             <Link2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
             <div className="min-w-0">
               <p className="m-0 text-sm font-bold text-emerald-950">Send the agency one link instead of taking names by phone</p>
@@ -302,7 +302,7 @@ export default function NrmsRoomingListModal({
               placeholder="Names exactly as in the passport, one line per room, flight numbers if you have them"
             />
           </label>
-          {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          {error && <p className="m-0 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
           <div className="flex justify-end">
             <button type="button" onClick={createLink} disabled={busy} className="inline-flex cursor-pointer appearance-none items-center gap-2 rounded-lg border-0 bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:opacity-50">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />} Create the link
@@ -311,7 +311,7 @@ export default function NrmsRoomingListModal({
         </div>
       ) : (
         <div className="space-y-5">
-          <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-4">
+          <div className="rounded-md border border-solid border-neutral-200 bg-neutral-50 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${STATUS_CLS[list.status] ?? "bg-neutral-100 text-neutral-600"}`}>
                 {STATUS_LABEL[list.status] ?? list.status}
@@ -341,11 +341,11 @@ export default function NrmsRoomingListModal({
           </div>
 
           {list.rows.length === 0 ? (
-            <p className="m-0 rounded-xl border border-dashed border-neutral-300 bg-white px-4 py-10 text-center text-sm text-neutral-500">
+            <p className="m-0 rounded-md border border-dashed border-neutral-300 bg-white px-4 py-10 text-center text-sm text-neutral-500">
               The agency has not sent any names yet.
             </p>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-solid border-neutral-200">
+            <div className="overflow-hidden rounded-md border border-solid border-neutral-200">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[820px] border-collapse text-left text-sm">
                   <thead>
@@ -436,7 +436,7 @@ export default function NrmsRoomingListModal({
           )}
 
           {failures.length > 0 && (
-            <div className="rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+            <div className="rounded-md border border-solid border-amber-300 bg-amber-50 p-4">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
                 <div className="min-w-0">
@@ -450,7 +450,7 @@ export default function NrmsRoomingListModal({
           )}
 
           {returning && (
-            <div className="rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+            <div className="rounded-md border border-solid border-amber-300 bg-amber-50 p-4">
               <p className="m-0 text-sm font-bold text-amber-950">Send the list back to the agency</p>
               <p className="m-0 mt-1 text-xs leading-5 text-amber-900">They see this note when they open the link and can fix the names in place.</p>
               <textarea
@@ -468,29 +468,29 @@ export default function NrmsRoomingListModal({
             </div>
           )}
 
-          {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          {error && <p className="m-0 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
           {live && !returning && (
-            <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-neutral-50/70 shadow-sm">
+            <div className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-50/70 shadow-sm">
               <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="mr-1 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-500">List progress</span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     {list.counts.accepted} accepted
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                     {list.counts.pending} waiting
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-neutral-700 ring-1 ring-inset ring-neutral-200">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-white px-2.5 py-1 text-xs font-bold text-neutral-700 ring-1 ring-inset ring-neutral-200">
                     <Check className="h-3 w-3 text-emerald-600" />
                     {list.counts.confirmed} booked
                   </span>
                 </div>
 
                 {list.counts.accepted > list.counts.confirmed && (
-                  <button type="button" onClick={confirmAccepted} disabled={busy} className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 hover:shadow disabled:cursor-not-allowed disabled:opacity-50">
+                  <button type="button" onClick={confirmAccepted} disabled={busy} className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 hover:shadow disabled:cursor-not-allowed disabled:opacity-50">
                     {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
                     Confirm accepted names
                   </button>

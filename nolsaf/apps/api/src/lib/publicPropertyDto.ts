@@ -1,5 +1,6 @@
 import type { PropertyImage } from "@prisma/client";
 import { APPROX_LOCATION_RADIUS_M, approximateCoordinates, hasPublicExactLocation } from "./propertyLocationPrivacy.js";
+import { discountedNightlyNet, roomDiscountPercent } from "./roomDiscount.js";
 
 const DEFAULT_PROPERTY_VERIFICATION_METHOD = "Site visit and listing review";
 
@@ -201,7 +202,8 @@ export function nightlyPriceOptions(p: any): number[] {
   if (Number.isFinite(basePrice) && basePrice > 0) out.push(basePrice);
   for (const room of normalizeRoomsSpecInput(p?.roomsSpec)) {
     const value = Number((room as any)?.pricePerNight ?? (room as any)?.price ?? NaN);
-    if (Number.isFinite(value) && value > 0) out.push(value);
+    // Filter on what the guest actually pays: the room's discount applies.
+    if (Number.isFinite(value) && value > 0) out.push(discountedNightlyNet(value, roomDiscountPercent(room)));
   }
   return out;
 }
@@ -215,7 +217,8 @@ function extractEffectiveBasePrice(p: any): number | null {
     .map((room: any) => {
       const raw = room?.pricePerNight ?? room?.price ?? null;
       const value = Number(raw);
-      return Number.isFinite(value) && value > 0 ? value : null;
+      // The "from" price is the lowest a guest pays, discount included.
+      return Number.isFinite(value) && value > 0 ? discountedNightlyNet(value, roomDiscountPercent(room)) : null;
     })
     .filter((value: number | null): value is number => value != null);
 

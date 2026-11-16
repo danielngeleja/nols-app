@@ -30,7 +30,7 @@ function useReport<T>(url: string, params: Record<string, string | number | unde
 }
 
 function Frame({ data, error, empty, children }: { data: unknown; error: string | null; empty?: ReactNode; children: ReactNode }) {
-  if (error) return <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
+  if (error) return <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
   if (!data) return <div className={`${cardClass} flex min-h-[24vh] items-center justify-center text-neutral-300`}><Loader2 className="h-6 w-6 animate-spin" /></div>;
   return <>{empty ?? children}</>;
 }

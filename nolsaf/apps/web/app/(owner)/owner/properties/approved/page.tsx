@@ -234,14 +234,14 @@ export default function ApprovedProps() {
     return (
       <div id="owner-properties" className={shell} aria-busy="true" aria-label="Loading properties">
         <style>{styles}</style>
-        <div className="rounded-3xl bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
+        <div className="rounded-lg bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="space-y-2.5">
             <div className="op-sk-dark h-3 w-28 rounded-full" />
             <div className="op-sk-dark h-8 w-52 rounded-lg" />
           </div>
-          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="op-sk-dark h-[72px] rounded-2xl" />)}</div>
+          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <div key={i} className="op-sk-dark h-[72px] rounded-lg" />)}</div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="op-sk h-[340px] rounded-2xl" />)}</div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <div key={i} className="op-sk h-[340px] rounded-lg" />)}</div>
       </div>
     );
   }
@@ -250,9 +250,9 @@ export default function ApprovedProps() {
     return (
       <div id="owner-properties" className={shell}>
         <style>{styles}</style>
-        <section className="grid overflow-hidden rounded-3xl border border-solid border-slate-300/80 bg-white md:grid-cols-2">
+        <section className="grid overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white md:grid-cols-2">
           <div className="p-8">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#012a26] text-[#5eead4]">
+            <span className="grid h-12 w-12 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]">
               <Building2 className="h-6 w-6" aria-hidden />
             </span>
             <p className="m-0 mt-4 text-xl font-bold text-slate-900">No approved properties yet</p>
@@ -261,11 +261,11 @@ export default function ApprovedProps() {
             </p>
           </div>
           <div className="flex flex-col justify-center gap-2.5 border-0 border-t border-solid border-slate-200 bg-slate-50 p-8 md:border-l md:border-t-0">
-            <Link href="/owner/properties/add" className="group inline-flex h-12 items-center justify-between gap-2 rounded-xl bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]">
+            <Link href="/owner/properties/add" className="group inline-flex h-12 items-center justify-between gap-2 rounded-md bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]">
               Add your property
               <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]"><Plus className="h-4 w-4" aria-hidden /></span>
             </Link>
-            <Link href="/owner/properties/pending" className="inline-flex h-12 items-center justify-between gap-2 rounded-xl border border-solid border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-100">
+            <Link href="/owner/properties/pending" className="inline-flex h-12 items-center justify-between gap-2 rounded-md border border-solid border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-100">
               See pending submissions <ArrowRight className="h-4 w-4 text-slate-400" aria-hidden />
             </Link>
           </div>
@@ -289,7 +289,7 @@ export default function ApprovedProps() {
       <style>{styles}</style>
 
       {/* ── Header band ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -298,13 +298,13 @@ export default function ApprovedProps() {
         <div className="relative px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Property owner</p>
+              <p className="m-0 text-[12px] font-semibold text-[#9fd8cc]">Property owner</p>
               <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">My properties</h1>
               <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">Approved and live on NoLSAF. Preview a listing, edit it, or open its public page.</p>
             </div>
             <Link
               href="/owner/properties/add"
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 self-start rounded-xl bg-[#5eead4] px-3.5 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1] sm:self-auto"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 self-start rounded-md bg-[#5eead4] px-3.5 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1] sm:self-auto"
             >
               <Plus className="h-4 w-4" aria-hidden /> Add property
             </Link>
@@ -317,8 +317,8 @@ export default function ApprovedProps() {
               { label: "Guest rating", value: avgRating ? avgRating.toFixed(1) : "No reviews", Icon: Star },
               { label: "Reviews", value: String(totalReviews), Icon: MessageSquare },
             ].map((s) => (
-              <div key={s.label} className="min-w-0 rounded-2xl border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
-                <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+              <div key={s.label} className="min-w-0 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
+                <span className="flex items-center gap-1.5 text-[12px] font-medium text-white/60">
                   <s.Icon className="h-3.5 w-3.5 text-[#5eead4]" aria-hidden />
                   <span className="truncate">{s.label}</span>
                 </span>
@@ -342,14 +342,14 @@ export default function ApprovedProps() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search name, type or area"
-              className="h-10 w-full rounded-xl border border-solid border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+              className="h-10 w-full rounded-md border border-solid border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
             />
           </label>
         ) : null}
       </div>
 
       {visible.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500">No property matches that search.</div>
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-sm text-slate-500">No property matches that search.</div>
       ) : (
         <ul className="m-0 grid list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map((property) => {
@@ -374,7 +374,7 @@ export default function ApprovedProps() {
             return (
               <li
                 key={property.id}
-                className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_22px_44px_-26px_rgba(1,42,38,0.5)]"
+                className="group flex min-w-0 flex-col overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_22px_44px_-26px_rgba(1,42,38,0.5)]"
               >
                 {/* Photo with the facts a guest sees first */}
                 <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
@@ -394,9 +394,9 @@ export default function ApprovedProps() {
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/60 to-transparent" aria-hidden />
                   <div className="absolute left-3 top-3 flex items-center gap-1.5">
                     {typeLabel ? (
-                      <span className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-slate-800 shadow-sm">{typeLabel}</span>
+                      <span className="rounded-md bg-white/95 px-2 py-1 text-[11px] font-bold text-slate-800 shadow-sm">{typeLabel}</span>
                     ) : null}
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#012a26]/85 px-2.5 py-1 text-[11px] font-bold text-[#5eead4] backdrop-blur-sm">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-[#012a26]/85 px-2 py-1 text-[11px] font-bold text-[#5eead4] backdrop-blur-sm">
                       <span className="h-1.5 w-1.5 rounded-full bg-[#5eead4]" aria-hidden /> Live
                     </span>
                   </div>
@@ -432,16 +432,16 @@ export default function ApprovedProps() {
                   </p>
 
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700">
                       <CalendarCheck className="h-3 w-3 text-slate-400" aria-hidden /> {bookings} {bookings === 1 ? "booking" : "bookings"}
                     </span>
                     {roomTypes > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700">
                         <BedDouble className="h-3 w-3 text-slate-400" aria-hidden /> {roomTypes} {roomTypes === 1 ? "room type" : "room types"}
                       </span>
                     ) : null}
                     {property.tourismSite?.name ? (
-                      <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full bg-[#02665e]/[0.07] px-2.5 py-1 text-[11px] font-medium text-[#02665e]" title={property.tourismSite.name}>
+                      <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md bg-[#02665e]/[0.07] px-2 py-1 text-[11px] font-medium text-[#02665e]" title={property.tourismSite.name}>
                         <Trees className="h-3 w-3 shrink-0" aria-hidden />
                         <span className="truncate">{property.parkPlacement === "INSIDE" ? "Inside" : "Near"} {property.tourismSite.name}</span>
                       </span>
@@ -450,7 +450,7 @@ export default function ApprovedProps() {
 
                   <div className="mt-auto pt-4">
                     <div className="flex items-baseline justify-between gap-2 border-0 border-t border-dashed border-slate-200 pt-3">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Your rate</span>
+                      <span className="text-[11px] font-medium text-slate-500">Your rate</span>
                       {basePriceFormatted ? (
                         <span className="flex items-baseline gap-1">
                           {isFromRoom ? <span className="text-[11px] text-slate-400">From</span> : null}
@@ -465,7 +465,7 @@ export default function ApprovedProps() {
                       <button
                         type="button"
                         onClick={() => setSelectedPropertyId(property.id)}
-                        className="group/btn inline-flex h-10 flex-1 items-center justify-between gap-2 rounded-xl border border-solid border-[#012a26] bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white transition hover:bg-[#02665e]"
+                        className="group/btn inline-flex h-10 flex-1 items-center justify-between gap-2 rounded-md border border-solid border-[#012a26] bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white transition hover:bg-[#02665e]"
                       >
                         Preview
                         <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#5eead4] text-[#012a26] transition group-hover/btn:translate-x-0.5">
@@ -474,7 +474,7 @@ export default function ApprovedProps() {
                       </button>
                       <Link
                         href={`/owner/properties/add?id=${ownerPropertyRefOrId(property.id)}`}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-slate-300 bg-white px-3.5 text-sm font-semibold text-slate-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                        className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-3.5 text-sm font-semibold text-slate-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
                       </Link>
@@ -485,7 +485,7 @@ export default function ApprovedProps() {
                           rel="noopener noreferrer"
                           title="Open the public page"
                           aria-label="Open the public page"
-                          className="grid h-10 w-10 place-items-center rounded-xl border border-solid border-slate-300 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                          className="grid h-10 w-10 place-items-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
                         >
                           <ArrowUpRight className="h-4 w-4" aria-hidden />
                         </Link>

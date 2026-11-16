@@ -78,6 +78,7 @@ vi.mock("../middleware/rateLimit.js", () => {
     limitSalesContractAccept: pass,
     limitSalesContractRead: pass,
     limitSalesLeadRead: pass,
+    limitSalesLeadCheck: pass,
     limitSalesLeadWrite: pass,
     limitSalesPropertyRead: pass,
     limitSalesAdminWrite: pass,

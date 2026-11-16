@@ -54,11 +54,11 @@ export function tzs(amount: number | null | undefined, currency = "TZS"): string
 /** Calendar tile for the arrival day. */
 export function DateTile({ iso, tone = "bg-[#012a26] text-[#5eead4]" }: { iso: string | null | undefined; tone?: string }) {
   if (!iso) {
-    return <span className="grid h-14 w-12 shrink-0 place-items-center rounded-xl bg-slate-100 text-[10px] font-semibold text-slate-400">No date</span>;
+    return <span className="grid h-14 w-12 shrink-0 place-items-center rounded-md bg-slate-100 text-[10px] font-semibold text-slate-400">No date</span>;
   }
   const d = new Date(iso);
   return (
-    <span className="flex w-12 shrink-0 flex-col overflow-hidden rounded-xl bg-white text-center ring-1 ring-slate-200">
+    <span className="flex w-12 shrink-0 flex-col overflow-hidden rounded-md bg-white text-center ring-1 ring-slate-200">
       <span className={`py-0.5 text-[9px] font-bold tracking-[0.14em] ${tone}`}>{d.toLocaleDateString("en-GB", { timeZone: GS_TZ, month: "short" }).toUpperCase()}</span>
       <span className="pt-0.5 text-lg font-bold leading-none tabular-nums text-slate-900">{d.toLocaleDateString("en-GB", { timeZone: GS_TZ, day: "2-digit" })}</span>
       <span className="pb-1 text-[9px] font-semibold text-slate-400">{d.toLocaleDateString("en-GB", { timeZone: GS_TZ, weekday: "short" })}</span>
@@ -79,11 +79,11 @@ export function GroupStaysBand({
 }) {
   const pathname = usePathname() ?? "";
   return (
-    <header className="overflow-hidden rounded-3xl bg-[#012a26] text-white">
+    <header className="overflow-hidden rounded-lg bg-[#012a26] text-white">
       <div className="px-5 pt-5 sm:px-8 sm:pt-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
-            <p className="m-0 text-[11px] font-bold uppercase tracking-[0.16em] text-[#5eead4]">Group stays</p>
+            <p className="m-0 text-[11px] font-bold text-[#5eead4]">Group stays</p>
             <h1 className="m-0 mt-1 text-[26px] font-bold leading-tight tracking-tight text-white sm:text-[30px]">{title}</h1>
             <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">{subtitle}</p>
           </div>
@@ -110,7 +110,7 @@ export function GroupStaysBand({
         <dl className={`m-0 grid gap-px border-0 border-t border-solid border-white/10 bg-white/10 ${stats.length >= 4 ? "grid-cols-2 sm:grid-cols-4" : stats.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
           {stats.map((stat) => (
             <div key={stat.label} className="bg-[#012a26] px-5 py-3.5 sm:px-8">
-              <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/45">{stat.label}</dt>
+              <dt className="text-[11px] font-bold text-white/45">{stat.label}</dt>
               <dd className={`m-0 mt-1 text-2xl font-extrabold tabular-nums ${stat.tone ?? "text-white"}`}>{stat.value}</dd>
               {stat.hint ? <p className="m-0 hidden truncate text-[11px] text-white/45 sm:block">{stat.hint}</p> : null}
             </div>

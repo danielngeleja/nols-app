@@ -92,7 +92,7 @@ export function PayoutRow({ payout, now, showReceipt = false }: { payout: OwnerP
     <li className="flex flex-col gap-3 px-4 py-4 sm:px-5 lg:flex-row lg:items-start lg:justify-between">
       <div className="min-w-0 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${meta.chip}`}>
+          <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-0.5 text-[11px] font-semibold ${meta.chip}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden />
             {meta.label}
           </span>

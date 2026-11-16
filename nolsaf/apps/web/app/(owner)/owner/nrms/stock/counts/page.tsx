@@ -105,7 +105,7 @@ export default function StockCountsPage() {
         ariaLabel="Counts"
       />
 
-      {(error || countsError) && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error || countsError}</div>}
+      {(error || countsError) && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error || countsError}</div>}
 
       {loading && !overview ? (
         <div className="flex min-h-[30vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>
@@ -245,7 +245,7 @@ function StartCountModal({ propertyId, overview, canApprove, onClose, onStarted 
               ["FULL", "Full count", "Every good held here. Weekly or monthly."],
               ["HANDOVER", "Handover count", "The owner's short high-value list, at shift change."],
             ] as const).map(([value, title, hint]) => (
-              <button key={value} type="button" onClick={() => setScope(value)} className={`rounded-xl border border-solid p-3 text-left [font-family:inherit] ${scope === value ? "border-brand bg-brand/5" : "border-neutral-300 bg-white hover:border-brand/40"}`}>
+              <button key={value} type="button" onClick={() => setScope(value)} className={`rounded-md border border-solid p-3 text-left [font-family:inherit] ${scope === value ? "border-brand bg-brand/5" : "border-neutral-300 bg-white hover:border-brand/40"}`}>
                 <span className="block text-sm font-bold text-neutral-900">{title}</span>
                 <span className="mt-0.5 block text-xs text-neutral-500">{hint}</span>
               </button>
@@ -259,7 +259,7 @@ function StartCountModal({ propertyId, overview, canApprove, onClose, onStarted 
               <button type="button" onClick={() => setPicked(picked.size === goodsHere.length ? new Set() : new Set(goodsHere.map((good) => good.id)))} className={quietButton}>{picked.size === goodsHere.length ? "Clear" : "Select all"}</button>
             </div>
             {goodsHere.length === 0 ? <p className="m-0 mt-2 text-sm text-neutral-500">Nothing is stocked here yet.</p> : (
-              <div className="mt-2 max-h-[300px] space-y-3 overflow-y-auto rounded-xl border border-solid border-neutral-200 p-3">
+              <div className="mt-2 max-h-[300px] space-y-3 overflow-y-auto rounded-md border border-solid border-neutral-200 p-3">
                 {byCategory.map(([category, goods]) => (
                   <div key={category}>
                     <div className="flex items-center justify-between">
@@ -371,7 +371,7 @@ function VarianceTab({ propertyId, overview }: { propertyId: number; overview: S
         </label>
         <button type="button" disabled={!data?.rows.length} onClick={exportCsv} className={`${quietButton} ml-auto h-9`}><Download className="h-4 w-4" />Export CSV</button>
       </div>
-      {error && <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
       {!data ? (
         <div className={`${cardClass} flex min-h-[20vh] items-center justify-center text-neutral-300`}><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : (

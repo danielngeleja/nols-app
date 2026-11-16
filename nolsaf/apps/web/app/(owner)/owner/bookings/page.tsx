@@ -236,7 +236,7 @@ export default function OwnerBookingsPage() {
           #owner-bookings .ob-sk { background: linear-gradient(90deg, #eef2f1 0%, #f8faf9 40%, #eef2f1 80%); background-size: 800px 100%; animation: ob-shimmer 1.3s linear infinite; }
           #owner-bookings .ob-sk-dark { background: linear-gradient(90deg, rgba(255,255,255,.06) 0%, rgba(255,255,255,.14) 40%, rgba(255,255,255,.06) 80%); background-size: 800px 100%; animation: ob-shimmer 1.3s linear infinite; }
         `}</style>
-        <div className="rounded-3xl bg-[#012a26] px-5 pb-5 pt-6 sm:px-8 sm:pt-7">
+        <div className="rounded-lg bg-[#012a26] px-5 pb-5 pt-6 sm:px-8 sm:pt-7">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-2.5">
               <div className="ob-sk-dark h-3 w-28 rounded-full" />
@@ -244,7 +244,7 @@ export default function OwnerBookingsPage() {
               <div className="ob-sk-dark h-3.5 w-52 rounded-full" />
             </div>
             <div className="grid grid-cols-3 gap-3">
-              {[0, 1, 2].map((i) => <div key={i} className="ob-sk-dark h-[68px] rounded-2xl sm:w-[132px]" />)}
+              {[0, 1, 2].map((i) => <div key={i} className="ob-sk-dark h-[68px] rounded-lg sm:w-[132px]" />)}
             </div>
           </div>
           <div className="mt-7 flex gap-3">
@@ -252,15 +252,15 @@ export default function OwnerBookingsPage() {
           </div>
         </div>
         <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_16rem_10rem]">
-          {[0, 1, 2].map((i) => <div key={i} className="ob-sk h-11 rounded-xl" />)}
+          {[0, 1, 2].map((i) => <div key={i} className="ob-sk h-11 rounded-md" />)}
         </div>
-        <div className="overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)]">
+        <div className="overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)]">
           <div className="border-0 border-b border-solid border-slate-200 bg-slate-50 px-5 py-3">
             <div className="ob-sk h-3 w-40 rounded-full" />
           </div>
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="flex items-center gap-4 border-0 border-b border-solid border-slate-200 px-5 py-4 last:border-b-0">
-              <div className="ob-sk h-12 w-12 shrink-0 rounded-xl" />
+              <div className="ob-sk h-12 w-12 shrink-0 rounded-md" />
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="ob-sk h-3.5 w-48 max-w-full rounded-full" />
                 <div className="ob-sk h-3 w-32 rounded-full" />
@@ -288,7 +288,7 @@ export default function OwnerBookingsPage() {
       <style>{`#owner-bookings, #owner-bookings * { box-sizing: border-box; }`}</style>
 
       {/* ── Header band ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -297,7 +297,7 @@ export default function OwnerBookingsPage() {
         <div className="relative px-5 pt-6 sm:px-8 sm:pt-7">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Property owner</p>
+              <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Property owner</p>
               <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Bookings</h1>
               <p className="m-0 mt-1.5 text-sm text-white/60">{today.label}</p>
             </div>
@@ -313,9 +313,9 @@ export default function OwnerBookingsPage() {
                   key={t.label}
                   type="button"
                   onClick={t.onClick}
-                  className="group min-w-0 rounded-2xl border border-solid border-white/10 bg-white/[0.04] px-3.5 py-3 text-left text-white transition hover:border-[#5eead4]/40 hover:bg-white/[0.07] sm:min-w-[132px] sm:px-4"
+                  className="group min-w-0 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-3.5 py-3 text-left text-white transition hover:border-[#5eead4]/40 hover:bg-white/[0.07] sm:min-w-[132px] sm:px-4"
                 >
-                  <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/50">
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white/50">
                     <t.Icon className="h-3.5 w-3.5 text-[#5eead4]" aria-hidden />
                     <span className="truncate">{t.label}</span>
                   </span>
@@ -348,7 +348,7 @@ export default function OwnerBookingsPage() {
             })}
             <Link
               href="/owner/bookings/validate"
-              className="ml-auto inline-flex shrink-0 items-center gap-1.5 self-start rounded-xl bg-[#5eead4] px-3.5 py-2 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1]"
+              className="ml-auto inline-flex shrink-0 items-center gap-1.5 self-start rounded-md bg-[#5eead4] px-3.5 py-2 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1]"
             >
               <ScanLine className="h-4 w-4" aria-hidden /> Check in a guest
             </Link>
@@ -366,7 +366,7 @@ export default function OwnerBookingsPage() {
             value={searchQuery}
             onChange={(event) => { setSearchQuery(event.target.value); setPage(1); }}
             placeholder="Search guest, property or booking reference"
-            className="h-11 w-full rounded-xl border border-solid border-slate-300 bg-white pl-10 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+            className="h-11 w-full rounded-md border border-solid border-slate-300 bg-white pl-10 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
           />
         </label>
         <label className="relative block">
@@ -375,7 +375,7 @@ export default function OwnerBookingsPage() {
           <select
             value={propertyFilter}
             onChange={(event) => { setPropertyFilter(event.target.value); setPage(1); }}
-            className="h-11 w-full rounded-xl border border-solid border-slate-300 bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+            className="h-11 w-full rounded-md border border-solid border-slate-300 bg-white pl-10 pr-3 text-sm text-slate-700 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
           >
             <option value="all">All properties</option>
             {propertyOptions.map(([value, label]) => (
@@ -387,7 +387,7 @@ export default function OwnerBookingsPage() {
           type="button"
           aria-pressed={activeTab === 'recent'}
           onClick={() => selectTab(activeTab === 'recent' ? 'all' : 'recent')}
-          className={`inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-solid px-4 text-sm font-semibold transition ${
+          className={`inline-flex h-11 items-center justify-center gap-2 rounded-md border border-solid px-4 text-sm font-semibold transition ${
             activeTab === 'recent' ? 'border-[#02665e] bg-[#02665e] text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
           }`}
         >
@@ -398,7 +398,7 @@ export default function OwnerBookingsPage() {
       </section>
 
       {/* ── List ── */}
-      <section className="overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)]">
+      <section className="overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)]">
         <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-slate-200 bg-slate-50 px-4 py-3 sm:px-5">
           <p className="m-0 text-xs text-slate-600">
             <span className="font-bold text-slate-900">{filtered.length}</span> {filtered.length === 1 ? 'booking' : 'bookings'}
@@ -413,7 +413,7 @@ export default function OwnerBookingsPage() {
 
         {filtered.length === 0 ? (
           <div className="px-6 py-14 text-center">
-            <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+            <span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-400">
               <CalendarDays className="h-6 w-6" aria-hidden />
             </span>
             <p className="m-0 mt-3 text-sm font-semibold text-slate-800">No bookings found</p>
@@ -429,7 +429,7 @@ export default function OwnerBookingsPage() {
         ) : (
           <>
             {/* Column heads, md and up */}
-            <div className={`hidden ${GRID} items-center gap-4 border-0 border-b border-solid border-slate-200 px-5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 md:grid`}>
+            <div className={`hidden ${GRID} items-center gap-4 border-0 border-b border-solid border-slate-200 px-5 py-2.5 text-[11px] font-semibold text-slate-500 md:grid`}>
               <span>Guest and arrival</span>
               <span>Stay</span>
               <span>Status</span>
@@ -446,8 +446,8 @@ export default function OwnerBookingsPage() {
                     {startsGroup && activeTab === 'all' && (
                       <div className="flex items-center gap-2 border-0 border-b border-solid border-slate-200 bg-slate-50/80 px-5 py-2">
                         <span className={`h-2 w-2 rounded-full ${GROUPS[group].dot}`} aria-hidden />
-                        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-600">{GROUPS[group].label}</span>
-                        <span className="rounded-full bg-white px-1.5 py-px text-[10px] font-semibold tabular-nums text-slate-500 ring-1 ring-inset ring-slate-200">
+                        <span className="text-[11px] font-bold text-slate-600">{GROUPS[group].label}</span>
+                        <span className="rounded-md bg-white px-1.5 py-px text-[10px] font-semibold tabular-nums text-slate-500 ring-1 ring-inset ring-slate-200">
                           {filtered.filter((x) => rank(x)[0] === group).length}
                         </span>
                       </div>
@@ -549,7 +549,7 @@ function DateTile({ iso, tone }: { iso: string; tone: string }) {
   const day = d.toLocaleDateString('en-GB', { timeZone: TZ, day: '2-digit' });
   const weekday = d.toLocaleDateString('en-GB', { timeZone: TZ, weekday: 'short' });
   return (
-    <span className="flex w-12 shrink-0 flex-col overflow-hidden rounded-xl bg-white text-center shadow-[0_6px_14px_-10px_rgba(15,23,42,0.5)] ring-1 ring-slate-200">
+    <span className="flex w-12 shrink-0 flex-col overflow-hidden rounded-md bg-white text-center shadow-[0_6px_14px_-10px_rgba(15,23,42,0.5)] ring-1 ring-slate-200">
       <span className={`py-0.5 text-[9px] font-bold tracking-[0.14em] ${tone}`}>{month}</span>
       <span className="pt-0.5 text-lg font-bold leading-none tabular-nums text-slate-900">{day}</span>
       <span className="pb-1 text-[9px] font-semibold text-slate-400">{weekday}</span>
@@ -624,7 +624,7 @@ function BookingRow({ booking, now }: { booking: Booking; now: number }) {
         </div>
 
         <span>
-          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ring-black/5 ${r.cfg.chip}`}>
+          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ring-black/5 ${r.cfg.chip}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${r.cfg.dot}`} aria-hidden />
             {r.cfg.label}
           </span>
@@ -651,7 +651,7 @@ function BookingRow({ booking, now }: { booking: Booking; now: number }) {
             {booking.property} · {r.nights} {r.nights === 1 ? 'night' : 'nights'} to {fmtDay(booking.checkOut)}
           </p>
           <div className="mt-1.5 flex items-center gap-2">
-            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${r.cfg.chip}`}>
+            <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ${r.cfg.chip}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${r.cfg.dot}`} aria-hidden />
               {r.cfg.label}
             </span>

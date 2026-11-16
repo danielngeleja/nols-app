@@ -659,7 +659,7 @@ export default function CheckinValidation() {
       `}</style>
 
       {/* ── Console: the code is entered inside the band itself ── */}
-      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="relative overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.07]"
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 75% 40%, #000 0%, transparent 70%)", WebkitMaskImage: "radial-gradient(ellipse at 75% 40%, #000 0%, transparent 70%)" }}
@@ -668,7 +668,7 @@ export default function CheckinValidation() {
         <div className="relative grid gap-6 px-5 py-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-10">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Front desk</p>
+              <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Front desk</p>
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                   isConnected ? "bg-[#5eead4]/10 text-[#5eead4]" : isConnected === false ? "bg-amber-300/10 text-amber-200" : "bg-white/5 text-white/50"
@@ -687,9 +687,9 @@ export default function CheckinValidation() {
             </p>
 
             {handoff.reference ? (
-              <div className="mt-5 flex max-w-md items-start gap-3 rounded-2xl border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
+              <div className="mt-5 flex max-w-md items-start gap-3 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9fd8cc]">NRMS front desk arrival</p>
+                  <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">NRMS front desk arrival</p>
                   <p className="m-0 mt-0.5 truncate text-sm font-semibold text-white">
                     {handoff.guestName ? `Check in ${handoff.guestName}` : "Loading guest details..."}
                   </p>
@@ -710,7 +710,7 @@ export default function CheckinValidation() {
 
           {/* Code cells over a single real input */}
           <div className="min-w-0">
-            <label htmlFor="checkin-input" className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
+            <label htmlFor="checkin-input" className="mb-2 block text-[11px] font-semibold text-white/45">
               Booking code
             </label>
             <div className="flex items-stretch gap-2.5">
@@ -721,7 +721,7 @@ export default function CheckinValidation() {
                     return (
                       <span
                         key={i}
-                        className={`relative grid h-14 place-items-center rounded-xl border border-solid font-mono text-2xl font-bold transition-colors sm:h-16 sm:w-12 sm:text-[28px] ${
+                        className={`relative grid h-14 place-items-center rounded-md border border-solid font-mono text-2xl font-bold transition-colors sm:h-16 sm:w-12 sm:text-[28px] ${
                           isLocked
                             ? "border-white/5 bg-white/[0.02] text-white/20"
                             : ch
@@ -757,7 +757,7 @@ export default function CheckinValidation() {
                     }
                   }}
                   disabled={isLocked}
-                  className="absolute inset-0 h-full w-full cursor-text rounded-xl border-0 bg-transparent p-0 text-transparent caret-transparent outline-none selection:bg-transparent"
+                  className="absolute inset-0 h-full w-full cursor-text rounded-md border-0 bg-transparent p-0 text-transparent caret-transparent outline-none selection:bg-transparent"
                   autoFocus
                   maxLength={isQrCode ? undefined : 8}
                   autoComplete="off"
@@ -770,7 +770,7 @@ export default function CheckinValidation() {
                 type="button"
                 onClick={() => { setScanOpen(true); setScanError(null); }}
                 disabled={isLocked}
-                className="grid h-14 w-14 shrink-0 place-items-center rounded-xl border border-solid border-[#5eead4]/40 bg-[#5eead4] text-[#012a26] transition hover:bg-[#8ff3e1] disabled:cursor-not-allowed disabled:opacity-40 sm:h-16 sm:w-16"
+                className="grid h-14 w-14 shrink-0 place-items-center rounded-md border border-solid border-[#5eead4]/40 bg-[#5eead4] text-[#012a26] transition hover:bg-[#8ff3e1] disabled:cursor-not-allowed disabled:opacity-40 sm:h-16 sm:w-16"
                 aria-label="Scan receipt QR"
                 title="Scan receipt QR"
               >
@@ -795,7 +795,7 @@ export default function CheckinValidation() {
                   <button
                     type="button"
                     onClick={() => setLostCodeOpen(true)}
-                    className="inline-flex h-7 appearance-none items-center gap-1.5 rounded-full border border-solid border-[#5eead4]/35 px-3 text-[11px] font-semibold text-[#5eead4] transition hover:border-[#5eead4]/60 hover:text-white"
+                    className="inline-flex h-7 appearance-none items-center gap-1.5 rounded-md border border-solid border-[#5eead4]/35 px-3 text-[11px] font-semibold text-[#5eead4] transition hover:border-[#5eead4]/60 hover:text-white"
                     style={{ background: "rgba(94,234,212,0.08)" }}
                   >
                     <KeyRound className="h-3.5 w-3.5" aria-hidden />
@@ -815,7 +815,7 @@ export default function CheckinValidation() {
 
       {/* ── Problems reaching or reading the code ── */}
       {contactSuggest && !loading && (
-        <div className="rounded-2xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-lg border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           This is taking unusually long. If it still does not return a result, please contact support below.
         </div>
       )}
@@ -830,7 +830,7 @@ export default function CheckinValidation() {
         };
         return (
           <article
-            className="cv-rise relative flex flex-col overflow-hidden rounded-3xl bg-white shadow-[0_30px_70px_-42px_rgba(61,10,14,0.55)] ring-1 ring-slate-200 md:flex-row"
+            className="cv-rise relative flex flex-col overflow-hidden rounded-lg bg-white shadow-[0_30px_70px_-42px_rgba(61,10,14,0.55)] ring-1 ring-slate-200 md:flex-row"
             role="alert"
             aria-live="polite"
           >
@@ -855,11 +855,11 @@ export default function CheckinValidation() {
               )}
 
               <div>
-                <p className={`m-0 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] ${offline ? "text-slate-300" : "text-rose-200/90"}`}>
+                <p className={`m-0 flex items-center gap-2 text-[11px] font-semibold ${offline ? "text-slate-300" : "text-rose-200/90"}`}>
                   <span className="h-px w-5 bg-current opacity-60" aria-hidden />
                   Arrival pass
                 </p>
-                <span className="mt-5 grid h-14 w-14 place-items-center rounded-2xl bg-white/10 text-white shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] ring-1 ring-inset ring-white/20 backdrop-blur-sm">
+                <span className="mt-5 grid h-14 w-14 place-items-center rounded-lg bg-white/10 text-white shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] ring-1 ring-inset ring-white/20 backdrop-blur-sm">
                   {offline ? <WifiOff className="h-7 w-7" aria-hidden /> : <ShieldAlert className="h-7 w-7" aria-hidden />}
                 </span>
                 <h2 className="m-0 mt-5 text-[26px] font-bold leading-[1.1] tracking-tight text-white drop-shadow-sm">
@@ -871,8 +871,8 @@ export default function CheckinValidation() {
               </div>
 
               {shown ? (
-                <div className="rounded-xl bg-black/20 px-3 py-2.5 ring-1 ring-inset ring-white/10">
-                  <p className={`m-0 text-[9px] font-semibold uppercase tracking-[0.18em] ${offline ? "text-slate-300" : "text-rose-200/90"}`}>Code entered</p>
+                <div className="rounded-md bg-black/20 px-3 py-2.5 ring-1 ring-inset ring-white/10">
+                  <p className={`m-0 text-[11px] font-semibold ${offline ? "text-slate-300" : "text-rose-200/90"}`}>Code entered</p>
                   <p className={`m-0 mt-1 font-mono text-lg font-bold tracking-[0.3em] text-white/90 ${offline ? "" : "line-through decoration-rose-300/80 decoration-2"}`}>{shown}</p>
                 </div>
               ) : null}
@@ -908,10 +908,10 @@ export default function CheckinValidation() {
 
               {offline ? (
                 <div className="mt-5 flex flex-wrap gap-2">
-                  <a href={`mailto:${supportEmail}`} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 hover:bg-slate-50">
+                  <a href={`mailto:${supportEmail}`} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 hover:bg-slate-50">
                     <Mail className="h-3.5 w-3.5 text-slate-400" aria-hidden /> {supportEmail}
                   </a>
-                  <a href={`tel:${supportPhone.replace(/\s+/g, "")}`} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 hover:bg-slate-50">
+                  <a href={`tel:${supportPhone.replace(/\s+/g, "")}`} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 hover:bg-slate-50">
                     <Phone className="h-3.5 w-3.5 text-slate-400" aria-hidden /> {supportPhone}
                   </a>
                 </div>
@@ -922,7 +922,7 @@ export default function CheckinValidation() {
                     { title: "Another property", body: "The code only works at the property it was booked for." },
                     { title: "Old or cancelled booking", body: "Ask the guest to open their latest booking receipt." },
                   ].map((tip) => (
-                    <li key={tip.title} className="rounded-2xl bg-white/80 p-3.5 ring-1 ring-slate-200/80">
+                    <li key={tip.title} className="rounded-lg bg-white/80 p-3.5 ring-1 ring-slate-200/80">
                       <p className="m-0 text-xs font-semibold text-slate-800">{tip.title}</p>
                       <p className="m-0 mt-1 text-[11px] leading-relaxed text-slate-500">{tip.body}</p>
                     </li>
@@ -931,7 +931,7 @@ export default function CheckinValidation() {
               )}
 
               {typeof remainingAttempts === "number" && !offline ? (
-                <p className="m-0 mt-4 inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-[11px] font-semibold text-rose-800 ring-1 ring-inset ring-rose-200">
+                <p className="m-0 mt-4 inline-flex items-center gap-2 rounded-md bg-rose-50 px-3 py-1 text-[11px] font-semibold text-rose-800 ring-1 ring-inset ring-rose-200">
                   <Lock className="h-3.5 w-3.5" aria-hidden />
                   {remainingAttempts === 1 ? "1 attempt left" : `${remainingAttempts} attempts left`} before a short lockout
                 </p>
@@ -941,7 +941,7 @@ export default function CheckinValidation() {
                 <button
                   type="button"
                   onClick={offline ? () => validate(code) : retry}
-                  className="group inline-flex h-12 flex-1 items-center justify-between gap-2 rounded-xl border border-solid border-[#012a26] bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white shadow-[0_14px_30px_-18px_rgba(1,42,38,0.9)] transition hover:bg-[#02665e]"
+                  className="group inline-flex h-12 flex-1 items-center justify-between gap-2 rounded-md border border-solid border-[#012a26] bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white shadow-[0_14px_30px_-18px_rgba(1,42,38,0.9)] transition hover:bg-[#02665e]"
                 >
                   {offline ? "Try again" : "Enter the code again"}
                   <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26] transition group-hover:translate-x-0.5">
@@ -952,7 +952,7 @@ export default function CheckinValidation() {
                   <button
                     type="button"
                     onClick={() => { setResultMsg(null); setScanOpen(true); setScanError(null); }}
-                    className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    className="inline-flex h-12 items-center justify-center gap-2 rounded-md border border-solid border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                   >
                     <ScanLine className="h-4 w-4" aria-hidden />
                     Scan the receipt QR
@@ -971,7 +971,7 @@ export default function CheckinValidation() {
             type="button"
             onClick={() => validate(code)}
             disabled={isLocked}
-            className="h-10 w-full rounded-xl border border-solid border-slate-200 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="h-10 w-full rounded-md border border-solid border-slate-200 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             Retry validation
           </button>
@@ -980,7 +980,7 @@ export default function CheckinValidation() {
 
       {/* ── Arrival pass ── */}
       {preview && verdict ? (
-        <article key={preview.bookingReference} className="cv-rise relative flex flex-col overflow-hidden rounded-3xl bg-white shadow-[0_30px_70px_-42px_rgba(1,42,38,0.6)] ring-1 ring-slate-200 md:flex-row">
+        <article key={preview.bookingReference} className="cv-rise relative flex flex-col overflow-hidden rounded-lg bg-white shadow-[0_30px_70px_-42px_rgba(1,42,38,0.6)] ring-1 ring-slate-200 md:flex-row">
           {/* Stub: the verdict */}
           <div className={`relative isolate flex flex-col justify-between gap-6 overflow-hidden p-6 text-white md:w-[300px] md:shrink-0 ${tone.stub}`}>
             <div
@@ -992,11 +992,11 @@ export default function CheckinValidation() {
             <verdict.Icon className="pointer-events-none absolute -bottom-8 -right-8 -z-10 h-44 w-44 rotate-[-12deg] text-white/[0.07]" strokeWidth={1.25} aria-hidden />
 
             <div>
-              <p className={`m-0 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] ${tone.label}`}>
+              <p className={`m-0 flex items-center gap-2 text-[11px] font-semibold ${tone.label}`}>
                 <span className="h-px w-5 bg-current opacity-60" aria-hidden />
                 Arrival pass
               </p>
-              <span className={`mt-5 grid h-14 w-14 place-items-center rounded-2xl shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] backdrop-blur-sm ${tone.ring}`}>
+              <span className={`mt-5 grid h-14 w-14 place-items-center rounded-lg shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] backdrop-blur-sm ${tone.ring}`}>
                 <verdict.Icon className="h-7 w-7" aria-hidden />
               </span>
               <h2 className="m-0 mt-5 text-[26px] font-bold leading-[1.1] tracking-tight text-white drop-shadow-sm">{verdict.title}</h2>
@@ -1008,8 +1008,8 @@ export default function CheckinValidation() {
               ) : null}
               <p className="m-0 mt-3 text-[13px] leading-relaxed text-white/75">{verdict.body}</p>
             </div>
-            <div className="rounded-xl bg-black/15 px-3 py-2.5 ring-1 ring-inset ring-white/10">
-              <p className={`m-0 text-[9px] font-semibold uppercase tracking-[0.18em] ${tone.label}`}>Reference</p>
+            <div className="rounded-md bg-black/15 px-3 py-2.5 ring-1 ring-inset ring-white/10">
+              <p className={`m-0 text-[11px] font-semibold ${tone.label}`}>Reference</p>
               <p className="m-0 mt-1 break-all font-mono text-[11px] text-white/90">{preview.bookingReference}</p>
             </div>
           </div>
@@ -1033,7 +1033,7 @@ export default function CheckinValidation() {
             </div>
 
             <div className="flex min-w-0 items-center gap-3.5 sm:pr-44">
-              <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-slate-800 to-slate-950 text-lg font-bold text-white shadow-[0_10px_24px_-14px_rgba(15,23,42,0.9)] select-none">
+              <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-slate-800 to-slate-950 text-lg font-bold text-white shadow-[0_10px_24px_-14px_rgba(15,23,42,0.9)] select-none">
                 {initials}
               </span>
               <div className="min-w-0">
@@ -1054,22 +1054,22 @@ export default function CheckinValidation() {
               ]
                 .filter((c) => c.value && c.value !== "-")
                 .map((c) => (
-                  <span key={c.value} className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                  <span key={c.value} className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
                     <c.Icon className="h-3.5 w-3.5 text-slate-400" aria-hidden />
                     {c.value}
                   </span>
                 ))}
               <span className="ml-auto text-right">
-                <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Your amount</span>
+                <span className="block text-[11px] font-semibold text-slate-400">Your amount</span>
                 <span className="block text-lg font-bold tabular-nums text-[#02665e]">{formatTZS(preview.booking.ownerBaseAmount ?? preview.booking.totalAmount)}</span>
               </span>
             </div>
 
             {/* Stay timeline */}
-            <div className="mt-5 rounded-2xl bg-white/80 p-4 ring-1 ring-slate-200/80 backdrop-blur-sm">
+            <div className="mt-5 rounded-lg bg-white/80 p-4 ring-1 ring-slate-200/80 backdrop-blur-sm">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Check-in</p>
+                  <p className="m-0 text-[11px] font-semibold text-slate-400">Check-in</p>
                   <p className="m-0 mt-0.5 text-sm font-bold text-slate-900">{formatStayDate(preview.booking.checkIn)}</p>
                 </div>
                 <p className="m-0 hidden pb-0.5 text-xs font-semibold text-slate-500 sm:block">
@@ -1077,7 +1077,7 @@ export default function CheckinValidation() {
                   {preview.booking.roomType && preview.booking.roomType !== "-" ? ` · ${preview.booking.roomType}` : ""}
                 </p>
                 <div className="text-right">
-                  <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Check-out</p>
+                  <p className="m-0 text-[11px] font-semibold text-slate-400">Check-out</p>
                   <p className="m-0 mt-0.5 text-sm font-bold text-slate-900">{formatStayDate(preview.booking.checkOut)}</p>
                 </div>
               </div>
@@ -1104,7 +1104,7 @@ export default function CheckinValidation() {
             {/* Actions: the Disbursement Policy is agreed right here, then one tap confirms. */}
             {canConfirm && verdict.tone === "go" && !roomNeeded ? (
               <label
-                className={`mt-5 flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 ring-inset transition ${
+                className={`mt-5 flex cursor-pointer items-center gap-3 rounded-md px-4 py-3 ring-inset transition ${
                   agreeDisbursement ? "bg-[#02665e]/[0.06] ring-2 ring-[#02665e]" : "bg-white ring-1 ring-slate-300 hover:ring-[#02665e]/60"
                 }`}
               >
@@ -1139,7 +1139,7 @@ export default function CheckinValidation() {
             ) : null}
 
             {roomNeeded && canConfirm && verdict.tone === "go" && (
-              <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-inset ring-amber-300">
+              <div className="mt-5 flex flex-wrap items-center gap-3 rounded-md bg-amber-50 px-4 py-3 ring-1 ring-inset ring-amber-300">
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800">
                   <BedDouble className="h-[18px] w-[18px]" aria-hidden />
                 </span>
@@ -1171,7 +1171,7 @@ export default function CheckinValidation() {
               </div>
             )}
             {resultMsg && (
-              <div className="mt-3 rounded-xl bg-rose-50 px-4 py-3 text-xs text-rose-800 ring-1 ring-inset ring-rose-200" role="alert">{resultMsg}</div>
+              <div className="mt-3 rounded-md bg-rose-50 px-4 py-3 text-xs text-rose-800 ring-1 ring-inset ring-rose-200" role="alert">{resultMsg}</div>
             )}
 
             <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:items-stretch">
@@ -1179,7 +1179,7 @@ export default function CheckinValidation() {
                 type="button"
                 onClick={clearResult}
                 disabled={confirmLoading}
-                className="inline-flex h-12 items-center justify-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex h-12 items-center justify-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
               >
                 <X className="h-4 w-4" aria-hidden />
                 New code
@@ -1189,7 +1189,7 @@ export default function CheckinValidation() {
                   type="button"
                   onClick={handleConfirmWithConsent}
                   disabled={!agreeDisbursement || confirmLoading || Boolean(roomNeeded)}
-                  className="group inline-flex h-12 flex-1 items-center justify-between gap-2 rounded-xl border border-solid border-[#012a26] bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white shadow-[0_14px_30px_-18px_rgba(1,42,38,0.9)] transition hover:bg-[#02665e] disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
+                  className="group inline-flex h-12 flex-1 items-center justify-between gap-2 rounded-md border border-solid border-[#012a26] bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white shadow-[0_14px_30px_-18px_rgba(1,42,38,0.9)] transition hover:bg-[#02665e] disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
                 >
                   {confirmLoading ? "Confirming..." : roomNeeded ? "Assign the room first" : `Confirm check-in for ${preview.personal.fullName.split(/\s+/)[0]}`}
                   <span className={`grid h-8 w-8 place-items-center rounded-lg transition group-hover:translate-x-0.5 ${agreeDisbursement && !roomNeeded ? "bg-[#5eead4] text-[#012a26]" : "bg-slate-200 text-slate-400"}`}>
@@ -1197,7 +1197,7 @@ export default function CheckinValidation() {
                   </span>
                 </button>
               ) : (
-                <div className={`flex flex-1 items-center gap-2.5 rounded-xl px-4 py-2.5 text-xs ring-1 ring-inset ${tone.note || "bg-slate-50 text-slate-600 ring-slate-200"}`}>
+                <div className={`flex flex-1 items-center gap-2.5 rounded-md px-4 py-2.5 text-xs ring-1 ring-inset ${tone.note || "bg-slate-50 text-slate-600 ring-slate-200"}`}>
                   <Lock className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
                   <span>
                     <span className="font-semibold">Check-in is locked for this code.</span>{" "}
@@ -1214,9 +1214,9 @@ export default function CheckinValidation() {
         </article>
       ) : !resultMsg ? (
         /* Placeholder pass: shows what is coming, in the same shape */
-        <div className="flex flex-col overflow-hidden rounded-3xl border-2 border-dashed border-slate-200 md:flex-row">
+        <div className="flex flex-col overflow-hidden rounded-lg border-2 border-dashed border-slate-200 md:flex-row">
           <div className="flex flex-col justify-center gap-3 p-6 md:w-[280px] md:shrink-0 md:border-0 md:border-r-2 md:border-dashed md:border-slate-200">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+            <span className="grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-400">
               <ScanLine className="h-6 w-6" aria-hidden />
             </span>
             <p className="m-0 text-base font-bold text-slate-700">Arrival pass</p>
@@ -1228,9 +1228,9 @@ export default function CheckinValidation() {
               { Icon: UserCheck, title: "Match the guest", body: "Compare the name and phone with the person in front of you." },
               { Icon: ShieldCheck, title: "Confirm", body: "The arrival is recorded against the booking." },
             ].map((s, i) => (
-              <li key={s.title} className="rounded-2xl bg-white p-4 ring-1 ring-slate-100">
+              <li key={s.title} className="rounded-lg bg-white p-4 ring-1 ring-slate-100">
                 <div className="flex items-center justify-between">
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#02665e]/[0.08] text-[#02665e]">
+                  <span className="grid h-9 w-9 place-items-center rounded-md bg-[#02665e]/[0.08] text-[#02665e]">
                     <s.Icon className="h-4 w-4" aria-hidden />
                   </span>
                   <span className="font-mono text-xs font-bold text-slate-300">0{i + 1}</span>
@@ -1251,7 +1251,7 @@ export default function CheckinValidation() {
               className="absolute inset-0 bg-black/50 backdrop-blur-sm"
               onClick={() => setScanOpen(false)}
             />
-            <div className="relative bg-white rounded-3xl shadow-2xl max-w-md w-full p-5 sm:p-6 z-10 animate-in zoom-in-95 duration-300 space-y-4 border border-slate-200">
+            <div className="relative bg-white rounded-lg shadow-2xl max-w-md w-full p-5 sm:p-6 z-10 animate-in zoom-in-95 duration-300 space-y-4 border border-solid border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-lg font-bold text-slate-900">Scan Receipt QR</div>
@@ -1260,7 +1260,7 @@ export default function CheckinValidation() {
                 <button
                   type="button"
                   onClick={() => setScanOpen(false)}
-                  className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+                  className="p-2 rounded-md border border-solid border-slate-200 bg-white hover:bg-slate-50 transition-colors"
                   aria-label="Close scanner"
                   title="Close"
                 >
@@ -1269,12 +1269,12 @@ export default function CheckinValidation() {
               </div>
 
               {scanError && (
-                <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                <div className="rounded-md bg-red-50 border border-solid border-red-200 p-3 text-sm text-red-700">
                   {scanError}
                 </div>
               )}
 
-              <div className="rounded-2xl overflow-hidden border border-slate-200 bg-black/5">
+              <div className="rounded-lg overflow-hidden border border-solid border-slate-200 bg-black/5">
                 <div className="relative aspect-video bg-black">
                   <video
                     ref={videoRef}
@@ -1283,7 +1283,7 @@ export default function CheckinValidation() {
                     className="absolute inset-0 h-full w-full object-cover"
                   />
                   <div className="absolute inset-0 pointer-events-none">
-                    <div className="absolute inset-6 rounded-2xl border-2 border-white/70 shadow-[0_0_0_2000px_rgba(0,0,0,0.15)]" />
+                    <div className="absolute inset-6 rounded-lg border-2 border-solid border-white/70 shadow-[0_0_0_2000px_rgba(0,0,0,0.15)]" />
                   </div>
                 </div>
               </div>
@@ -1293,7 +1293,7 @@ export default function CheckinValidation() {
                 <button
                   type="button"
                   onClick={() => { stopScanner(); startScanner(); }}
-                  className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-xs font-semibold"
+                  className="px-3 py-2 rounded-md border border-solid border-slate-200 bg-white hover:bg-slate-50 transition-colors text-xs font-semibold"
                 >
                   Restart
                 </button>

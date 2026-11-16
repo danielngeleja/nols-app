@@ -182,7 +182,7 @@ export default function OwnerPayoutAccountManager() {
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-4">
         {savedIsBank && (
-          <p className="m-0 flex items-start gap-2 rounded-xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="m-0 flex items-start gap-2 rounded-md border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             Your saved account is a bank account, which cannot receive payouts yet. Add a mobile money account so your payouts can be sent.
           </p>
@@ -207,7 +207,7 @@ export default function OwnerPayoutAccountManager() {
       </div>
 
       <aside className="space-y-4">
-        <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+        <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
           <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4">
             <h2 className="m-0 text-sm font-bold text-slate-900">Account status</h2>
             {active && (
@@ -219,7 +219,7 @@ export default function OwnerPayoutAccountManager() {
           {active ? (
             <div className="p-5">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#e8f5f1] text-[#02665e]"><Wallet className="h-5 w-5" aria-hidden /></span>
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#e8f5f1] text-[#02665e]"><Wallet className="h-5 w-5" aria-hidden /></span>
                 <div className="min-w-0">
                   <p className="m-0 break-words text-base font-bold text-slate-900">{PROVIDER_NAMES[active.provider.toLowerCase()] ?? active.provider}</p>
                   <p className="m-0 mt-0.5 text-xs font-medium text-slate-500">{maskedWallet(active.accountNumber)}</p>
@@ -227,11 +227,11 @@ export default function OwnerPayoutAccountManager() {
               </div>
               <dl className="m-0 mt-4 grid grid-cols-2 gap-3 border-0 border-t border-solid border-slate-100 pt-4">
                 <div className="min-w-0">
-                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Account holder</dt>
+                  <dt className="text-[11px] font-medium text-slate-500">Account holder</dt>
                   <dd className="m-0 mt-1 break-words text-xs font-semibold text-slate-800">{active.accountName}</dd>
                 </div>
                 <div className="min-w-0">
-                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Last verified</dt>
+                  <dt className="text-[11px] font-medium text-slate-500">Last verified</dt>
                   <dd className="m-0 mt-1 text-xs font-semibold text-slate-800">{formatEat(active.lastVerifiedAt ?? active.verifiedAt ?? active.createdAt, false)}</dd>
                 </div>
               </dl>
@@ -249,7 +249,7 @@ export default function OwnerPayoutAccountManager() {
           </Link>
         </section>
 
-        <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+        <section className="rounded-lg border border-solid border-slate-200 bg-white p-5">
           <h2 className="m-0 text-sm font-bold text-slate-900">Previous payout accounts</h2>
           {history.length > 0 ? (
             <ul className="m-0 mt-3 list-none divide-y divide-slate-100 p-0">
@@ -259,7 +259,7 @@ export default function OwnerPayoutAccountManager() {
                     <p className="m-0 break-words text-xs font-semibold text-slate-800">
                       {PROVIDER_NAMES[account.provider.toLowerCase()] ?? account.provider} {maskedWallet(account.accountNumber)}
                     </p>
-                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Replaced</span>
+                    <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Replaced</span>
                   </div>
                   <p className="m-0 mt-1 break-words text-[11px] text-slate-500">{account.accountName} · Saved {formatEat(account.destinationChangedAt ?? account.createdAt, false)}</p>
                 </li>
@@ -275,7 +275,7 @@ export default function OwnerPayoutAccountManager() {
           )}
         </section>
 
-        <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+        <section className="rounded-lg border border-solid border-slate-200 bg-white p-5">
           <h2 className="m-0 text-sm font-bold text-slate-900">How your account is protected</h2>
           <ul className="m-0 mt-3 list-none space-y-3 p-0 text-[13px] leading-5 text-slate-600">
             <li className="flex gap-2.5"><UserCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />The provider confirms the account holder name before it is saved, and again before every payout.</li>
@@ -298,7 +298,7 @@ export default function OwnerPayoutAccountManager() {
             }}
           >
             <div className="absolute inset-0 bg-slate-950/55" aria-hidden />
-            <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-2xl">
+            <div className="relative w-full max-w-md overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-2xl">
               <div className="flex items-start justify-between gap-4 border-0 border-b border-solid border-slate-200 px-5 py-4">
                 <div>
                   <h2 id="payout-account-confirm-title" className="m-0 text-base font-bold text-slate-900">Confirm account holder</h2>
@@ -315,13 +315,13 @@ export default function OwnerPayoutAccountManager() {
                 </button>
               </div>
               <div className="space-y-3 p-5">
-                <div className="rounded-xl border border-solid border-emerald-200 bg-emerald-50/60 px-4 py-3">
+                <div className="rounded-md border border-solid border-emerald-200 bg-emerald-50/60 px-4 py-3">
                   <p className="m-0 flex items-center gap-1.5 text-xs font-medium text-emerald-700">
                     <CheckCircle2 className="h-4 w-4" aria-hidden /> Verified account holder
                   </p>
                   <p className="m-0 mt-1.5 break-words text-lg font-bold text-slate-900">{preview.destination.accountName}</p>
                 </div>
-                <dl className="m-0 divide-y divide-slate-100 rounded-xl border border-solid border-slate-200 text-sm">
+                <dl className="m-0 divide-y divide-slate-100 rounded-md border border-solid border-slate-200 text-sm">
                   <div className="flex justify-between gap-3 px-4 py-2.5">
                     <dt className="text-slate-500">Provider</dt>
                     <dd className="m-0 font-medium text-slate-800">
@@ -342,7 +342,7 @@ export default function OwnerPayoutAccountManager() {
                   type="button"
                   onClick={() => setPreview(null)}
                   disabled={busy}
-                  className="h-10 rounded-xl border border-solid border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                  className="h-10 rounded-md border border-solid border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
                 >
                   Cancel
                 </button>
@@ -350,7 +350,7 @@ export default function OwnerPayoutAccountManager() {
                   type="button"
                   onClick={confirm}
                   disabled={busy}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014d47] disabled:opacity-60"
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ShieldCheck className="h-4 w-4" aria-hidden />}
                   Confirm and save

@@ -173,7 +173,7 @@ export default function NrmsPerformancePage() {
 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
           {["OWNER", "MANAGER"].includes(accessRole) && (
-            <nav aria-label="Performance view" className="inline-flex h-10 items-center rounded-xl bg-neutral-100 p-1 ring-1 ring-neutral-200">
+            <nav aria-label="Performance view" className="inline-flex h-10 items-center rounded-md bg-neutral-100 p-1 ring-1 ring-neutral-200">
               <span aria-current="page" className="inline-flex h-8 items-center rounded-lg bg-white px-3 text-xs font-bold text-emerald-800 shadow-sm">Outlet team</span>
               <Link href="/owner/nrms/sales-performance" className="inline-flex h-8 items-center rounded-lg px-3 text-xs font-bold text-neutral-500 no-underline transition hover:bg-white hover:text-neutral-900">Sales team</Link>
             </nav>
@@ -181,7 +181,7 @@ export default function NrmsPerformancePage() {
           {(data?.canFilterOutlet && data.outlets.length > 1) || (data?.canFilterAttendant && data.staff.length > 0) ? (
             <div className="flex flex-wrap items-center gap-2">
               {data?.canFilterOutlet && data.outlets.length > 1 && (
-                <label className="inline-flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-xl bg-white px-3 text-xs font-bold text-neutral-700 ring-1 ring-neutral-200 sm:flex-none">
+                <label className="inline-flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md bg-white px-3 text-xs font-bold text-neutral-700 ring-1 ring-neutral-200 sm:flex-none">
                   <Store className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
                   <span className="sr-only">Outlet</span>
                   <select value={outletId} onChange={(event) => setOutletId(event.target.value === "" ? "" : Number(event.target.value))} className="min-w-0 flex-1 appearance-none border-0 bg-transparent py-2 text-xs font-bold outline-none">
@@ -191,7 +191,7 @@ export default function NrmsPerformancePage() {
                 </label>
               )}
               {data?.canFilterAttendant && data.staff.length > 0 && (
-                <label className="inline-flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-xl bg-white px-3 text-xs font-bold text-neutral-700 ring-1 ring-neutral-200 sm:flex-none">
+                <label className="inline-flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md bg-white px-3 text-xs font-bold text-neutral-700 ring-1 ring-neutral-200 sm:flex-none">
                   <UsersRound className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
                   <span className="sr-only">Staff member</span>
                   <select value={attendantId} onChange={(event) => setAttendantId(event.target.value === "" ? "" : Number(event.target.value))} className="min-w-0 flex-1 appearance-none border-0 bg-transparent py-2 text-xs font-bold outline-none">
@@ -205,7 +205,7 @@ export default function NrmsPerformancePage() {
 
           <div className="flex items-center gap-2">
             {/* Scrolls instead of wrapping, so the switcher stays one control on a phone. */}
-            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto rounded-xl bg-white p-1 ring-1 ring-neutral-200 sm:flex-none">
+            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto rounded-md bg-white p-1 ring-1 ring-neutral-200 sm:flex-none">
               {PERIODS.map((item) => (
                 <button
                   key={item.id}
@@ -231,7 +231,7 @@ export default function NrmsPerformancePage() {
               onClick={() => void load()}
               disabled={loading}
               aria-label="Refresh performance"
-              className="inline-flex h-10 w-10 shrink-0 appearance-none items-center justify-center rounded-xl bg-white text-neutral-500 ring-1 ring-neutral-200 transition hover:text-emerald-700 hover:ring-emerald-200 disabled:opacity-50"
+              className="inline-flex h-10 w-10 shrink-0 appearance-none items-center justify-center rounded-md bg-white text-neutral-500 ring-1 ring-neutral-200 transition hover:text-emerald-700 hover:ring-emerald-200 disabled:opacity-50"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             </button>
@@ -240,7 +240,7 @@ export default function NrmsPerformancePage() {
       </header>
 
       {rangeMode && (
-        <div className="flex flex-wrap items-end gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-neutral-200">
+        <div className="flex flex-wrap items-end gap-3 rounded-lg bg-white px-4 py-3 ring-1 ring-neutral-200">
           <div className="w-full sm:w-[150px]"><DatePickerField label="From" value={rangeFrom} onChangeAction={(next) => setRangeFrom(next.slice(0, 10))} max={rangeTo} allowPast widthClassName="!w-full" size="sm" twoMonths={false} /></div>
           <div className="w-full sm:w-[150px]"><DatePickerField label="To" value={rangeTo} onChangeAction={(next) => setRangeTo(next.slice(0, 10))} min={rangeFrom} max={todayKey()} allowPast widthClassName="!w-full" size="sm" twoMonths={false} /></div>
           <p className="mb-1.5 text-[11px] leading-4 text-neutral-400">Pick any period. The trend groups by hour, day or month to fit the span.</p>
@@ -248,7 +248,7 @@ export default function NrmsPerformancePage() {
       )}
 
       {filtered && (
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-emerald-50/60 px-4 py-2.5 ring-1 ring-emerald-100">
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-emerald-50/60 px-4 py-2.5 ring-1 ring-emerald-100">
           <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-emerald-800">Filtered</span>
           {outletName && <FilterChip label={outletName} onClear={() => setOutletId("")} />}
           {staffName && <FilterChip label={staffName} onClear={() => setAttendantId("")} />}
@@ -262,10 +262,10 @@ export default function NrmsPerformancePage() {
         </div>
       )}
 
-      {error && <div role="alert" className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">{error}</div>}
+      {error && <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">{error}</div>}
 
       {loading && !data ? (
-        <div className="flex min-h-[40vh] items-center justify-center rounded-3xl bg-white text-neutral-400 ring-1 ring-neutral-200">
+        <div className="flex min-h-[40vh] items-center justify-center rounded-lg bg-white text-neutral-400 ring-1 ring-neutral-200">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading performance…
         </div>
       ) : data && (
@@ -284,7 +284,7 @@ export default function NrmsPerformancePage() {
           </div>
 
           <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr]">
-            <section className="rounded-2xl bg-white p-4 ring-1 ring-neutral-200 sm:p-5">
+            <section className="rounded-lg bg-white p-4 ring-1 ring-neutral-200 sm:p-5">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="m-0 flex items-center gap-2 text-sm font-bold text-neutral-900"><BarChart3 className="h-4 w-4 text-emerald-700" />Sales trend</p>
@@ -295,7 +295,7 @@ export default function NrmsPerformancePage() {
                   </p>
                 </div>
                 {hasSales && (
-                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-100">
+                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-100">
                     <Flame className="h-3 w-3" />Peak {money(peak)}
                   </span>
                 )}
@@ -332,7 +332,7 @@ export default function NrmsPerformancePage() {
               )}
             </section>
 
-            <section className="flex flex-col rounded-2xl bg-white p-4 ring-1 ring-neutral-200 sm:p-5">
+            <section className="flex flex-col rounded-lg bg-white p-4 ring-1 ring-neutral-200 sm:p-5">
               <p className="m-0 flex items-center gap-2 text-sm font-bold text-neutral-900"><Clock className="h-4 w-4 text-emerald-700" />Serving time breakdown</p>
               <p className="mb-0 mt-1 text-[11px] text-neutral-400">Average minutes at each stage, against target</p>
 
@@ -398,7 +398,7 @@ export default function NrmsPerformancePage() {
 
 function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
   return (
-    <span className="inline-flex min-h-7 items-center gap-1.5 rounded-full bg-white px-2.5 text-[11px] font-bold text-emerald-800 ring-1 ring-emerald-200">
+    <span className="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-white px-2.5 text-[11px] font-bold text-emerald-800 ring-1 ring-emerald-200">
       {label}
       <button type="button" onClick={onClear} aria-label={`Clear ${label}`} className="appearance-none border-0 bg-transparent p-0 text-emerald-500 transition hover:text-emerald-800">
         &times;
@@ -411,7 +411,7 @@ function EmptyBlock({ icon: Icon, title, body, compact = false }: {
   icon: typeof TrendingUp; title: string; body: string; compact?: boolean;
 }) {
   return (
-    <div className={`mt-4 flex flex-col items-center justify-center rounded-xl bg-neutral-50/70 px-6 text-center outline outline-1 outline-dashed outline-neutral-200 ${compact ? "flex-1 py-10" : "h-56 sm:h-64"}`}>
+    <div className={`mt-4 flex flex-col items-center justify-center rounded-md bg-neutral-50/70 px-6 text-center outline outline-1 outline-dashed outline-neutral-200 ${compact ? "flex-1 py-10" : "h-56 sm:h-64"}`}>
       <Icon className="h-8 w-8 text-neutral-300" />
       <p className="mb-0 mt-3 text-sm font-bold text-neutral-700">{title}</p>
       <p className="mb-0 mt-1 max-w-xs text-xs leading-4 text-neutral-400">{body}</p>
@@ -427,10 +427,10 @@ function BreakdownTable({ title, icon: Icon, rows, money, onSelect }: {
   const total = rows.reduce((sum, row) => sum + row.sales, 0);
 
   return (
-    <section className="flex flex-col rounded-2xl bg-white p-4 ring-1 ring-neutral-200 sm:p-5">
+    <section className="flex flex-col rounded-lg bg-white p-4 ring-1 ring-neutral-200 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="m-0 flex items-center gap-2 text-sm font-bold text-neutral-900"><Icon className="h-4 w-4 text-emerald-700" />{title}</p>
-        {total > 0 && <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold tabular-nums text-neutral-600">{money(total)}</span>}
+        {total > 0 && <span className="rounded-md bg-neutral-100 px-2.5 py-1 text-[10px] font-bold tabular-nums text-neutral-600">{money(total)}</span>}
       </div>
       <p className="mb-0 mt-1 text-[11px] text-neutral-400">Ranked by sales for the selected period. Select a row to filter.</p>
 
@@ -443,7 +443,7 @@ function BreakdownTable({ title, icon: Icon, rows, money, onSelect }: {
               <button
                 type="button"
                 onClick={() => onSelect(row.id)}
-                className="block w-full min-w-0 appearance-none rounded-xl border-0 bg-transparent p-2.5 text-left transition hover:bg-neutral-50"
+                className="block w-full min-w-0 appearance-none rounded-md border-0 bg-transparent p-2.5 text-left transition hover:bg-neutral-50"
               >
                 <div className="flex items-center gap-2.5">
                   <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold tabular-nums ${index === 0 ? "bg-emerald-700 text-white" : "bg-neutral-100 text-neutral-500"}`}>
@@ -488,7 +488,7 @@ function StatCard({ icon: Icon, label, value, hint, tone }: {
     amber: "bg-amber-50 text-amber-700",
   };
   return (
-    <div className="flex min-w-0 flex-col rounded-2xl bg-white p-4 ring-1 ring-neutral-200">
+    <div className="flex min-w-0 flex-col rounded-lg bg-white p-4 ring-1 ring-neutral-200">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-[11px] font-semibold text-neutral-500">{label}</span>
         <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}><Icon className="h-3.5 w-3.5" /></span>

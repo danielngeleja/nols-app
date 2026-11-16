@@ -29,7 +29,7 @@ vi.mock("../middleware/salesWorkspace.js", () => ({
 }));
 vi.mock("../middleware/rateLimit.js", () => {
   const pass = (_req: any, _res: any, next: any) => next();
-  return { limitSalesLeadRead: pass, limitSalesLeadWrite: pass, limitSalesPropertyRead: pass };
+  return { limitSalesLeadRead: pass, limitSalesLeadWrite: pass, limitSalesLeadCheck: pass, limitSalesPropertyRead: pass };
 });
 
 const app = express();

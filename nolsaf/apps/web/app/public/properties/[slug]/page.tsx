@@ -106,6 +106,7 @@ import LogoSpinner from "@/components/LogoSpinner";
 import DatePicker from "../../../../components/ui/DatePicker";
 
 import { PropertyVisualizationPreview } from "@/app/(owner)/owner/properties/add/_components/PropertyVisualizationPreview";
+import { discountedNightlyNet, roomDiscountPercent } from "@/lib/roomDiscount";
 import "@/styles/photo-tour.css";
 import { parseFloorUses } from "@/app/(owner)/owner/properties/add/_components/floorUses";
 import FloorSwitcherMobile from "./_components/FloorSwitcherMobile";
@@ -318,6 +319,8 @@ type RoomSpecRow = {
   bathItems: string[];
   bathPrivate?: string; // "yes" | "no" | undefined
   pricePerNight: number | null;
+  /** Guest price before the room's discount; only set when a discount applies. */
+  listPricePerNight: number | null;
   discountLabel: string | null;
   payActionLabel: string;
   policies: PolicyItem[];
@@ -865,25 +868,21 @@ function normalizeRoomSpec(
     ].map((x: any) => String(x || "").trim()).filter(Boolean))
   );
   const priceRaw = r?.pricePerNight ?? r?.price ?? null;
-  const originalPricePerNight = Number.isFinite(Number(priceRaw)) && Number(priceRaw) > 0 ? Number(priceRaw) : (fallbackBasePrice != null ? Number(fallbackBasePrice) : null);
-  
+  const roomHasOwnPrice = Number.isFinite(Number(priceRaw)) && Number(priceRaw) > 0;
+  const originalPricePerNight = roomHasOwnPrice ? Number(priceRaw) : (fallbackBasePrice != null ? Number(fallbackBasePrice) : null);
 
-  // Calculate final price with commission
+  // The room's discount is charged, exactly as the server prices the booking:
+  // it comes off the owner's net, then NoLSAF's commission is added.
+  const discountPercent = roomHasOwnPrice ? roomDiscountPercent(r) : null;
+  const commission = property ? getPropertyCommission(property, systemCommission) : 0;
   const pricePerNight = originalPricePerNight && property
-    ? calculatePriceWithCommission(originalPricePerNight, getPropertyCommission(property, systemCommission))
+    ? calculatePriceWithCommission(discountedNightlyNet(originalPricePerNight, discountPercent), commission)
     : originalPricePerNight;
-  // Discounts are not currently captured in owner form, but support common shapes.
-  const discountPercent = Number.isFinite(Number(r?.discountPercent)) ? Number(r.discountPercent) : null;
-  const discountAmount = Number.isFinite(Number(r?.discountAmount)) ? Number(r.discountAmount) : null;
-  const discountedPrice = Number.isFinite(Number(r?.discountedPrice)) ? Number(r.discountedPrice) : null;
-  const discountLabel =
-    discountPercent && discountPercent > 0
-      ? `${discountPercent}% off`
-      : discountAmount && discountAmount > 0
-        ? `${fmtMoney(discountAmount, currency)} off`
-        : discountedPrice && discountedPrice > 0 && pricePerNight && discountedPrice < pricePerNight
-          ? `Now ${fmtMoney(discountedPrice, currency)}`
-          : null;
+  // The undiscounted guest price, shown struck through next to the real one.
+  const listPricePerNight = discountPercent && originalPricePerNight && property
+    ? calculatePriceWithCommission(originalPricePerNight, commission)
+    : null;
+  const discountLabel = discountPercent ? `${discountPercent}% off` : null;
   const smoking = String(r?.smoking || "").toLowerCase();
   const bathPrivate = String(r?.bathPrivate || "").toLowerCase();
   const towelColor = String(r?.towelColor || "").trim();
@@ -913,6 +912,7 @@ function normalizeRoomSpec(
     bathItems,
     bathPrivate,
     pricePerNight,
+    listPricePerNight,
     discountLabel,
     payActionLabel: "Pay now",
     policies: policies.length ? policies : [{ text: "-" }],
@@ -4220,6 +4220,11 @@ export default function PublicPropertyDetailPage() {
                       {/* Price and action */}
                       <div className="flex flex-shrink-0 items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 px-4 py-3.5 md:w-56 md:flex-col md:items-stretch md:justify-center md:border-l md:border-t-0 md:px-5 md:py-5">
                         <div className="min-w-0">
+                          {r.listPricePerNight ? (
+                            <div className="text-xs tabular-nums text-slate-400 line-through" aria-label="Price before discount">
+                              {fmtMoney(r.listPricePerNight, property?.currency || "TZS")}
+                            </div>
+                          ) : null}
                           <PriceDisplay
                             amountTzs={r.pricePerNight}
                             className="text-[22px] font-black leading-tight text-slate-900 tabular-nums"

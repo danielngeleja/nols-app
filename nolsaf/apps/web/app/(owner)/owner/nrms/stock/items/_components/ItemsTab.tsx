@@ -167,7 +167,7 @@ export default function ItemsTab({ workspace, onAdd, onCatalogue, onEdit, onRece
                           <td />
                           <td colSpan={7} className="px-2 pb-4 pt-1">
                             <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                              <div className="rounded-xl border border-solid border-neutral-200 bg-white">
+                              <div className="rounded-md border border-solid border-neutral-200 bg-white">
                                 <p className="m-0 border-0 border-b border-solid border-neutral-100 px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500">By outlet</p>
                                 {overview.locations.map((outlet) => {
                                   const balance = good.balances.find((row) => row.locationId === outlet.id);
@@ -193,11 +193,11 @@ export default function ItemsTab({ workspace, onAdd, onCatalogue, onEdit, onRece
                                 })}
                               </div>
                               <div className="space-y-3">
-                                <div className="rounded-xl border border-solid border-neutral-200 bg-white px-3 py-2.5">
+                                <div className="rounded-md border border-solid border-neutral-200 bg-white px-3 py-2.5">
                                   <p className="m-0 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500">Packs</p>
                                   <p className="m-0 mt-1 text-sm text-neutral-700">{good.packUnits.length ? good.packUnits.map((pack) => `${pack.name} = ${formatStockQuantity(pack.baseQuantity, good.baseUnit)}`).join(" · ") : "Bought as single units"}</p>
                                 </div>
-                                <div className="rounded-xl border border-solid border-neutral-200 bg-white px-3 py-2.5">
+                                <div className="rounded-md border border-solid border-neutral-200 bg-white px-3 py-2.5">
                                   <p className="m-0 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500">Used by</p>
                                   {usedBy.length ? (
                                     <ul className="m-0 mt-1 list-none space-y-0.5 p-0">

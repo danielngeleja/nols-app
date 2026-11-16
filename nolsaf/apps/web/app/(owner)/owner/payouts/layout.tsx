@@ -36,9 +36,9 @@ export default function OwnerPayoutsLayout({ children }: { children: ReactNode }
     <div id="owner-payouts" className="w-full min-w-0 max-w-none space-y-5 px-3 pb-12 sm:px-5 lg:px-6 xl:px-8">
       <style>{`#owner-payouts, #owner-payouts * { box-sizing: border-box; }`}</style>
 
-      <header className="overflow-hidden rounded-2xl bg-[#012a26] text-white">
+      <header className="overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div className="px-5 pb-0 pt-5 sm:px-7 sm:pt-6">
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9fd8cc]">Property owner</p>
+          <p className="m-0 text-[12px] font-semibold text-[#9fd8cc]">Property owner</p>
           <h1 className="m-0 mt-1 text-2xl font-bold tracking-tight text-white sm:text-[28px]">Payouts</h1>
           <p className="m-0 mt-1.5 max-w-2xl text-sm text-white/65">{SUBTITLES[current.href]}</p>
 

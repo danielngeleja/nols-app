@@ -286,7 +286,7 @@ export default function OwnerClaimBookingPage() {
     .sort((a, b) => (a.submissionDeadline ? new Date(a.submissionDeadline).getTime() : Infinity) - (b.submissionDeadline ? new Date(b.submissionDeadline).getTime() : Infinity));
   const offered = groupStays.length - groupStays.filter((gs) => !hasMyClaim(gs)).length;
   const closingSoon = open.filter((gs) => (timeLeft(gs.submissionDeadline, now)?.ms ?? Infinity) < 86_400_000).length;
-  const filterField = "h-10 min-w-0 flex-1 cursor-pointer rounded-xl border border-solid border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-[#02665e] sm:max-w-[240px]";
+  const filterField = "h-10 min-w-0 flex-1 cursor-pointer rounded-md border border-solid border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 outline-none focus:border-[#02665e] sm:max-w-[240px]";
 
   return (
     <div className="w-full min-w-0 space-y-5 px-3 pb-12 sm:px-5 lg:px-6">
@@ -294,7 +294,7 @@ export default function OwnerClaimBookingPage() {
         title="Open to claim"
         subtitle="Groups looking for a place to stay. Send a price from one of your properties; NoLSAF chooses the best offer."
         actions={
-          <Link href="/owner/group-stays/claims/my-claims" className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline hover:bg-white/[0.12]">
+          <Link href="/owner/group-stays/claims/my-claims" className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline hover:bg-white/[0.12]">
             <FileText className="h-4 w-4" aria-hidden /> My claims <ArrowRight className="h-4 w-4 opacity-70" aria-hidden />
           </Link>
         }
@@ -305,8 +305,8 @@ export default function OwnerClaimBookingPage() {
         ]}
       />
 
-      <section aria-label="Filters" className="flex flex-wrap items-center gap-2 rounded-2xl border border-solid border-slate-200 bg-white p-3">
-        <span className="inline-flex items-center gap-1.5 px-1 text-xs font-bold uppercase tracking-[0.1em] text-slate-400"><Filter className="h-3.5 w-3.5" aria-hidden /> Filter</span>
+      <section aria-label="Filters" className="flex flex-wrap items-center gap-2 rounded-lg border border-solid border-slate-200 bg-white p-3">
+        <span className="inline-flex items-center gap-1.5 px-1 text-xs font-bold text-slate-400"><Filter className="h-3.5 w-3.5" aria-hidden /> Filter</span>
         <label className="sr-only" htmlFor="gs-region">Region</label>
         <select id="gs-region" value={selectedRegion} onChange={(e) => setSelectedRegion(e.target.value)} className={filterField}>
           <option value="">All regions</option>
@@ -318,7 +318,7 @@ export default function OwnerClaimBookingPage() {
           {accommodationTypes.map((type) => <option key={type} value={type}>{humanize(type)}</option>)}
         </select>
         {(selectedRegion || selectedAccommodation) && (
-          <button type="button" onClick={() => { setSelectedRegion(""); setSelectedAccommodation(""); }} className="inline-flex h-10 items-center gap-1.5 rounded-xl border-0 bg-transparent px-2 text-xs font-bold text-[#02665e] hover:bg-emerald-50">
+          <button type="button" onClick={() => { setSelectedRegion(""); setSelectedAccommodation(""); }} className="inline-flex h-10 items-center gap-1.5 rounded-md border-0 bg-transparent px-2 text-xs font-bold text-[#02665e] hover:bg-emerald-50">
             <XCircle className="h-4 w-4" aria-hidden /> Clear
           </button>
         )}
@@ -327,21 +327,21 @@ export default function OwnerClaimBookingPage() {
 
       {loading ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" aria-busy="true">
-          {[0, 1].map((i) => <div key={i} className="h-72 rounded-2xl border border-solid border-slate-200 bg-white" />)}
+          {[0, 1].map((i) => <div key={i} className="h-72 rounded-lg border border-solid border-slate-200 bg-white" />)}
         </div>
       ) : shown.length === 0 ? (
-        <div className="flex flex-col items-center rounded-2xl border border-solid border-slate-200 bg-white px-6 py-12 text-center">
-          <span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-[#02665e]"><HandHeart className="h-7 w-7" aria-hidden /></span>
+        <div className="flex flex-col items-center rounded-lg border border-solid border-slate-200 bg-white px-6 py-12 text-center">
+          <span className="grid h-14 w-14 place-items-center rounded-lg bg-emerald-50 text-[#02665e]"><HandHeart className="h-7 w-7" aria-hidden /></span>
           <p className="m-0 mt-4 text-base font-bold text-slate-900">{open.length === 0 ? "No groups are looking right now" : "No group matches these filters"}</p>
           <p className="m-0 mt-1 max-w-md text-sm leading-6 text-slate-500">
             {open.length === 0 ? "New group requests appear here as soon as NoLSAF opens them for offers." : "Try another region or accommodation type, or clear the filters."}
           </p>
           {open.length === 0 ? (
-            <Link href="/owner/group-stays/claims/my-claims" className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-50">
+            <Link href="/owner/group-stays/claims/my-claims" className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-50">
               <FileText className="h-4 w-4" aria-hidden /> Check my claims
             </Link>
           ) : (
-            <button type="button" onClick={() => { setSelectedRegion(""); setSelectedAccommodation(""); }} className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-4 text-sm font-bold text-white hover:bg-[#014d47]">
+            <button type="button" onClick={() => { setSelectedRegion(""); setSelectedAccommodation(""); }} className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-sm font-bold text-white hover:bg-[#014d47]">
               Clear filters
             </button>
           )}
@@ -354,7 +354,7 @@ export default function OwnerClaimBookingPage() {
             const nights = nightsFor(gs);
             const fits = properties.filter((p) => reasonsFor(p, gs).length === 0).length;
             return (
-              <article key={gs.id} className="flex flex-col overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-[0_12px_32px_-28px_rgba(15,23,42,0.6)]">
+              <article key={gs.id} className="flex flex-col overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-[0_12px_32px_-28px_rgba(15,23,42,0.6)]">
                 <div className="flex-1 p-5">
                   <div className="flex items-start gap-3.5">
                     <DateTile iso={gs.checkIn} />
@@ -362,10 +362,10 @@ export default function OwnerClaimBookingPage() {
                       <h3 className="m-0 text-lg font-bold leading-snug text-slate-900">Group of {gs.headcount}{gs.groupType ? <span className="font-semibold text-slate-400"> · {humanize(gs.groupType)}</span> : null}</h3>
                       <p className="m-0 mt-0.5 flex items-center gap-1.5 truncate text-xs text-slate-500"><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />{placeOf(gs)}</p>
                     </div>
-                    {left && <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold tabular-nums ring-1 ring-inset ${left.tone}`}><Clock3 className="h-3.5 w-3.5" aria-hidden />{left.text}</span>}
+                    {left && <span className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-bold tabular-nums ring-1 ring-inset ${left.tone}`}><Clock3 className="h-3.5 w-3.5" aria-hidden />{left.text}</span>}
                   </div>
 
-                  <dl className="m-0 mt-4 grid grid-cols-4 overflow-hidden rounded-xl bg-slate-50 ring-1 ring-inset ring-slate-200">
+                  <dl className="m-0 mt-4 grid grid-cols-4 overflow-hidden rounded-md bg-slate-50 ring-1 ring-inset ring-slate-200">
                     {[
                       { label: "Guests", value: gs.headcount },
                       { label: "Rooms", value: gs.roomsNeeded },
@@ -373,7 +373,7 @@ export default function OwnerClaimBookingPage() {
                       { label: "Room nights", value: gs.roomsNeeded * nights },
                     ].map((fact, index) => (
                       <div key={fact.label} className={`min-w-0 px-3 py-2.5 ${index > 0 ? "border-0 border-l border-solid border-slate-200" : ""}`}>
-                        <dt className="truncate text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">{fact.label}</dt>
+                        <dt className="truncate text-[11px] font-bold text-slate-400">{fact.label}</dt>
                         <dd className="m-0 mt-0.5 text-lg font-extrabold tabular-nums text-slate-900">{fact.value}</dd>
                       </div>
                     ))}
@@ -382,12 +382,12 @@ export default function OwnerClaimBookingPage() {
                   <p className="m-0 mt-3 text-xs text-slate-600">{fmtDay(gs.checkIn)} to {fmtDay(gs.checkOut)}</p>
 
                   <ul className="m-0 mt-3 flex list-none flex-wrap gap-1.5 p-0">
-                    <li className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-inset ring-slate-200"><Building2 className="h-3 w-3" aria-hidden />{humanize(gs.accommodationType) || "Any stay"}</li>
-                    {gs.minHotelStar ? <li className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-inset ring-slate-200"><Star className="h-3 w-3" aria-hidden />{gs.minHotelStar} stars or more</li> : null}
-                    {gs.minDiscountPercent ? <li className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-800 ring-1 ring-inset ring-violet-200"><Percent className="h-3 w-3" aria-hidden />At least {gs.minDiscountPercent}% off</li> : null}
+                    <li className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-inset ring-slate-200"><Building2 className="h-3 w-3" aria-hidden />{humanize(gs.accommodationType) || "Any stay"}</li>
+                    {gs.minHotelStar ? <li className="inline-flex items-center gap-1 rounded-md bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 ring-1 ring-inset ring-slate-200"><Star className="h-3 w-3" aria-hidden />{gs.minHotelStar} stars or more</li> : null}
+                    {gs.minDiscountPercent ? <li className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-800 ring-1 ring-inset ring-violet-200"><Percent className="h-3 w-3" aria-hidden />At least {gs.minDiscountPercent}% off</li> : null}
                   </ul>
 
-                  <div className="mt-4 flex items-center gap-3 rounded-xl border border-dashed border-slate-200 px-3.5 py-2.5">
+                  <div className="mt-4 flex items-center gap-3 rounded-md border border-dashed border-slate-200 px-3.5 py-2.5">
                     <TrendingDown className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
                     {market.lowest !== null ? (
                       <p className="m-0 text-xs text-slate-600">
@@ -404,7 +404,7 @@ export default function OwnerClaimBookingPage() {
                     {fits ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <CircleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />}
                     <span className="truncate">{fits ? `${fits} of your properties fit` : "None of your properties fit yet"}</span>
                   </span>
-                  <button type="button" onClick={() => setOfferFor(gs)} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-4 text-sm font-bold text-white hover:bg-[#014d47]">
+                  <button type="button" onClick={() => setOfferFor(gs)} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-sm font-bold text-white hover:bg-[#014d47]">
                     {fits ? "Make an offer" : "See why"} <ArrowRight className="h-4 w-4" aria-hidden />
                   </button>
                 </div>
@@ -523,21 +523,21 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
     }
   };
 
-  const field = "box-border w-full rounded-xl border border-solid border-slate-300 bg-white px-3.5 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15";
+  const field = "box-border w-full rounded-md border border-solid border-slate-300 bg-white px-3.5 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-label="Make an offer" onClick={() => !sending && onClose()}>
-      <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-lg" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <header className="bg-[#012a26] px-5 pb-4 pt-5 text-white sm:px-7">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
-              <p className="m-0 text-[11px] font-bold uppercase tracking-[0.16em] text-[#5eead4]">Make an offer</p>
+              <p className="m-0 text-[11px] font-bold text-[#5eead4]">Make an offer</p>
               <h2 className="m-0 mt-1 text-xl font-bold leading-tight sm:text-2xl">Group of {gs.headcount} in {placeOf(gs)}</h2>
               <p className="m-0 mt-1 text-xs text-white/60">{fmtDay(gs.checkIn)} to {fmtDay(gs.checkOut)} · {nights} night{nights === 1 ? "" : "s"} · {rooms} room{rooms === 1 ? "" : "s"} · {humanize(gs.accommodationType) || "Any stay"}</p>
             </div>
-            {left && <span className="hidden shrink-0 items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-bold tabular-nums text-white/85 sm:inline-flex"><Clock3 className="h-3.5 w-3.5" aria-hidden />{left.text}</span>}
-            <button type="button" onClick={onClose} disabled={sending} aria-label="Close" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border-0 bg-white/10 text-white hover:bg-white/20"><X className="h-4 w-4" aria-hidden /></button>
+            {left && <span className="hidden shrink-0 items-center gap-1 rounded-md bg-white/10 px-2.5 py-1 text-[11px] font-bold tabular-nums text-white/85 sm:inline-flex"><Clock3 className="h-3.5 w-3.5" aria-hidden />{left.text}</span>}
+            <button type="button" onClick={onClose} disabled={sending} aria-label="Close" className="grid h-9 w-9 shrink-0 place-items-center rounded-md border-0 bg-white/10 text-white hover:bg-white/20"><X className="h-4 w-4" aria-hidden /></button>
           </div>
           <ol className="m-0 mt-4 flex list-none gap-2 p-0">
             {STEPS.map((label, index) => {
@@ -572,7 +572,7 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
                     gs.minHotelStar ? `${gs.minHotelStar} stars or more` : null,
                     "Group stays switched on",
                   ].filter(Boolean).map((need) => (
-                    <li key={need as string} className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-200"><Check className="h-3 w-3 text-[#02665e]" aria-hidden />{need}</li>
+                    <li key={need as string} className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-200"><Check className="h-3 w-3 text-[#02665e]" aria-hidden />{need}</li>
                   ))}
                 </ul>
 
@@ -581,7 +581,7 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
                     {fit.map(({ property }) => {
                       const on = propertyId === property.id;
                       return (
-                        <button key={property.id} type="button" role="radio" aria-checked={on} onClick={() => choose(property)} className={`flex w-full items-center gap-3 rounded-2xl border border-solid p-4 text-left transition ${on ? "border-[#02665e] bg-emerald-50/50 ring-1 ring-[#02665e]" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+                        <button key={property.id} type="button" role="radio" aria-checked={on} onClick={() => choose(property)} className={`flex w-full items-center gap-3 rounded-lg border border-solid p-4 text-left transition ${on ? "border-[#02665e] bg-emerald-50/50 ring-1 ring-[#02665e]" : "border-slate-200 bg-white hover:border-slate-300"}`}>
                           <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 border-solid ${on ? "border-[#02665e] bg-[#02665e]" : "border-slate-300 bg-white"}`}>{on ? <span className="h-2 w-2 rounded-full bg-white" /> : null}</span>
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm font-bold text-slate-900">{property.title}</span>
@@ -596,10 +596,10 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-2xl bg-amber-50 p-4 ring-1 ring-inset ring-amber-200">
+                  <div className="rounded-lg bg-amber-50 p-4 ring-1 ring-inset ring-amber-200">
                     <p className="m-0 flex items-center gap-2 text-sm font-bold text-amber-900"><CircleAlert className="h-4 w-4" aria-hidden />None of your properties can host this group yet</p>
                     <p className="m-0 mt-1 text-xs leading-5 text-amber-900/80">Each property below shows what is missing. Fix it in the listing and come back before the offers close.</p>
-                    <Link href="/owner/properties/approved" className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-3 text-xs font-bold text-amber-900 no-underline ring-1 ring-inset ring-amber-300 hover:bg-amber-100">Open My listings <ArrowRight className="h-3.5 w-3.5" aria-hidden /></Link>
+                    <Link href="/owner/properties/approved" className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-md bg-white px-3 text-xs font-bold text-amber-900 no-underline ring-1 ring-inset ring-amber-300 hover:bg-amber-100">Open My listings <ArrowRight className="h-3.5 w-3.5" aria-hidden /></Link>
                   </div>
                 )}
 
@@ -613,7 +613,7 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
                     {(showUnfit || fit.length === 0) && (
                       <ul className="m-0 mt-2 list-none space-y-2 p-0">
                         {unfit.map(({ property, reasons }) => (
-                          <li key={property.id} className="rounded-2xl border border-solid border-slate-200 bg-slate-50/60 p-4">
+                          <li key={property.id} className="rounded-lg border border-solid border-slate-200 bg-slate-50/60 p-4">
                             <p className="m-0 truncate text-sm font-semibold text-slate-500">{property.title}</p>
                             <ul className="m-0 mt-1.5 list-none space-y-1 p-0">
                               {reasons.map((reason) => <li key={reason} className="flex items-start gap-1.5 text-xs text-slate-600"><XCircle className="mt-px h-3.5 w-3.5 shrink-0 text-rose-500" aria-hidden />{reason}</li>)}
@@ -642,12 +642,12 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     {chosen?.basePrice ? (
-                      <button type="button" onClick={() => setPrice(String(chosen.basePrice))} className="rounded-full border border-solid border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600 hover:border-[#02665e]/40 hover:text-[#02665e]">Use listed price {tzs(chosen.basePrice, chosen.currency)}</button>
+                      <button type="button" onClick={() => setPrice(String(chosen.basePrice))} className="rounded-md border border-solid border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600 hover:border-[#02665e]/40 hover:text-[#02665e]">Use listed price {tzs(chosen.basePrice, chosen.currency)}</button>
                     ) : null}
                     {market.lowest !== null && (
                       <>
-                        <button type="button" onClick={() => priceFor(market.lowest!)} className="rounded-full border border-solid border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600 hover:border-[#02665e]/40 hover:text-[#02665e]">Match the lowest offer</button>
-                        <button type="button" onClick={() => priceFor(market.lowest! * 0.97)} className="rounded-full border border-solid border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600 hover:border-[#02665e]/40 hover:text-[#02665e]">Beat it by 3%</button>
+                        <button type="button" onClick={() => priceFor(market.lowest!)} className="rounded-md border border-solid border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600 hover:border-[#02665e]/40 hover:text-[#02665e]">Match the lowest offer</button>
+                        <button type="button" onClick={() => priceFor(market.lowest! * 0.97)} className="rounded-md border border-solid border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600 hover:border-[#02665e]/40 hover:text-[#02665e]">Beat it by 3%</button>
                       </>
                     )}
                   </div>
@@ -661,7 +661,7 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
                       const blocked = d < minDiscount;
                       const on = discountNum === d;
                       return (
-                        <button key={d} type="button" disabled={blocked} onClick={() => setDiscount(String(d))} className={`h-9 rounded-xl border border-solid px-3.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"}`}>
+                        <button key={d} type="button" disabled={blocked} onClick={() => setDiscount(String(d))} className={`h-9 rounded-md border border-solid px-3.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"}`}>
                           {d === 0 ? "None" : `${d}%`}
                         </button>
                       );
@@ -675,16 +675,16 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
                   {discountError && price ? <p className="m-0 mt-2 text-xs font-semibold text-rose-600">{discountError}</p> : null}
                 </div>
 
-                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
+                <div className="rounded-lg bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
                   <div className="flex items-baseline justify-between gap-3">
                     <p className="m-0 text-xs font-bold text-slate-500">The group pays a room a night</p>
                     <p className="m-0 text-xl font-extrabold tabular-nums text-slate-900">{tzs(nightly, gs.currency)}</p>
                   </div>
                   {vsListed !== null && vsListed !== 0 ? <p className="m-0 mt-1 text-xs text-slate-500">{vsListed > 0 ? `${vsListed}% below` : `${Math.abs(vsListed)}% above`} your listed price.</p> : null}
                   {position ? (
-                    <p className={`m-0 mt-3 flex items-start gap-2 rounded-xl px-3 py-2 text-xs font-semibold ring-1 ring-inset ${position.tone}`}><TrendingDown className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />{position.text}</p>
+                    <p className={`m-0 mt-3 flex items-start gap-2 rounded-md px-3 py-2 text-xs font-semibold ring-1 ring-inset ${position.tone}`}><TrendingDown className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />{position.text}</p>
                   ) : market.lowest === null ? (
-                    <p className="m-0 mt-3 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">No other offers yet. Yours sets the pace.</p>
+                    <p className="m-0 mt-3 rounded-md bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-inset ring-slate-200">No other offers yet. Yours sets the pace.</p>
                   ) : null}
                   {market.prices.length > 0 && nightly > 0 && (
                     <PriceStrip prices={market.prices} mine={nightly} currency={gs.currency} />
@@ -703,7 +703,7 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
                   {EXTRAS.map((extra) => {
                     const on = extras.includes(extra);
                     return (
-                      <button key={extra} type="button" aria-pressed={on} onClick={() => setExtras((list) => (on ? list.filter((x) => x !== extra) : [...list, extra]))} className={`flex min-h-10 items-center gap-2 rounded-xl border border-solid px-3 py-2 text-left text-xs font-semibold transition ${on ? "border-[#02665e] bg-emerald-50 text-[#02665e]" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"}`}>
+                      <button key={extra} type="button" aria-pressed={on} onClick={() => setExtras((list) => (on ? list.filter((x) => x !== extra) : [...list, extra]))} className={`flex min-h-10 items-center gap-2 rounded-md border border-solid px-3 py-2 text-left text-xs font-semibold transition ${on ? "border-[#02665e] bg-emerald-50 text-[#02665e]" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"}`}>
                         <span className={`grid h-4 w-4 shrink-0 place-items-center rounded border border-solid ${on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white"}`}>{on ? <Check className="h-3 w-3" aria-hidden /> : null}</span>
                         {extra}
                       </button>
@@ -727,7 +727,7 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
 
           {/* Summary */}
           <aside className="hidden min-h-0 overflow-y-auto border-0 border-l border-solid border-slate-100 bg-slate-50/70 p-6 lg:block">
-            <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Your offer</p>
+            <p className="m-0 text-[11px] font-bold text-slate-400">Your offer</p>
             <p className="m-0 mt-2 truncate text-sm font-bold text-slate-900">{chosen?.title ?? "No property chosen"}</p>
             <dl className="m-0 mt-4 space-y-2 text-sm">
               <div className="flex justify-between gap-3"><dt className="text-slate-500">Price a room a night</dt><dd className="m-0 font-semibold tabular-nums text-slate-800">{priceNum ? tzs(priceNum, gs.currency) : "-"}</dd></div>
@@ -761,16 +761,16 @@ function OfferBuilder({ gs, properties, now, onClose, onSent }: { gs: AvailableG
             )}
           </div>
           {step > 0 && (
-            <button type="button" onClick={() => { setError(null); setStep((s) => s - 1); }} disabled={sending} className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <button type="button" onClick={() => { setError(null); setStep((s) => s - 1); }} disabled={sending} className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">
               <ArrowLeft className="h-4 w-4" aria-hidden /> Back
             </button>
           )}
           {step < 2 ? (
-            <button type="button" onClick={next} disabled={step === 0 && fit.length === 0} className="inline-flex h-10 items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-bold text-white hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" onClick={next} disabled={step === 0 && fit.length === 0} className="inline-flex h-10 items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-5 text-sm font-bold text-white hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-50">
               Next <ArrowRight className="h-4 w-4" aria-hidden />
             </button>
           ) : (
-            <button type="button" onClick={() => void send()} disabled={sending} className="inline-flex h-10 items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-bold text-white hover:bg-[#014d47] disabled:opacity-60">
+            <button type="button" onClick={() => void send()} disabled={sending} className="inline-flex h-10 items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-5 text-sm font-bold text-white hover:bg-[#014d47] disabled:opacity-60">
               {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <HandHeart className="h-4 w-4" aria-hidden />}
               {sending ? "Sending..." : `Send offer of ${tzs(total, gs.currency)}`}
             </button>

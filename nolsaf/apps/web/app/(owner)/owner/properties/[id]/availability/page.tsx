@@ -938,9 +938,9 @@ export default function PropertyAvailabilityPage() {
   if (!propertyLoading && !property) {
     return (
       <div className="w-full min-w-0 px-3 pb-12 sm:px-5 lg:px-6">
-        <div className="flex flex-col items-start gap-4 rounded-3xl bg-[#012a26] p-8 text-white sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col items-start gap-4 rounded-lg bg-[#012a26] p-8 text-white sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/10 text-[#5eead4]">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-white/10 text-[#5eead4]">
               <AlertCircle className="h-5 w-5" aria-hidden />
             </span>
             <div>
@@ -950,7 +950,7 @@ export default function PropertyAvailabilityPage() {
           </div>
           <Link
             href="/owner/properties/availability"
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]"
+            className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden /> Room availability
           </Link>
@@ -1045,7 +1045,7 @@ export default function PropertyAvailabilityPage() {
       <style>{`:where(#owner-availability, #owner-availability *, #owner-availability *::before, #owner-availability *::after) { box-sizing: border-box; border-width: 0; border-style: solid; border-color: #e2e8f0; }`}</style>
       <div className="relative w-full min-w-0">
         {/* Header band: same language as the other owner pages */}
-        <header className="relative mb-6 overflow-hidden rounded-3xl bg-[#012a26] text-white">
+        <header className="relative mb-6 overflow-hidden rounded-lg bg-[#012a26] text-white">
           <div
             className="pointer-events-none absolute inset-0 opacity-[0.07]"
             style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
@@ -1055,7 +1055,7 @@ export default function PropertyAvailabilityPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Link
                 href="/owner/properties/availability"
-                className="no-underline inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
+                className="no-underline inline-flex items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
               >
                 <ChevronLeft className="h-4 w-4" aria-hidden />
                 Room availability
@@ -1072,7 +1072,7 @@ export default function PropertyAvailabilityPage() {
                 <button
                   type="button"
                   onClick={loadCalendarData}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.06] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
                   title="Refresh availability"
                   aria-label="Refresh availability"
                 >
@@ -1084,7 +1084,7 @@ export default function PropertyAvailabilityPage() {
                   onClick={() => {
                     openBlockFormFromSelectedDate();
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#5eead4] px-3.5 py-2 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1]"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-[#5eead4] px-3.5 py-2 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1]"
                 >
                   <Plus className="h-4 w-4" aria-hidden />
                   Add block
@@ -1093,21 +1093,21 @@ export default function PropertyAvailabilityPage() {
             </div>
 
             <div className="mt-5">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Room availability</p>
+              <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Room availability</p>
               <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">{property.title}</h1>
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 {connected ? (
-                  <span className="inline-flex items-center gap-2 rounded-full bg-[#5eead4]/10 px-3 py-1 text-xs font-semibold text-[#5eead4]">
+                  <span className="inline-flex items-center gap-2 rounded-md bg-[#5eead4]/10 px-3 py-1 text-xs font-semibold text-[#5eead4]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#5eead4]" style={{ animation: "nols-seq-blink 1.2s ease-in-out infinite" }} />
                     Live updates
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-xs font-semibold text-white/50">
+                  <span className="inline-flex items-center gap-2 rounded-md bg-white/5 px-3 py-1 text-xs font-semibold text-white/50">
                     <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
                     Offline
                   </span>
                 )}
-                <span className="inline-flex items-center gap-2 rounded-full bg-white/[0.06] px-3 py-1 text-xs font-semibold text-white/75">
+                <span className="inline-flex items-center gap-2 rounded-md bg-white/[0.06] px-3 py-1 text-xs font-semibold text-white/75">
                   <Calendar className="h-3.5 w-3.5" aria-hidden />
                   {totalBookings} {totalBookings === 1 ? "booking" : "bookings"} · {totalBlocks} {totalBlocks === 1 ? "block" : "blocks"}
                 </span>
@@ -1122,7 +1122,7 @@ export default function PropertyAvailabilityPage() {
 
         {/* Error message */}
         {error && (
-          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 flex items-start gap-3">
+          <div className="mb-6 rounded-lg border border-solid border-red-200 bg-red-50 p-4 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-sm font-semibold text-red-800">Error</p>
@@ -1142,7 +1142,7 @@ export default function PropertyAvailabilityPage() {
         {/* Window, occupancy, and the rooms by floor */}
         <div className="mb-8 space-y-5">
           {/* Range bar */}
-          <section className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-[#012a26] p-3 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)] sm:flex-row sm:items-center sm:justify-between sm:p-4">
+          <section className="flex flex-col gap-3 rounded-lg border border-solid border-white/10 bg-[#012a26] p-3 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)] sm:flex-row sm:items-center sm:justify-between sm:p-4">
             <div className="flex flex-wrap items-center gap-2">
               {([
                 { label: "Tonight", nights: 1 },
@@ -1172,7 +1172,7 @@ export default function PropertyAvailabilityPage() {
               <button
                 type="button"
                 onClick={() => { setFilterPicking("start"); setFilterAwaitingEnd(true); setFilterRangePickerOpen(true); }}
-                className="inline-flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm font-semibold text-white/80 transition hover:border-[#5eead4]/40 sm:flex-none"
+                className="inline-flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-3 text-sm font-semibold text-white/80 transition hover:border-[#5eead4]/40 sm:flex-none"
                 aria-label="Choose dates"
               >
                 <Calendar className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />
@@ -1184,7 +1184,7 @@ export default function PropertyAvailabilityPage() {
                 type="button"
                 onClick={() => { loadAvailabilitySummary(); setBoardRefresh((n) => n + 1); }}
                 disabled={loadingSummary}
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-[#5eead4]/40 hover:text-[#02665e] disabled:opacity-50"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-solid border-white/10 bg-white/[0.04] text-white/70 transition hover:border-[#5eead4]/40 hover:text-[#02665e] disabled:opacity-50"
                 aria-label="Update"
                 title="Update"
               >
@@ -1258,7 +1258,7 @@ export default function PropertyAvailabilityPage() {
             )}
 
           {summaryError && (
-            <div className="flex items-start gap-2 rounded-2xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
+            <div className="flex items-start gap-2 rounded-lg border border-solid border-rose-400/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               <span>The availability summary could not be loaded. {summaryError}</span>
             </div>
@@ -1274,9 +1274,9 @@ export default function PropertyAvailabilityPage() {
             const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
             const nights = nightsBetween(`${filterStartDate}T00:00:00`, `${filterEndDate}T00:00:00`);
             return (
-              <section className="grid overflow-hidden rounded-2xl border border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+              <section className="grid overflow-hidden rounded-lg border border-solid border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
                 <div className="border-0 border-b border-white/10 p-5 lg:border-b-0 lg:border-r">
-                  <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">
+                  <p className="m-0 text-[11px] font-semibold text-white/55">
                     {nights <= 1 ? "Tonight" : `Next ${nights} nights`}
                   </p>
                   <p className="m-0 mt-1 flex items-baseline gap-2">
@@ -1297,7 +1297,7 @@ export default function PropertyAvailabilityPage() {
                     { label: "Free to sell", value: free, dot: "bg-[#5eead4]" },
                   ].map((c) => (
                     <div key={c.label} className="flex flex-col justify-center bg-white/[0.04] px-4 py-4">
-                      <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                      <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white/55">
                         <span className={`h-2 w-2 rounded-full ${c.dot}`} aria-hidden />
                         <span className="truncate">{c.label}</span>
                       </span>
@@ -1322,7 +1322,7 @@ export default function PropertyAvailabilityPage() {
 
           {/* Room Type Breakdown */}
           {availabilitySummary && Object.keys(availabilitySummary.byRoomType || {}).length > 0 && (
-            <div className="rounded-2xl border border-white/10 bg-[#012a26] p-5 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
+            <div className="rounded-lg border border-solid border-white/10 bg-[#012a26] p-5 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Layers className="h-5 w-5 text-white/70" />
@@ -1340,13 +1340,13 @@ export default function PropertyAvailabilityPage() {
                     });
                     setShowBlockForm(true);
                   }}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#5eead4] px-3 py-1.5 text-xs font-bold text-[#012a26] hover:bg-[#8ff3e1] transition"
+                  className="inline-flex items-center gap-2 rounded-md bg-[#5eead4] px-3 py-1.5 text-xs font-bold text-[#012a26] hover:bg-[#8ff3e1] transition"
                 >
                   <Plus className="h-3.5 w-3.5" />
                   Add External Booking
                 </button>
               </div>
-              <div className="mb-4 rounded-lg border border-[#5eead4]/35 bg-[#5eead4]/10 p-3">
+              <div className="mb-4 rounded-lg border border-solid border-[#5eead4]/35 bg-[#5eead4]/10 p-3">
                 <div className="flex items-start gap-2">
                   <Info className="h-4 w-4 text-[#5eead4] flex-shrink-0 mt-0.5" />
                   <div className="text-xs text-[#5eead4]">
@@ -1357,7 +1357,7 @@ export default function PropertyAvailabilityPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {Object.entries(availabilitySummary.byRoomType).map(([roomType, data]: [string, any]) => (
-                  <div key={roomType} className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+                  <div key={roomType} className="rounded-md border border-solid border-white/10 bg-white/[0.04] p-4">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-white">{roomType}</h3>
                       <span className="text-xs text-white/55">{data.availabilityPercentage}%</span>
@@ -1375,7 +1375,7 @@ export default function PropertyAvailabilityPage() {
                         <span className="text-white/55">Blocked:</span>
                         <span className="text-rose-300 font-semibold">{data.blockedRooms}</span>
                       </div>
-                      <div className="flex items-center justify-between text-xs pt-2 border-t border-white/10">
+                      <div className="border-0 flex items-center justify-between text-xs pt-2 border-t border-solid border-white/10">
                         <span className="text-white/55">Available:</span>
                         <span className="text-[#5eead4] font-bold">{data.availableRooms}</span>
                       </div>
@@ -1390,14 +1390,14 @@ export default function PropertyAvailabilityPage() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
           {/* Sidebar */}
           <aside className="lg:col-span-4 space-y-6">
-            <div className="rounded-2xl border border-white/10 bg-[#012a26] p-5 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
+            <div className="rounded-lg border border-solid border-white/10 bg-[#012a26] p-5 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold text-white/55">Property</p>
                   <p className="mt-1 text-lg font-semibold text-white">{property.title}</p>
                   <p className="mt-1 text-sm text-white/55">Tap a day to view details, or use filters below.</p>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 flex flex-col items-center gap-1.5">
+                <div className="rounded-md border border-solid border-white/10 bg-white/[0.04] px-3 py-2.5 flex flex-col items-center gap-1.5">
                   <p className="text-xs text-white/55 self-start">Live</p>
                   {connected ? (
                     <>
@@ -1447,7 +1447,7 @@ export default function PropertyAvailabilityPage() {
                       ? "rgba(94,234,212,0.12)"
                       : "rgba(255,255,255,0.04)",
                   }}
-                  className={`rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60 hover:bg-white/[0.08] ${
+                  className={`rounded-md border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60 hover:bg-white/[0.08] ${
                     calendarQuickFilter === "bookings" ? "border-[#5eead4]/35" : "border-white/10"
                   }`}
                   title="Show only bookings on the calendar"
@@ -1472,7 +1472,7 @@ export default function PropertyAvailabilityPage() {
                       ? "rgba(251,191,36,0.12)"
                       : "rgba(255,255,255,0.04)",
                   }}
-                  className={`rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-400/60 hover:bg-white/[0.08] ${
+                  className={`rounded-md border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-amber-400/60 hover:bg-white/[0.08] ${
                     calendarQuickFilter === "blocks" ? "border-amber-400/35" : "border-white/10"
                   }`}
                   title="Show only blocks on the calendar"
@@ -1486,7 +1486,7 @@ export default function PropertyAvailabilityPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-[#012a26] p-5 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
+            <div className="rounded-lg border border-solid border-white/10 bg-[#012a26] p-5 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <BedDouble className="h-4 w-4 text-white/70" />
@@ -1504,7 +1504,7 @@ export default function PropertyAvailabilityPage() {
                     ? "rgba(94,234,212,0.12)"
                     : "rgba(255,255,255,0.04)"
                   }}
-                  className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                  className={`w-full rounded-md border px-4 py-3 text-left transition ${
                     !selectedRoomCode ? "border-[#5eead4]/35" : "border-white/10 hover:border-[#5eead4]/40"
                   } text-white`}
                 >
@@ -1537,7 +1537,7 @@ export default function PropertyAvailabilityPage() {
                       type="button"
                       onClick={() => setSelectedRoomCode(key || null)}
                       style={{ background: active ? p.activeBg : p.inactiveBg }}
-                      className={`w-full rounded-xl border px-4 py-3 text-left transition text-white ${
+                      className={`w-full rounded-md border px-4 py-3 text-left transition text-white ${
                         active ? p.activeBorder : `${p.border} hover:bg-white/[0.08]`
                       }`}
                     >
@@ -1561,7 +1561,7 @@ export default function PropertyAvailabilityPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-[#012a26] p-5 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
+            <div className="rounded-lg border border-solid border-white/10 bg-[#012a26] p-5 shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <Filter className="h-4 w-4 text-white/70" />
@@ -1569,7 +1569,7 @@ export default function PropertyAvailabilityPage() {
                 </div>
                 <button
                   onClick={loadCalendarData}
-                  className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/[0.08] hover:text-white transition"
+                  className="inline-flex items-center gap-2 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-white/70 hover:bg-white/[0.08] hover:text-white transition"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   Refresh
@@ -1582,7 +1582,7 @@ export default function PropertyAvailabilityPage() {
                     prev.setMonth(prev.getMonth() - 1);
                     setSelectedDate(prev);
                   }}
-                  className="rounded-lg border border-white/10 bg-white/[0.04] p-2 text-white/80 hover:bg-white/[0.08] hover:text-white transition"
+                  className="rounded-lg border border-solid border-white/10 bg-white/[0.04] p-2 text-white/80 hover:bg-white/[0.08] hover:text-white transition"
                   title="Previous month"
                   aria-label="Previous month"
                 >
@@ -1597,7 +1597,7 @@ export default function PropertyAvailabilityPage() {
                     const [year, month] = e.target.value.split("-").map(Number);
                     setSelectedDate(new Date(year, month - 1));
                   }}
-                  className="flex-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  className="flex-1 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                   aria-label="Select month for availability calendar"
                 />
                 <button
@@ -1606,7 +1606,7 @@ export default function PropertyAvailabilityPage() {
                     next.setMonth(next.getMonth() + 1);
                     setSelectedDate(next);
                   }}
-                  className="rounded-lg border border-white/10 bg-white/[0.04] p-2 text-white/80 hover:bg-white/[0.08] hover:text-white transition"
+                  className="rounded-lg border border-solid border-white/10 bg-white/[0.04] p-2 text-white/80 hover:bg-white/[0.08] hover:text-white transition"
                   title="Next month"
                   aria-label="Next month"
                 >
@@ -1618,7 +1618,7 @@ export default function PropertyAvailabilityPage() {
 
           {/* Main */}
           <main className="lg:col-span-8 space-y-6">
-            <div className="rounded-2xl border border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)] overflow-hidden">
+            <div className="rounded-lg border border-solid border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)] overflow-hidden">
               <div className="p-5 flex items-center justify-between gap-4 flex-wrap">
                 <div>
                   <h2 className="text-sm font-semibold text-white">Calendar</h2>
@@ -1630,7 +1630,7 @@ export default function PropertyAvailabilityPage() {
                       <button
                         type="button"
                         onClick={() => setCalendarQuickFilter("all")}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold text-white/70 hover:bg-white/[0.08]"
+                        className="inline-flex items-center gap-2 rounded-md border border-solid border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] font-semibold text-white/70 hover:bg-white/[0.08]"
                         title="Clear calendar filter"
                       >
                         <Layers className="h-3.5 w-3.5" />
@@ -1662,7 +1662,7 @@ export default function PropertyAvailabilityPage() {
                 const notIn = [...seen.values()].filter((a) => a === "in").length;
                 if (notOut + notIn === 0) return null;
                 return (
-                  <div className="mx-5 mb-1 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-3">
+                  <div className="mx-5 mb-1 flex flex-wrap items-center justify-between gap-3 rounded-md border border-solid border-rose-400/30 bg-rose-400/10 px-4 py-3">
                     <div className="min-w-0">
                       <p className="m-0 text-sm font-semibold text-white">
                         {notOut + notIn} NRMS {notOut + notIn === 1 ? "stay needs" : "stays need"} attention
@@ -1731,7 +1731,7 @@ export default function PropertyAvailabilityPage() {
                         type="button"
                         key={idx}
                         onClick={() => openDayDetailsFor(day)}
-                        className={`min-h-[110px] text-left rounded-2xl border p-3 transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60 ${
+                        className={`min-h-[110px] text-left rounded-lg border p-3 transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60 ${
                           isToday
                             ? "border-[#5eead4]/35 bg-[#5eead4]/10"
                             : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"
@@ -1760,7 +1760,7 @@ export default function PropertyAvailabilityPage() {
                           {visibleBookings.slice(0, 2).map((booking) => (
                             <div
                               key={booking.id}
-                              className="text-[11px] px-2 py-1 rounded-lg bg-sky-400/10 text-sky-200 border border-sky-400/25 truncate"
+                              className="text-[11px] px-2 py-1 rounded-lg bg-sky-400/10 text-sky-200 border border-solid border-sky-400/25 truncate"
                               title={`NoLSAF booking: ${booking.guestName}`}
                             >
                               {booking.guestName}
@@ -1796,7 +1796,7 @@ export default function PropertyAvailabilityPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
+            <div className="rounded-lg border border-solid border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
               <div className="p-5 flex items-center justify-between gap-3 flex-wrap">
                 <div>
                   <h2 className="text-sm font-semibold text-white">Availability Blocks</h2>
@@ -1817,7 +1817,7 @@ export default function PropertyAvailabilityPage() {
                     {calendarData?.blocks.map((block) => (
                       <div
                         key={block.id}
-                        className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 hover:bg-white/[0.08] transition"
+                        className="rounded-lg border border-solid border-white/10 bg-white/[0.04] p-4 hover:bg-white/[0.08] transition"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1">
@@ -1825,16 +1825,16 @@ export default function PropertyAvailabilityPage() {
                               <span className="text-sm font-semibold text-white">
                                 {new Date(block.startDate).toLocaleDateString()} - {new Date(block.endDate).toLocaleDateString()}
                               </span>
-                              <span className="px-2 py-1 text-xs font-semibold rounded-full border border-[#5eead4]/35 bg-[#5eead4]/10 text-[#5eead4]">
+                              <span className="px-2 py-1 text-xs font-semibold rounded-md border border-solid border-[#5eead4]/35 bg-[#5eead4]/10 text-[#5eead4]">
                                 {block.readOnly ? (block.nrmsKind === "GROUP_BLOCK" ? "NRMS group block" : "NRMS reservation") : "External booking"}
                               </span>
                               {block.source && !block.readOnly && (
-                                <span className="px-2 py-1 text-xs font-semibold rounded-full border border-orange-400/25 bg-orange-400/10 text-orange-200">
+                                <span className="px-2 py-1 text-xs font-semibold rounded-md border border-solid border-orange-400/25 bg-orange-400/10 text-orange-200">
                                   {block.source}
                                 </span>
                               )}
                               {block.roomCode && (
-                                <span className="px-2 py-1 text-xs font-semibold rounded-full border border-white/10 bg-white/[0.04] text-white/70">
+                                <span className="px-2 py-1 text-xs font-semibold rounded-md border border-solid border-white/10 bg-white/[0.04] text-white/70">
                                   {block.roomCode}
                                 </span>
                               )}
@@ -1845,13 +1845,13 @@ export default function PropertyAvailabilityPage() {
                               </p>
                             ) : (
                             <div className="mb-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-white/80">
+                              <span className="rounded-lg border border-solid border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-white/80">
                                 Guest: <strong className="text-white">{block.guestName || "Guest"}</strong>
                               </span>
-                              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-white/80">
+                              <span className="rounded-lg border border-solid border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-white/80">
                                 Phone: <strong className="text-white">{block.guestPhone || "Not set"}</strong>
                               </span>
-                              <span className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-white/80">
+                              <span className="rounded-lg border border-solid border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-white/80">
                                 Paid: <strong className="text-white">{formatMoney(block.amountPaid, block.currency || "TZS")}</strong>
                               </span>
                             </div>
@@ -1870,14 +1870,14 @@ export default function PropertyAvailabilityPage() {
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => handleEdit(block)}
-                              className="p-2 rounded-xl border border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white transition"
+                              className="p-2 rounded-md border border-solid border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white transition"
                               title="Edit"
                             >
                               <Edit className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => handleDelete(block.id)}
-                              className="p-2 rounded-xl border border-rose-400/30 bg-rose-400/10 text-rose-300 hover:bg-rose-400/10 transition"
+                              className="p-2 rounded-md border border-solid border-rose-400/30 bg-rose-400/10 text-rose-300 hover:bg-rose-400/10 transition"
                               title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1898,13 +1898,13 @@ export default function PropertyAvailabilityPage() {
       {/* Day Details Modal (opens when clicking a date) */}
       {showDayDetails && dayDetails && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-3xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-lg sm:rounded-lg shadow-2xl max-w-3xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
             {/* Header */}
-            <div className="px-4 sm:px-6 md:px-8 py-4 sm:py-5 border-b border-slate-200/60 bg-gradient-to-br from-white via-slate-50/40 to-white">
+            <div className="border-0 px-4 sm:px-6 md:px-8 py-4 sm:py-5 border-b border-solid border-slate-200/60 bg-gradient-to-br from-white via-slate-50/40 to-white">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 shadow-sm">
+                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-slate-900 to-slate-800 shadow-sm">
                       <Calendar className="h-5 w-5 text-white" />
                     </div>
                     <div className="min-w-0">
@@ -1924,7 +1924,7 @@ export default function PropertyAvailabilityPage() {
                     setDayDetailsBookingStatusFilter(null);
                     setDayDetailsBlockSourceFilter(null);
                   }}
-                  className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 active:bg-slate-200 text-slate-500 hover:text-slate-700 transition-all flex-shrink-0"
+                  className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-slate-100 active:bg-slate-200 text-slate-500 hover:text-slate-700 transition-all flex-shrink-0"
                   title="Close"
                   aria-label="Close day details"
                 >
@@ -2028,28 +2028,28 @@ export default function PropertyAvailabilityPage() {
                   <>
                     {/* Summary tiles */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="rounded-lg border border-solid border-slate-200 bg-white p-4 shadow-sm">
                         <div className="text-[11px] font-bold text-slate-500">NoLSAF bookings</div>
                         <div className="mt-1 flex items-baseline gap-2">
                           <div className="text-2xl font-extrabold text-slate-900">{bookingsCount}</div>
                           <div className="text-xs font-semibold text-slate-500">({bookingsPct}%)</div>
                         </div>
                       </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">External blocks</div>
+                      <div className="rounded-lg border border-solid border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="text-[11px] font-bold text-slate-500">External blocks</div>
                         <div className="mt-1 flex items-baseline gap-2">
                           <div className="text-2xl font-extrabold text-slate-900">{blocksCount}</div>
                           <div className="text-xs font-semibold text-slate-500">({blocksPct}%)</div>
                         </div>
                       </div>
-                      <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm">
-                        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total items</div>
+                      <div className="rounded-lg border border-solid border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4 shadow-sm">
+                        <div className="text-[11px] font-bold text-slate-500">Total items</div>
                         <div className="mt-1 text-2xl font-extrabold text-slate-900">{total}</div>
                       </div>
                     </div>
 
                     {/* Visual graph (stacked by status/source) */}
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+                    <div className="rounded-lg border border-solid border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-sm font-extrabold text-slate-900">Day graph</div>
                         <div className="flex items-center gap-2">
@@ -2060,7 +2060,7 @@ export default function PropertyAvailabilityPage() {
                                 setDayDetailsBookingStatusFilter(null);
                                 setDayDetailsBlockSourceFilter(null);
                               }}
-                              className="text-xs font-bold rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 hover:bg-slate-50"
+                              className="text-xs font-bold rounded-md border border-solid border-slate-200 bg-white px-3 py-1 text-slate-700 hover:bg-slate-50"
                               title="Clear filters"
                             >
                               Clear filters
@@ -2073,7 +2073,7 @@ export default function PropertyAvailabilityPage() {
                       <div className="mt-4 space-y-4">
                         <div>
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-xs font-extrabold uppercase tracking-wider text-slate-700">Bookings</div>
+                            <div className="text-xs font-extrabold text-slate-700">Bookings</div>
                             <div className="text-xs font-semibold text-slate-500">
                               {dayDetailsBookingStatusFilter ? (
                                 <span>
@@ -2116,7 +2116,7 @@ export default function PropertyAvailabilityPage() {
 
                         <div>
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-xs font-extrabold uppercase tracking-wider text-slate-700">External blocks</div>
+                            <div className="text-xs font-extrabold text-slate-700">External blocks</div>
                             <div className="text-xs font-semibold text-slate-500">
                               {dayDetailsBlockSourceFilter ? (
                                 <span>
@@ -2161,8 +2161,8 @@ export default function PropertyAvailabilityPage() {
 
                     {/* Breakdown */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="text-xs font-extrabold uppercase tracking-wider text-slate-700">Bookings by status</div>
+                      <div className="rounded-lg border border-solid border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="text-xs font-extrabold text-slate-700">Bookings by status</div>
                         <div className="mt-3 space-y-2">
                           {statusEntries.length === 0 ? (
                             <div className="text-sm text-slate-500">No bookings for this date.</div>
@@ -2170,14 +2170,14 @@ export default function PropertyAvailabilityPage() {
                             statusEntries.map(([k, v]) => (
                               <div key={k} className="flex items-center justify-between gap-3">
                                 <div className="text-sm font-semibold text-slate-800 truncate">{k.replaceAll("_", " ")}</div>
-                                <span className="text-xs font-bold text-slate-600 rounded-full border border-slate-200 px-2 py-0.5">{v}</span>
+                                <span className="text-xs font-bold text-slate-600 rounded-md border border-solid border-slate-200 px-2 py-0.5">{v}</span>
                               </div>
                             ))
                           )}
                         </div>
                       </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="text-xs font-extrabold uppercase tracking-wider text-slate-700">External blocks by source</div>
+                      <div className="rounded-lg border border-solid border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="text-xs font-extrabold text-slate-700">External blocks by source</div>
                         <div className="mt-3 space-y-2">
                           {sourceEntries.length === 0 ? (
                             <div className="text-sm text-slate-500">No external blocks for this date.</div>
@@ -2185,7 +2185,7 @@ export default function PropertyAvailabilityPage() {
                             sourceEntries.map(([k, v]) => (
                               <div key={k} className="flex items-center justify-between gap-3">
                                 <div className="text-sm font-semibold text-slate-800 truncate">{k.replaceAll("_", " ")}</div>
-                                <span className="text-xs font-bold text-slate-600 rounded-full border border-slate-200 px-2 py-0.5">{v}</span>
+                                <span className="text-xs font-bold text-slate-600 rounded-md border border-solid border-slate-200 px-2 py-0.5">{v}</span>
                               </div>
                             ))
                           )}
@@ -2195,10 +2195,10 @@ export default function PropertyAvailabilityPage() {
 
                     {/* Detailed items */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                        <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3">
+                      <div className="rounded-lg border border-solid border-slate-200 bg-white shadow-sm overflow-hidden">
+                        <div className="border-0 flex items-center justify-between gap-3 border-b border-solid border-slate-200/70 px-4 py-3">
                           <div className="text-xs font-extrabold text-slate-800">NoLSAF bookings</div>
-                          <span className="text-[11px] font-bold text-slate-600 rounded-full border border-slate-200 px-2 py-0.5">
+                          <span className="text-[11px] font-bold text-slate-600 rounded-md border border-solid border-slate-200 px-2 py-0.5">
                             {dayDetailsBookingStatusFilter ? `${filteredBookings.length}/${bookingsCount}` : bookingsCount}
                           </span>
                         </div>
@@ -2208,7 +2208,7 @@ export default function PropertyAvailabilityPage() {
                           ) : (
                             <div className="space-y-3">
                               {filteredBookings.map((b) => (
-                                <div key={b.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                                <div key={b.id} className="rounded-md border border-solid border-slate-200 bg-slate-50/70 p-3">
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="min-w-0">
                                       <div className="text-sm font-semibold text-slate-900 truncate">{b.guestName || "Guest"}</div>
@@ -2216,14 +2216,14 @@ export default function PropertyAvailabilityPage() {
                                         {new Date(b.checkIn).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} – {new Date(b.checkOut).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
                                       </div>
                                     </div>
-                                    <span className="text-[11px] font-bold rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-blue-700">
+                                    <span className="text-[11px] font-bold rounded-md border border-solid border-blue-200 bg-blue-50 px-2 py-0.5 text-blue-700">
                                       {String(b.status || "").replaceAll("_", " ")}
                                     </span>
                                   </div>
                                   <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
-                                    {b.roomCode ? <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">Room: {b.roomCode}</span> : null}
-                                    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">Guests: {b.guests?.adults ?? 0}A {b.guests?.children ?? 0}C</span>
-                                    {b.guestPhone ? <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">{b.guestPhone}</span> : null}
+                                    {b.roomCode ? <span className="rounded-md border border-solid border-slate-200 bg-white px-2 py-0.5">Room: {b.roomCode}</span> : null}
+                                    <span className="rounded-md border border-solid border-slate-200 bg-white px-2 py-0.5">Guests: {b.guests?.adults ?? 0}A {b.guests?.children ?? 0}C</span>
+                                    {b.guestPhone ? <span className="rounded-md border border-solid border-slate-200 bg-white px-2 py-0.5">{b.guestPhone}</span> : null}
                                   </div>
                                 </div>
                               ))}
@@ -2232,10 +2232,10 @@ export default function PropertyAvailabilityPage() {
                         </div>
                       </div>
 
-                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                        <div className="flex items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-3">
-                          <div className="text-xs font-extrabold uppercase tracking-wider text-slate-800">External blocks</div>
-                          <span className="text-[11px] font-bold text-slate-600 rounded-full border border-slate-200 px-2 py-0.5">
+                      <div className="rounded-lg border border-solid border-slate-200 bg-white shadow-sm overflow-hidden">
+                        <div className="border-0 flex items-center justify-between gap-3 border-b border-solid border-slate-200/70 px-4 py-3">
+                          <div className="text-xs font-extrabold text-slate-800">External blocks</div>
+                          <span className="text-[11px] font-bold text-slate-600 rounded-md border border-solid border-slate-200 px-2 py-0.5">
                             {dayDetailsBlockSourceFilter ? `${filteredBlocks.length}/${blocksCount}` : blocksCount}
                           </span>
                         </div>
@@ -2245,7 +2245,7 @@ export default function PropertyAvailabilityPage() {
                           ) : (
                             <div className="space-y-3">
                               {filteredBlocks.map((blk) => (
-                                <div key={blk.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                                <div key={blk.id} className="rounded-md border border-solid border-slate-200 bg-slate-50/70 p-3">
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                       <div className="text-sm font-semibold text-slate-900 truncate">
@@ -2255,16 +2255,16 @@ export default function PropertyAvailabilityPage() {
                                         {new Date(blk.startDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} – {new Date(blk.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
                                       </div>
                                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
-                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
+                                        <span className="rounded-md border border-solid border-slate-200 bg-white px-2 py-0.5">
                                           {blk.readOnly ? (blk.nrmsKind === "GROUP_BLOCK" ? "NRMS group block" : "NRMS reservation") : "External booking"}
                                         </span>
                                         {blk.amountPaid != null ? (
-                                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-800">
+                                          <span className="rounded-md border border-solid border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-800">
                                             Paid: {formatMoney(blk.amountPaid, blk.currency || "TZS")}
                                           </span>
                                         ) : null}
-                                        {blk.roomCode ? <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">Room: {blk.roomCode}</span> : null}
-                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">{blk.readOnly ? "Rooms" : "Beds"}: {blk.bedsBlocked || 1}</span>
+                                        {blk.roomCode ? <span className="rounded-md border border-solid border-slate-200 bg-white px-2 py-0.5">Room: {blk.roomCode}</span> : null}
+                                        <span className="rounded-md border border-solid border-slate-200 bg-white px-2 py-0.5">{blk.readOnly ? "Rooms" : "Beds"}: {blk.bedsBlocked || 1}</span>
                                       </div>
                                     </div>
                                     {blk.readOnly ? (
@@ -2278,7 +2278,7 @@ export default function PropertyAvailabilityPage() {
                                           setDayDetails(null);
                                           handleEdit(blk);
                                         }}
-                                        className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-slate-700 hover:bg-slate-50 transition"
+                                        className="inline-flex items-center justify-center rounded-lg border border-solid border-slate-200 bg-white px-2.5 py-2 text-slate-700 hover:bg-slate-50 transition"
                                         title="Edit block"
                                         aria-label="Edit block"
                                       >
@@ -2287,7 +2287,7 @@ export default function PropertyAvailabilityPage() {
                                       <button
                                         type="button"
                                         onClick={() => handleDelete(blk.id)}
-                                        className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-rose-700 hover:bg-rose-100 transition"
+                                        className="inline-flex items-center justify-center rounded-lg border border-solid border-rose-200 bg-rose-50 px-2.5 py-2 text-rose-700 hover:bg-rose-100 transition"
                                         title="Delete block"
                                         aria-label="Delete block"
                                       >
@@ -2309,7 +2309,7 @@ export default function PropertyAvailabilityPage() {
             </div>
 
             {/* Footer */}
-            <div className="px-4 sm:px-6 md:px-8 py-4 border-t border-slate-200/60 bg-gradient-to-b from-slate-50/50 to-white">
+            <div className="border-0 px-4 sm:px-6 md:px-8 py-4 border-t border-solid border-slate-200/60 bg-gradient-to-b from-slate-50/50 to-white">
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
                 <button
                   type="button"
@@ -2319,7 +2319,7 @@ export default function PropertyAvailabilityPage() {
                     setDayDetails(null);
                     openQuickBlock(d);
                   }}
-                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 text-sm font-extrabold text-white shadow-[0_16px_40px_-24px_rgba(2,102,94,0.6)] ring-1 ring-inset ring-white/15 hover:to-cyan-600 active:scale-[0.99] transition"
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 text-sm font-extrabold text-white shadow-[0_16px_40px_-24px_rgba(2,102,94,0.6)] ring-1 ring-inset ring-white/15 hover:to-cyan-600 active:scale-[0.99] transition"
                 >
                   <Plus className="h-4 w-4" />
                   Add external block
@@ -2330,7 +2330,7 @@ export default function PropertyAvailabilityPage() {
                     setShowDayDetails(false);
                     setDayDetails(null);
                   }}
-                  className="px-4 py-3 rounded-xl border border-slate-300 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50 transition"
+                  className="px-4 py-3 rounded-md border border-solid border-slate-300 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50 transition"
                 >
                   Close
                 </button>
@@ -2344,12 +2344,12 @@ export default function PropertyAvailabilityPage() {
       {/* Range Insights Modal (opens from Bookings/Blocks tiles) */}
       {showRangeInsights && calendarData && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="px-4 sm:px-6 md:px-8 py-4 sm:py-5 border-b border-slate-200/60 bg-gradient-to-br from-white via-slate-50/40 to-white">
+          <div className="bg-white rounded-lg sm:rounded-lg shadow-2xl max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="border-0 px-4 sm:px-6 md:px-8 py-4 sm:py-5 border-b border-solid border-slate-200/60 bg-gradient-to-br from-white via-slate-50/40 to-white">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 shadow-sm">
+                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-slate-900 to-slate-800 shadow-sm">
                       <Layers className="h-5 w-5 text-white" />
                     </div>
                     <div className="min-w-0">
@@ -2362,7 +2362,7 @@ export default function PropertyAvailabilityPage() {
                 </div>
                 <button
                   onClick={() => setShowRangeInsights(false)}
-                  className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 active:bg-slate-200 text-slate-500 hover:text-slate-700 transition-all flex-shrink-0"
+                  className="w-9 h-9 flex items-center justify-center rounded-md hover:bg-slate-100 active:bg-slate-200 text-slate-500 hover:text-slate-700 transition-all flex-shrink-0"
                   title="Close"
                   aria-label="Close insights"
                 >
@@ -2468,8 +2468,8 @@ export default function PropertyAvailabilityPage() {
                 return (
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-1">
-                        <div className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
+                      <div className="rounded-lg border border-solid border-slate-200 bg-white p-5 shadow-sm md:col-span-1">
+                        <div className="text-xs font-extrabold text-slate-700">
                           {rangeInsightsTab === "bookings" ? "Bookings" : "External blocks"} distribution
                         </div>
                         <div className="mt-4 flex items-center justify-center">
@@ -2493,7 +2493,7 @@ export default function PropertyAvailabilityPage() {
                         </div>
                       </div>
 
-                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:col-span-2">
+                      <div className="rounded-lg border border-solid border-slate-200 bg-white p-5 shadow-sm md:col-span-2">
                         <div className="flex items-center justify-between gap-3">
                           <div className="text-sm font-extrabold text-slate-900">Breakdown</div>
                           <div className="text-xs text-slate-500">Stacked view</div>
@@ -2501,7 +2501,7 @@ export default function PropertyAvailabilityPage() {
                         <div className="mt-4">{renderStack(entries as [string, number][])}</div>
                         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {(entries as [string, number][]).slice(0, 10).map(([k, v]) => (
-                            <div key={k} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2">
+                            <div key={k} className="flex items-center justify-between gap-3 rounded-md border border-solid border-slate-200 bg-slate-50/60 px-3 py-2">
                               <div className="min-w-0 flex items-center gap-2">
                                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: pickColor(k) }} />
                                 <span className="text-sm font-semibold text-slate-800 truncate">{k.replaceAll("_", " ")}</span>
@@ -2518,12 +2518,12 @@ export default function PropertyAvailabilityPage() {
               })()}
             </div>
 
-            <div className="px-4 sm:px-6 md:px-8 py-4 border-t border-slate-200/60 bg-gradient-to-b from-slate-50/50 to-white">
+            <div className="border-0 px-4 sm:px-6 md:px-8 py-4 border-t border-solid border-slate-200/60 bg-gradient-to-b from-slate-50/50 to-white">
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
                 <button
                   type="button"
                   onClick={() => setShowRangeInsights(false)}
-                  className="px-4 py-3 rounded-xl border border-slate-300 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50 transition"
+                  className="px-4 py-3 rounded-md border border-solid border-slate-300 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50 transition"
                 >
                   Close
                 </button>
@@ -2537,12 +2537,12 @@ export default function PropertyAvailabilityPage() {
       {/* Block Form Modal */}
       {showBlockForm && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[999] flex items-center justify-center overflow-y-auto bg-black/60 p-3 py-[calc(1rem+env(safe-area-inset-top))] backdrop-blur-sm animate-in fade-in duration-200 sm:p-4 md:p-6">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
             {/* Header */}
-            <div className="px-5 py-4 border-b border-slate-100 sm:px-6">
+            <div className="border-0 px-5 py-4 border-b border-solid border-slate-100 sm:px-6">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3 min-w-0 flex-1">
-                  <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                  <div className="w-11 h-11 rounded-md bg-blue-50 flex items-center justify-center flex-shrink-0">
                     <Calendar className="w-5 h-5 text-blue-600" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -2562,7 +2562,7 @@ export default function PropertyAvailabilityPage() {
                     setEndDateOnly("");
                     setFormData(emptyBlockFormData());
                   }}
-                  className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition flex-shrink-0"
+                  className="w-9 h-9 flex items-center justify-center rounded-lg border border-solid border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition flex-shrink-0"
                   title="Close form"
                   aria-label="Close availability block form"
                 >
@@ -2573,7 +2573,7 @@ export default function PropertyAvailabilityPage() {
 
             {/* Inline capacity error banner — shown at top of form instead of a blocking overlay */}
             {capacityError && (
-              <div className="mx-4 mt-3 sm:mx-5 rounded-xl border border-rose-200 bg-rose-50 p-3 sm:p-4 animate-in fade-in duration-200">
+              <div className="mx-4 mt-3 sm:mx-5 rounded-md border border-solid border-rose-200 bg-rose-50 p-3 sm:p-4 animate-in fade-in duration-200">
                 <div className="flex items-start gap-2.5">
                   <div className="w-7 h-7 rounded-lg bg-rose-500 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <AlertCircle className="w-4 h-4 text-white" />
@@ -2593,7 +2593,7 @@ export default function PropertyAvailabilityPage() {
                             key={`${o.type}-${i}`}
                             type="button"
                             onClick={() => selectRoomTypeFromCapacityModal(o.type)}
-                            className="text-xs px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200 font-semibold transition"
+                            className="text-xs px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-solid border-emerald-200 hover:bg-emerald-200 font-semibold transition"
                           >
                             {o.type}: {o.roomsLeft} left
                           </button>
@@ -2617,7 +2617,7 @@ export default function PropertyAvailabilityPage() {
                     <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center">
                       <Clock className="w-3.5 h-3.5 text-slate-600" />
                     </div>
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wider">Date Range</h3>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900">Date Range</h3>
                   </div>
                   <p className="text-xs sm:text-sm text-slate-500">
                     Select the dates when the guest will stay.
@@ -2635,7 +2635,7 @@ export default function PropertyAvailabilityPage() {
                             setBlockPicking("checkin");
                             setBlockRangePickerOpen(true);
                           }}
-                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-slate-300 rounded-lg sm:rounded-xl bg-white text-slate-900 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all flex items-center justify-between"
+                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-solid border-slate-300 rounded-lg sm:rounded-md bg-white text-slate-900 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all flex items-center justify-between"
                         >
                           <div className="flex items-center gap-2">
                             <Calendar className="w-4 h-4 text-emerald-600" />
@@ -2657,7 +2657,7 @@ export default function PropertyAvailabilityPage() {
                             setBlockPicking(startDateOnly ? "checkout" : "checkin");
                             setBlockRangePickerOpen(true);
                           }}
-                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-slate-300 rounded-lg sm:rounded-xl bg-white text-slate-900 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all flex items-center justify-between"
+                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-solid border-slate-300 rounded-lg sm:rounded-md bg-white text-slate-900 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all flex items-center justify-between"
                         >
                           <div className="flex items-center gap-2">
                             <Calendar className="w-4 h-4 text-emerald-600" />
@@ -2726,7 +2726,7 @@ export default function PropertyAvailabilityPage() {
                     <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center">
                       <Home className="w-3.5 h-3.5 text-slate-600" />
                     </div>
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wider">Room & Source</h3>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900">Room & Source</h3>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                     <div className="space-y-2">
@@ -2757,7 +2757,7 @@ export default function PropertyAvailabilityPage() {
                           }}
                           required
                           disabled={loadingBlockRangeAvailability || blockRangeHasNoRooms || !blockRangeHasDates}
-                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-slate-300 rounded-lg sm:rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-solid border-slate-300 rounded-lg sm:rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                           aria-label="Select room type for availability block"
                           aria-required="true"
                         >
@@ -2796,7 +2796,7 @@ export default function PropertyAvailabilityPage() {
                         </p>
                       )}
                       {blockRangeAvailability && !blockRangeHasNoRooms && !loadingBlockRangeAvailability && (
-                        <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-xs shadow-sm">
+                        <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-solid border-emerald-200 bg-white px-2.5 py-1.5 text-xs shadow-sm">
                           <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
                           <span className="font-semibold text-emerald-800">
                             {blockRangeAvailability.summary?.totalAvailableRooms ?? availableRoomTypesForForm.length} room{Number(blockRangeAvailability.summary?.totalAvailableRooms ?? availableRoomTypesForForm.length) === 1 ? "" : "s"} available
@@ -2815,7 +2815,7 @@ export default function PropertyAvailabilityPage() {
                           value={formData.source}
                           onChange={(e) => setFormData({ ...formData, source: e.target.value })}
                           required
-                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-slate-300 rounded-lg sm:rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400 pr-8 sm:pr-10"
+                          className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base border border-solid border-slate-300 rounded-lg sm:rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400 pr-8 sm:pr-10"
                           aria-label="Select booking source"
                         >
                           <option value="">Select source</option>
@@ -2836,7 +2836,7 @@ export default function PropertyAvailabilityPage() {
                     <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center">
                       <User className="w-3.5 h-3.5 text-slate-600" />
                     </div>
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wider">Guest Details</h3>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900">Guest Details</h3>
                   </div>
                   <div className="grid min-w-0 grid-cols-1 sm:grid-cols-2 gap-4 items-start">
                     <div className="min-w-0 space-y-1.5 sm:col-span-2">
@@ -2847,7 +2847,7 @@ export default function PropertyAvailabilityPage() {
                         id="external-guest-name"
                         value={formData.guestName}
                         onChange={(e) => setFormData({ ...formData, guestName: e.target.value })}
-                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-solid border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
                         placeholder="Full name"
                       />
                     </div>
@@ -2861,7 +2861,7 @@ export default function PropertyAvailabilityPage() {
                           value={formData.nationality}
                           onChange={(e) => setFormData({ ...formData, nationality: e.target.value })}
                           required
-                          className="box-border h-12 w-full max-w-full min-w-0 px-3 pr-9 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400"
+                          className="box-border h-12 w-full max-w-full min-w-0 px-3 pr-9 text-sm border border-solid border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400"
                         >
                           <option value="">Select country</option>
                           {GUEST_COUNTRY_OPTIONS.map((country) => (
@@ -2880,7 +2880,7 @@ export default function PropertyAvailabilityPage() {
                         id="external-guest-phone"
                         value={formData.guestPhone}
                         onChange={(e) => setFormData({ ...formData, guestPhone: e.target.value })}
-                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-solid border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
                         placeholder="+255..."
                       />
                     </div>
@@ -2893,7 +2893,7 @@ export default function PropertyAvailabilityPage() {
                     <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center">
                       <BedDouble className="w-3.5 h-3.5 text-slate-600" />
                     </div>
-                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wider">Quantity</h3>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900">Quantity</h3>
                   </div>
                   <div className="grid min-w-0 grid-cols-1 sm:grid-cols-3 gap-4 items-start">
                     <div className="min-w-0 space-y-1.5">
@@ -2907,7 +2907,7 @@ export default function PropertyAvailabilityPage() {
                         value={formData.bedsBlocked}
                         onChange={(e) => setFormData({ ...formData, bedsBlocked: Number(e.target.value) || 1 })}
                         required
-                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-solid border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
                         aria-label="Number of beds or rooms blocked"
                       />
                     </div>
@@ -2923,7 +2923,7 @@ export default function PropertyAvailabilityPage() {
                         inputMode="decimal"
                         value={formData.amountPaid}
                         onChange={(e) => setFormData({ ...formData, amountPaid: Number(e.target.value) || 0 })}
-                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-solid border-slate-300 rounded-md bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all shadow-sm hover:border-slate-400"
                         placeholder={formatMoney(calculatedExternalAmount, formCurrency)}
                       />
                     </div>
@@ -2935,7 +2935,7 @@ export default function PropertyAvailabilityPage() {
                         id="external-paid-via"
                         value={formData.paidVia}
                         onChange={(e) => setFormData({ ...formData, paidVia: e.target.value })}
-                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-slate-300 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400"
+                        className="box-border h-12 w-full max-w-full min-w-0 px-3 text-sm border border-solid border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-sm hover:border-slate-400"
                       >
                         <option value="">Select payment</option>
                         <option value="CASH">Cash</option>
@@ -2947,7 +2947,7 @@ export default function PropertyAvailabilityPage() {
 
                 {/* Error Message */}
                 {error && (
-                  <div className="rounded-xl border border-red-200 bg-red-50/80 p-3 sm:p-4 flex items-start gap-2 sm:gap-3 animate-in slide-in-from-top-2 duration-200">
+                  <div className="rounded-md border border-solid border-red-200 bg-red-50/80 p-3 sm:p-4 flex items-start gap-2 sm:gap-3 animate-in slide-in-from-top-2 duration-200">
                     <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-600 flex-shrink-0 mt-0.5" />
                     <p className="text-xs sm:text-sm text-red-700 leading-relaxed">{error}</p>
                   </div>
@@ -2955,12 +2955,12 @@ export default function PropertyAvailabilityPage() {
               </div>
 
               {/* Footer Actions */}
-              <div className="px-4 py-3.5 sm:px-5 sm:py-4 border-t border-slate-200/60 bg-gradient-to-b from-slate-50/50 to-white">
+              <div className="border-0 px-4 py-3.5 sm:px-5 sm:py-4 border-t border-solid border-slate-200/60 bg-gradient-to-b from-slate-50/50 to-white">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
                   <button
                     type="submit"
                     disabled={saving}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-emerald-600 text-white rounded-lg sm:rounded-xl text-sm sm:text-base font-semibold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 hover:shadow-xl hover:shadow-emerald-700/30 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-emerald-600 text-white rounded-lg sm:rounded-md text-sm sm:text-base font-semibold shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 hover:shadow-xl hover:shadow-emerald-700/30 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                   >
                     {saving ? (
                       <>
@@ -2983,7 +2983,7 @@ export default function PropertyAvailabilityPage() {
                       setEndDateOnly("");
                       setFormData(emptyBlockFormData());
                     }}
-                    className="px-4 sm:px-6 py-2.5 sm:py-3 border border-slate-300 text-slate-700 rounded-lg sm:rounded-xl text-sm sm:text-base font-semibold bg-white hover:bg-slate-50 active:scale-[0.98] transition-all"
+                    className="px-4 sm:px-6 py-2.5 sm:py-3 border border-solid border-slate-300 text-slate-700 rounded-lg sm:rounded-md text-sm sm:text-base font-semibold bg-white hover:bg-slate-50 active:scale-[0.98] transition-all"
                   >
                     Cancel
                   </button>
@@ -2998,11 +2998,11 @@ export default function PropertyAvailabilityPage() {
       {/* Conflict Confirmation Modal */}
       {showConflictModal && conflictData && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
-          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-md sm:max-w-lg w-full my-auto animate-in zoom-in-95 duration-200 max-h-[95vh] flex flex-col overflow-hidden">
+          <div className="bg-white rounded-lg sm:rounded-lg shadow-2xl max-w-md sm:max-w-lg w-full my-auto animate-in zoom-in-95 duration-200 max-h-[95vh] flex flex-col overflow-hidden">
             {/* Header */}
-            <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-200 bg-gradient-to-r from-amber-50 to-orange-50 flex-shrink-0 rounded-t-2xl sm:rounded-t-3xl">
+            <div className="border-0 px-4 sm:px-6 py-4 sm:py-5 border-b border-solid border-slate-200 bg-gradient-to-r from-amber-50 to-orange-50 flex-shrink-0 rounded-t-2xl sm:rounded-t-3xl">
               <div className="flex items-start gap-2 sm:gap-3">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-amber-500 flex items-center justify-center shadow-sm flex-shrink-0">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-md bg-amber-500 flex items-center justify-center shadow-sm flex-shrink-0">
                   <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -3023,11 +3023,11 @@ export default function PropertyAvailabilityPage() {
 
                 {/* Conflicting Bookings List */}
                 {conflictData.conflictingBookings.length > 0 && (
-                  <div className="bg-slate-50 rounded-lg border border-slate-200 p-3 sm:p-4 mb-4">
-                    <h3 className="text-[10px] sm:text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2 sm:mb-3">Conflicting Bookings</h3>
+                  <div className="bg-slate-50 rounded-lg border border-solid border-slate-200 p-3 sm:p-4 mb-4">
+                    <h3 className="text-[10px] sm:text-xs font-semibold text-slate-700 mb-2 sm:mb-3">Conflicting Bookings</h3>
                     <div className="space-y-1.5 sm:space-y-2 max-h-40 sm:max-h-48 overflow-y-auto">
                       {conflictData.conflictingBookings.slice(0, 5).map((booking: any, idx: number) => (
-                        <div key={idx} className="flex items-start gap-2 sm:gap-3 p-1.5 sm:p-2 bg-white rounded-lg border border-slate-200">
+                        <div key={idx} className="flex items-start gap-2 sm:gap-3 p-1.5 sm:p-2 bg-white rounded-lg border border-solid border-slate-200">
                           <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-amber-500 mt-1 sm:mt-1.5 flex-shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="text-xs sm:text-sm font-medium text-slate-900 truncate">
@@ -3059,7 +3059,7 @@ export default function PropertyAvailabilityPage() {
                 )}
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 sm:p-3 flex items-start gap-2">
+              <div className="bg-amber-50 border border-solid border-amber-200 rounded-lg p-2.5 sm:p-3 flex items-start gap-2">
                 <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                 <p className="text-[10px] sm:text-xs text-amber-800 leading-relaxed">
                   <strong>Warning:</strong> Proceeding will create a conflict. Please review your calendar to avoid double-booking.
@@ -3068,11 +3068,11 @@ export default function PropertyAvailabilityPage() {
             </div>
 
             {/* Footer */}
-            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3 flex-shrink-0 rounded-b-2xl sm:rounded-b-3xl">
+            <div className="border-0 px-4 sm:px-6 py-3 sm:py-4 border-t border-solid border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3 flex-shrink-0 rounded-b-2xl sm:rounded-b-3xl">
               <button
                 type="button"
                 onClick={handleConflictCancel}
-                className="w-full sm:w-auto px-4 py-2.5 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold bg-white hover:bg-slate-50 active:scale-[0.98] transition-all"
+                className="w-full sm:w-auto px-4 py-2.5 border border-solid border-slate-300 text-slate-700 rounded-lg text-sm font-semibold bg-white hover:bg-slate-50 active:scale-[0.98] transition-all"
               >
                 Cancel
               </button>
@@ -3090,11 +3090,11 @@ export default function PropertyAvailabilityPage() {
 
       {showConfirmModal && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl max-w-lg w-full max-h-[95vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-lg sm:rounded-lg shadow-2xl max-w-lg w-full max-h-[95vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
             {/* Header */}
-            <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-200 bg-gradient-to-r from-emerald-50 via-white to-sky-50 flex-shrink-0 rounded-t-2xl sm:rounded-t-3xl">
+            <div className="border-0 px-4 sm:px-6 py-4 sm:py-5 border-b border-solid border-slate-200 bg-gradient-to-r from-emerald-50 via-white to-sky-50 flex-shrink-0 rounded-t-2xl sm:rounded-t-3xl">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center shadow-sm shadow-emerald-600/20 flex-shrink-0">
+                <div className="w-10 h-10 rounded-md bg-emerald-600 flex items-center justify-center shadow-sm shadow-emerald-600/20 flex-shrink-0">
                   <CheckCircle2 className="w-5 h-5 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -3122,55 +3122,55 @@ export default function PropertyAvailabilityPage() {
 
             {/* Content */}
             <div className="px-4 sm:px-6 py-4 sm:py-5 flex-1 overflow-y-auto">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <div className="rounded-lg border border-solid border-slate-200 bg-slate-50/70 p-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Room type</p>
+                  <div className="rounded-md border border-solid border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500">Room type</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
                       {getRoomTypeLabel(formData.roomCode || "")}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Source</p>
+                  <div className="rounded-md border border-solid border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500">Source</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
                       {formData.source || "—"}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Guest</p>
+                  <div className="rounded-md border border-solid border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500">Guest</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
                       {formData.guestName || "Guest"}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Amount paid</p>
+                  <div className="rounded-md border border-solid border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500">Amount paid</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
                       {formatMoney(formData.amountPaid || calculatedExternalAmount, formCurrency)}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Paid via</p>
+                  <div className="rounded-md border border-solid border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500">Paid via</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900 break-words">
                       {formData.paidVia === "CASH" ? "Cash" : formData.paidVia === "MOBILE" ? "Mobile" : "Not selected"}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Check-in</p>
+                  <div className="rounded-md border border-solid border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500">Check-in</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900">
                       {formatConfirmDate(formData.startDate)}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-white/80 p-3">
-                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Check-out</p>
+                  <div className="rounded-md border border-solid border-slate-200 bg-white/80 p-3">
+                    <p className="text-[10px] font-semibold text-slate-500">Check-out</p>
                     <p className="mt-1 text-sm font-semibold text-slate-900">
                       {formatConfirmDate(formData.endDate)}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 flex items-start justify-between gap-3">
+                <div className="mt-3 rounded-md border border-solid border-emerald-200 bg-emerald-50 p-3 flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">Beds/rooms blocked</p>
+                    <p className="text-[10px] font-semibold text-emerald-700">Beds/rooms blocked</p>
                     <p className="mt-1 text-sm font-bold text-emerald-900">{formData.bedsBlocked}</p>
                   </div>
                   <div className="text-[11px] text-emerald-800/80 text-right">
@@ -3181,7 +3181,7 @@ export default function PropertyAvailabilityPage() {
                 </div>
               </div>
 
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="mt-4 rounded-lg border border-solid border-slate-200 bg-white p-4">
                 <label className="flex cursor-pointer items-center justify-between gap-4 text-sm text-slate-800">
                   <span className="min-w-0 leading-relaxed">
                     <span>
@@ -3203,7 +3203,7 @@ export default function PropertyAvailabilityPage() {
                   />
                   <span
                     aria-hidden="true"
-                    className="relative inline-flex h-8 w-14 flex-shrink-0 items-center rounded-full border border-slate-300 bg-slate-200 shadow-inner transition-colors peer-checked:border-emerald-600 peer-checked:bg-emerald-600"
+                    className="relative inline-flex h-8 w-14 flex-shrink-0 items-center rounded-full border border-solid border-slate-300 bg-slate-200 shadow-inner transition-colors peer-checked:border-emerald-600 peer-checked:bg-emerald-600"
                   >
                     <span className="inline-block h-6 w-6 translate-x-1 rounded-full bg-white shadow-sm ring-1 ring-slate-200 transition-transform peer-checked:translate-x-7" />
                   </span>
@@ -3212,10 +3212,10 @@ export default function PropertyAvailabilityPage() {
             </div>
 
             {/* Footer */}
-            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3 flex-shrink-0 rounded-b-2xl sm:rounded-b-3xl">
+            <div className="border-0 px-4 sm:px-6 py-3 sm:py-4 border-t border-solid border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3 flex-shrink-0 rounded-b-2xl sm:rounded-b-3xl">
               <button
                 type="button"
-                className="w-full sm:w-auto px-4 py-2.5 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold bg-white hover:bg-slate-50 active:scale-[0.98] transition-all disabled:opacity-60"
+                className="w-full sm:w-auto px-4 py-2.5 border border-solid border-slate-300 text-slate-700 rounded-lg text-sm font-semibold bg-white hover:bg-slate-50 active:scale-[0.98] transition-all disabled:opacity-60"
                 onClick={() => setShowConfirmModal(false)}
                 disabled={saving}
               >

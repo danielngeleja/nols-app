@@ -52,6 +52,7 @@ type Lead = {
   proposedProduct: string;
   duplicateReviewStatus: string;
   conversionRequestedAt: string;
+  createdAt: string;
   visitSummary?: { verified: number; flagged: number };
   salesPartner: {
     id: number;
@@ -67,6 +68,8 @@ type PropertyHit = {
   status: string;
   city: string | null;
   regionName: string | null;
+  /** First moment the property was live on the marketplace; null = never. */
+  listedAt: string | null;
   owner: { id: number; name: string | null; email: string | null };
   salesAttributions: Array<{
     id: number;
@@ -75,6 +78,16 @@ type PropertyHit = {
     salesPartner: { id: number; agentCode: string };
   }>;
 };
+
+/** Marketplace claim on a property that was already public before the partner registered it. */
+function listedBeforeLead(lead: Lead, property: PropertyHit | undefined): boolean {
+  if (!property?.listedAt || !lead.proposedProduct.includes("MARKETPLACE")) return false;
+  return new Date(property.listedAt).getTime() < new Date(lead.createdAt).getTime();
+}
+
+function shortDate(value: string): string {
+  return new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+}
 
 type Attribution = {
   id: number;
@@ -205,6 +218,7 @@ export default function SalesReviewPage() {
   const [query, setQuery] = useState("");
   const [reason, setReason] = useState<Record<number, string>>({});
   const [duplicateDecision, setDuplicateDecision] = useState<Record<number, "CLEAR" | "MATCH">>({});
+  const [listedOverride, setListedOverride] = useState<Record<number, boolean>>({});
   const [propertyQuery, setPropertyQuery] = useState<Record<number, string>>({});
   const [propertyHits, setPropertyHits] = useState<Record<number, PropertyHit[]>>({});
   const [selectedProperty, setSelectedProperty] = useState<Record<number, PropertyHit | undefined>>({});
@@ -291,6 +305,11 @@ export default function SalesReviewPage() {
       setError("Resolve the duplicate warning before approval.");
       return;
     }
+    const listedBefore = listedBeforeLead(lead, property);
+    if (listedBefore && !listedOverride[lead.id]) {
+      setError("This property was live before the lead. Return it to the partner, or confirm you hold proof they brought the owner.");
+      return;
+    }
     setBusy(`approve-${lead.id}`);
     setError(null);
     try {
@@ -298,6 +317,7 @@ export default function SalesReviewPage() {
         propertyId: property.id,
         reason: note,
         duplicateDecision: duplicateDecision[lead.id],
+        ...(listedBefore ? { listedBeforeOverride: true } : {}),
       });
       setNotice(`${lead.propertyName} was verified. Activate its attribution separately to begin earnings.`);
       await load();
@@ -579,6 +599,8 @@ export default function SalesReviewPage() {
                 const selected = selectedProperty[lead.id];
                 const note = (reason[lead.id] || "").trim();
                 const decided = !flagged || Boolean(duplicateDecision[lead.id]);
+                const listedBefore = listedBeforeLead(lead, selected);
+                const listedCleared = !listedBefore || Boolean(listedOverride[lead.id]);
                 const place = [lead.location, lead.ward, lead.district, lead.region].filter(Boolean).join(", ");
                 const partnerName = tidyName(lead.salesPartner.user.name) || lead.salesPartner.user.email || "Partner";
                 let stepNo = 0;
@@ -656,7 +678,7 @@ export default function SalesReviewPage() {
                             <div className="mt-2 flex items-center gap-2 rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-3 py-2">
                               <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
                               <span className="min-w-0 flex-1 truncate text-sm text-emerald-900">{selected.title}</span>
-                              <button type="button" onClick={() => setSelectedProperty((current) => ({ ...current, [lead.id]: undefined }))} className="border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline">Change</button>
+                              <button type="button" onClick={() => { setSelectedProperty((current) => ({ ...current, [lead.id]: undefined })); setListedOverride((current) => ({ ...current, [lead.id]: false })); }} className="border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline">Change</button>
                             </div>
                           ) : (
                             <>
@@ -694,6 +716,12 @@ export default function SalesReviewPage() {
                                           <span className="mt-0.5 block truncate text-xs text-neutral-500">
                                             {[property.city || property.regionName, property.owner?.name || property.owner?.email].filter(Boolean).join(" · ") || "Location unavailable"}
                                           </span>
+                                          {listedBeforeLead(lead, property) && (
+                                            <span className="mt-1 flex items-center gap-1 text-[11px] font-medium text-rose-700">
+                                              <AlertTriangle className="h-3 w-3" />
+                                              Live since {shortDate(property.listedAt!)}, before this lead
+                                            </span>
+                                          )}
                                           {taken.length > 0 && (
                                             <span className="mt-1 flex items-center gap-1 text-[11px] font-medium text-amber-700">
                                               <AlertTriangle className="h-3 w-3" />
@@ -707,6 +735,26 @@ export default function SalesReviewPage() {
                                 </ul>
                               )}
                             </>
+                          )}
+                          {selected && listedBefore && (
+                            <div className="mt-2 rounded-lg border border-solid border-rose-200 bg-rose-50 px-3 py-2.5">
+                              <p className="m-0 flex items-start gap-1.5 text-xs font-semibold text-rose-800">
+                                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                                Live on NoLSAF since {shortDate(selected.listedAt!)}, before this lead was registered on {shortDate(lead.createdAt)}.
+                              </p>
+                              <p className="m-0 mt-1 pl-5 text-[11px] leading-relaxed text-rose-700">
+                                Anyone could copy this listing into a lead. Return it to the partner unless you hold proof they brought the owner. Activation will then need the owner&apos;s own confirmation.
+                              </p>
+                              <label className="mt-2 flex cursor-pointer items-start gap-2 pl-5 text-xs text-rose-900">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(listedOverride[lead.id])}
+                                  onChange={(event) => setListedOverride((current) => ({ ...current, [lead.id]: event.target.checked }))}
+                                  className="mt-0.5"
+                                />
+                                I hold proof the partner brought this owner, written in the reason below.
+                              </label>
+                            </div>
                           )}
                         </div>
 
@@ -723,7 +771,7 @@ export default function SalesReviewPage() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
-                          <button type="button" className={`${primaryButton} flex-1`} onClick={() => void approve(lead)} disabled={Boolean(busy) || !selected || note.length < 5 || !decided}>
+                          <button type="button" className={`${primaryButton} flex-1`} onClick={() => void approve(lead)} disabled={Boolean(busy) || !selected || note.length < 5 || !decided || !listedCleared}>
                             {busy === `approve-${lead.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Verify conversion
                           </button>
                           <button type="button" className={secondaryButton} onClick={() => void reject(lead)} disabled={Boolean(busy) || note.length < 5 || !decided}>

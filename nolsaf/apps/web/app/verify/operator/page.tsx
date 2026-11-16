@@ -1,11 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, BadgeCheck, CalendarCheck, Loader2, Lock, MapPin, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, ArrowRight, Check, Copy, Loader2, Lock, MapPin, ShieldAlert, ShieldCheck } from "lucide-react";
 
 type Certificate = {
   issuer: string;
-  operator: { id: number; companyName: string; location: string };
+  /** Signed reference, e.g. NLS-TO-7K3Q-9XMD-F. Never a row id. */
+  reference: string;
+  /** When the server re-checked this certificate: it is live, not a printed claim. */
+  checkedAt?: string;
+  /** What NoLSAF approved, by kind only. */
+  checks?: string[];
+  /** The operator's own NoLSAF page, to compare with whoever is selling the tour. */
+  profilePath?: string | null;
+  operator: { companyName: string; location: string };
   verification: { status: "VERIFIED"; verifiedAt: string; method: string; note: string };
 };
 
@@ -17,11 +26,13 @@ type State =
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Not available";
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return date.toLocaleDateString("en-GB", { year: "numeric", month: "short", day: "numeric", timeZone: "Africa/Dar_es_Salaam" });
 }
 
-function certificateId(operatorId: number) {
-  return `NOLS-TO-${String(operatorId).padStart(6, "0")}`;
+function formatTime(value: string | undefined) {
+  const date = new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT`;
 }
 
 export default function OperatorVerificationPage() {
@@ -54,7 +65,7 @@ export default function OperatorVerificationPage() {
 
   return (
     <main className="min-h-screen bg-[#efe7d7] px-4 py-6 text-slate-950 sm:py-10" style={{ fontFamily: '"Trebuchet MS", "Lucida Sans Unicode", "Lucida Grande", Arial, sans-serif' }}>
-      <section className="mx-auto max-w-md overflow-hidden rounded-[28px] border border-[#e6dbc4] bg-[#faf6ed] shadow-[0_28px_90px_-42px_rgba(2,102,94,0.55)]">
+      <section className="mx-auto max-w-md overflow-hidden rounded-lg border border-solid border-[#e6dbc4] bg-[#faf6ed] shadow-[0_28px_90px_-42px_rgba(2,102,94,0.45)]">
         {state.status === "loading" ? (
           <div className="flex flex-col items-center gap-3 px-6 py-20 text-slate-500">
             <Loader2 className="h-6 w-6 animate-spin text-[#02665e]" aria-hidden />
@@ -62,7 +73,7 @@ export default function OperatorVerificationPage() {
           </div>
         ) : state.status === "invalid" ? (
           <div className="p-6">
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
+            <div className="rounded-md border border-solid border-rose-200 bg-rose-50 px-4 py-3">
               <div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-rose-600" /><p className="text-sm font-black text-rose-800">Certificate could not be verified</p></div>
               <p className="mt-2 text-sm leading-6 text-rose-700">{state.reason}</p>
             </div>
@@ -79,51 +90,137 @@ export default function OperatorVerificationPage() {
   );
 }
 
+/** "ARUSHA-TANZANIA" → "Arusha, Tanzania"; "DAR ES SALAAM" → "Dar es Salaam". */
+function placeCase(value: string) {
+  const small = new Set(["es", "wa", "ya", "na", "la"]);
+  return value
+    .split(/\s*[-,]\s*/)
+    .filter(Boolean)
+    .map((part) => part
+      .toLocaleLowerCase("en")
+      .split(/\s+/)
+      .map((word, i) => (i > 0 && small.has(word) ? word : word.charAt(0).toUpperCase() + word.slice(1)))
+      .join(" "))
+    .join(", ");
+}
+
 function CertificateView({ certificate }: { certificate: Certificate }) {
   const { operator, verification } = certificate;
-  const id = certificateId(operator.id);
+  const id = certificate.reference;
+  const [copied, setCopied] = useState(false);
+  const checks = certificate.checks?.length ? certificate.checks : [verification.method];
+  const copy = async () => {
+    try {
+      await navigator.clipboard?.writeText(id);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {}
+  };
+  const rows: Array<{ label: string; value: React.ReactNode }> = [
+    { label: "Verified since", value: formatDate(verification.verifiedAt) },
+    { label: "Issued by", value: certificate.issuer },
+    {
+      label: "Reference",
+      value: (
+        <span className="inline-flex items-center gap-2">
+          <span className="font-mono tracking-wide text-[#02665e]">{id}</span>
+          <button
+            type="button"
+            onClick={copy}
+            aria-label="Copy reference"
+            className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded border border-solid border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700"
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
+          </button>
+        </span>
+      ),
+    },
+  ];
   return (
-    <div className="px-5 py-8 text-center sm:px-8 sm:py-10">
-      <span className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-[#0e7e70] to-[#023f39] text-white shadow-lg ring-8 ring-[#dcece6]">
-        <ShieldCheck className="h-10 w-10" aria-hidden />
-      </span>
-      <div className="mx-auto mt-6 h-px max-w-md bg-gradient-to-r from-transparent via-[#02665e]/35 to-transparent" />
-      <p className="mt-6 text-[12px] font-black uppercase tracking-[0.28em] text-[#02665e]">Certificate of Verification</p>
-      <h1 className="mt-2 break-words text-3xl font-black leading-tight tracking-tight text-slate-900">{operator.companyName}</h1>
-      {operator.location ? <div className="mt-3 flex items-center justify-center gap-1.5 text-[13px] font-bold uppercase tracking-[0.1em] text-slate-500"><MapPin className="h-4 w-4 text-slate-400" /><span>{operator.location}</span></div> : null}
-
-      <div className="mx-auto mt-7 grid max-w-md grid-cols-2 overflow-hidden rounded-3xl border border-[#d6e8e1] bg-[#eef6f2]">
-        <InfoTile icon={<BadgeCheck className="h-5 w-5" />} label="Status" value="Verified" accent />
-        <InfoTile icon={<CalendarCheck className="h-5 w-5" />} label="Verified on" value={formatDate(verification.verifiedAt)} className="border-l border-[#dcece6]" />
+    <div>
+      {/* Header */}
+      <div className="px-6 pb-5 pt-7 text-center sm:px-8">
+        <span className="mx-auto grid h-12 w-12 place-items-center rounded-md bg-[#02665e] text-white">
+          <ShieldCheck className="h-6 w-6" aria-hidden />
+        </span>
+        <p className="m-0 mt-4 text-[12px] font-semibold text-[#02665e]">Certificate of verification</p>
+        <h1 className="m-0 mt-1 break-words text-[26px] font-bold leading-tight tracking-tight text-slate-900">{operator.companyName}</h1>
+        {operator.location ? (
+          <p className="m-0 mt-2 flex items-center justify-center gap-1.5 text-[13px] text-slate-500">
+            <MapPin className="h-3.5 w-3.5 text-slate-400" aria-hidden />{placeCase(operator.location)}
+          </p>
+        ) : null}
       </div>
 
-      <div className="mx-auto mt-6 max-w-md rounded-2xl border border-[#ece2cd] bg-white/70 px-5 py-4 text-left">
-        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Verification scope</p>
-        <p className="mt-1.5 text-sm font-bold text-slate-800">{verification.method}</p>
-        <p className="mt-2 text-xs leading-5 text-slate-500">{verification.note}</p>
-      </div>
-
-      <div className="mx-auto mt-6 flex max-w-md items-center justify-between gap-4 rounded-2xl border border-[#d8e9e4] bg-[#f1f8f5] px-4 py-3.5 text-left">
-        <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#02665e]/60">Verified &amp; issued by</p>
-          <p className="mt-1 text-sm font-black text-slate-900">{certificate.issuer}</p>
+      {/* Live answer first: this page is a check run now, not a printed claim */}
+      <div className="flex items-center gap-3 border-0 border-y border-solid border-[#cfe5dd] bg-[#02665e] px-6 py-3 text-white sm:px-8">
+        <span className="relative flex h-2.5 w-2.5 flex-shrink-0" aria-hidden>
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-60" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300" />
+        </span>
+        <div className="min-w-0 flex-1 text-left leading-tight">
+          <p className="m-0 text-[14px] font-semibold">Verified and active on NoLSAF</p>
+          <p className="m-0 mt-0.5 text-[11.5px] text-white/75">Live check, {formatTime(certificate.checkedAt)} today</p>
         </div>
-        <div className="min-w-0 text-right">
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#02665e]/60">Live reference</p>
-          <p className="mt-1 font-mono text-sm font-black text-[#02665e]">{id}</p>
+        <ShieldCheck className="h-5 w-5 flex-shrink-0 text-white/80" aria-hidden />
+      </div>
+
+      <div className="bg-white">
+        {/* What NoLSAF checked */}
+        <div className="px-6 pb-4 pt-5 text-left sm:px-8">
+          <p className="m-0 text-[12px] font-semibold text-slate-500">What NoLSAF checked</p>
+          <ul className="m-0 mt-2.5 list-none space-y-2 p-0">
+            {checks.map((item) => (
+              <li key={item} className="flex items-start gap-2.5 text-[14px] text-slate-800">
+                <span className="mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e]/10">
+                  <Check className="h-2.5 w-2.5 text-[#02665e]" strokeWidth={3.2} aria-hidden />
+                </span>
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Record */}
+        <dl className="m-0 border-0 border-t border-solid border-slate-100 px-6 sm:px-8">
+          {rows.map((row, i) => (
+            <div
+              key={row.label}
+              className={`flex items-center justify-between gap-3 py-3 text-left ${i > 0 ? "border-0 border-t border-solid border-slate-100" : ""}`}
+            >
+              <dt className="text-[12px] text-slate-500">{row.label}</dt>
+              <dd className="m-0 min-w-0 break-words text-right text-[13.5px] font-semibold text-slate-900">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+
+        {/* Before you pay */}
+        <div className="border-0 border-t border-solid border-slate-100 px-6 py-4 text-left sm:px-8">
+          <div className="flex items-start gap-2.5 rounded-md border border-solid border-amber-200 bg-amber-50 px-3 py-2.5">
+            <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-700" aria-hidden />
+            <p className="m-0 text-[12.5px] leading-5 text-amber-900">
+              Book and pay through NoLSAF to keep your payment protected. If someone shows you this certificate and asks you to pay them directly, check that their offer appears on the operator&apos;s NoLSAF page first.
+            </p>
+          </div>
+          {certificate.profilePath ? (
+            <Link
+              href={certificate.profilePath}
+              className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#02665e] text-[14px] font-semibold text-white no-underline hover:bg-[#014e47]"
+            >
+              View {operator.companyName} on NoLSAF
+              <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+          ) : null}
         </div>
       </div>
 
-      <div className="mx-auto mt-6 flex max-w-md flex-col items-center gap-2 rounded-2xl border border-[#ece2cd] bg-white/70 px-6 py-5">
+      {/* Barcode */}
+      <div className="flex flex-col items-center gap-1.5 border-0 border-t border-dashed border-[#e6dbc4] px-6 py-5">
         <Barcode value={id} />
-        <span className="font-mono text-[12px] tracking-[0.4em] text-slate-400">{id.split("").join(" ")}</span>
+        <span className="font-mono text-[11px] tracking-[0.3em] text-slate-400">{id}</span>
       </div>
     </div>
   );
-}
-
-function InfoTile({ icon, label, value, accent, className = "" }: { icon: React.ReactNode; label: string; value: string; accent?: boolean; className?: string }) {
-  return <div className={`flex flex-col items-center px-2 py-5 text-center ${className}`}><span className="grid h-10 w-10 place-items-center rounded-full border border-[#d9eae3] bg-white text-[#02665e]">{icon}</span><p className="mt-3 text-[10px] font-black uppercase tracking-[0.14em] text-[#7c8a86]">{label}</p><p className={`mt-1.5 text-sm font-black leading-snug ${accent ? "text-[#02665e]" : "text-slate-900"}`}>{value}</p></div>;
 }
 
 function Barcode({ value }: { value: string }) {

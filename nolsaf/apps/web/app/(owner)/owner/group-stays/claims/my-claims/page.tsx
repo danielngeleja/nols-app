@@ -79,7 +79,7 @@ export default function OwnerMyClaimsPage() {
         title="My claims"
         subtitle="Every offer you sent for a group stay, where it stands, and what you offered."
         actions={
-          <Link href="/owner/group-stays/claims" className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
+          <Link href="/owner/group-stays/claims" className="inline-flex h-10 items-center gap-1.5 rounded-md bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
             <HandHeart className="h-4 w-4" aria-hidden /> Make a new offer
           </Link>
         }
@@ -92,13 +92,13 @@ export default function OwnerMyClaimsPage() {
       />
 
       {error && (
-        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
           <span className="flex-1">{error}</span>
           <button type="button" onClick={() => void load()} className="inline-flex h-8 items-center gap-1.5 rounded-lg border-0 bg-rose-600 px-3 text-xs font-bold text-white"><RefreshCw className="h-3.5 w-3.5" /> Try again</button>
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
         <div className="px-3 sm:px-4"><StatusTabs tabs={tabs} value={status} onChange={setStatus} /></div>
       </section>
 
@@ -106,21 +106,21 @@ export default function OwnerMyClaimsPage() {
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px]" aria-busy="true">
           <div className="space-y-3">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="flex items-center gap-4 rounded-2xl border border-solid border-slate-200 bg-white p-4">
-                <div className="h-14 w-12 rounded-xl bg-slate-100" />
+              <div key={i} className="flex items-center gap-4 rounded-lg border border-solid border-slate-200 bg-white p-4">
+                <div className="h-14 w-12 rounded-md bg-slate-100" />
                 <div className="flex-1 space-y-2"><div className="h-3.5 w-48 rounded-full bg-slate-100" /><div className="h-3 w-72 max-w-full rounded-full bg-slate-50" /></div>
               </div>
             ))}
           </div>
-          <div className="hidden h-[420px] rounded-3xl bg-slate-100 lg:block" />
+          <div className="hidden h-[420px] rounded-lg bg-slate-100 lg:block" />
         </div>
       ) : shown.length === 0 ? (
-        <section className="flex flex-col items-center rounded-2xl border border-solid border-slate-200 bg-white px-6 py-12 text-center">
-          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500"><ClipboardList className="h-6 w-6" aria-hidden /></span>
+        <section className="flex flex-col items-center rounded-lg border border-solid border-slate-200 bg-white px-6 py-12 text-center">
+          <span className="grid h-12 w-12 place-items-center rounded-lg bg-slate-100 text-slate-500"><ClipboardList className="h-6 w-6" aria-hidden /></span>
           <p className="m-0 mt-3 text-sm font-bold text-slate-900">{status ? `No ${statusOf(status).label.toLowerCase()} offers` : "You have not sent any offers yet"}</p>
           <p className="m-0 mt-1 max-w-sm text-xs leading-5 text-slate-500">Groups looking for a place to stay are listed under Open to claim. Send a price and NoLSAF picks the best offer.</p>
           {!status && (
-            <Link href="/owner/group-stays/claims" className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#02665e] px-4 text-xs font-bold text-white no-underline hover:bg-[#014d47]">
+            <Link href="/owner/group-stays/claims" className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-md bg-[#02665e] px-4 text-xs font-bold text-white no-underline hover:bg-[#014d47]">
               See stays open to claim <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           )}
@@ -140,7 +140,7 @@ export default function OwnerMyClaimsPage() {
                     type="button"
                     onClick={() => setOpen(claim.id)}
                     aria-pressed={isOpen}
-                    className={`flex w-full items-center gap-4 rounded-2xl border border-solid bg-white p-4 text-left transition ${isOpen ? "border-[#02665e] shadow-[0_14px_34px_-24px_rgba(1,42,38,0.7)] ring-1 ring-[#02665e]" : "border-slate-200 hover:border-slate-300"}`}
+                    className={`flex w-full items-center gap-4 rounded-lg border border-solid bg-white p-4 text-left transition ${isOpen ? "border-[#02665e] shadow-[0_14px_34px_-24px_rgba(1,42,38,0.7)] ring-1 ring-[#02665e]" : "border-slate-200 hover:border-slate-300"}`}
                   >
                     <DateTile iso={gb.checkIn} tone={st.tile} />
                     <div className="min-w-0 flex-1">
@@ -206,10 +206,10 @@ function OfferSheet({ claim }: { claim: Claim }) {
   const headTone = s === "ACCEPTED" ? "text-[#5eead4]" : s === "REJECTED" ? "text-rose-300" : s === "REVIEWING" ? "text-sky-300" : s === "WITHDRAWN" ? "text-white/60" : "text-amber-300";
 
   return (
-    <article className="overflow-hidden rounded-3xl bg-white shadow-[0_24px_60px_-40px_rgba(1,42,38,0.75)] ring-1 ring-slate-200">
+    <article className="overflow-hidden rounded-lg bg-white shadow-[0_24px_60px_-40px_rgba(1,42,38,0.75)] ring-1 ring-slate-200">
       <header className="bg-[#012a26] px-6 pb-5 pt-5 text-white">
         <div className="flex items-center justify-between gap-3">
-          <span className={`text-[11px] font-bold uppercase tracking-[0.16em] ${headTone}`}>{st.label}</span>
+          <span className={`text-[11px] font-bold ${headTone}`}>{st.label}</span>
           <span className="text-[11px] text-white/50">Your offer</span>
         </div>
         <h2 className="m-0 mt-2 text-xl font-bold leading-tight">Group of {gb.headcount} in {placeName(gb.toRegion)}</h2>
@@ -231,10 +231,10 @@ function OfferSheet({ claim }: { claim: Claim }) {
       </ol>
 
       <div className="space-y-5 p-6">
-        {st.note ? <p className="m-0 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs leading-5 text-slate-600">{st.note}</p> : null}
+        {st.note ? <p className="m-0 rounded-md bg-slate-50 px-3.5 py-2.5 text-xs leading-5 text-slate-600">{st.note}</p> : null}
 
         <div>
-          <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">How the total adds up</p>
+          <p className="m-0 text-[11px] font-bold text-slate-400">How the total adds up</p>
           <dl className="m-0 mt-2 space-y-2 text-sm">
             <div className="flex justify-between gap-3"><dt className="text-slate-500">Price a room a night</dt><dd className="m-0 font-semibold tabular-nums text-slate-800">{tzs(claim.offeredPricePerNight, claim.currency)}</dd></div>
             {discount ? <div className="flex justify-between gap-3"><dt className="text-slate-500">Group discount {discount}%</dt><dd className="m-0 font-semibold tabular-nums text-emerald-700">&minus;{tzs(claim.offeredPricePerNight - nightly, claim.currency)}</dd></div> : null}
@@ -249,8 +249,8 @@ function OfferSheet({ claim }: { claim: Claim }) {
             { label: "Rooms", value: gb.roomsNeeded, Icon: BedDouble },
             { label: "Property", value: claim.property.title, Icon: Building2 },
           ].map((fact) => (
-            <div key={fact.label} className="min-w-0 rounded-xl bg-slate-50 px-3 py-2.5">
-              <p className="m-0 flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400"><fact.Icon className="h-3 w-3" aria-hidden />{fact.label}</p>
+            <div key={fact.label} className="min-w-0 rounded-md bg-slate-50 px-3 py-2.5">
+              <p className="m-0 flex items-center gap-1 text-[11px] font-bold text-slate-400"><fact.Icon className="h-3 w-3" aria-hidden />{fact.label}</p>
               <p className="m-0 mt-0.5 truncate text-sm font-bold text-slate-900" title={String(fact.value)}>{fact.value}</p>
             </div>
           ))}
@@ -258,7 +258,7 @@ function OfferSheet({ claim }: { claim: Claim }) {
 
         {offers.length > 0 && (
           <div>
-            <p className="m-0 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400"><Gift className="h-3.5 w-3.5" aria-hidden /> Extras you offered ({offers.length})</p>
+            <p className="m-0 flex items-center gap-1.5 text-[11px] font-bold text-slate-400"><Gift className="h-3.5 w-3.5" aria-hidden /> Extras you offered ({offers.length})</p>
             <ul className="m-0 mt-2 grid list-none grid-cols-2 gap-x-3 gap-y-1.5 p-0">
               {offers.map((offer) => (
                 <li key={offer} className="flex items-center gap-1.5 text-xs text-slate-700"><Check className="h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden /><span className="truncate">{offer}</span></li>
@@ -268,14 +268,14 @@ function OfferSheet({ claim }: { claim: Claim }) {
         )}
 
         {claim.notes && (
-          <blockquote className="m-0 rounded-xl bg-slate-50 px-4 py-3">
-            <p className="m-0 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400"><MessageSquareText className="h-3.5 w-3.5" aria-hidden /> Your note</p>
+          <blockquote className="m-0 rounded-md bg-slate-50 px-4 py-3">
+            <p className="m-0 flex items-center gap-1.5 text-[11px] font-bold text-slate-400"><MessageSquareText className="h-3.5 w-3.5" aria-hidden /> Your note</p>
             <p className="m-0 mt-1.5 whitespace-pre-line text-sm leading-6 text-slate-700">{claim.notes}</p>
           </blockquote>
         )}
 
         {s === "ACCEPTED" && (
-          <Link href="/owner/group-stays" className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-[#02665e] text-sm font-bold text-white no-underline hover:bg-[#014d47]">
+          <Link href="/owner/group-stays" className="flex h-11 items-center justify-center gap-1.5 rounded-md bg-[#02665e] text-sm font-bold text-white no-underline hover:bg-[#014d47]">
             Go to Assigned to me <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
         )}

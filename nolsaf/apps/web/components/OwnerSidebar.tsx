@@ -21,7 +21,7 @@ function CollapseBtn({
   const sty = active
     ? { background: "rgba(255,255,255,0.18)", boxShadow: "0 2px 8px rgba(0,0,0,0.25)" }
     : { background: "rgba(255,255,255,0.06)" };
-  const cls = "group relative flex items-center justify-center w-10 h-10 rounded-xl transition-all duration-200 no-underline";
+  const cls = "group relative flex items-center justify-center w-10 h-10 rounded-md transition-all duration-200 no-underline";
   const inner = (
     <>
       <Icon className="w-5 h-5" style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.65)" }} aria-hidden />
@@ -89,7 +89,7 @@ function SubItem({
       </span>
       {count !== undefined && count > 0 ? (
         <span
-          className="shrink-0 rounded-full px-[7px] py-px text-[10px] font-bold leading-[1.4] tabular-nums"
+          className="shrink-0 rounded-md px-[7px] py-px text-[10px] font-bold leading-[1.4] tabular-nums"
           style={tone === "alert"
             ? { background: "rgba(251,191,36,0.22)", color: "#fde68a" }
             : { background: "rgba(94,234,212,0.16)", color: "#5eead4" }}
@@ -120,10 +120,10 @@ function Section({
         type="button"
         onClick={onClick}
         aria-expanded={isOpen}
-        className="w-full group flex appearance-none items-center gap-3 rounded-2xl border-0 bg-transparent px-2 py-2.5 transition-colors duration-200 hover:bg-white/[0.05]"
+        className="w-full group flex appearance-none items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-2.5 transition-colors duration-200 hover:bg-white/[0.05]"
       >
         <span
-          className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200"
+          className="flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center transition-all duration-200"
           style={active
             ? { background: "rgba(94,234,212,0.16)" }
             : { background: "rgba(255,255,255,0.07)" }
@@ -163,12 +163,12 @@ function TopItem({
   return (
     <Link
       href={href}
-      className="group no-underline flex items-center gap-3 px-2 py-2.5 rounded-2xl transition-colors duration-200 hover:bg-white/[0.05]"
+      className="group no-underline flex items-center gap-3 px-2 py-2.5 rounded-lg transition-colors duration-200 hover:bg-white/[0.05]"
       aria-current={active ? "page" : undefined}
       style={active ? { background: "rgba(255,255,255,0.10)" } : { background: "transparent" }}
     >
       <span
-        className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200"
+        className="flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center transition-all duration-200"
         style={active ? { background: "rgba(94,234,212,0.16)" } : { background: "rgba(255,255,255,0.07)" }}
       >
         <Icon className="w-[17px] h-[17px]" style={{ color: active ? "#5eead4" : "rgba(255,255,255,0.6)" }} aria-hidden />
@@ -177,7 +177,7 @@ function TopItem({
         style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.82)" }}>
         {label}
       </span>
-      {count !== undefined && count > 0 && <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{count > 99 ? "99+" : count}</span>}
+      {count !== undefined && count > 0 && <span className="ml-auto rounded-md bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{count > 99 ? "99+" : count}</span>}
     </Link>
   );
 }
@@ -337,7 +337,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
   if (collapsed) {
     return (
       <div
-        className="flex h-full min-h-0 flex-col items-center gap-1.5 rounded-2xl p-2"
+        className="flex h-full min-h-0 flex-col items-center gap-1.5 rounded-lg p-2"
         style={{
           background: "#012a26",
           boxShadow: "0 8px 30px -12px rgba(1,42,38,0.6), inset 0 0 0 1px rgba(255,255,255,0.05)",
@@ -349,7 +349,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
         {showPartnerConfirmations && (
           <CollapseBtn href="/owner/partner-confirmations" label="Partner confirmations" Icon={ShieldCheck} active={onPartnerConfirmations} count={partnerConfirmations.pending || undefined} />
         )}
-        <CollapseBtn href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
+        <CollapseBtn href="/owner/nrms" label="NRMS workspace" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
         <div className="w-6 h-px my-0.5" style={{ background: "rgba(255,255,255,0.09)" }} />
         <CollapseBtn href="/owner/bookings/checked-in" label="Front desk" Icon={Calendar} active={sectionActive.bookings} count={checkoutDueCount || undefined} />
         <CollapseBtn href="/owner/properties/approved" label="Properties" Icon={Building2} active={sectionActive.properties} />
@@ -360,7 +360,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("toggle-owner-sidebar"))}
-            className="flex min-h-9 w-full appearance-none items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.05] text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
+            className="flex min-h-9 w-full appearance-none items-center justify-center rounded-lg border border-solid border-white/[0.06] bg-white/[0.05] text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
             aria-label="Expand owner sidebar"
             title="Expand sidebar"
           >
@@ -374,7 +374,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
   /*  EXPANDED  */
   return (
     <div
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl select-none"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg select-none"
       style={{
         background: "radial-gradient(120% 40% at 0% 0%, rgba(94,234,212,0.08) 0%, rgba(94,234,212,0) 60%), #012a26",
         boxShadow: "0 8px 30px -12px rgba(1,42,38,0.6), inset 0 0 0 1px rgba(255,255,255,0.05)",
@@ -383,7 +383,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
       {/* Logo strip */}
       <div className="flex shrink-0 items-center gap-2.5 border-0 border-b border-solid px-4 pb-3.5 pt-4" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/assets/NoLS2025-04.png" alt="NoLSAF" className="w-7 h-7 rounded-xl object-contain flex-shrink-0" />
+        <img src="/assets/NoLS2025-04.png" alt="NoLSAF" className="w-7 h-7 rounded-md object-contain flex-shrink-0" />
         <div className="min-w-0">
           <p className="text-[13px] font-black tracking-wide text-white leading-none">NoLSAF</p>
           <p className="text-[9.5px] font-medium mt-[3px] leading-none" style={{ color: "rgba(255,255,255,0.38)" }}>Owner Portal</p>
@@ -399,7 +399,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
         {showPartnerConfirmations && (
           <TopItem href="/owner/partner-confirmations" label="Partner confirmations" Icon={ShieldCheck} count={partnerConfirmations.pending} />
         )}
-        <TopItem href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} />
+        <TopItem href="/owner/nrms" label="NRMS workspace" Icon={BedDouble} />
         <Divider />
 
         <Section label="Front desk" Icon={Calendar} isOpen={bookOpen} active={sectionActive.bookings} onClick={() => setBookOpen(v => !v)}>
@@ -439,7 +439,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
         <button
           type="button"
           onClick={() => window.dispatchEvent(new Event("toggle-owner-sidebar"))}
-          className="flex min-h-8 w-full appearance-none items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.05] px-2.5 text-[11px] font-semibold text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
+          className="flex min-h-8 w-full appearance-none items-center justify-between rounded-lg border border-solid border-white/[0.06] bg-white/[0.05] px-2.5 text-[11px] font-semibold text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
           aria-label="Collapse owner sidebar"
         >
           Collapse sidebar

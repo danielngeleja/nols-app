@@ -316,7 +316,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 const PAGE_SIZE = 10;
 
 const inputCls =
-  "h-11 w-full min-w-0 max-w-full box-border rounded-xl border border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+  "h-11 w-full min-w-0 max-w-full box-border rounded-md border border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 
 function fmtDate(v: string): string {
   return new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -425,7 +425,7 @@ function MarketplaceSettlement({ reservation }: { reservation: Reservation }) {
   // bottom, payout first. Preflight is off in this app: every border needs
   // border-solid, and directional borders need border-0 first.
   const transport = marketplace.transportFare ?? 0;
-  return <section aria-label="Marketplace settlement" className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+  return <section aria-label="Marketplace settlement" className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
     <div className="bg-emerald-50/50 px-4 pb-4 pt-4">
       <div className="flex items-center justify-between gap-2">
         <p className="m-0 text-[11px] font-bold text-slate-500">NoLSAF settlement</p>
@@ -474,7 +474,7 @@ function MarketplaceSettlement({ reservation }: { reservation: Reservation }) {
     <div className="border-0 border-t border-solid border-slate-100 px-4 py-3.5">
       <div className="flex items-center justify-between gap-2">
         <p className="m-0 text-xs font-bold text-slate-900">Payout progress</p>
-        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10.5px] font-bold capitalize ring-1 ring-inset ${statusTone}`}>{ownerDisbursementLabel}</span>
+        <span className={`inline-flex rounded-md px-2 py-0.5 text-[10.5px] font-bold capitalize ring-1 ring-inset ${statusTone}`}>{ownerDisbursementLabel}</span>
       </div>
       <ol className="m-0 mt-3 list-none space-y-0 p-0" aria-label={`Owner payout status: ${ownerDisbursementLabel}`}>
         {ownerWorkflowStages.map((stage, index) => {
@@ -889,7 +889,7 @@ export default function NrmsReservationsPage() {
       <NrmsLifecycleRail stages={reservationStages} selected={statusFilter} onSelect={(next) => { setStatusFilter(next); setPage(1); }} />
 
       {!isSalesExecutive && selectedIds.length > 0 && (
-        <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3">
+        <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Users className="h-4 w-4" /></span>
             <div className="min-w-0">
@@ -945,7 +945,7 @@ export default function NrmsReservationsPage() {
           <Loader2 className="w-6 h-6 animate-spin" />
         </div>
       ) : error ? (
-        <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
+        <div className="rounded-md bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
       ) : reservations.length === 0 ? (
         <div className="border-t border-neutral-100 py-14 text-center">
           <p className="text-sm font-semibold text-neutral-700">No reservations found</p>
@@ -961,7 +961,7 @@ export default function NrmsReservationsPage() {
             const guest = reservation.guestProfile?.fullName ?? reservation.agentBooking?.leadGuest?.fullName ?? "Guest";
             const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
             const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
-            return <article key={reservation.id} className="overflow-hidden rounded-xl border border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
+            return <article key={reservation.id} className="overflow-hidden rounded-md border border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
               <button type="button" onClick={() => openReservation(reservation)} className={`block w-full border-0 px-4 py-3 text-left ${sourceStyle.row}`}>
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="m-0 truncate text-sm font-bold text-neutral-900">{guest}</p><p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">{reservation.guestProfile?.phone ?? reservation.agentBooking?.leadGuest?.phone ?? "No phone recorded"}</p></div><span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>{reservation.status.replace(/_/g, " ").toLowerCase()}</span></div>
               </button>
@@ -1068,7 +1068,7 @@ export default function NrmsReservationsPage() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5"><StayProgress reservation={reservation} /></td>
                       <td className="px-4 py-3.5">
-                        <span className={`inline-flex whitespace-nowrap items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${sourceStyle.badge}`}>
+                        <span className={`inline-flex whitespace-nowrap items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-semibold ${sourceStyle.badge}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${sourceStyle.dot}`} />
                           {SOURCE_LABEL[reservation.source] ?? reservation.source}
                         </span>
@@ -1327,7 +1327,7 @@ function AssignRoomModal({
             disabled={busy || !allocation}
           />
         ) : (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-950">
+          <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-4 text-amber-950">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 ring-1 ring-amber-200"><AlertTriangle className="h-4 w-4" /></span>
             <div className="min-w-0">
               <p className="m-0 text-sm font-bold">Room assignment is not ready</p>
@@ -1776,7 +1776,7 @@ function CreateReservationModal({
       footer={
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-neutral-100 text-neutral-600">
               <Clock3 className="h-4 w-4" />
             </span>
             <div className="min-w-0">
@@ -1789,7 +1789,7 @@ function CreateReservationModal({
             type="button"
             onClick={submit}
             disabled={busy || !guestName.trim() || guestPhone.trim().length < 7 || !nationality.trim() || !checkIn || !checkOut || !roomTypeId || !total.trim()}
-            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-52"
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-emerald-700 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:min-w-52"
           >
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
             {busy ? "Saving reservation..." : "Create reservation"}
@@ -1798,10 +1798,10 @@ function CreateReservationModal({
       }
     >
       <div className="space-y-4">
-        <section className="rounded-2xl border border-neutral-200 bg-neutral-50/60 p-4 sm:p-5">
+        <section className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-4 sm:p-5">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><UserRound className="h-4 w-4" /></span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-emerald-100 text-emerald-700"><UserRound className="h-4 w-4" /></span>
               <div className="min-w-0">
                 <h4 className="m-0 text-sm font-semibold text-neutral-900">Guest details</h4>
                 <p className="mb-0 mt-0.5 text-xs text-neutral-500">Identity and primary contact information</p>
@@ -1886,7 +1886,7 @@ function CreateReservationModal({
             </label>
           </div>
           {selectedGuestId && guestHistory && (
-            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+            <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50/60 p-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-start gap-2.5">
                   <History className="mt-0.5 h-4 w-4 text-emerald-700" />
@@ -1912,9 +1912,9 @@ function CreateReservationModal({
           )}
         </section>
 
-        <section className="rounded-2xl border border-neutral-200 bg-neutral-50/60 p-4 sm:p-5">
+        <section className="rounded-lg border border-neutral-200 bg-neutral-50/60 p-4 sm:p-5">
           <div className="mb-4 flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700"><CalendarDays className="h-4 w-4" /></span>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-sky-100 text-sky-700"><CalendarDays className="h-4 w-4" /></span>
             <div className="min-w-0">
               <h4 className="m-0 text-sm font-semibold text-neutral-900">Stay details</h4>
               <p className="mb-0 mt-0.5 text-xs text-neutral-500">Dates, room assignment and agreed pricing</p>
@@ -1987,7 +1987,7 @@ function CreateReservationModal({
             </label>
             <div className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Adults</span>
-              <div className="flex h-11 items-center justify-between rounded-xl border border-neutral-300 bg-white px-1.5">
+              <div className="flex h-11 items-center justify-between rounded-md border border-neutral-300 bg-white px-1.5">
                 <button type="button" aria-label="Fewer adults" onClick={() => setAdults(Math.max(1, adults - 1))} disabled={adults <= 1} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-neutral-100 text-neutral-700 transition hover:bg-neutral-200 disabled:opacity-40"><Minus className="h-4 w-4" /></button>
                 <span className="min-w-8 text-center text-sm font-bold text-neutral-900">{adults}</span>
                 <button type="button" aria-label="More adults" onClick={() => setAdults(adults + 1)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-neutral-100 text-neutral-700 transition hover:bg-neutral-200"><Plus className="h-4 w-4" /></button>
@@ -1995,7 +1995,7 @@ function CreateReservationModal({
             </div>
             <label className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Total amount <span className="text-red-500">*</span></span>
-              <span className="flex h-11 items-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 transition focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/15">
+              <span className="flex h-11 items-center gap-2 rounded-md border border-neutral-300 bg-white px-3 transition focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/15">
                 <span className="shrink-0 text-sm font-bold text-neutral-500">{type?.currency || "TZS"}</span>
                 <input
                   required
@@ -2020,7 +2020,7 @@ function CreateReservationModal({
         </section>
 
         {billingBlock && <NrmsBillingBlockModal block={billingBlock} title="External stay paused" subtitle="The reservation was not created" reassurance="Check-ins, checkouts, folio postings, outlet orders and every existing reservation are unaffected. Only opening a new external stay is paused." onClose={() => setBillingBlock(null)} />}
-        {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">{error}</p>}
+        {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">{error}</p>}
 
         {previewGuest && (
           <ModalFrame
@@ -2048,10 +2048,10 @@ function CreateReservationModal({
               <div className="flex min-h-72 flex-col items-center justify-center gap-3 text-neutral-400"><Loader2 className="h-6 w-6 animate-spin text-emerald-700" /><span className="text-xs">Loading guest relationship…</span></div>
             ) : (
               <div className="space-y-6">
-                <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_14px_38px_-34px_rgba(15,23,42,0.45)]">
+                <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_14px_38px_-34px_rgba(15,23,42,0.45)]">
                   <div className="flex flex-col gap-4 bg-gradient-to-r from-emerald-50/70 via-white to-white p-5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-center gap-4">
-                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm ring-4 ring-white" aria-hidden="true">
+                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-emerald-100 bg-white text-emerald-700 shadow-sm ring-4 ring-white" aria-hidden="true">
                         <UserRound className="h-6 w-6" strokeWidth={1.8} />
                       </span>
                       <div className="min-w-0">
@@ -2059,30 +2059,30 @@ function CreateReservationModal({
                         <p className="mb-0 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500"><span className="inline-flex items-center gap-1.5 text-emerald-700"><History className="h-3.5 w-3.5" />Returning guest</span><span className="text-neutral-300" aria-hidden>•</span><span>{previewDetail?.createdAt ? `Guest since ${fmtDate(previewDetail.createdAt)}` : "Existing guest profile"}</span></p>
                       </div>
                     </div>
-                    <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full border border-emerald-100 bg-white/90 px-3 py-1.5 text-xs font-medium text-emerald-700 shadow-sm"><Check className="h-3.5 w-3.5" />Recognised profile</span>
+                    <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-md border border-emerald-100 bg-white/90 px-3 py-1.5 text-xs font-medium text-emerald-700 shadow-sm"><Check className="h-3.5 w-3.5" />Recognised profile</span>
                   </div>
                   <div className="grid gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 p-3 sm:grid-cols-3">
-                    <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-3 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><BedDouble className="h-4 w-4" /></span><div><p className="m-0 text-[10px] text-neutral-500">Recorded stays</p><p className="mb-0 mt-0.5 text-base font-semibold text-neutral-900">{previewStats.stays}</p></div></div>
-                    <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-3 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><CircleDollarSign className="h-4 w-4" /></span><div><p className="m-0 text-[10px] text-neutral-500">Lifetime value</p><p className="mb-0 mt-0.5 text-base font-semibold text-neutral-900">{previewStats.currency} {previewStats.spend.toLocaleString()}</p></div></div>
-                    <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-3 ring-1 ring-neutral-100"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${previewStats.balance > 0 ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}><WalletCards className="h-4 w-4" /></span><div><p className="m-0 text-[10px] text-neutral-500">Open balance</p><p className={`mb-0 mt-0.5 text-base font-semibold ${previewStats.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{previewStats.currency} {Math.max(0, previewStats.balance).toLocaleString()}</p></div></div>
+                    <div className="flex items-center gap-3 rounded-md bg-white px-3.5 py-3 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><BedDouble className="h-4 w-4" /></span><div><p className="m-0 text-[10px] text-neutral-500">Recorded stays</p><p className="mb-0 mt-0.5 text-base font-semibold text-neutral-900">{previewStats.stays}</p></div></div>
+                    <div className="flex items-center gap-3 rounded-md bg-white px-3.5 py-3 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><CircleDollarSign className="h-4 w-4" /></span><div><p className="m-0 text-[10px] text-neutral-500">Lifetime value</p><p className="mb-0 mt-0.5 text-base font-semibold text-neutral-900">{previewStats.currency} {previewStats.spend.toLocaleString()}</p></div></div>
+                    <div className="flex items-center gap-3 rounded-md bg-white px-3.5 py-3 ring-1 ring-neutral-100"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${previewStats.balance > 0 ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}><WalletCards className="h-4 w-4" /></span><div><p className="m-0 text-[10px] text-neutral-500">Open balance</p><p className={`mb-0 mt-0.5 text-base font-semibold ${previewStats.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{previewStats.currency} {Math.max(0, previewStats.balance).toLocaleString()}</p></div></div>
                   </div>
                 </section>
 
                 <section>
                   <div className="mb-2.5 flex items-center justify-between gap-3"><h4 className="m-0 text-sm font-medium text-neutral-700">Guest details</h4><span className="text-[10px] text-neutral-400">Property record</span></div>
-                  <div className="grid gap-2 rounded-2xl bg-neutral-50 p-2 sm:grid-cols-3">
-                    <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white p-3.5 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-neutral-50 text-emerald-600"><Phone className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] text-neutral-400">Phone</p><p className="mb-0 mt-1 truncate text-sm font-medium text-neutral-800">{previewDetail?.phone || previewGuest.phone || "Not recorded"}</p></div></div>
-                    <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white p-3.5 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-neutral-50 text-emerald-600"><Mail className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] text-neutral-400">Email</p><p className="mb-0 mt-1 truncate text-sm font-medium text-neutral-800" title={previewDetail?.email || previewGuest.email || "Not recorded"}>{previewDetail?.email || previewGuest.email || "Not recorded"}</p></div></div>
-                    <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white p-3.5 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-neutral-50 text-emerald-600"><Globe2 className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] text-neutral-400">Nationality</p><p className="mb-0 mt-1 truncate text-sm font-medium text-neutral-800">{previewDetail?.nationality || previewGuest.nationality || "Not recorded"}</p></div></div>
+                  <div className="grid gap-2 rounded-lg bg-neutral-50 p-2 sm:grid-cols-3">
+                    <div className="flex min-w-0 items-center gap-3 rounded-md bg-white p-3.5 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-neutral-50 text-emerald-600"><Phone className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] text-neutral-400">Phone</p><p className="mb-0 mt-1 truncate text-sm font-medium text-neutral-800">{previewDetail?.phone || previewGuest.phone || "Not recorded"}</p></div></div>
+                    <div className="flex min-w-0 items-center gap-3 rounded-md bg-white p-3.5 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-neutral-50 text-emerald-600"><Mail className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] text-neutral-400">Email</p><p className="mb-0 mt-1 truncate text-sm font-medium text-neutral-800" title={previewDetail?.email || previewGuest.email || "Not recorded"}>{previewDetail?.email || previewGuest.email || "Not recorded"}</p></div></div>
+                    <div className="flex min-w-0 items-center gap-3 rounded-md bg-white p-3.5 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-neutral-50 text-emerald-600"><Globe2 className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] text-neutral-400">Nationality</p><p className="mb-0 mt-1 truncate text-sm font-medium text-neutral-800">{previewDetail?.nationality || previewGuest.nationality || "Not recorded"}</p></div></div>
                   </div>
                 </section>
 
-                {previewDetail?.notes && <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-xs text-amber-950"><p className="m-0 font-medium">Front-desk note</p><p className="mb-0 mt-1 leading-5 text-amber-800">{previewDetail.notes}</p></div>}
+                {previewDetail?.notes && <div className="rounded-md border border-amber-100 bg-amber-50/70 px-4 py-3 text-xs text-amber-950"><p className="m-0 font-medium">Front-desk note</p><p className="mb-0 mt-1 leading-5 text-amber-800">{previewDetail.notes}</p></div>}
 
                 <section>
-                  <div className="mb-2.5 flex items-end justify-between gap-3"><div><h4 className="m-0 text-sm font-medium text-neutral-700">Stay records</h4><p className="mb-0 mt-1 text-[11px] text-neutral-400">Most recent property reservations</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-500">{previewStats.rows.length} total</span></div>
+                  <div className="mb-2.5 flex items-end justify-between gap-3"><div><h4 className="m-0 text-sm font-medium text-neutral-700">Stay records</h4><p className="mb-0 mt-1 text-[11px] text-neutral-400">Most recent property reservations</p></div><span className="rounded-md bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-500">{previewStats.rows.length} total</span></div>
                   {previewStats.rows.length ? (
-                    <div className="divide-y divide-neutral-100 overflow-hidden rounded-xl border border-neutral-200 bg-white">
+                    <div className="divide-y divide-neutral-100 overflow-hidden rounded-md border border-neutral-200 bg-white">
                       {previewStats.rows.slice(0, 8).map((row) => {
                         const rowBalance = Math.max(0, row.balance ?? ((row.totalAmount ?? 0) + (row.chargesTotal ?? 0) - (row.amountPaid ?? 0) - (row.transferredToMaster ?? 0)));
                         return (
@@ -2102,7 +2102,7 @@ function CreateReservationModal({
                       )})}
                     </div>
                   ) : (
-                    <div className="flex min-h-28 flex-col items-center justify-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4 text-center"><BedDouble className="mb-2 h-5 w-5 text-neutral-300" /><p className="m-0 text-xs font-bold text-neutral-600">No stay records yet</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">This guest has no reservations recorded at this property.</p></div>
+                    <div className="flex min-h-28 flex-col items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-50 p-4 text-center"><BedDouble className="mb-2 h-5 w-5 text-neutral-300" /><p className="m-0 text-xs font-bold text-neutral-600">No stay records yet</p><p className="mb-0 mt-1 text-[10px] text-neutral-400">This guest has no reservations recorded at this property.</p></div>
                   )}
                 </section>
               </div>
@@ -2496,7 +2496,7 @@ function ReservationDetailModal({
             key={a.key}
             onClick={() => runVisibleAction(a.key)}
             disabled={busyAction != null || a.disabled}
-            className="inline-flex h-10 items-center justify-center rounded-xl border border-solid border-rose-200 bg-white px-4 text-xs font-bold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center rounded-md border border-solid border-rose-200 bg-white px-4 text-xs font-bold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
           >
             {busyAction === a.key ? "Working..." : a.label}
           </button>
@@ -2509,7 +2509,7 @@ function ReservationDetailModal({
             key={a.key}
             onClick={() => runVisibleAction(a.key)}
             disabled={busyAction != null || a.disabled}
-            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-bold text-white shadow-[0_12px_24px_-16px_rgba(2,102,94,0.9)] transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-5 text-sm font-bold text-white shadow-[0_12px_24px_-16px_rgba(2,102,94,0.9)] transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
           >
             {busyAction === a.key ? <Loader2 className="h-4 w-4 animate-spin" /> : a.key === "check-out" ? <LogOut className="h-4 w-4" /> : a.key === "check-in" ? <DoorOpen className="h-4 w-4" /> : <BadgeCheck className="h-4 w-4" />}
             {busyAction === a.key ? "Working..." : a.label}
@@ -2524,17 +2524,17 @@ function ReservationDetailModal({
     <ModalFrame title="Reservation" onClose={onClose} closeOnEscape={!voidingCharge && !checkoutConfirmOpen} extraWide>
       {!r ? (
         <div className="space-y-3" aria-busy="true" aria-label="Loading reservation">
-          <div className="h-36 rounded-2xl bg-[#012a26]" />
-          <div className="h-32 rounded-2xl bg-slate-100" />
-          <div className="h-24 rounded-2xl bg-slate-50" />
+          <div className="h-36 rounded-lg bg-[#012a26]" />
+          <div className="h-32 rounded-lg bg-slate-100" />
+          <div className="h-24 rounded-lg bg-slate-50" />
         </div>
       ) : readOnly ? (
         <SalesReservationSummary reservation={r} />
       ) : (
         <div className="space-y-4 text-sm">
-          <section className="overflow-hidden rounded-2xl bg-[#012a26] text-white">
+          <section className="overflow-hidden rounded-lg bg-[#012a26] text-white">
             <div className="flex flex-wrap items-center gap-4 px-5 pt-5">
-              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#5eead4] text-sm font-extrabold text-[#012a26]">{nameInitials}</span>
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-[#5eead4] text-sm font-extrabold text-[#012a26]">{nameInitials}</span>
               <div className="min-w-0 flex-1">
                 {/* An agency stay is billed to the agency, so it leads with the agency and keeps the traveller underneath. */}
                 <h3 className="m-0 truncate text-lg font-bold tracking-[-0.01em] text-white">{displayName}</h3>
@@ -2553,7 +2553,7 @@ function ReservationDetailModal({
                     onClick={() => window.open(`/api/owner/nrms/reservations/${encodeURIComponent(r.reference ?? String(r.id))}/invoice.pdf`, "_blank", "noopener")}
                     aria-label="Print invoice"
                     title="Print invoice"
-                    className="grid h-9 w-9 place-items-center rounded-xl border border-solid border-white/15 bg-white/[0.06] text-white/80 transition hover:bg-white/[0.12] hover:text-white"
+                    className="grid h-9 w-9 place-items-center rounded-md border border-solid border-white/15 bg-white/[0.06] text-white/80 transition hover:bg-white/[0.12] hover:text-white"
                   >
                     <Printer className="h-4 w-4" />
                   </button>
@@ -2563,7 +2563,7 @@ function ReservationDetailModal({
 
             {/* The stay as a line: room, arrival, nights, departure. */}
             <div className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 border-0 border-t border-solid border-white/10 px-5 py-4 sm:grid-cols-[auto_auto_minmax(0,1fr)_auto]">
-              <div className={`flex items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-inset ${!readiness.ready && ["CONFIRMED", "CHECKED_IN"].includes(r.status) ? "bg-rose-400/10 text-rose-200 ring-rose-300/30" : "bg-white/[0.06] text-white ring-white/10"}`}>
+              <div className={`flex items-center gap-2 rounded-md px-3 py-2 ring-1 ring-inset ${!readiness.ready && ["CONFIRMED", "CHECKED_IN"].includes(r.status) ? "bg-rose-400/10 text-rose-200 ring-rose-300/30" : "bg-white/[0.06] text-white ring-white/10"}`}>
                 <BedDouble className="h-4 w-4 opacity-70" />
                 <span className="text-sm font-bold">{activeRoomLabel}</span>
               </div>
@@ -2587,7 +2587,7 @@ function ReservationDetailModal({
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
             <div className="min-w-0 space-y-4">
           {nextStep && (
-            <div className={`flex items-start gap-3 rounded-2xl px-4 py-3.5 ring-1 ring-inset ${stepSkin[nextStep.tone]}`}>
+            <div className={`flex items-start gap-3 rounded-lg px-4 py-3.5 ring-1 ring-inset ${stepSkin[nextStep.tone]}`}>
               <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-white ${stepIcon[nextStep.tone]}`}>
                 {nextStep.tone === "go" || nextStep.tone === "done" ? <Check className="h-4 w-4" strokeWidth={3} /> : nextStep.tone === "wait" ? <AlertTriangle className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}
               </span>
@@ -2607,15 +2607,15 @@ function ReservationDetailModal({
             </section>
           )}
           {(canPostCharges || (r.charges && r.charges.length > 0) || outletPaidOrders.length > 0) && (
-            <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+            <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
               <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700"><ReceiptText className="h-[18px] w-[18px]" /></span>
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-700"><ReceiptText className="h-[18px] w-[18px]" /></span>
                   <div className="min-w-0"><h3 className="m-0 text-sm font-bold text-slate-900">Charges and outlet orders</h3><p className="mb-0 mt-0.5 text-xs text-slate-500">Everything linked to this stay, reviewed before checkout.</p></div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                   {canPostCharges && (
-                    <button type="button" onClick={() => setShowAddCharge((open) => !open)} aria-expanded={showAddCharge} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border border-solid px-3 text-xs font-bold transition ${showAddCharge ? "border-slate-300 bg-slate-100 text-slate-700" : "border-[#02665e]/30 bg-white text-[#02665e] hover:bg-emerald-50"}`}>
+                    <button type="button" onClick={() => setShowAddCharge((open) => !open)} aria-expanded={showAddCharge} className={`inline-flex h-9 items-center gap-1.5 rounded-md border border-solid px-3 text-xs font-bold transition ${showAddCharge ? "border-slate-300 bg-slate-100 text-slate-700" : "border-[#02665e]/30 bg-white text-[#02665e] hover:bg-emerald-50"}`}>
                       {showAddCharge ? "Close" : <><Plus className="h-3.5 w-3.5" />Add charge</>}
                     </button>
                   )}
@@ -2738,7 +2738,7 @@ function ReservationDetailModal({
                 </p>
               )}
               {canPostCharges && showAddCharge && (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-4">
+                <div className="rounded-md border border-dashed border-slate-300 bg-slate-50/60 p-4">
                   <div>
                     <p className="m-0 flex items-center gap-1.5 text-sm font-bold text-slate-900"><Plus className="h-4 w-4 text-[#02665e]" />Add an extra charge</p>
                     <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Record a service or item that increased the guest&apos;s bill but was not already posted through a restaurant or bar order.</p>
@@ -2774,14 +2774,14 @@ function ReservationDetailModal({
             </section>
           )}
           {auditBehindDate && r.status === "CHECKED_OUT" && (
-            <div role="status" className="rounded-xl border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
+            <div role="status" className="rounded-md border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
               Checkout recorded on today&apos;s date. The business day is still open at {fmtDate(auditBehindDate)}, so its postings land there until Night Audit catches up. <Link href="/owner/nrms/finance?view=audit" className="font-semibold text-amber-900 underline">Open Night Audit</Link>
             </div>
           )}
             </div>
             <aside className="min-w-0 space-y-3 lg:sticky lg:top-0">
           {!isMarketplace && (
-            <section aria-label="Folio summary" className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+            <section aria-label="Folio summary" className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
               <div className={`px-4 pb-4 pt-4 ${guestDue > 0 ? "bg-amber-50/60" : "bg-emerald-50/50"}`}>
                 <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Folio</p>
                 <p className={`m-0 mt-1 text-2xl font-extrabold tracking-[-0.02em] tabular-nums ${guestDue > 0 ? "text-amber-700" : "text-emerald-700"}`}>
@@ -2818,7 +2818,7 @@ function ReservationDetailModal({
           )}
           {isMarketplace && <MarketplaceSettlement reservation={r} />}
           {!["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
-            <section id="guest-payment" className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+            <section id="guest-payment" className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
               <header className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-slate-100 px-4 py-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700"><WalletCards className="h-4 w-4" /></span>
@@ -2835,7 +2835,7 @@ function ReservationDetailModal({
               {r.payments && r.payments.length > 0 && (
                 <ul className="m-0 list-none space-y-1.5 px-4 pb-0 pt-3">
                   {r.payments.map((p) => (
-                    <li key={p.id} className={`flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 ${p.voidedAt ? "opacity-50" : ""}`}>
+                    <li key={p.id} className={`flex min-w-0 items-center gap-3 rounded-md bg-slate-50 px-3 py-2.5 ${p.voidedAt ? "opacity-50" : ""}`}>
                       <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white text-emerald-700 ring-1 ring-inset ring-slate-200"><CircleDollarSign className="h-4 w-4" /></span>
                       <div className="min-w-0 flex-1">
                         <p className={`m-0 truncate text-xs font-semibold capitalize text-slate-800 ${p.voidedAt ? "line-through" : ""}`}>{PAYMENT_METHOD_LABEL[p.method] ?? p.method.replace(/_/g, " ").toLowerCase()}</p>
@@ -2857,17 +2857,17 @@ function ReservationDetailModal({
                   <div className="grid min-w-0 grid-cols-1 gap-3">
                     <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500 ">
                       <span className="flex items-center justify-between gap-2"><span>Amount received</span><span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">{r.currency}</span></span>
-                      <input type="number" inputMode="decimal" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-11 w-full min-w-0 appearance-none rounded-xl border border-solid border-slate-300 bg-white px-3.5 py-0 text-base font-bold normal-case tracking-normal text-slate-950 outline-none placeholder:text-xs placeholder:font-normal placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder="Enter amount" />
+                      <input type="number" inputMode="decimal" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-11 w-full min-w-0 appearance-none rounded-md border border-solid border-slate-300 bg-white px-3.5 py-0 text-base font-bold normal-case tracking-normal text-slate-950 outline-none placeholder:text-xs placeholder:font-normal placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder="Enter amount" />
                     </label>
                     <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
                       Payment method
                       <span className="mt-1.5 block">
-                        <select className="box-border !h-11 w-full min-w-0 rounded-xl border border-solid border-slate-300 bg-white px-3.5 py-0 text-sm font-semibold normal-case tracking-normal text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
+                        <select className="box-border !h-11 w-full min-w-0 rounded-md border border-solid border-slate-300 bg-white px-3.5 py-0 text-sm font-semibold normal-case tracking-normal text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
                           <option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="BANK">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other method</option>
                         </select>
                       </span>
                     </label>
-                    <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-4 text-sm font-bold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400">
+                    <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 text-sm font-bold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400">
                       {busyAction === "payments" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Recording payment...</> : <><CircleDollarSign className="h-4 w-4" />Record payment</>}
                     </button>
                   </div>
@@ -2879,9 +2879,9 @@ function ReservationDetailModal({
               )}
             </section>
           )}
-          {error && <p role="alert" className="m-0 rounded-xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
+          {error && <p role="alert" className="m-0 rounded-md border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
           {roomNotReady && r.status === "CONFIRMED" && (
-            <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+            <div role="alert" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
               <p className="m-0">{roomNotReady}</p>
               <button
                 type="button"
@@ -2894,7 +2894,7 @@ function ReservationDetailModal({
             </div>
           )}
           {checkoutBlocked && (
-            <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-800">
+            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <strong>Checkout blocked.</strong>
@@ -2956,7 +2956,7 @@ function ReservationDetailModal({
       }>
         <div className="space-y-5">
           <div className="space-y-3">
-            <section className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-4">
+            <section className="rounded-md border border-solid border-neutral-200 bg-neutral-50/70 p-4">
               <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700">Stay details</p>
               <div className="mt-3 grid gap-4 sm:grid-cols-[1.35fr_1fr_1fr] sm:items-end">
                 <div>
@@ -2976,7 +2976,7 @@ function ReservationDetailModal({
               </div>
             </section>
             {earlyDeparture && (
-              <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950">
+              <div className="flex items-start gap-3 rounded-md border border-solid border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950">
                 <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
                 <p className="m-0 text-sm leading-5"><span className="font-bold">Future inventory will be released.</span> Existing room charges and any marketplace booking price are not recalculated automatically.</p>
               </div>
@@ -2986,7 +2986,7 @@ function ReservationDetailModal({
           <div className="min-w-0 border-t border-solid border-neutral-200 pt-5">
             <div className="space-y-5">
                 {unresolvedEarlyCheckIn && (
-                  <div role="status" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+                  <div role="status" className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
                     <span><strong>Arrival record needs management review.</strong> The recorded check-in is {fmtDate(r.checkedInAt!)} while the reservation arrival is {fmtDate(r.checkIn)}. Checkout will preserve both dates in audit history and will not create retroactive room occupancy.</span>
                   </div>
@@ -2994,7 +2994,7 @@ function ReservationDetailModal({
                 {earlyDeparture && (
                   <label className="block text-sm font-bold text-neutral-900">
                     Why is the guest leaving early?
-                    <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={5} maxLength={300} placeholder="Example: Guest changed travel plans" className="mt-2 box-border w-full resize-none rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm font-normal text-neutral-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
+                    <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={5} maxLength={300} placeholder="Example: Guest changed travel plans" className="mt-2 box-border w-full resize-none rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-normal text-neutral-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
                   </label>
                 )}
                 <button
@@ -3002,7 +3002,7 @@ function ReservationDetailModal({
                   role="switch"
                   aria-checked={roomVacantConfirmed}
                   onClick={() => setRoomVacantConfirmed((confirmed) => !confirmed)}
-                  className={`flex w-full cursor-pointer appearance-none items-center justify-between gap-5 rounded-2xl border p-5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/30 ${roomVacantConfirmed ? "border-emerald-400 bg-emerald-50" : "border-neutral-300 bg-white hover:border-emerald-300 hover:bg-emerald-50/30"}`}
+                  className={`flex w-full cursor-pointer appearance-none items-center justify-between gap-5 rounded-lg border p-5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/30 ${roomVacantConfirmed ? "border-emerald-400 bg-emerald-50" : "border-neutral-300 bg-white hover:border-emerald-300 hover:bg-emerald-50/30"}`}
                 >
                   <span className="min-w-0">
                     <span className="block text-base font-bold text-neutral-950">Confirm the room is vacant</span>
@@ -3024,7 +3024,7 @@ function ReservationDetailModal({
       <ModalFrame title="Void extra charge" onClose={closeVoidCharge} elevated compact>
         <div className="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-3">
           <div className="min-w-0 space-y-2">
-            <div className="rounded-xl border border-red-100 bg-red-50/70 p-2.5">
+            <div className="rounded-md border border-red-100 bg-red-50/70 p-2.5">
               <div className="flex items-center gap-2">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-100 text-red-600">
                   <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
@@ -3039,7 +3039,7 @@ function ReservationDetailModal({
               <p className="mt-0.5 text-[9px] tabular-nums leading-3 text-neutral-500">Posted {fmtChargeTimestamp(voidingCharge.createdAt)}</p>
             </div>
 
-            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-[10px] leading-4 text-amber-900">
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[10px] leading-4 text-amber-900">
               <FileClock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <p>
                 <span className="font-bold">Permanently recorded.</span> The original charge stays in audit history with your account, reason, and timestamp.
@@ -3061,7 +3061,7 @@ function ReservationDetailModal({
                 onChange={(event) => setVoidReason(event.target.value)}
                 disabled={busyAction === "void-charge"}
                 placeholder="Example: Charge entered twice"
-                className="block w-full min-w-0 max-w-full box-border resize-none rounded-xl border border-neutral-300 bg-white px-2.5 py-2 text-xs text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-red-400 focus:ring-2 focus:ring-red-500/10 disabled:bg-neutral-100"
+                className="block w-full min-w-0 max-w-full box-border resize-none rounded-md border border-neutral-300 bg-white px-2.5 py-2 text-xs text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-red-400 focus:ring-2 focus:ring-red-500/10 disabled:bg-neutral-100"
               />
               <span className="mt-0.5 block text-right text-[9px] tabular-nums text-neutral-400">{voidReason.length}/300</span>
             </label>

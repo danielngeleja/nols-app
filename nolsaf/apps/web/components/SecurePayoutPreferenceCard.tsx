@@ -221,7 +221,7 @@ export default function SecurePayoutPreferenceCard({
   };
 
   return (
-    <section className={`box-border min-w-0 overflow-visible rounded-2xl border border-solid border-slate-300 bg-white ${className}`}>
+    <section className={`box-border min-w-0 overflow-visible rounded-lg border border-solid border-slate-300 bg-white ${className}`}>
       <div className="box-border flex min-w-0 flex-col gap-2 border-0 border-b border-solid border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h2 className="m-0 text-[15px] font-semibold text-slate-900">Payout destination</h2>
@@ -235,7 +235,7 @@ export default function SecurePayoutPreferenceCard({
       <div className="box-border min-w-0 space-y-4 p-5">
         {!editing && configured ? (
           <div className="space-y-3">
-          <div className="flex flex-col gap-4 rounded-xl border border-solid border-slate-300 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 rounded-md border border-solid border-slate-300 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-4">
               <span className="flex h-12 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-solid border-slate-300 bg-white">
                 {preferred === "BANK" || !savedProvider
@@ -270,7 +270,7 @@ export default function SecurePayoutPreferenceCard({
             )}
           </div>
           {confirmingChange && (
-            <div className="flex flex-col gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 rounded-md border border-solid border-amber-200 bg-amber-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="m-0 text-[13px] leading-5 text-amber-900">
                 Your current account keeps working until you save a new one. A new account is checked with the provider, and payouts to it
                 start after the {securityWaitingHours}-hour security wait.
@@ -296,31 +296,46 @@ export default function SecurePayoutPreferenceCard({
           </div>
         ) : (
           <>
-            <div className="grid min-w-0 gap-2.5 sm:grid-cols-2">
-              <MethodButton
-                active={preferred === "BANK" && bankPayoutsAvailable}
-                disabled={disabled || !bankPayoutsAvailable}
-                icon={<Building2 className="h-5 w-5" />}
-                label={bankPayoutsAvailable ? "Bank account" : "Bank account · not available yet"}
-                hint={
-                  bankPayoutsAvailable
-                    ? "Verify and save bank details for supported non-automated payout workflows."
-                    : "Bank payouts are not available yet. All payouts go to mobile money."
-                }
-                onClick={() => choose("BANK")}
-              />
-              <MethodButton
-                active={preferred === "MOBILE_MONEY"}
-                disabled={disabled}
-                icon={<Phone className="h-5 w-5" />}
-                label="Mobile money"
-                hint="Receive earnings in your verified mobile wallet."
-                onClick={() => choose("MOBILE_MONEY")}
-              />
-            </div>
+            {bankPayoutsAvailable ? (
+              <div className="grid min-w-0 gap-2.5 sm:grid-cols-2">
+                <MethodButton
+                  active={preferred === "BANK"}
+                  disabled={disabled}
+                  icon={<Building2 className="h-5 w-5" />}
+                  label="Bank account"
+                  hint="Verify and save bank details for supported non-automated payout workflows."
+                  onClick={() => choose("BANK")}
+                />
+                <MethodButton
+                  active={preferred === "MOBILE_MONEY"}
+                  disabled={disabled}
+                  icon={<Phone className="h-5 w-5" />}
+                  label="Mobile money"
+                  hint="Receive earnings in your verified mobile wallet."
+                  onClick={() => choose("MOBILE_MONEY")}
+                />
+              </div>
+            ) : (
+              /* Only one way to be paid today: show it, and say once that banks come later,
+                 instead of a disabled choice that takes half the space. */
+              <div className="min-w-0 space-y-2">
+                <MethodButton
+                  active={preferred === "MOBILE_MONEY"}
+                  disabled={disabled}
+                  icon={<Phone className="h-5 w-5" />}
+                  label="Mobile money"
+                  hint="Receive earnings in your verified mobile wallet."
+                  onClick={() => choose("MOBILE_MONEY")}
+                />
+                <p className="m-0 flex items-center gap-1.5 px-1 text-xs text-slate-500">
+                  <Building2 className="h-3.5 w-3.5 flex-none text-slate-400" aria-hidden />
+                  Bank payouts are not available yet, so all payouts go to mobile money.
+                </p>
+              </div>
+            )}
 
             {preferred === "BANK" && bankPayoutsAvailable && (
-              <div className="grid min-w-0 gap-3 rounded-xl border border-solid border-slate-300 p-4 sm:grid-cols-2">
+              <div className="grid min-w-0 gap-3 rounded-md border border-solid border-slate-300 p-4 sm:grid-cols-2">
                 <div className="flex items-start gap-3 rounded-lg border border-solid border-amber-200 bg-amber-50/80 px-3.5 py-3 text-amber-950 shadow-[inset_3px_0_0_#f59e0b] sm:col-span-2 sm:px-4">
                   <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-200">
                     <AlertTriangle className="h-4 w-4" aria-hidden />
@@ -328,7 +343,7 @@ export default function SecurePayoutPreferenceCard({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="m-0 text-xs font-semibold text-amber-950">Bank verification only</p>
-                      <span className="rounded-full border border-amber-300 bg-white/80 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-amber-700">
+                      <span className="rounded border border-amber-300 bg-white/80 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-700">
                         Lookup only
                       </span>
                     </div>
@@ -367,7 +382,7 @@ export default function SecurePayoutPreferenceCard({
             )}
 
             {preferred === "MOBILE_MONEY" && (
-              <div className="grid min-w-0 gap-3 rounded-xl border border-solid border-slate-300 p-4 sm:grid-cols-2">
+              <div className="grid min-w-0 gap-3 rounded-md border border-solid border-slate-300 p-4 sm:grid-cols-2">
                 <div className="min-w-0">
                   <div className="mb-1.5 flex items-center gap-2 text-xs font-medium text-slate-700">
                     <Phone className="h-4 w-4 text-[#02665e]" />Mobile money provider
@@ -487,7 +502,7 @@ export default function SecurePayoutPreferenceCard({
 
 function MethodButton({ active, disabled, icon, label, hint, onClick }: { active: boolean; disabled: boolean; icon: React.ReactNode; label: string; hint: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} disabled={disabled} aria-pressed={active} className={`box-border min-h-[64px] min-w-0 cursor-pointer rounded-xl border border-solid px-3.5 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${active ? "border-[#02665e] bg-[#02665e]/[0.035]" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+    <button type="button" onClick={onClick} disabled={disabled} aria-pressed={active} className={`box-border min-h-[64px] min-w-0 cursor-pointer rounded-md border border-solid px-3.5 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${active ? "border-[#02665e] bg-[#02665e]/[0.035]" : "border-slate-200 bg-white hover:border-slate-300"}`}>
       <span className="flex min-w-0 items-center gap-3">
         <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-md [&>svg]:h-4 [&>svg]:w-4 ${active ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-600"}`}>{icon}</span>
         <span className="min-w-0 flex-1">

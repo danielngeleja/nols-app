@@ -31,6 +31,8 @@ import { BATHROOM_ICONS, OTHER_AMENITIES_ICONS } from "@/lib/amenityIcons";
 import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import { getPropertyCommission } from "@/lib/priceUtils";
 import { OwnerPriceBreakdown } from "./OwnerPriceBreakdown";
+import { discountedNightlyNet } from "@/lib/roomDiscount";
+import { groupServices, serviceIcon } from "@/lib/propertyServiceGroups";
 
 /**
  * The owner's view of a listing: laid out the way guests see it on the public
@@ -56,6 +58,28 @@ type Room = {
 type AuditRow = { action: string; actorRole: string; actorName: string; createdAt: string };
 
 const TZ = "Africa/Dar_es_Salaam";
+/** "HOTEL" / "GUEST_HOUSE" / "luxury" -> "Hotel" / "Guest house" / "Luxury". */
+const typeLabel = (v: unknown) => {
+  const s = String(v ?? "").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
+};
+
+/**
+ * Names typed in capitals read normally: "SHERATON HOTEL" -> "Sheraton Hotel".
+ * Mixed-case words (NoLSAF) and real abbreviations keep their casing.
+ */
+const titleCase = (v: unknown) =>
+  String(v ?? "")
+    .split(/(\s+)/)
+    .map((w) => {
+      if (!/[A-Za-z]/.test(w) || w !== w.toUpperCase() || ["CBD", "VIP", "BNB", "B&B", "UN"].includes(w)) return w;
+      const lower = w.toLowerCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join("");
+
+/** Same threshold as the API price guardrail (lib/priceGuardrails.ts LARGE_CHANGE_PERCENT). */
+const LARGE_PRICE_CHANGE = 40;
 const money = (n: number, currency = "TZS") => `${currency === "TZS" ? "TSh" : currency} ${Math.round(n).toLocaleString("en-US")}`;
 const fmtWhen = (iso: string) => new Date(iso).toLocaleString("en-GB", { timeZone: TZ, day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 
@@ -161,6 +185,10 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
   const [discountInput, setDiscountInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Pricing control: a large change is confirmed with a reason (server rule, mirrored here).
+  const [reasonInput, setReasonInput] = useState("");
+  // Room cards keep description and amenities short until the owner opens them.
+  const [openRoom, setOpenRoom] = useState<Record<number, boolean>>({});
   const [systemCommission, setSystemCommission] = useState<number | null>(null);
 
   const load = useCallback(async () => {
@@ -225,7 +253,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
   if (error) {
     return (
       <div className="w-full min-w-0 px-3 pb-12 sm:px-5 lg:px-6">
-        <div className="rounded-2xl border border-solid border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
+        <div className="rounded-lg border border-solid border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
           {error}
           <button type="button" onClick={onBack} className="ml-2 border-0 bg-transparent font-semibold text-rose-900 underline">Back to My properties</button>
         </div>
@@ -236,8 +264,8 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
   if (!property) {
     return (
       <div className="w-full min-w-0 space-y-4 px-3 pb-12 sm:px-5 lg:px-6" aria-busy="true" aria-label="Loading property">
-        <div className="h-36 rounded-3xl bg-[#012a26]" />
-        <div className="grid gap-2 sm:grid-cols-[2fr_1fr]"><div className="h-80 rounded-2xl bg-slate-100" /><div className="grid gap-2"><div className="rounded-2xl bg-slate-100" /><div className="rounded-2xl bg-slate-100" /></div></div>
+        <div className="h-36 rounded-lg bg-[#012a26]" />
+        <div className="grid gap-2 sm:grid-cols-[2fr_1fr]"><div className="h-80 rounded-lg bg-slate-100" /><div className="grid gap-2"><div className="rounded-lg bg-slate-100" /><div className="rounded-lg bg-slate-100" /></div></div>
       </div>
     );
   }
@@ -251,10 +279,29 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
   const commissionPercent = systemCommission === null && !hasCustomCommission
     ? null
     : getPropertyCommission({ services: commissionServices }, systemCommission ?? 0);
-  const location = [property.street, property.ward, property.district, property.regionName || property.city].filter(Boolean).join(", ");
-  const lat = Number(property.latitude);
-  const lng = Number(property.longitude);
-  const hasPin = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+  // "KICHANGANI, TEMEKE, DAR-ES-SALAAM" -> "Kichangani, Temeke, Dar es Salaam"; repeated parts once.
+  const placeCase = (v: unknown) => {
+    const s = String(v ?? "").trim();
+    if (!s) return "";
+    return s
+      .replace(/([A-Za-z])-(?=[A-Za-z])/g, "$1 ")
+      .split(/\s+/)
+      .map((w, i) => {
+        const lower = w.toLowerCase();
+        if (i > 0 && ["es", "wa", "ya", "na", "la"].includes(lower)) return lower;
+        if (["CBD", "VIP", "UN"].includes(w)) return w; // real abbreviations keep their capitals
+        return w === w.toUpperCase() ? lower.charAt(0).toUpperCase() + lower.slice(1) : w;
+      })
+      .join(" ");
+  };
+  const location = [property.street, property.ward, property.district, property.regionName || property.city]
+    .map(placeCase)
+    .filter((part, i, all) => part && all.findIndex((x) => x.toLowerCase() === part.toLowerCase()) === i)
+    .join(", ");
+  // Coordinates may arrive as numbers or numeric strings; anything else is "no pin".
+  const lat = parseFloat(String(property.latitude ?? ""));
+  const lng = parseFloat(String(property.longitude ?? ""));
+  const hasPin = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
   const totalRooms = rooms.reduce((sum, room) => sum + (room.count || 0), 0);
   const priced = rooms.filter((room) => room.price > 0);
   const fromPrice = priced.length ? Math.min(...priced.map((room) => room.price)) : Number(property.basePrice) || 0;
@@ -273,7 +320,16 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
     setEditing(index);
     setPriceInput(String(rooms[index].price || ""));
     setDiscountInput(rooms[index].discount ? String(rooms[index].discount) : "");
+    setReasonInput("");
     setSaveError(null);
+  };
+
+  /** Signed % change from the room's current price, or null when there is no current price. */
+  const changeFor = (index: number) => {
+    const current = rooms[index]?.price || 0;
+    const next = Number(priceInput);
+    if (!(current > 0) || !Number.isFinite(next) || next <= 0) return null;
+    return Math.round(((next - current) / current) * 1000) / 10;
   };
 
   // Only this room's price changes; the listing stays live (PATCH /room-price).
@@ -281,6 +337,12 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
     const price = Number(priceInput);
     if (!Number.isFinite(price) || price <= 0) { setSaveError("Enter a price above zero."); return; }
     const discount = Number(discountInput);
+    const pct = changeFor(index);
+    const large = pct != null && Math.abs(pct) > LARGE_PRICE_CHANGE;
+    if (large && reasonInput.trim().length < 5) {
+      setSaveError("This is a big change. Add a short reason so guests and NoLSAF understand it.");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -288,6 +350,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
         roomIndex: index,
         pricePerNight: price,
         discountPercent: Number.isFinite(discount) && discount > 0 ? discount : null,
+        ...(large ? { confirmLargeChange: true, reason: reasonInput.trim() } : {}),
       });
       await load();
       setEditing(null);
@@ -305,14 +368,14 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
     else router.push(editHref);
   };
 
-  const card = "rounded-2xl border border-solid border-slate-200 bg-white";
+  const card = "rounded-lg border border-solid border-slate-200 bg-white";
 
   return (
     <div id="owner-property-view" className="w-full min-w-0 space-y-5 px-3 pb-12 sm:px-5 lg:px-6">
       <style>{`:where(#owner-property-view, #owner-property-view *) { box-sizing: border-box; }`}</style>
 
       {/* Owner band */}
-      <header className="overflow-hidden rounded-3xl bg-[#012a26] text-white">
+      <header className="overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div className="px-5 pb-5 pt-5 sm:px-7">
           <button type="button" onClick={onBack} className="inline-flex items-center gap-1.5 border-0 bg-transparent p-0 text-sm font-semibold text-white/60 transition hover:text-white">
             <ArrowLeft className="h-4 w-4" aria-hidden /> My properties
@@ -320,23 +383,23 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
           <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ring-1 ring-inset ${statusMeta.tone}`}>{statusMeta.label}</span>
-                <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-white/75">{property.type}</span>
-                {property.hotelStar ? <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-200"><Star className="h-3 w-3 fill-current" aria-hidden />{property.hotelStar} star</span> : null}
+                <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${statusMeta.tone}`}>{statusMeta.label}</span>
+                <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/75">{typeLabel(property.type)}</span>
+                {property.hotelStar ? <span className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-amber-200"><Star className="h-3 w-3 fill-current" aria-hidden />{typeLabel(property.hotelStar)}</span> : null}
               </div>
-              <h1 className="m-0 mt-2 text-[26px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">{property.title}</h1>
+              <h1 className="m-0 mt-2 text-[26px] font-bold leading-tight tracking-tight text-white sm:text-[32px]" title={property.title}>{titleCase(property.title)}</h1>
               <p className="m-0 mt-1 flex items-center gap-1.5 text-sm text-white/60"><MapPin className="h-4 w-4 shrink-0" aria-hidden />{location || "Location not set"}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {slug && status === "APPROVED" ? (
-                <a href={`/public/properties/${encodeURIComponent(slug)}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/[0.12]">
+                <a href={`/public/properties/${encodeURIComponent(slug)}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/[0.12]">
                   <Eye className="h-4 w-4" aria-hidden /> View as guest <ExternalLink className="h-3.5 w-3.5 opacity-60" aria-hidden />
                 </a>
               ) : null}
-              <Link href={href(property.id, "/availability")} className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/[0.12]">
+              <Link href={href(property.id, "/availability")} className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/[0.12]">
                 <CalendarDays className="h-4 w-4" aria-hidden /> Availability
               </Link>
-              <button type="button" onClick={openEditor} className="inline-flex h-10 items-center gap-1.5 rounded-xl border-0 bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1]">
+              <button type="button" onClick={openEditor} className="inline-flex h-10 items-center gap-1.5 rounded-md border-0 bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1]">
                 <Pencil className="h-4 w-4" aria-hidden /> Edit property
               </button>
             </div>
@@ -351,7 +414,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
             { label: "Listing health", value: `${healthScore}%`, hint: healthScore === 100 ? "complete" : "see checklist" },
           ].map((fact) => (
             <div key={fact.label} className="bg-[#012a26] px-5 py-3.5 sm:px-6">
-              <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/45">{fact.label}</dt>
+              <dt className="text-[12px] font-medium text-white/55">{fact.label}</dt>
               <dd className="m-0 mt-1 text-lg font-extrabold tabular-nums text-white">{fact.value}</dd>
               <p className="m-0 text-[11px] text-white/45">{fact.hint}</p>
             </div>
@@ -361,7 +424,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
 
       {/* Gallery, as guests see it */}
       {photos.length > 0 ? (
-        <section aria-label="Photos" className="relative grid gap-2 overflow-hidden rounded-3xl sm:grid-cols-[2fr_1fr_1fr] sm:grid-rows-2" style={{ height: "min(56vw, 440px)" }}>
+        <section aria-label="Photos" className="relative grid gap-2 overflow-hidden rounded-lg sm:grid-cols-[2fr_1fr_1fr] sm:grid-rows-2" style={{ height: "min(56vw, 440px)" }}>
           {photos.slice(0, 5).map((src, index) => (
             <button
               key={src}
@@ -373,12 +436,12 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
               <img src={src} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
             </button>
           ))}
-          <button type="button" onClick={() => setGallery(0)} className="absolute bottom-3 right-3 inline-flex h-9 items-center gap-1.5 rounded-xl border-0 bg-white/95 px-3 text-xs font-bold text-slate-900 shadow-md transition hover:bg-white">
+          <button type="button" onClick={() => setGallery(0)} className="absolute bottom-3 right-3 inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-white/95 px-3 text-xs font-bold text-slate-900 shadow-md transition hover:bg-white">
             <Images className="h-4 w-4" aria-hidden /> All {photos.length} photos
           </button>
         </section>
       ) : (
-        <section className="grid h-56 place-items-center rounded-3xl border border-dashed border-slate-300 bg-white text-center">
+        <section className="grid h-56 place-items-center rounded-lg border border-dashed border-slate-300 bg-white text-center">
           <div>
             <Images className="mx-auto h-6 w-6 text-slate-400" aria-hidden />
             <p className="m-0 mt-2 text-sm font-semibold text-slate-700">No photos yet</p>
@@ -407,21 +470,40 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
           </section>
 
           {/* Amenities */}
-          <section className={`${card} p-5 sm:p-6`}>
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="m-0 text-lg font-bold text-slate-900">What this place offers</h2>
+          <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+            <div className="flex items-baseline justify-between gap-3 border-0 border-b border-solid border-slate-100 px-4 py-3 sm:px-5">
+              <h2 className="m-0 text-base font-bold text-slate-900">What this place offers</h2>
               <span className="text-xs text-slate-500">{amenities.length} listed</span>
             </div>
             {amenities.length ? (
-              <ul className="m-0 mt-4 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2 xl:grid-cols-3">
-                {amenities.map((item) => (
-                  <li key={item} className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-800">
-                    <Check className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden /> {item}
-                  </li>
+              /* One row per group: label on the left, compact chips on the right */
+              <dl className="m-0 divide-y divide-slate-100">
+                {groupServices(amenities).map((group) => (
+                  <div key={group.key} className="grid gap-2 px-4 py-3 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-start sm:px-5">
+                    <dt className={`flex items-center gap-1.5 pt-1 text-xs font-semibold ${group.key === "included" ? "text-emerald-700" : group.key === "safety" ? "text-rose-700" : "text-slate-500"}`}>
+                      {group.key === "included" ? <Check className="h-3.5 w-3.5" aria-hidden /> : null}
+                      {group.title}
+                      <span className="font-normal text-slate-400">{group.items.length}</span>
+                    </dt>
+                    <dd className="m-0 flex flex-wrap gap-1.5">
+                      {group.items.map((item) => {
+                        const Icon = serviceIcon(item.full);
+                        return (
+                          <span key={item.full} title={item.full}
+                            className={`inline-flex items-center gap-1.5 rounded-md border border-solid px-2 py-1 text-[12.5px] ${
+                              group.key === "included" ? "border-emerald-200 bg-emerald-50/70 font-medium text-emerald-900" : "border-slate-200 bg-white text-slate-700"
+                            }`}>
+                            <Icon className={`h-3.5 w-3.5 flex-none ${group.key === "included" ? "text-emerald-700" : group.key === "safety" ? "text-rose-600" : "text-[#02665e]"}`} aria-hidden />
+                            {item.label}
+                          </span>
+                        );
+                      })}
+                    </dd>
+                  </div>
                 ))}
-              </ul>
+              </dl>
             ) : (
-              <p className="m-0 mt-3 text-sm text-slate-500">No amenities listed yet.</p>
+              <p className="m-0 px-4 py-4 text-sm text-slate-500 sm:px-5">No amenities listed yet.</p>
             )}
           </section>
 
@@ -434,93 +516,176 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
             {rooms.length === 0 ? (
               <p className={`${card} m-0 p-5 text-sm text-slate-500`}>No rooms added yet. <button type="button" onClick={openEditor} className="border-0 bg-transparent p-0 font-semibold text-[#02665e]">Add rooms</button></p>
             ) : rooms.map((room, index) => (
-              <article key={`${room.name}-${index}`} className={`${card} overflow-hidden`}>
-                <div>
-                  <div className="min-w-0 p-4 sm:p-5">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4]"><BedDouble className="h-4 w-4" aria-hidden /></span>
-                          <h3 className="m-0 text-base font-bold text-slate-900">{room.name}</h3>
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">{room.count} room{room.count === 1 ? "" : "s"}</span>
-                        </div>
-                        <p className="m-0 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                          {room.beds ? <span className="inline-flex items-center gap-1"><BedDouble className="h-3.5 w-3.5" aria-hidden />{room.beds}</span> : null}
-                          {room.bathPrivate ? <span className="inline-flex items-center gap-1"><Bath className="h-3.5 w-3.5" aria-hidden />{room.bathPrivate === "yes" ? "Private bathroom" : "Shared bathroom"}</span> : null}
-                          {room.smoking ? <span>{room.smoking === "yes" ? "Smoking allowed" : "No smoking"}</span> : null}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="m-0 text-lg font-extrabold tabular-nums text-[#02665e]">{room.price > 0 ? money(room.price, currency) : "No price"}</p>
-                        <p className="m-0 text-[11px] text-slate-500">per night{room.discount ? <span className="ml-1.5 rounded-full bg-emerald-50 px-1.5 py-px font-bold text-emerald-700">{room.discount}% off</span> : null}</p>
-                      </div>
+              <article key={`${room.name}-${index}`} className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+                {/* Head: what the room is, and its price with the action next to it */}
+                <div className="grid grid-cols-1 gap-3 border-0 border-b border-solid border-slate-100 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:p-5">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#02665e]/10 text-[#02665e]"><BedDouble className="h-4 w-4" aria-hidden /></span>
+                      <h3 className="m-0 text-base font-bold text-slate-900">{room.name}</h3>
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{room.count} room{room.count === 1 ? "" : "s"}</span>
                     </div>
-                    {room.description ? <p className="m-0 mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{room.description}</p> : null}
-                    {(room.amenities.length > 0 || room.bathItems.length > 0) && (
-                      <ul className="m-0 mt-3 flex list-none flex-wrap gap-1.5 p-0">
-                        {room.amenities.map((item) => {
-                          const Icon = OTHER_AMENITIES_ICONS[item] ?? Sparkles;
-                          return <li key={`a-${item}`} className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[11.5px] font-medium text-slate-700"><Icon className="h-3.5 w-3.5 text-slate-500" />{item}</li>;
-                        })}
-                        {room.bathItems.map((item) => {
-                          const Icon = BATHROOM_ICONS[item] ?? Bath;
-                          return <li key={`b-${item}`} className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1 text-[11.5px] font-medium text-sky-800"><Icon className="h-3.5 w-3.5 text-sky-600" />{item}</li>;
-                        })}
-                      </ul>
-                    )}
+                    <p className="m-0 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                      {room.beds ? <span className="inline-flex items-center gap-1"><BedDouble className="h-3.5 w-3.5" aria-hidden />{room.beds}</span> : null}
+                      {room.bathPrivate ? <span className="inline-flex items-center gap-1"><Bath className="h-3.5 w-3.5" aria-hidden />{room.bathPrivate === "yes" ? "Private bathroom" : "Shared bathroom"}</span> : null}
+                      {room.smoking ? <span>{room.smoking === "yes" ? "Smoking allowed" : "No smoking"}</span> : null}
+                    </p>
+                  </div>
 
-                    {editing === index ? (
-                      <div className="mt-4 rounded-xl bg-slate-50 p-3 ring-1 ring-inset ring-slate-200">
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto] sm:items-end">
-                          <label className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
-                            Price per night ({currency})
-                            <input value={priceInput} onChange={(e) => setPriceInput(e.target.value)} inputMode="numeric" className="mt-1 box-border h-10 w-full rounded-xl border border-solid border-slate-300 bg-white px-3 text-sm font-bold normal-case tracking-normal text-slate-900 outline-none focus:border-[#02665e]" />
-                          </label>
-                          <label className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
-                            Discount %
-                            <input value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} inputMode="numeric" placeholder="0" className="mt-1 box-border h-10 w-full rounded-xl border border-solid border-slate-300 bg-white px-3 text-sm normal-case tracking-normal text-slate-900 outline-none focus:border-[#02665e]" />
-                          </label>
-                          <div className="flex gap-2">
-                            <button type="button" onClick={() => setEditing(null)} disabled={saving} className="h-10 rounded-xl border border-solid border-slate-200 bg-white px-3 text-xs font-bold text-slate-600">Cancel</button>
-                            <button type="button" onClick={() => void savePrice(index)} disabled={saving} className="inline-flex h-10 items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-4 text-xs font-bold text-white disabled:opacity-60">
-                              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Save
-                            </button>
-                          </div>
-                        </div>
-                        {saveError ? <p role="alert" className="m-0 mt-2 text-xs font-semibold text-rose-700">{saveError}</p> : null}
-                        <OwnerPriceBreakdown rate={Number(priceInput)} commissionPercent={commissionPercent} currency={currency} />
-                        <p className="m-0 mt-2 text-[11px] text-slate-500">Saves straight away and the listing stays live.</p>
-                      </div>
-                    ) : (
-                      <button type="button" onClick={() => startEdit(index)} className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
-                        <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit price
+                  {/* Price panel */}
+                  <div className="flex items-center justify-between gap-4 rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2 sm:min-w-[220px]">
+                    <div className="min-w-0">
+                      {room.price > 0 ? (
+                        <>
+                          <p className="m-0 text-[17px] font-extrabold tabular-nums text-[#02665e]">{money(room.price, currency)}</p>
+                          <p className="m-0 text-[11px] text-slate-500">
+                            per night
+                            {room.discount ? <span className="ml-1.5 rounded bg-emerald-100 px-1 py-px font-semibold text-emerald-800">{room.discount}% off</span> : null}
+                          </p>
+                          {room.discount ? (
+                            <p className="m-0 mt-0.5 text-[11px] text-slate-600">
+                              With the discount you receive <span className="font-semibold tabular-nums text-slate-900">{money(discountedNightlyNet(room.price, room.discount), currency)}</span>
+                            </p>
+                          ) : null}
+                        </>
+                      ) : (
+                        <p className="m-0 text-sm font-semibold text-amber-700">No price yet</p>
+                      )}
+                    </div>
+                    {editing === index ? null : (
+                      <button type="button" onClick={() => startEdit(index)}
+                        className="inline-flex h-8 flex-none items-center gap-1.5 rounded-md border border-solid border-[#02665e]/30 bg-white px-2.5 text-xs font-semibold text-[#02665e] transition-colors hover:bg-[#02665e] hover:text-white">
+                        <Pencil className="h-3.5 w-3.5" aria-hidden /> {room.price > 0 ? "Edit price" : "Set price"}
                       </button>
                     )}
                   </div>
                 </div>
+
+                {/* Price editor, opened from the price panel */}
+                {editing === index ? (
+                  <div className="border-0 border-b border-solid border-slate-100 bg-slate-50/70 p-4 sm:p-5">
+                    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[minmax(0,1fr)_120px_auto] sm:items-end">
+                      <label className="block text-xs font-medium text-slate-600">
+                        Price per night ({currency})
+                        <input value={priceInput} onChange={(e) => setPriceInput(e.target.value.replace(/[^\d.]/g, ""))} inputMode="numeric" autoFocus
+                          className="mt-1 box-border h-10 w-full rounded-md border border-solid border-slate-300 bg-white px-3 text-sm font-bold tabular-nums text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" />
+                      </label>
+                      <label className="block text-xs font-medium text-slate-600">
+                        Discount %
+                        <input value={discountInput} onChange={(e) => setDiscountInput(e.target.value.replace(/[^\d.]/g, ""))} inputMode="numeric" placeholder="0"
+                          className="mt-1 box-border h-10 w-full rounded-md border border-solid border-slate-300 bg-white px-3 text-sm tabular-nums text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" />
+                      </label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setEditing(null)} disabled={saving} className="h-10 flex-1 rounded-md border border-solid border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:flex-none">Cancel</button>
+                        <button type="button" onClick={() => void savePrice(index)} disabled={saving} className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-xs font-semibold text-white hover:bg-[#014d47] disabled:opacity-60 sm:flex-none">
+                          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Save
+                        </button>
+                      </div>
+                    </div>
+                    {(() => {
+                      const pct = changeFor(index);
+                      if (pct == null || pct === 0) return null;
+                      const large = Math.abs(pct) > LARGE_PRICE_CHANGE;
+                      return (
+                        <div className={`mt-2.5 rounded-md border border-solid px-3 py-2 ${large ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}>
+                          <p className={`m-0 text-xs font-semibold ${large ? "text-amber-900" : "text-slate-600"}`}>
+                            {pct > 0 ? "+" : ""}{pct}% compared with the current {(room.price || 0).toLocaleString("en-US")} {currency}
+                            {large ? ". A change this big needs a short reason." : ""}
+                          </p>
+                          {large ? (
+                            <input value={reasonInput} onChange={(e) => setReasonInput(e.target.value)} maxLength={300}
+                              placeholder={pct > 0 ? "For example: December high season" : "For example: low season offer"}
+                              aria-label="Reason for the price change"
+                              className="mt-1.5 box-border h-9 w-full rounded-md border border-solid border-amber-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-[#02665e]" />
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+                    {saveError ? <p role="alert" className="m-0 mt-2 text-xs font-semibold text-rose-700">{saveError}</p> : null}
+                    <OwnerPriceBreakdown rate={Number(priceInput)} commissionPercent={commissionPercent} currency={currency} />
+                    <p className="m-0 mt-2 text-[11px] text-slate-500">Saves straight away and the listing stays live.</p>
+                  </div>
+                ) : null}
+
+                {/* Body: description and amenities, kept short until asked */}
+                {room.description || room.amenities.length > 0 || room.bathItems.length > 0 ? (
+                  <div className="space-y-3 p-4 sm:p-5">
+                    {room.description ? (
+                      <div>
+                        <p className={`m-0 text-sm leading-6 text-slate-600 ${openRoom[index] ? "" : "line-clamp-2"}`}>{room.description}</p>
+                      </div>
+                    ) : null}
+                    {(() => {
+                      const groups = [
+                        { key: "room", title: "In the room", items: room.amenities, icons: OTHER_AMENITIES_ICONS, fallback: Sparkles },
+                        { key: "bath", title: "Bathroom", items: room.bathItems, icons: BATHROOM_ICONS, fallback: Bath },
+                      ].filter((g) => g.items.length > 0);
+                      const open = !!openRoom[index];
+                      const LIMIT = 6;
+                      const hidden = groups.reduce((n, g) => n + Math.max(0, g.items.length - LIMIT), 0);
+                      const longText = (room.description || "").length > 140;
+                      return (
+                        <>
+                          {groups.map((g) => (
+                            <div key={g.key}>
+                              <p className="m-0 mb-1.5 text-[11px] font-semibold text-slate-500">{g.title} <span className="font-normal text-slate-400">{g.items.length}</span></p>
+                              <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+                                {(open ? g.items : g.items.slice(0, LIMIT)).map((item) => {
+                                  const Icon = (g.icons as Record<string, any>)[item] ?? g.fallback;
+                                  return (
+                                    <li key={`${g.key}-${item}`} className="inline-flex items-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-700">
+                                      <Icon className="h-3.5 w-3.5 text-slate-500" aria-hidden />{item}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          ))}
+                          {hidden > 0 || longText ? (
+                            <button type="button" onClick={() => setOpenRoom((s) => ({ ...s, [index]: !open }))} aria-expanded={open}
+                              className="inline-flex items-center gap-1 border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] hover:underline">
+                              {open ? "Show less" : hidden > 0 ? `Show all (${hidden} more)` : "Read more"}
+                            </button>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </div>
+                ) : null}
               </article>
             ))}
           </section>
 
           {/* Location */}
-          <section className={`${card} p-5 sm:p-6`}>
-            <h2 className="m-0 text-lg font-bold text-slate-900">Where guests will be</h2>
-            <p className="m-0 mt-1 text-sm text-slate-600">{location || "Location not set"}</p>
+          <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+            <div className="border-0 border-b border-solid border-slate-100 px-4 py-3 sm:px-5">
+              <h2 className="m-0 text-base font-bold text-slate-900">Where guests will be</h2>
+              <p className="m-0 mt-0.5 flex items-start gap-1.5 text-sm text-slate-600">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 flex-none text-slate-400" aria-hidden />
+                {location || "Location not set"}
+              </p>
+            </div>
             {hasPin ? (
-              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-inset ring-slate-200">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4]"><MapPin className="h-5 w-5" aria-hidden /></span>
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200"><Check className="h-4 w-4" aria-hidden /></span>
                 <div className="min-w-0 flex-1">
                   <p className="m-0 text-sm font-semibold text-slate-900">Map pin set</p>
-                  <p className="m-0 font-mono text-xs text-slate-500">{lat.toFixed(5)}, {lng.toFixed(5)}</p>
+                  <p className="m-0 font-mono text-xs tabular-nums text-slate-500">{lat.toFixed(5)}, {lng.toFixed(5)}</p>
                 </div>
-                <a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 no-underline hover:bg-slate-50">
+                <a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 no-underline hover:bg-slate-50">
                   Open in Maps <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                 </a>
               </div>
             ) : (
-              <div className="mt-4 flex items-start gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200">
-                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                <span>No map pin yet, so guests cannot see where you are. <button type="button" onClick={openEditor} className="border-0 bg-transparent p-0 font-semibold text-amber-900 underline">Set the pin</button></span>
+              <div className="flex flex-wrap items-center gap-3 bg-amber-50/60 px-4 py-3 sm:px-5">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-amber-100 text-amber-800"><CircleAlert className="h-4 w-4" aria-hidden /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 text-sm font-semibold text-amber-900">No map pin yet</p>
+                  <p className="m-0 text-xs text-amber-800">Guests cannot see where the property is on the map.</p>
+                </div>
+                <button type="button" onClick={openEditor} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-amber-300 bg-white px-2.5 text-xs font-semibold text-amber-900 hover:bg-amber-50">
+                  <MapPin className="h-3.5 w-3.5" aria-hidden /> Set the pin
+                </button>
               </div>
             )}
           </section>
@@ -531,7 +696,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
           <section className={`${card} p-5`}>
             <div className="flex items-center justify-between gap-2">
               <h2 className="m-0 text-base font-bold text-slate-900">Listing health</h2>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${healthScore === 100 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{healthScore}%</span>
+              <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${healthScore === 100 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>{healthScore}%</span>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
               <div className={`h-full rounded-full ${healthScore === 100 ? "bg-emerald-500" : "bg-amber-400"}`} style={{ width: `${healthScore}%` }} />
@@ -549,7 +714,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
                 </li>
               ))}
             </ul>
-            {healthScore < 100 && <button type="button" onClick={openEditor} className="mt-4 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border-0 bg-[#012a26] text-xs font-bold text-white hover:bg-[#033a34]"><Pencil className="h-3.5 w-3.5" aria-hidden /> Improve the listing</button>}
+            {healthScore < 100 && <button type="button" onClick={openEditor} className="mt-4 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border-0 bg-[#012a26] text-xs font-bold text-white hover:bg-[#033a34]"><Pencil className="h-3.5 w-3.5" aria-hidden /> Improve the listing</button>}
           </section>
 
           <section className={`${card} p-5`}>
@@ -561,8 +726,8 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
               <div className="flex justify-between gap-2"><dt className="text-slate-500">Building</dt><dd className="m-0 font-semibold text-slate-800">{property.totalFloors ? `${property.totalFloors} floor${Number(property.totalFloors) === 1 ? "" : "s"}` : property.buildingType ? String(property.buildingType).replace(/_/g, " ") : "Not set"}</dd></div>
             </dl>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <Link href={href(property.id, "/layout")} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white text-xs font-bold text-slate-700 no-underline hover:bg-slate-50"><LayoutGrid className="h-3.5 w-3.5" aria-hidden /> Floor plan</Link>
-              <Link href={href(property.id, "/availability")} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white text-xs font-bold text-slate-700 no-underline hover:bg-slate-50"><CalendarDays className="h-3.5 w-3.5" aria-hidden /> Availability</Link>
+              <Link href={href(property.id, "/layout")} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white text-xs font-bold text-slate-700 no-underline hover:bg-slate-50"><LayoutGrid className="h-3.5 w-3.5" aria-hidden /> Floor plan</Link>
+              <Link href={href(property.id, "/availability")} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white text-xs font-bold text-slate-700 no-underline hover:bg-slate-50"><CalendarDays className="h-3.5 w-3.5" aria-hidden /> Availability</Link>
             </div>
           </section>
 
@@ -605,9 +770,9 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
 
       {editWarning && (
         <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-5" role="presentation" onClick={() => setEditWarning(false)}>
-          <section role="dialog" aria-modal="true" aria-labelledby="edit-warning-title" onClick={(e) => e.stopPropagation()} className="w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-md sm:rounded-3xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="edit-warning-title" onClick={(e) => e.stopPropagation()} className="w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-md sm:rounded-lg">
             <div className="px-5 pb-4 pt-5">
-              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-50 text-amber-700"><CircleAlert className="h-5 w-5" aria-hidden /></span>
+              <span className="grid h-11 w-11 place-items-center rounded-lg bg-amber-50 text-amber-700"><CircleAlert className="h-5 w-5" aria-hidden /></span>
               <h2 id="edit-warning-title" className="m-0 mt-3 text-lg font-bold text-slate-900">Saving changes takes the listing offline</h2>
               <p className="m-0 mt-2 text-sm leading-6 text-slate-600">
                 Your property is live. If you save changes in the editor, it goes back to Draft and guests cannot book it until you submit it again and NoLSAF approves the changes, usually within 1 to 2 business days.
@@ -618,8 +783,8 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
               </ul>
             </div>
             <div className="flex flex-col-reverse gap-2 border-0 border-t border-solid border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => setEditWarning(false)} className="h-10 rounded-xl border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">Keep it live</button>
-              <button type="button" onClick={() => router.push(editHref)} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border-0 bg-[#012a26] px-4 text-sm font-bold text-white hover:bg-[#033a34]">
+              <button type="button" onClick={() => setEditWarning(false)} className="h-10 rounded-md border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">Keep it live</button>
+              <button type="button" onClick={() => router.push(editHref)} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border-0 bg-[#012a26] px-4 text-sm font-bold text-white hover:bg-[#033a34]">
                 <Pencil className="h-4 w-4" aria-hidden /> Open the editor
               </button>
             </div>
@@ -637,7 +802,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {photos.map((src, index) => (
-                <img key={src} src={src} alt={`Photo ${index + 1}`} className={`w-full rounded-2xl object-cover ${index === gallery ? "ring-4 ring-[#5eead4]" : ""}`} />
+                <img key={src} src={src} alt={`Photo ${index + 1}`} className={`w-full rounded-lg object-cover ${index === gallery ? "ring-4 ring-[#5eead4]" : ""}`} />
               ))}
             </div>
           </div>

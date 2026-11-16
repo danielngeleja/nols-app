@@ -107,9 +107,9 @@ export default function OwnerSessionsPage() {
           </div>
         </div>
 
-        <section className="w-full max-w-full bg-white rounded-2xl shadow-lg border-2 border-slate-200/50 p-4 sm:p-6 lg:p-8 overflow-hidden transition-all duration-300 hover:shadow-xl hover:border-emerald-200/50">
+        <section className="w-full max-w-full bg-white rounded-lg shadow-lg border-2 border-solid border-slate-200/50 p-4 sm:p-6 lg:p-8 overflow-hidden transition-all duration-300 hover:shadow-xl hover:border-emerald-200/50">
           {error && (
-            <div className="rounded-xl bg-red-50 border-2 border-red-200 p-3 sm:p-4 mb-4 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="rounded-md bg-red-50 border-2 border-solid border-red-200 p-3 sm:p-4 mb-4 animate-in fade-in slide-in-from-top-2 duration-300">
               <div className="text-xs sm:text-sm font-semibold text-red-800">{error}</div>
             </div>
           )}
@@ -132,10 +132,10 @@ export default function OwnerSessionsPage() {
           ) : (
             <div className="space-y-4">
               {sessions.length > 1 && (
-                <div className="flex justify-end pb-4 border-b border-slate-200">
+                <div className="border-0 flex justify-end pb-4 border-b border-solid border-slate-200">
                   <button
                     onClick={revokeOtherSessions}
-                    className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-300 border border-red-200 hover:border-red-300"
+                    className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-300 border border-solid border-red-200 hover:border-red-300"
                   >
                     <Trash2 className="h-4 w-4" />
                     <span>Revoke All Other Sessions</span>
@@ -146,7 +146,7 @@ export default function OwnerSessionsPage() {
                 {(showAllSessions ? sessions : sessions.slice(0, 2)).map((session) => (
                   <div
                     key={session.id}
-                    className="p-4 border-2 border-slate-200 rounded-xl hover:border-emerald-300 transition-all duration-300 hover:shadow-md"
+                    className="p-4 border-2 border-solid border-slate-200 rounded-md hover:border-emerald-300 transition-all duration-300 hover:shadow-md"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                       <div className="flex-1 min-w-0">
@@ -172,14 +172,14 @@ export default function OwnerSessionsPage() {
                       {!session.revokedAt && (
                         <button
                           onClick={() => revokeSession(session.id)}
-                          className="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-300 border border-red-200 hover:border-red-300 flex-shrink-0"
+                          className="inline-flex items-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-300 border border-solid border-red-200 hover:border-red-300 flex-shrink-0"
                         >
                           <Trash2 className="h-4 w-4" />
                           <span>Revoke</span>
                         </button>
                       )}
                       {session.revokedAt && (
-                        <span className="inline-flex items-center px-3 py-2 text-xs font-semibold text-slate-500 bg-slate-50 rounded-lg border border-slate-200 flex-shrink-0">
+                        <span className="inline-flex items-center px-3 py-2 text-xs font-semibold text-slate-500 bg-slate-50 rounded-lg border border-solid border-slate-200 flex-shrink-0">
                           Revoked
                         </span>
                       )}
@@ -190,10 +190,10 @@ export default function OwnerSessionsPage() {
               
               {/* View More/Less Button */}
               {sessions.length > 2 && (
-                <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="border-0 mt-4 pt-4 border-t border-solid border-slate-100">
                   <button
                     onClick={() => setShowAllSessions(!showAllSessions)}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] border border-slate-200/60 shadow-sm hover:shadow"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-md transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] border border-solid border-slate-200/60 shadow-sm hover:shadow"
                   >
                     {showAllSessions ? (
                       <>
@@ -212,10 +212,10 @@ export default function OwnerSessionsPage() {
             </div>
           )}
 
-          <div className="mt-6 flex justify-start pt-4 border-t border-slate-200">
+          <div className="border-0 mt-6 flex justify-start pt-4 border-t border-solid border-slate-200">
             <Link 
               href="/owner/settings" 
-              className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 hover:text-slate-700 hover:bg-slate-50 rounded-lg transition-all duration-300 border border-slate-200 hover:border-slate-300 no-underline"
+              className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 hover:text-slate-700 hover:bg-slate-50 rounded-lg transition-all duration-300 border border-solid border-slate-200 hover:border-slate-300 no-underline"
               aria-label="Back to Settings"
             >
               <ChevronLeft className="h-4 w-4" />

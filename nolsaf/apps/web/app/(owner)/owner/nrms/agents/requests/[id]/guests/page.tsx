@@ -127,8 +127,8 @@ export default function HotelAgentManifestReviewPage() {
     finally { setCommercialBusy(null); }
   };
 
-  if (!data && !error) return <div className="flex items-center gap-2 rounded-2xl border border-neutral-200 bg-white p-8 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading secure guest manifest…</div>;
-  if (!data) return <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
+  if (!data && !error) return <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white p-8 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading secure guest manifest…</div>;
+  if (!data) return <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
   const reviewable = data.manifest.status === "SUBMITTED";
   // Cards exist to be reviewed one at a time. Once the identities are verified
   // the desk is reading a list, not judging it, so it reads as a list.
@@ -194,10 +194,10 @@ export default function HotelAgentManifestReviewPage() {
     <Link href="/owner/nrms/agents/requests" className="inline-flex w-fit items-center gap-1.5 text-xs font-bold text-neutral-500 no-underline hover:text-neutral-900"><ArrowLeft className="h-4 w-4" /> Agent bookings</Link>
 
     {/* Header, progress and next step: where this booking stands at a glance */}
-    <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white shadow-sm">
       <div className="flex flex-col gap-4 px-5 pb-5 pt-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div className="flex min-w-0 items-start gap-3.5">
-          <span className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><ShieldCheck className="h-6 w-6" /></span>
+          <span className="grid h-12 w-12 flex-none place-items-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><ShieldCheck className="h-6 w-6" /></span>
           <div className="min-w-0">
             <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700">Agent booking</p>
             <h1 className="m-0 mt-0.5 truncate text-2xl font-extrabold tracking-tight text-neutral-950">{agencyName}</h1>
@@ -226,7 +226,7 @@ export default function HotelAgentManifestReviewPage() {
         ))}
       </ol>
 
-      <div className={`m-4 flex flex-col gap-3 rounded-xl border border-solid p-4 sm:m-5 sm:flex-row sm:items-center sm:justify-between ${nextTone}`}>
+      <div className={`m-4 flex flex-col gap-3 rounded-md border border-solid p-4 sm:m-5 sm:flex-row sm:items-center sm:justify-between ${nextTone}`}>
         <div className="min-w-0">
           <p className={`m-0 text-[11px] font-bold uppercase tracking-[0.1em] ${nextStep.tone === "alert" ? "text-amber-800" : nextStep.tone === "wait" ? "text-neutral-500" : "text-emerald-700"}`}>{nextStep.tone === "wait" ? "Nothing to do right now" : "Next step"}</p>
           <p className="m-0 mt-1 text-base font-bold text-neutral-950">{nextStep.title}</p>
@@ -236,13 +236,13 @@ export default function HotelAgentManifestReviewPage() {
       </div>
     </section>
 
-    {notice ? <div role="status" className="rounded-xl border border-solid border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</div> : null}
-    {error ? <div role="alert" className="rounded-xl border border-solid border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+    {notice ? <div role="status" className="rounded-md border border-solid border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</div> : null}
+    {error ? <div role="alert" className="rounded-md border border-solid border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex min-w-0 flex-col gap-5">
         {/* Invoice and payment */}
-        <section id="commercial" className="scroll-mt-4 rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
+        <section id="commercial" className="scroll-mt-4 rounded-lg border border-solid border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <h2 className="m-0 text-lg font-extrabold text-neutral-950">{settled ? "Invoice settled" : "Invoice and payment"}</h2>
@@ -250,11 +250,11 @@ export default function HotelAgentManifestReviewPage() {
             </div>
           </div>
 
-          {!approved ? <div className="mt-4 rounded-xl bg-amber-50 p-3.5 text-sm text-amber-900"><b>Owner review required.</b> Approve the booking request before issuing any invoice.</div> : settled ? <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {!approved ? <div className="mt-4 rounded-md bg-amber-50 p-3.5 text-sm text-amber-900"><b>Owner review required.</b> Approve the booking request before issuing any invoice.</div> : settled ? <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {invoice ? <DocumentCard href={`/api/owner/nrms/agents/requests/${requestId}/invoices/${invoice.id}/pdf`} icon={<FileText className="h-4 w-4" />} kind="Invoice" number={invoice.number} detail={`${currency} ${money(invoice.quotedTotal)}`} /> : null}
             {latestPayment ? <DocumentCard href={`/api/owner/nrms/agents/requests/${requestId}/payments/${latestPayment.id}/receipt`} icon={<ReceiptText className="h-4 w-4" />} kind="Receipt" number={latestPayment.receiptNumber} detail={`${currency} ${money(latestPayment.amount)} on ${fmt(latestPayment.createdAt)}`} tone="emerald" /> : null}
           </div> : <>
-            {invoice ? <div className="mt-5 grid gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-4">
+            {invoice ? <div className="mt-5 grid gap-px overflow-hidden rounded-md border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-4">
               <InvoiceStat label="Invoice" value={invoice.number} detail={`Revision ${invoice.revision}`} />
               <InvoiceStat label="Amount" value={`${invoice.currency} ${money(invoice.quotedTotal)}`} detail={data.booking.financials.amountPaid > 0 ? `${currency} ${money(data.booking.financials.amountPaid)} received` : "Nothing received yet"} tone={data.booking.financials.amountPaid > 0 ? "ok" : "muted"} />
               <InvoiceStat label="Due" value={fmt(invoice.dueAt)} detail={dueLabel} tone={dueInDays < 0 ? "danger" : dueInDays <= 3 ? "warn" : "muted"} />
@@ -265,7 +265,7 @@ export default function HotelAgentManifestReviewPage() {
               {!invoice.sentAt ? <button type="button" disabled={commercialBusy !== null} onClick={() => void sendInvoice()} className={primaryBtn}>{commercialBusy === "send" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to agency</button> : null}
             </div> : null}
 
-            {invoice?.payerMarkedPaidAt ? <div className="mt-5 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+            {invoice?.payerMarkedPaidAt ? <div className="mt-5 rounded-md border border-solid border-amber-300 bg-amber-50 p-4">
               <p className="m-0 text-sm font-bold text-amber-950">The agency declared this invoice paid</p>
               <p className="m-0 mt-1 text-sm leading-6 text-amber-900">Declared {fmt(invoice.payerMarkedPaidAt)}. Confirm the credit in the property account, then record it here.</p>
               <dl className="m-0 mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-3"><Meta label="Paid by" value={ownerMethodLabel(invoice.payerPaymentMethod)} />{invoice.payerPaymentAccountName ? <Meta label="From account" value={invoice.payerPaymentAccountName} /> : null}{invoice.payerPaymentReference ? <Meta label="Their reference" value={invoice.payerPaymentReference} /> : null}</dl>
@@ -277,7 +277,7 @@ export default function HotelAgentManifestReviewPage() {
               </div>
             </div> : null}
 
-            <details className="group mt-5 overflow-hidden rounded-xl border border-solid border-sky-200 bg-white transition-colors open:border-sky-300" open={!invoice}>
+            <details className="group mt-5 overflow-hidden rounded-md border border-solid border-sky-200 bg-white transition-colors open:border-sky-300" open={!invoice}>
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-sky-50/70 px-4 py-3 transition-colors hover:bg-sky-100/70 [&::-webkit-details-marker]:hidden">
                 <span className="flex min-w-0 items-center gap-3">
                   <span className="grid h-9 w-9 flex-none place-items-center rounded-lg bg-sky-600 text-white shadow-sm"><FilePlus2 className="h-4 w-4" /></span>
@@ -300,7 +300,7 @@ export default function HotelAgentManifestReviewPage() {
                 </div>
 
                 {/* Row 2: the arithmetic in full, then the action */}
-                <div className="flex flex-col gap-4 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-col gap-4 rounded-md border border-solid border-neutral-200 bg-neutral-50/70 p-4 lg:flex-row lg:items-center lg:justify-between">
                   <dl className="m-0 flex flex-wrap items-end gap-x-5 gap-y-3">
                     <div>
                       <dt className={fieldLabel}>Current total</dt>
@@ -335,12 +335,12 @@ export default function HotelAgentManifestReviewPage() {
 
         {/* Travellers */}
         <div id="travellers" className="scroll-mt-4">
-          {data.guests.length === 0 ? <section className="flex flex-col gap-3 rounded-2xl border border-dashed border-neutral-300 bg-white p-6 sm:flex-row sm:items-center">
-            <span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-neutral-100 text-neutral-500"><Users className="h-5 w-5" /></span>
+          {data.guests.length === 0 ? <section className="flex flex-col gap-3 rounded-lg border border-dashed border-neutral-300 bg-white p-6 sm:flex-row sm:items-center">
+            <span className="grid h-11 w-11 flex-none place-items-center rounded-md bg-neutral-100 text-neutral-500"><Users className="h-5 w-5" /></span>
             <div><h2 className="m-0 text-base font-extrabold text-neutral-800">No travellers yet</h2><p className="mb-0 mt-1 max-w-3xl text-sm leading-6 text-neutral-500">The agency has not submitted guest names or identity documents. This section fills in automatically as they do.</p></div>
           </section> : verified ? <VerifiedTravellerTable guests={data.guests} requestId={requestId} stays={data.rooms?.stays ?? []} /> : <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2 px-1"><h2 className="m-0 text-base font-extrabold text-neutral-900">Travellers to review</h2><span className="text-xs font-semibold text-neutral-500">{data.guests.length} submitted</span></div>
-            <div className="grid gap-3 lg:grid-cols-2">{data.guests.map((guest) => <section key={guest.id} className="rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="grid gap-3 lg:grid-cols-2">{data.guests.map((guest) => <section key={guest.id} className="rounded-lg border border-solid border-neutral-200 bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3"><div className="flex items-start gap-2.5"><span className="grid h-9 w-9 place-items-center rounded-lg bg-neutral-100"><Users className="h-4 w-4 text-neutral-600" /></span><div><h3 className="m-0 text-sm font-extrabold text-neutral-900">{guest.fullName || "Traveller details in progress"}</h3><p className="m-0 mt-0.5 text-xs text-neutral-500">Room {guest.roomNumber} · {guest.guestType.toLowerCase()}{guest.isLead ? " · lead guest" : ""}</p></div></div>{guest.status === "ACCEPTED" ? <BadgeCheck className="h-5 w-5 text-emerald-600" /> : null}</div>
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-0 border-t border-solid border-neutral-100 pt-3"><Meta label="Nationality" value={guest.nationality || "Not provided"} /><Meta label="Date of birth" value={guest.dateOfBirth ? fmt(guest.dateOfBirth) : "Not provided"} /><Meta label="Document" value={guest.documentType && guest.documentNumber ? `${guest.documentType.replace(/_/g, " ")} · ${guest.documentNumber}` : "Not provided"} /><Meta label="Valid until" value={guest.documentExpiry ? fmt(guest.documentExpiry) : "Not provided"} /><Meta label="Phone" value={guest.phone || "Not provided"} /><Meta label="Email" value={guest.email || "Not provided"} /></dl>
               {guest.documentUploaded ? <a href={`/api/owner/nrms/agents/requests/${requestId}/guests/${guest.id}/document`} target="_blank" rel="noreferrer" className={`${secondaryBtn} mt-3`}><FileSearch className="h-4 w-4" /> Review protected document</a> : <span className="mt-3 inline-flex h-9 items-center rounded-lg bg-neutral-100 px-3 text-xs font-semibold text-neutral-500">Document not uploaded</span>}
@@ -349,12 +349,12 @@ export default function HotelAgentManifestReviewPage() {
           </div>}
         </div>
 
-        {reviewable ? <section className="sticky bottom-3 z-10 rounded-2xl border border-solid border-neutral-200 bg-white/95 p-3 shadow-lg backdrop-blur"><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional overall review note" className="box-border min-h-16 w-full resize-y rounded-lg border border-solid border-neutral-200 p-2.5 text-sm outline-none focus:border-emerald-400" /><div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button type="button" disabled={busy} onClick={() => void decide("RETURN")} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-solid border-amber-300 bg-amber-50 px-4 text-xs font-bold text-amber-800"><RotateCcw className="h-4 w-4" /> Return for correction</button><button type="button" disabled={busy} onClick={() => void decide("VERIFY")} className={primaryBtn}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Verify all travellers</button></div></section> : null}
+        {reviewable ? <section className="sticky bottom-3 z-10 rounded-lg border border-solid border-neutral-200 bg-white/95 p-3 shadow-lg backdrop-blur"><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional overall review note" className="box-border min-h-16 w-full resize-y rounded-lg border border-solid border-neutral-200 p-2.5 text-sm outline-none focus:border-emerald-400" /><div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button type="button" disabled={busy} onClick={() => void decide("RETURN")} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-solid border-amber-300 bg-amber-50 px-4 text-xs font-bold text-amber-800"><RotateCcw className="h-4 w-4" /> Return for correction</button><button type="button" disabled={busy} onClick={() => void decide("VERIFY")} className={primaryBtn}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Verify all travellers</button></div></section> : null}
       </div>
 
       {/* Sidebar: the facts, documents and rooms, read rather than worked */}
       <aside className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-4">
-        <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-sm">
+        <section className="rounded-lg border border-solid border-neutral-200 bg-white p-5 shadow-sm">
           <h2 className="m-0 text-sm font-extrabold text-neutral-900">Booking details</h2>
           <dl className="m-0 mt-3 divide-y divide-neutral-100">
             <FactRow icon={<CalendarDays className="h-4 w-4" />} label="Stay" value={`${fmt(data.booking.checkIn)} to ${fmt(data.booking.checkOut)}`} detail={`${nights} night${nights === 1 ? "" : "s"}`} />
@@ -364,13 +364,13 @@ export default function HotelAgentManifestReviewPage() {
           </dl>
         </section>
 
-        <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-sm">
+        <section className="rounded-lg border border-solid border-neutral-200 bg-white p-5 shadow-sm">
           <h2 className="m-0 flex items-center gap-2 text-sm font-extrabold text-neutral-900"><WalletCards className="h-4 w-4 text-neutral-500" /> Food, drinks and extras</h2>
           <p className="m-0 mt-2 text-sm font-semibold text-neutral-800">{data.manifest.incidentalCover?.headline ?? "Not declared"}</p>
           <p className="m-0 mt-1 text-xs leading-5 text-neutral-500">{data.manifest.incidentalCover?.detail ?? "The agency has not declared who pays for extras."}</p>
         </section>
 
-        {data.rooms?.groupId ? <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-sm">
+        {data.rooms?.groupId ? <section className="rounded-lg border border-solid border-neutral-200 bg-white p-5 shadow-sm">
           <h2 className="m-0 flex items-center gap-2 text-sm font-extrabold text-neutral-900"><BedDouble className="h-4 w-4 text-neutral-500" /> Rooms</h2>
           <p className="m-0 mt-2 text-xs leading-5 text-neutral-500">Split into individual stays under block <span className="font-mono">{data.rooms.blockReference}</span>.</p>
           <div className="mt-3 flex flex-col gap-2">
@@ -420,7 +420,7 @@ function VerifiedTravellerTable({ guests, requestId, stays }: { guests: Guest[];
     ? null
     : stays.find((stay) => stay.reservationId === guest.reservationId) ?? null;
   const assigned = stays.filter((stay) => stay.roomCode).length;
-  return <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+  return <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-neutral-200 px-4 py-3">
       <div className="flex min-w-0 items-center gap-2">
         <BadgeCheck className="h-4 w-4 flex-none text-emerald-600" />
@@ -491,8 +491,8 @@ function VerifiedTravellerTable({ guests, requestId, stays }: { guests: Guest[];
 
 function DocumentCard({ href, icon, kind, number, detail, tone = "neutral" }: { href: string; icon: ReactNode; kind: string; number: string; detail: string; tone?: "neutral" | "emerald" }) {
   const accent = tone === "emerald" ? "bg-emerald-50 text-emerald-700" : "bg-neutral-900 text-white";
-  return <a href={href} target="_blank" rel="noreferrer" className="group flex min-w-0 items-center gap-3 rounded-xl border border-solid border-neutral-200 bg-white p-3 no-underline transition hover:border-neutral-400 hover:shadow-sm">
-    <span className={`grid h-10 w-10 flex-none place-items-center rounded-xl ${accent}`}>{icon}</span>
+  return <a href={href} target="_blank" rel="noreferrer" className="group flex min-w-0 items-center gap-3 rounded-md border border-solid border-neutral-200 bg-white p-3 no-underline transition hover:border-neutral-400 hover:shadow-sm">
+    <span className={`grid h-10 w-10 flex-none place-items-center rounded-md ${accent}`}>{icon}</span>
     <span className="min-w-0 flex-1">
       <span className={`block ${fieldLabel}`}>{kind}</span>
       <b className="mt-0.5 block truncate text-[13px] font-extrabold text-neutral-950">{number}</b>
@@ -523,7 +523,7 @@ const pillTones = {
 } as const;
 
 function StatusPill({ tone, children }: { tone: keyof typeof pillTones; children: ReactNode }) {
-  return <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ring-1 ${pillTones[tone]}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded-md px-3 py-1 text-xs font-bold ring-1 ${pillTones[tone]}`}>{children}</span>;
 }
 
 /** One quiet line in the sidebar: an icon, what it is, and the value. */
@@ -539,5 +539,5 @@ function FactRow({ icon, label, value, detail }: { icon: ReactNode; label: strin
 }
 
 function Control({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="flex min-w-0 flex-col gap-1 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-500">{label}<span className="[&>input]:box-border [&>input]:h-10 [&>input]:w-full [&>input]:rounded-xl [&>input]:border [&>input]:border-solid [&>input]:border-neutral-200 [&>input]:bg-white [&>input]:px-3 [&>input]:text-xs [&>input]:font-semibold [&>input]:normal-case [&>input]:tracking-normal [&>input]:text-neutral-900 [&>input]:shadow-sm [&>input]:outline-none [&>input]:transition [&>input::placeholder]:font-normal [&>input::placeholder]:text-neutral-400 [&>input:focus]:border-emerald-500 [&>input:focus]:ring-2 [&>input:focus]:ring-emerald-100 [&>input:disabled]:bg-neutral-100 [&>input:disabled]:text-neutral-400 [&>select]:box-border [&>select]:h-10 [&>select]:w-full [&>select]:rounded-xl [&>select]:border [&>select]:border-solid [&>select]:border-neutral-200 [&>select]:bg-white [&>select]:px-3 [&>select]:text-xs [&>select]:font-semibold [&>select]:normal-case [&>select]:tracking-normal [&>select]:text-neutral-900 [&>select]:shadow-sm [&>select]:outline-none [&>select:focus]:border-emerald-500 [&>select:focus]:ring-2 [&>select:focus]:ring-emerald-100">{children}</span></label>;
+  return <label className="flex min-w-0 flex-col gap-1 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-500">{label}<span className="[&>input]:box-border [&>input]:h-10 [&>input]:w-full [&>input]:rounded-md [&>input]:border [&>input]:border-solid [&>input]:border-neutral-200 [&>input]:bg-white [&>input]:px-3 [&>input]:text-xs [&>input]:font-semibold [&>input]:normal-case [&>input]:tracking-normal [&>input]:text-neutral-900 [&>input]:shadow-sm [&>input]:outline-none [&>input]:transition [&>input::placeholder]:font-normal [&>input::placeholder]:text-neutral-400 [&>input:focus]:border-emerald-500 [&>input:focus]:ring-2 [&>input:focus]:ring-emerald-100 [&>input:disabled]:bg-neutral-100 [&>input:disabled]:text-neutral-400 [&>select]:box-border [&>select]:h-10 [&>select]:w-full [&>select]:rounded-md [&>select]:border [&>select]:border-solid [&>select]:border-neutral-200 [&>select]:bg-white [&>select]:px-3 [&>select]:text-xs [&>select]:font-semibold [&>select]:normal-case [&>select]:tracking-normal [&>select]:text-neutral-900 [&>select]:shadow-sm [&>select]:outline-none [&>select:focus]:border-emerald-500 [&>select:focus]:ring-2 [&>select:focus]:ring-emerald-100">{children}</span></label>;
 }

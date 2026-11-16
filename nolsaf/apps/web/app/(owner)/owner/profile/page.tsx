@@ -50,7 +50,7 @@ function EditableInfoItem({
 
   if (editing) {
     return (
-      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-solid border-[#02665e]/25 bg-[#02665e]/[0.03] p-3.5">
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-md border border-solid border-[#02665e]/25 bg-[#02665e]/[0.03] p-3.5">
         <div className="flex items-center justify-between gap-1 mb-1.5 w-full min-w-0 max-w-full">
           <div className="text-xs font-medium text-slate-500">{label}</div>
           <button
@@ -69,7 +69,7 @@ function EditableInfoItem({
             onChange={(e) => onChange(fieldKey, e.target.value)}
             autoFocus
             onBlur={onStopEdit}
-            className="block w-full min-w-0 max-w-full box-border rounded-md border border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-medium text-slate-800 focus:border-[#02665e] focus:bg-white focus:outline-none focus:ring-0"
+            className="block w-full min-w-0 max-w-full box-border rounded-md border border-solid border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-medium text-slate-800 focus:border-[#02665e] focus:bg-white focus:outline-none focus:ring-0"
           >
             <option value="">Select</option>
             {selectOptions.map((o) => (
@@ -83,7 +83,7 @@ function EditableInfoItem({
             autoFocus
             onBlur={onStopEdit}
             rows={3}
-            className="block w-full min-w-0 max-w-full resize-none box-border rounded-md border border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-medium text-slate-800 focus:border-[#02665e] focus:bg-white focus:outline-none focus:ring-0"
+            className="block w-full min-w-0 max-w-full resize-none box-border rounded-md border border-solid border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-medium text-slate-800 focus:border-[#02665e] focus:bg-white focus:outline-none focus:ring-0"
           />
         ) : (
           <input
@@ -93,7 +93,7 @@ function EditableInfoItem({
             autoFocus
             onBlur={onStopEdit}
             onKeyDown={(e) => { if (e.key === "Enter") onStopEdit(); }}
-            className="block w-full min-w-0 max-w-full box-border rounded-md border border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-medium text-slate-800 focus:border-[#02665e] focus:bg-white focus:outline-none focus:ring-0"
+            className="block w-full min-w-0 max-w-full box-border rounded-md border border-solid border-[#02665e]/30 bg-[#02665e]/5 px-3 py-2.5 text-sm font-medium text-slate-800 focus:border-[#02665e] focus:bg-white focus:outline-none focus:ring-0"
           />
         )}
         </div>
@@ -102,7 +102,7 @@ function EditableInfoItem({
   }
 
   return (
-    <div className="group flex h-full min-w-0 items-start gap-3 overflow-hidden rounded-xl border border-solid border-slate-300 bg-white p-3.5 transition-colors hover:border-slate-400">
+    <div className="group flex h-full min-w-0 items-start gap-3 overflow-hidden rounded-md border border-solid border-slate-300 bg-white p-3.5 transition-colors hover:border-slate-400">
       <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e]/[0.06] text-[#02665e] [&>svg]:h-4 [&>svg]:w-4">
         {icon}
       </div>
@@ -809,7 +809,7 @@ export default function OwnerProfile() {
   if (error) {
     return (
       <div className="w-full max-w-full">
-        <div className="rounded-md bg-red-50 border-2 border-red-200 p-4">
+        <div className="rounded-md bg-red-50 border-2 border-solid border-red-200 p-4">
           <div className="text-sm font-medium text-red-800">Error loading profile: {error}</div>
         </div>
       </div>
@@ -844,7 +844,7 @@ export default function OwnerProfile() {
 
       {/* -- Identity band: who this account is, and what is left to do ---- */}
 
-      <div id="owner-identity" className="mb-5 overflow-hidden rounded-2xl bg-[#012a26] text-white">
+      <div id="owner-identity" className="mb-5 overflow-hidden rounded-lg bg-[#012a26] text-white">
         <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div className="flex min-w-0 items-center gap-4">
             <Link
@@ -877,7 +877,7 @@ export default function OwnerProfile() {
             </div>
 
             <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9fd8cc]">Property owner</p>
+              <p className="m-0 text-[12px] font-semibold text-[#9fd8cc]">Property owner</p>
               <h1 className="m-0 mt-0.5 truncate text-xl font-semibold tracking-tight text-white sm:text-2xl">
                 {displayName && displayName !== '—' ? displayName : 'My profile'}
               </h1>
@@ -916,7 +916,7 @@ export default function OwnerProfile() {
 
       {(success || error) && (
 
-        <div className={`mb-5 rounded-2xl border px-5 py-3.5 text-sm font-semibold ${success ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
+        <div className={`mb-5 rounded-lg border px-5 py-3.5 text-sm font-semibold ${success ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-rose-50 border-rose-200 text-rose-800"}`}>
 
           {success ?? error}
 
@@ -932,7 +932,7 @@ export default function OwnerProfile() {
 
         {/* -- Personal details -------------------------------------------- */}
 
-        <div id="owner-personal" className="lg:col-span-12 min-w-0 scroll-mt-24 overflow-hidden rounded-2xl border border-solid border-slate-300 bg-white">
+        <div id="owner-personal" className="lg:col-span-12 min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-solid border-slate-300 bg-white">
 
           <div className="flex flex-col gap-3 border-0 border-b border-solid border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -958,7 +958,7 @@ export default function OwnerProfile() {
                     } catch (err: any) { setError(err?.response?.data?.error || 'Failed to send verification email'); }
                     finally { setVerifyingEmail(false); }
                   }}
-                  className="inline-flex min-h-8 w-fit items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-medium text-slate-600 transition hover:border-[#02665e]/30 hover:text-[#02665e] disabled:opacity-50">
+                  className="inline-flex min-h-8 w-fit items-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white px-2.5 text-[11px] font-medium text-slate-600 transition hover:border-[#02665e]/30 hover:text-[#02665e] disabled:opacity-50">
                   <ShieldCheck className="h-3.5 w-3.5" />{verifyingEmail ? 'Sending...' : 'Verify email'}
                 </button>
               )
@@ -989,7 +989,7 @@ export default function OwnerProfile() {
 
         {/* The payout account is managed in Payouts (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md). */}
         <div id="owner-payout" className="lg:col-span-12 scroll-mt-24">
-          <div className="flex flex-col gap-3 rounded-2xl border border-solid border-slate-300 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-lg border border-solid border-slate-300 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="text-[15px] font-semibold text-slate-900">Payout account</div>
               <div className="mt-0.5 text-[13px] text-slate-500">
@@ -1008,7 +1008,7 @@ export default function OwnerProfile() {
 
         {/* -- Required documents ------------------------------------------ */}
 
-        <div id="owner-documents" className="lg:col-span-12 scroll-mt-24 overflow-hidden rounded-2xl border border-solid border-slate-300 bg-white">
+        <div id="owner-documents" className="lg:col-span-12 scroll-mt-24 overflow-hidden rounded-lg border border-solid border-slate-300 bg-white">
 
           <div className="border-0 border-b border-solid border-slate-200 px-5 py-4">
 
@@ -1038,16 +1038,16 @@ export default function OwnerProfile() {
 
               <div className="space-y-1">
 
-                {docError  && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">{docError}</div>}
+                {docError  && <div className="rounded-md border border-solid border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700">{docError}</div>}
 
-                {docSuccess && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700">{docSuccess}</div>}
+                {docSuccess && <div className="rounded-md border border-solid border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700">{docSuccess}</div>}
 
               </div>
 
             )}
 
             {documentsUnavailable && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+              <div className="rounded-md border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
                 Saved document status could not be loaded. Your existing uploads have not been removed; refresh the page to try again.
               </div>
             )}
@@ -1058,7 +1058,7 @@ export default function OwnerProfile() {
 
             {showUploader && (
 
-              <div className="rounded-xl border border-solid border-slate-300 bg-slate-50/60 p-4">
+              <div className="rounded-md border border-solid border-slate-300 bg-slate-50/60 p-4">
 
                 <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(200px,1fr)_auto]">
 
@@ -1092,7 +1092,7 @@ export default function OwnerProfile() {
                     onClick={() => docInputRef.current?.click()}
                     className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#01564f] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
                     {docUploading
-                      ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />Uploading...</>
+                      ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-solid border-white/30 border-t-white" aria-hidden />Uploading...</>
                       : <><Upload className="h-4 w-4" aria-hidden />Choose file</>}
                   </button>
 
@@ -1106,7 +1106,7 @@ export default function OwnerProfile() {
 
             {!showUploader && !documentsUnavailable && (
 
-              <div className="flex items-center gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50/50 px-4 py-3">
+              <div className="flex items-center gap-3 rounded-md border border-solid border-emerald-200 bg-emerald-50/50 px-4 py-3">
                 <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
                 <div>
                   <div className="text-sm font-semibold text-slate-900">All required documents uploaded</div>
@@ -1120,7 +1120,7 @@ export default function OwnerProfile() {
 
             {/* Document status list */}
 
-            <div className="overflow-hidden rounded-xl border border-solid border-slate-300 divide-y divide-slate-200 [&>*+*]:border-0 [&>*+*]:border-t [&>*+*]:border-solid [&>*+*]:border-slate-200">
+            <div className="overflow-hidden rounded-md border border-solid border-slate-300 divide-y divide-slate-200 [&>*+*]:border-0 [&>*+*]:border-t [&>*+*]:border-solid [&>*+*]:border-slate-200">
 
               {requiredDocTypes.map((item) => {
 
@@ -1217,7 +1217,7 @@ export default function OwnerProfile() {
 
         {/* -- Account: settings rows, with delete kept apart ------------- */}
 
-        <div className="lg:col-span-12 overflow-hidden rounded-2xl border border-solid border-slate-300 bg-white">
+        <div className="lg:col-span-12 overflow-hidden rounded-lg border border-solid border-slate-300 bg-white">
           <div className="border-0 border-b border-solid border-slate-200 px-5 py-4">
             <div className="text-[15px] font-semibold text-slate-900">Account</div>
             <div className="mt-0.5 text-[13px] text-slate-500">Sign-in and session.</div>
@@ -1242,7 +1242,7 @@ export default function OwnerProfile() {
           </button>
         </div>
 
-        <div className="lg:col-span-12 flex flex-col gap-3 rounded-2xl border border-solid border-rose-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="lg:col-span-12 flex flex-col gap-3 rounded-lg border border-solid border-rose-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-rose-700">Delete account</div>
             <div className="mt-0.5 text-xs text-slate-500">Permanently remove this owner account. You will be asked to confirm.</div>
@@ -1258,7 +1258,7 @@ export default function OwnerProfile() {
 
         {/* -- Audit / Change history -------------------------------------- */}
 
-        <div className="lg:col-span-12 overflow-hidden rounded-2xl border border-solid border-slate-300 bg-white">
+        <div className="lg:col-span-12 overflow-hidden rounded-lg border border-solid border-slate-300 bg-white">
 
           <div className="border-0 border-b border-solid border-slate-200 px-5 py-4">
 
@@ -1284,7 +1284,7 @@ export default function OwnerProfile() {
 
               <div className="py-10 flex flex-col items-center gap-3 text-center">
 
-                <div className="h-14 w-14 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center"><History className="h-6 w-6 text-slate-300" /></div>
+                <div className="h-14 w-14 rounded-lg border border-solid border-slate-200 bg-slate-50 flex items-center justify-center"><History className="h-6 w-6 text-slate-300" /></div>
 
                 <div className="text-sm font-semibold text-slate-600">No changes recorded yet</div>
 
@@ -1308,7 +1308,7 @@ export default function OwnerProfile() {
 
                     return (
 
-                      <div key={log.id} className={`p-4 rounded-2xl border ${impactCls}`}>
+                      <div key={log.id} className={`p-4 rounded-lg border border-solid ${impactCls}`}>
 
                         <div className="flex items-start justify-between gap-3 mb-2">
 
@@ -1338,7 +1338,7 @@ export default function OwnerProfile() {
 
                             {log.changedFields.map((f: string, i: number) => (
 
-                              <span key={i} className="px-2 py-0.5 rounded-md text-xs bg-white border border-slate-200 text-slate-700">{fLabels[f] || f}</span>
+                              <span key={i} className="px-2 py-0.5 rounded-md text-xs bg-white border border-solid border-slate-200 text-slate-700">{fLabels[f] || f}</span>
 
                             ))}
 
@@ -1360,7 +1360,7 @@ export default function OwnerProfile() {
 
                   <button onClick={() => setShowAllAuditHistory(!showAllAuditHistory)}
 
-                    className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-200 transition-colors">
+                    className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 rounded-lg border border-solid border-slate-200 transition-colors">
 
                     {showAllAuditHistory ? <><ChevronUp className="h-4 w-4" />Show less</> : <><ChevronDown className="h-4 w-4" />View {auditHistory.length - 3} more</>}
 
@@ -1389,7 +1389,7 @@ export default function OwnerProfile() {
           aria-labelledby="contact-change-title"
           className="fixed inset-0 z-[9999] flex items-start justify-center overflow-y-auto bg-slate-950/55 px-3 py-4 backdrop-blur-[2px] sm:items-center sm:p-5"
         >
-          <div className="relative my-auto w-full max-w-[420px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_70px_-24px_rgba(15,23,42,0.45)]">
+          <div className="relative my-auto w-full max-w-[420px] overflow-hidden rounded-md border border-solid border-slate-200 bg-white shadow-[0_24px_70px_-24px_rgba(15,23,42,0.45)]">
             <div className="flex items-start justify-between gap-3 px-4 pb-3 pt-4 sm:px-5 sm:pt-5">
               <div className="flex min-w-0 items-start gap-2.5">
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#02665e]/10 text-[#02665e]">
@@ -1410,7 +1410,7 @@ export default function OwnerProfile() {
               </button>
             </div>
 
-            <div className="space-y-3 border-t border-slate-100 px-4 py-4 sm:px-5">
+            <div className="border-0 space-y-3 border-t border-solid border-slate-100 px-4 py-4 sm:px-5">
               {(contactChange.stage === "ENTER" || contactChange.stage === "STEP_UP") && (
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-medium text-slate-600">New {contactChange.field === "email" ? "email address" : "phone number"}</span>
@@ -1420,14 +1420,14 @@ export default function OwnerProfile() {
                     value={contactChange.value}
                     onChange={(event) => setContactChange((current) => current ? { ...current, value: event.target.value } : current)}
                     disabled={contactChangeLoading || contactChange.stage === "STEP_UP"}
-                    className="box-border h-10 min-h-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm text-slate-800 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10 disabled:bg-slate-100"
+                    className="box-border h-10 min-h-0 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 py-0 text-sm text-slate-800 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10 disabled:bg-slate-100"
                     autoComplete={contactChange.field === "email" ? "email" : "tel"}
                   />
                 </label>
               )}
 
               {contactChange.stage === "ENTER" && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-[#02665e]/15 bg-[#02665e]/[0.04] px-3 py-2.5 text-xs leading-4 text-slate-600">
+                <div className="flex items-start gap-2.5 rounded-lg border border-solid border-[#02665e]/15 bg-[#02665e]/[0.04] px-3 py-2.5 text-xs leading-4 text-slate-600">
                   <ShieldCheck className="mt-px h-4 w-4 shrink-0 text-[#02665e]" />
                   <p className="m-0">
                     <span className="font-medium text-slate-700">Two-step protection:</span>{" "}
@@ -1438,7 +1438,7 @@ export default function OwnerProfile() {
 
               {contactChange.stage === "STEP_UP" && (
                 <div className="space-y-3">
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-4 text-amber-800">
+                  <div className="rounded-lg border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-4 text-amber-800">
                     No mature verified contact is available. Use an independent account credential to continue.
                   </div>
                   {contactChange.methods.password && (
@@ -1446,7 +1446,7 @@ export default function OwnerProfile() {
                       <span className="mb-1.5 block text-xs font-medium text-slate-700">Current password</span>
                       <input type="password" value={contactChange.currentPassword}
                         onChange={(event) => setContactChange((current) => current ? { ...current, currentPassword: event.target.value, totpCode: "" } : current)}
-                        className="box-border h-10 min-h-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm text-slate-800 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10" autoComplete="current-password" />
+                        className="box-border h-10 min-h-0 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 py-0 text-sm text-slate-800 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10" autoComplete="current-password" />
                     </label>
                   )}
                   {contactChange.methods.totp && (
@@ -1454,7 +1454,7 @@ export default function OwnerProfile() {
                       <span className="mb-1.5 block text-xs font-medium text-slate-700">Authenticator code</span>
                       <input type="text" inputMode="numeric" value={contactChange.totpCode}
                         onChange={(event) => setContactChange((current) => current ? { ...current, totpCode: event.target.value.replace(/\D/g, "").slice(0, 6), currentPassword: "" } : current)}
-                        className="box-border h-10 min-h-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-sm tracking-[0.18em] text-slate-800 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10" autoComplete="one-time-code" />
+                        className="box-border h-10 min-h-0 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 py-0 text-sm tracking-[0.18em] text-slate-800 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10" autoComplete="one-time-code" />
                     </label>
                   )}
                 </div>
@@ -1462,7 +1462,7 @@ export default function OwnerProfile() {
 
               {(contactChange.stage === "AUTHORIZE_EXISTING" || contactChange.stage === "VERIFY_NEW") && (
                 <div className="space-y-3">
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs leading-4 text-emerald-800">
+                  <div className="rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs leading-4 text-emerald-800">
                     {contactChange.stage === "AUTHORIZE_EXISTING"
                       ? `Authorization code sent to your existing trusted contact: ${contactChange.sentTo}.`
                       : `Verification code sent to the new contact: ${contactChange.sentTo}.`}
@@ -1472,29 +1472,29 @@ export default function OwnerProfile() {
                     <input type="text" inputMode="numeric" value={contactChange.code} autoFocus
                       onChange={(event) => setContactChange((current) => current ? { ...current, code: event.target.value.replace(/\D/g, "").slice(0, 6) } : current)}
                       onKeyDown={(event) => { if (event.key === "Enter" && contactChange.code.length === 6) void submitContactChangeCode(); }}
-                      className="box-border h-10 min-h-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-0 text-center text-sm font-medium tracking-[0.3em] text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10" autoComplete="one-time-code" />
+                      className="box-border h-10 min-h-0 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 py-0 text-center text-sm font-medium tracking-[0.3em] text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10" autoComplete="one-time-code" />
                   </label>
                 </div>
               )}
 
               {contactChangeError && (
-                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs leading-4 text-rose-700">{contactChangeError}</div>
+                <div className="rounded-lg border border-solid border-rose-200 bg-rose-50 px-3 py-2.5 text-xs leading-4 text-rose-700">{contactChangeError}</div>
               )}
             </div>
 
-            <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 border-t border-slate-100 px-4 py-3 sm:flex sm:justify-end sm:px-5">
+            <div className="border-0 grid grid-cols-[auto_minmax(0,1fr)] gap-2 border-t border-solid border-slate-100 px-4 py-3 sm:flex sm:justify-end sm:px-5">
               <button type="button" onClick={() => setContactChange(null)} disabled={contactChangeLoading}
-                className="h-9 appearance-none rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-600 shadow-none hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+                className="h-9 appearance-none rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm font-medium text-slate-600 shadow-none hover:bg-slate-50 disabled:opacity-50">Cancel</button>
               {(contactChange.stage === "ENTER" || contactChange.stage === "STEP_UP") ? (
                 <button type="button" onClick={requestSecureContactChange} disabled={contactChangeLoading || !contactChange.value.trim() || (contactChange.stage === "STEP_UP" && !contactChange.currentPassword && contactChange.totpCode.length !== 6)}
                   className="inline-flex h-9 min-w-0 appearance-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border-0 bg-[#02665e] px-3 text-sm font-medium text-white shadow-none hover:bg-[#01564f] disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-36">
-                  {contactChangeLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Lock className="h-4 w-4" />}
+                  {contactChangeLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-solid border-white/30 border-t-white" /> : <Lock className="h-4 w-4" />}
                   Continue
                 </button>
               ) : (
                 <button type="button" onClick={submitContactChangeCode} disabled={contactChangeLoading || contactChange.code.length !== 6}
                   className="inline-flex h-9 min-w-0 appearance-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border-0 bg-[#02665e] px-3 text-sm font-medium text-white shadow-none hover:bg-[#01564f] disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-36">
-                  {contactChangeLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <ShieldCheck className="h-4 w-4" />}
+                  {contactChangeLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-solid border-white/30 border-t-white" /> : <ShieldCheck className="h-4 w-4" />}
                   {contactChange.stage === "AUTHORIZE_EXISTING" ? "Authorize change" : "Confirm new contact"}
                 </button>
               )}
@@ -1513,12 +1513,12 @@ export default function OwnerProfile() {
           onClick={(e) => { if (e.target === e.currentTarget) setDeleteOpen(false); }}
         >
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" aria-hidden />
-          <div className="relative w-full max-w-sm rounded-3xl bg-white shadow-2xl overflow-hidden">
+          <div className="relative w-full max-w-sm rounded-lg bg-white shadow-2xl overflow-hidden">
             <div className="h-1 w-full bg-gradient-to-r from-rose-500 to-rose-600" />
 
             {deleteStep === 'confirm' && (
               <div className="p-6">
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 border border-rose-100">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-rose-50 border border-solid border-rose-100">
                   <Trash2 className="h-6 w-6 text-rose-600" />
                 </div>
                 <h2 className="text-center text-lg font-bold text-slate-900">Delete your account?</h2>
@@ -1526,7 +1526,7 @@ export default function OwnerProfile() {
                   This is{" "}<span className="font-semibold text-rose-600">permanent and irreversible</span>.{" "}
                   Everything linked to your account will be removed.
                 </p>
-                <ul className="mt-4 space-y-2 rounded-2xl border border-rose-100 bg-rose-50/60 px-4 py-3">
+                <ul className="mt-4 space-y-2 rounded-lg border border-solid border-rose-100 bg-rose-50/60 px-4 py-3">
                   {[
                     'Your profile, listings and booking history will be permanently deleted.',
                     'Any active bookings linked to your account will be cancelled.',
@@ -1541,7 +1541,7 @@ export default function OwnerProfile() {
                 <div className="mt-5 flex gap-3">
                   <button
                     onClick={() => setDeleteOpen(false)}
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                    className="flex-1 rounded-lg border border-solid border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
                   >
                     No, keep my account
                   </button>
@@ -1563,7 +1563,7 @@ export default function OwnerProfile() {
                 >
                   <ArrowLeft className="h-3.5 w-3.5" /> Back
                 </button>
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 border border-rose-100">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-rose-50 border border-solid border-rose-100">
                   <ShieldCheck className="h-6 w-6 text-rose-600" />
                 </div>
                 <h2 className="text-center text-lg font-bold text-slate-900">Final confirmation</h2>
@@ -1581,11 +1581,11 @@ export default function OwnerProfile() {
                     placeholder="Type your full name…"
                     value={deleteInput}
                     onChange={(e) => setDeleteInput(e.target.value)}
-                    className="w-48 min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-center placeholder:text-slate-400 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-rose-400/25"
+                    className="w-48 min-w-0 rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2 text-sm text-center placeholder:text-slate-400 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-rose-400/25"
                   />
                 </div>
                 {deleteError && (
-                  <p className="mt-2 rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-xs text-rose-700">{deleteError}</p>
+                  <p className="mt-2 rounded-lg bg-rose-50 border border-solid border-rose-200 px-3 py-2 text-xs text-rose-700">{deleteError}</p>
                 )}
                 <button
                   disabled={deleteInput.trim() !== (form.fullName ?? '').trim() || deleteLoading}
@@ -1601,7 +1601,7 @@ export default function OwnerProfile() {
                       setDeleteError(err?.response?.data?.error ?? err?.message ?? 'Could not delete account. Please try again.');
                     }
                   }}
-                  className="mt-4 w-full rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="mt-4 w-full rounded-md bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {deleteLoading ? 'Deleting…' : 'Permanently delete my account'}
                 </button>

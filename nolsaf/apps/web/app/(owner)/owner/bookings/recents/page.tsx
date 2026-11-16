@@ -16,7 +16,7 @@ export default function RecentBookings() {
       <h1 className="text-2xl font-semibold">Recent Bookings</h1>
       <div className="grid gap-3">
         {list.map(b => (
-          <div key={b.id} className="bg-white border rounded-2xl p-3 flex justify-between">
+          <div key={b.id} className="bg-white border border-solid rounded-lg p-3 flex justify-between">
             <div>
               <div className="font-medium">#{b.id} • {b.property?.title}</div>
               <div className="text-xs opacity-70">{new Date(b.createdAt).toLocaleString()}</div>

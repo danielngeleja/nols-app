@@ -362,7 +362,7 @@ function PaymentsHeader({
       </div>
       <header className="flex flex-col gap-4 pb-5 shadow-[inset_0_-1px_0_0_#e5e7eb] sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3.5">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><CircleDollarSign className="h-5 w-5" /></span>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><CircleDollarSign className="h-5 w-5" /></span>
           <div className="min-w-0">
             <p className="m-0 text-[10px] font-bold text-emerald-700">NoLSAF Payments</p>
             <h1 className="mb-0 mt-1 text-2xl font-bold tracking-tight text-neutral-950">Property payments</h1>
@@ -487,7 +487,7 @@ function PaymentsHome({
     <div className="mx-auto w-full max-w-[1500px] space-y-5 pb-8">
       <header className="flex flex-col gap-4 pb-5 shadow-[inset_0_-1px_0_0_#e5e7eb] sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3.5">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><CircleDollarSign className="h-5 w-5" /></span>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><CircleDollarSign className="h-5 w-5" /></span>
           <div className="min-w-0">
             <p className="m-0 text-[10px] font-bold text-emerald-700">NoLSAF Payments</p>
             <h1 className="mb-0 mt-1 text-2xl font-bold tracking-tight text-neutral-950">Payments</h1>
@@ -499,7 +499,7 @@ function PaymentsHome({
         </span>
       </header>
 
-      <section className="overflow-hidden rounded-2xl bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
+      <section className="overflow-hidden rounded-lg bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
         <div className="px-5 py-4 shadow-[inset_0_-1px_0_0_#f1f5f9] sm:px-6">
           <h2 className="m-0 text-base font-bold text-neutral-950">Property payment setup</h2>
           <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">Each color represents a setup stage. Filter the portfolio, then select a property to open its application, documents and provider status.</p>
@@ -545,10 +545,10 @@ function PaymentsHome({
                   <button
                     type="button"
                     onClick={() => onOpen(property.id)}
-                    className={`group flex min-h-36 w-full appearance-none flex-col items-stretch rounded-2xl border-0 p-4 text-left shadow-sm ring-1 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-2 ${presentation.card}`}
+                    className={`group flex min-h-36 w-full appearance-none flex-col items-stretch rounded-lg border-0 p-4 text-left shadow-sm ring-1 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-2 ${presentation.card}`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm ring-1 ${presentation.icon}`}><Building2 className="h-5 w-5" /></span>
+                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md shadow-sm ring-1 ${presentation.icon}`}><Building2 className="h-5 w-5" /></span>
                       <span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-bold ring-1 ${presentation.badge}`}><span className={`h-1.5 w-1.5 rounded-full ${presentation.dot}`} />{presentation.label}</span>
                     </div>
                     <h3 className="mb-0 mt-4 truncate text-sm font-bold text-neutral-950">{property.title}</h3>
@@ -568,7 +568,7 @@ function PaymentsHome({
           </>
         ) : (
           <div className="px-5 py-12 text-center sm:px-6">
-            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-neutral-50 text-neutral-400 ring-1 ring-neutral-200"><Building2 className="h-5 w-5" /></span>
+            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-neutral-50 text-neutral-400 ring-1 ring-neutral-200"><Building2 className="h-5 w-5" /></span>
             <h3 className="mb-0 mt-4 text-sm font-bold text-neutral-900">No active properties yet</h3>
             <p className="mb-0 mt-1 text-xs text-neutral-500">Activate an approved NRMS property before setting up payments.</p>
           </div>
@@ -1289,19 +1289,19 @@ export default function NrmsPaymentsPage() {
     return (
       <div className="mx-auto w-full max-w-[1500px] space-y-5 pb-8">
         <PaymentsBackButton onBack={backToPayments} />
-        <section className="overflow-hidden rounded-2xl bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
+        <section className="overflow-hidden rounded-lg bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-4 px-5 py-4 sm:px-6">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700 ring-1 ring-amber-200"><Clock3 className="h-5 w-5" /></span>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-700 ring-1 ring-amber-200"><Clock3 className="h-5 w-5" /></span>
             <div className="min-w-[16rem] flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="m-0 text-[10px] font-bold uppercase tracking-[0.17em] text-emerald-700">NRMS property payments</p>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-amber-800 ring-1 ring-amber-200"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" />Setup unavailable</span>
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-amber-800 ring-1 ring-amber-200"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" />Setup unavailable</span>
               </div>
               <h1 className="mb-0 mt-1 text-xl font-bold tracking-tight text-neutral-950">Guest payment setup</h1>
               <p className="mb-0 mt-1 max-w-3xl text-xs leading-5 text-neutral-500">Payment onboarding is currently disabled for {detailProperty.title}. Guest payment collection remains off, and no setup action is required from the property.</p>
               {unavailable.trim().toLowerCase() !== "online payment is not available yet." && <p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-400">{unavailable}</p>}
             </div>
-            <button type="button" onClick={() => void loadOverview()} className="inline-flex h-10 appearance-none items-center gap-2 rounded-xl border-0 bg-white px-3.5 text-xs font-bold text-neutral-600 shadow-sm ring-1 ring-neutral-200 transition hover:bg-emerald-50 hover:text-emerald-800 hover:ring-emerald-300">
+            <button type="button" onClick={() => void loadOverview()} className="inline-flex h-10 appearance-none items-center gap-2 rounded-md border-0 bg-white px-3.5 text-xs font-bold text-neutral-600 shadow-sm ring-1 ring-neutral-200 transition hover:bg-emerald-50 hover:text-emerald-800 hover:ring-emerald-300">
               <RefreshCw className="h-4 w-4" />Check access
             </button>
           </div>
@@ -1324,15 +1324,15 @@ export default function NrmsPaymentsPage() {
       return (
         <div className="mx-auto w-full max-w-[1500px] space-y-5 pb-8">
           <PaymentsBackButton onBack={backToPayments} />
-          <section aria-live="polite" className="mx-auto max-w-4xl overflow-hidden rounded-2xl bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-amber-200">
+          <section aria-live="polite" className="mx-auto max-w-4xl overflow-hidden rounded-lg bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-amber-200">
             <div className="flex flex-col gap-5 bg-amber-50/80 px-5 py-6 sm:flex-row sm:items-center sm:px-7">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-amber-700 shadow-sm ring-1 ring-amber-200">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 shadow-sm ring-1 ring-amber-200">
                 <Clock3 className="h-5 w-5" />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-amber-800">Temporary request limit</p>
-                  {waiting && <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold tabular-nums text-amber-800 ring-1 ring-amber-200">Available in {retryCountdown(retrySeconds)}</span>}
+                  {waiting && <span className="rounded-md bg-white px-2.5 py-1 text-[10px] font-bold tabular-nums text-amber-800 ring-1 ring-amber-200">Available in {retryCountdown(retrySeconds)}</span>}
                 </div>
                 <h1 className="mb-0 mt-2 text-lg font-bold text-neutral-950">{waiting ? "Please wait before trying again" : "You can try again now"}</h1>
                 <p className="mb-0 mt-1 max-w-2xl text-sm leading-6 text-neutral-600">
@@ -1345,7 +1345,7 @@ export default function NrmsPaymentsPage() {
                 type="button"
                 onClick={() => void loadOverview()}
                 disabled={waiting}
-                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-amber-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-amber-800 disabled:cursor-wait disabled:bg-amber-200 disabled:text-amber-700"
+                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-md border-0 bg-amber-700 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-amber-800 disabled:cursor-wait disabled:bg-amber-200 disabled:text-amber-700"
               >
                 {waiting ? <Clock3 className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
                 {waiting ? `Try again in ${retryCountdown(retrySeconds)}` : "Try again now"}
@@ -1362,7 +1362,7 @@ export default function NrmsPaymentsPage() {
     return (
       <div className="mx-auto w-full max-w-[1500px] space-y-5 pb-8">
         <PaymentsBackButton onBack={backToPayments} />
-        <section className="mx-auto max-w-3xl rounded-2xl border border-red-200 bg-red-50 p-5">
+        <section className="mx-auto max-w-3xl rounded-lg border border-red-200 bg-red-50 p-5">
           <div className="flex items-start gap-3"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" /><div><h1 className="m-0 text-base font-bold text-red-900">Payment setup could not be loaded</h1><p className="mb-0 mt-1 text-sm text-red-700">{error ?? "Try again in a moment."}</p><button type="button" onClick={() => void loadOverview()} className="mt-4 inline-flex min-h-9 items-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-700"><RefreshCw className="h-3.5 w-3.5" />Try again</button></div></div>
         </section>
       </div>
@@ -1385,16 +1385,16 @@ export default function NrmsPaymentsPage() {
         detaching={busy === "detach"}
       />
 
-      {message && <div role="status" className="flex items-start gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{message}</div>}
-      {error && <div role="alert" className="flex items-start gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 ring-1 ring-red-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
-      {applicationParam && Number(applicationParam) !== overview.application?.id && <div role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">This notification refers to an earlier payment application. The current application for this property is shown below.</div>}
+      {message && <div role="status" className="flex items-start gap-2 rounded-md bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{message}</div>}
+      {error && <div role="alert" className="flex items-start gap-2 rounded-md bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 ring-1 ring-red-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+      {applicationParam && Number(applicationParam) !== overview.application?.id && <div role="status" className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">This notification refers to an earlier payment application. The current application for this property is shown below.</div>}
 
       {/* Karibu repayments are NoLSAF money too: reconcile them here as well as on Orders. */}
       <KaribuPanel propertyId={detailPropertyId} />
 
-      <section id="application-status" className={`scroll-mt-24 rounded-2xl p-4 ring-1 sm:p-5 ${tone.panel}`}>
+      <section id="application-status" className={`scroll-mt-24 rounded-lg p-4 ring-1 sm:p-5 ${tone.panel}`}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl shadow-sm ring-1 ${tone.icon}`}><StatusIcon className="h-5 w-5" /></span>
+          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md shadow-sm ring-1 ${tone.icon}`}><StatusIcon className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Application status</p><h2 className="mb-0 mt-1 text-lg font-bold text-neutral-950">{status!.label}</h2><p className="mb-0 mt-1 text-sm text-neutral-600">{status!.description}</p></div>
           {nextStep && (
             <span className={`w-fit shrink-0 rounded-lg px-3 py-2 shadow-sm ring-1 ${tone.badge}`}>
@@ -1409,7 +1409,7 @@ export default function NrmsPaymentsPage() {
       </section>
 
       {journey.length > 0 && (
-        <section className="rounded-2xl bg-white p-4 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200 sm:p-5">
+        <section className="rounded-lg bg-white p-4 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200 sm:p-5">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
             <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Setup progress</p>
             <div className="text-right">
@@ -1455,12 +1455,12 @@ export default function NrmsPaymentsPage() {
                     <a
                       href={`#${target}`}
                       title={`Go to ${step.label}`}
-                      className={`group flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 no-underline ring-1 transition hover:shadow-sm hover:no-underline ${stepTone.tile}`}
+                      className={`group flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 no-underline ring-1 transition hover:shadow-sm hover:no-underline ${stepTone.tile}`}
                     >
                       {body}
                     </a>
                   ) : (
-                    <span className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 ring-1 ${stepTone.tile}`}>{body}</span>
+                    <span className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2.5 ring-1 ${stepTone.tile}`}>{body}</span>
                   )}
                 </li>
               );
@@ -1471,9 +1471,9 @@ export default function NrmsPaymentsPage() {
 
       {!overview.subscribed ? (
         overview.reusableMerchants.length > 0 ? (
-          <section className="rounded-2xl bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200 sm:p-7">
+          <section className="rounded-lg bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200 sm:p-7">
             <div className="flex items-start gap-4">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Building2 className="h-5 w-5" /></span>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Building2 className="h-5 w-5" /></span>
               <div className="min-w-0">
                 <h2 className="m-0 text-xl font-bold text-neutral-950">Which company operates this property?</h2>
                 <p className="mb-0 mt-2 max-w-3xl text-sm leading-6 text-neutral-500">Select an existing company only when this property uses the same registered business and TIN. The properties will share one application and payment account.</p>
@@ -1487,10 +1487,10 @@ export default function NrmsPaymentsPage() {
                 const companyName = merchant.legalName?.trim() || merchant.tradingName?.trim() || "Company application draft";
                 const isJoining = busy === "subscribe" && subscribeTarget === merchant.merchantId;
                 return (
-                  <li key={merchant.merchantId} className="group flex min-h-[14rem] flex-col rounded-2xl bg-white p-5 shadow-[0_10px_30px_-28px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200 transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-28px_rgba(15,23,42,0.38)] hover:ring-neutral-300 sm:p-6">
+                  <li key={merchant.merchantId} className="group flex min-h-[14rem] flex-col rounded-lg bg-white p-5 shadow-[0_10px_30px_-28px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200 transition hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-28px_rgba(15,23,42,0.38)] hover:ring-neutral-300 sm:p-6">
                     <div className="flex items-start justify-between gap-4">
-                      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${state.icon}`}><Building2 className="h-5 w-5" /></span>
-                      <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${state.badge}`}><span className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />{state.label}</span>
+                      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${state.icon}`}><Building2 className="h-5 w-5" /></span>
+                      <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-bold ring-1 ${state.badge}`}><span className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />{state.label}</span>
                     </div>
 
                     <div className="mt-4 min-w-0">
@@ -1503,7 +1503,7 @@ export default function NrmsPaymentsPage() {
 
                     <div className="mt-auto flex flex-col gap-3 border-t border-neutral-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-neutral-500"><Building2 className="h-3.5 w-3.5" />{merchant.propertyCount} connected {merchant.propertyCount === 1 ? "property" : "properties"}</span>
-                      <button type="button" onClick={() => subscribe(merchant.merchantId)} disabled={busy !== null || !state.canJoin} className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400">
+                      <button type="button" onClick={() => subscribe(merchant.merchantId)} disabled={busy !== null || !state.canJoin} className="inline-flex min-h-9 shrink-0 items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400">
                         {isJoining ? <Loader2 className="h-4 w-4 animate-spin" /> : state.canJoin ? <ArrowRight className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
                         {isJoining ? "Connecting..." : state.canJoin ? "Choose company" : "Unavailable"}
                       </button>
@@ -1515,27 +1515,27 @@ export default function NrmsPaymentsPage() {
 
             <div className="mt-6 flex flex-col gap-4 border-t border-neutral-200 pt-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-50 text-neutral-600"><Building2 className="h-4 w-4" /></span>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-50 text-neutral-600"><Building2 className="h-4 w-4" /></span>
                 <div><p className="m-0 text-sm font-bold text-neutral-900">Registered under a different company?</p><p className="mb-0 mt-1 max-w-2xl text-[11px] leading-5 text-neutral-500">Start a separate application when this property has a different legal entity or TIN. It will receive its own review and payment account.</p></div>
               </div>
-              <button type="button" onClick={() => subscribe()} disabled={busy !== null} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-white px-4 text-xs font-bold text-neutral-800 ring-1 ring-neutral-300 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400">
+              <button type="button" onClick={() => subscribe()} disabled={busy !== null} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md border-0 bg-white px-4 text-xs font-bold text-neutral-800 ring-1 ring-neutral-300 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400">
                 {busy === "subscribe" && subscribeTarget === "new" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                 {busy === "subscribe" && subscribeTarget === "new" ? "Starting setup..." : "Start separate setup"}
               </button>
             </div>
           </section>
         ) : (
-        <section className="rounded-2xl bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200 sm:p-7">
+        <section className="rounded-lg bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200 sm:p-7">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:items-center">
-            <div><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CircleDollarSign className="h-5 w-5" /></span><h2 className="mb-0 mt-4 text-xl font-bold text-neutral-950">Set up property payments</h2><p className="mb-0 mt-2 max-w-2xl text-sm leading-6 text-neutral-500">Create a private application for this property. You will review the business details, link the documents already held in My Profile, and accept the payment policy before submitting.</p></div>
-            <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200"><p className="m-0 text-xs font-bold text-neutral-800">Safe starting point</p><p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-500">This creates a draft only. It does not open a wallet, enable checkout, or move money.</p><button type="button" onClick={() => subscribe()} disabled={busy !== null} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{busy === "subscribe" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}{busy === "subscribe" ? "Creating draft" : "Start setup"}</button></div>
+            <div><span className="flex h-11 w-11 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><CircleDollarSign className="h-5 w-5" /></span><h2 className="mb-0 mt-4 text-xl font-bold text-neutral-950">Set up property payments</h2><p className="mb-0 mt-2 max-w-2xl text-sm leading-6 text-neutral-500">Create a private application for this property. You will review the business details, link the documents already held in My Profile, and accept the payment policy before submitting.</p></div>
+            <div className="rounded-md bg-neutral-50 p-4 ring-1 ring-neutral-200"><p className="m-0 text-xs font-bold text-neutral-800">Safe starting point</p><p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-500">This creates a draft only. It does not open a wallet, enable checkout, or move money.</p><button type="button" onClick={() => subscribe()} disabled={busy !== null} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{busy === "subscribe" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}{busy === "subscribe" ? "Creating draft" : "Start setup"}</button></div>
           </div>
         </section>
         )
       ) : (
         <>
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(17rem,0.7fr)]">
-            <section id="setup-details" className="scroll-mt-24 overflow-hidden rounded-xl bg-white ring-1 ring-neutral-200">
+            <section id="setup-details" className="scroll-mt-24 overflow-hidden rounded-md bg-white ring-1 ring-neutral-200">
               <div className="flex items-start gap-3 px-5 py-4 shadow-[inset_0_-1px_0_0_#e5e7eb] sm:px-6">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><Building2 className="h-5 w-5" /></span>
                 <div className="min-w-0">
@@ -1556,7 +1556,7 @@ export default function NrmsPaymentsPage() {
               </div>
               <div className="p-5 sm:p-6">
                 {detailsLock && (
-                  <div className={`mb-5 flex items-start gap-3 rounded-xl p-3.5 ring-1 ${detailsLock.permanent ? "bg-neutral-100 ring-neutral-300" : "bg-blue-50 ring-blue-200"}`}>
+                  <div className={`mb-5 flex items-start gap-3 rounded-md p-3.5 ring-1 ${detailsLock.permanent ? "bg-neutral-100 ring-neutral-300" : "bg-blue-50 ring-blue-200"}`}>
                     <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${detailsLock.permanent ? "bg-white text-neutral-700 ring-1 ring-neutral-300" : "bg-white text-blue-700 ring-1 ring-blue-200"}`}><Lock className="h-4 w-4" /></span>
                     <div className="min-w-0">
                       <p className={`m-0 text-xs font-bold ${detailsLock.permanent ? "text-neutral-900" : "text-blue-900"}`}>{detailsLock.title}</p>
@@ -1589,11 +1589,11 @@ export default function NrmsPaymentsPage() {
                   )}
                 </section>
               </div>
-              <div className="flex flex-col gap-3 bg-neutral-50/70 px-5 py-4 shadow-[inset_0_1px_0_0_#f1f5f9] sm:flex-row sm:items-center sm:justify-between sm:px-6"><p className="m-0 text-[11px] text-neutral-500">{editable ? "Required fields are marked with an asterisk." : detailsLock?.permanent ? "These details are final and cannot be edited." : "Details are locked while this version is under review."}</p><button type="button" onClick={saveDraft} disabled={!editable || !formChanged || busy !== null} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{busy === "save" ? "Saving" : formChanged ? "Save details" : "Details saved"}</button></div>
+              <div className="flex flex-col gap-3 bg-neutral-50/70 px-5 py-4 shadow-[inset_0_1px_0_0_#f1f5f9] sm:flex-row sm:items-center sm:justify-between sm:px-6"><p className="m-0 text-[11px] text-neutral-500">{editable ? "Required fields are marked with an asterisk." : detailsLock?.permanent ? "These details are final and cannot be edited." : "Details are locked while this version is under review."}</p><button type="button" onClick={saveDraft} disabled={!editable || !formChanged || busy !== null} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{busy === "save" ? "Saving" : formChanged ? "Save details" : "Details saved"}</button></div>
             </section>
 
-            <section id="setup-documents" className="scroll-mt-24 rounded-2xl bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200">
-              <div className="px-5 py-4 shadow-[inset_0_-1px_0_0_#f1f5f9]"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><FileCheck2 className="h-5 w-5" /></span><div><h2 className="m-0 text-base font-bold text-neutral-950">Required documents</h2><p className="mb-0 mt-1 text-xs text-neutral-500">Linked securely from My Profile</p></div></div></div>
+            <section id="setup-documents" className="scroll-mt-24 rounded-lg bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200">
+              <div className="px-5 py-4 shadow-[inset_0_-1px_0_0_#f1f5f9]"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><FileCheck2 className="h-5 w-5" /></span><div><h2 className="m-0 text-base font-bold text-neutral-950">Required documents</h2><p className="mb-0 mt-1 text-xs text-neutral-500">Linked securely from My Profile</p></div></div></div>
               <div className="px-5 [&>div+div]:shadow-[inset_0_1px_0_0_#f1f5f9]">
                 {DOCUMENTS.map((required) => {
                   const document = overview.documents.find((item) => item.documentType === required.type);
@@ -1609,12 +1609,12 @@ export default function NrmsPaymentsPage() {
             </section>
           </div>
 
-          <section id="setup-policy" className="scroll-mt-24 rounded-2xl bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200">
-            <div className="flex flex-col gap-3 px-5 py-4 shadow-[inset_0_-1px_0_0_#f1f5f9] sm:flex-row sm:items-center sm:justify-between sm:px-6"><div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><ShieldCheck className="h-5 w-5" /></span><div><h2 className="m-0 text-base font-bold text-neutral-950">Payment policy</h2><p className="mb-0 mt-1 text-xs text-neutral-500">Read the current terms before submitting.</p></div></div>{overview.checklist.policyAccepted && <span className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-100"><Check className="h-3.5 w-3.5" />Current version accepted</span>}</div>
+          <section id="setup-policy" className="scroll-mt-24 rounded-lg bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200">
+            <div className="flex flex-col gap-3 px-5 py-4 shadow-[inset_0_-1px_0_0_#f1f5f9] sm:flex-row sm:items-center sm:justify-between sm:px-6"><div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><ShieldCheck className="h-5 w-5" /></span><div><h2 className="m-0 text-base font-bold text-neutral-950">Payment policy</h2><p className="mb-0 mt-1 text-xs text-neutral-500">Read the current terms before submitting.</p></div></div>{overview.checklist.policyAccepted && <span className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-100"><Check className="h-3.5 w-3.5" />Current version accepted</span>}</div>
             <div className="p-5 sm:p-6">
-              {policyLoading ? <div className="flex min-h-32 items-center justify-center text-xs font-semibold text-neutral-500"><Loader2 className="mr-2 h-4 w-4 animate-spin text-emerald-700" />Loading policy</div> : policyUnavailable ? <div className="rounded-xl bg-amber-50 p-4 ring-1 ring-amber-200"><div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /><div><p className="m-0 text-xs font-bold text-amber-900">Policy not ready</p><p className="mb-0 mt-1 text-xs leading-5 text-amber-800">{policyUnavailable}</p></div></div></div> : policy ? (
+              {policyLoading ? <div className="flex min-h-32 items-center justify-center text-xs font-semibold text-neutral-500"><Loader2 className="mr-2 h-4 w-4 animate-spin text-emerald-700" />Loading policy</div> : policyUnavailable ? <div className="rounded-md bg-amber-50 p-4 ring-1 ring-amber-200"><div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /><div><p className="m-0 text-xs font-bold text-amber-900">Policy not ready</p><p className="mb-0 mt-1 text-xs leading-5 text-amber-800">{policyUnavailable}</p></div></div></div> : policy ? (
                 <>
-                  <button type="button" onClick={() => setPolicyReaderOpen(true)} className="flex w-full items-center gap-3.5 rounded-xl border-0 bg-neutral-50 p-4 text-left ring-1 ring-neutral-200 transition hover:bg-emerald-50 hover:ring-emerald-300">
+                  <button type="button" onClick={() => setPolicyReaderOpen(true)} className="flex w-full items-center gap-3.5 rounded-md border-0 bg-neutral-50 p-4 text-left ring-1 ring-neutral-200 transition hover:bg-emerald-50 hover:ring-emerald-300">
                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 ring-1 ring-neutral-200"><FileText className="h-5 w-5" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-bold text-neutral-950" style={{ fontFamily: POLICY_FONT }}>NoLSAF Merchant Payment Policy</span>
@@ -1632,7 +1632,7 @@ export default function NrmsPaymentsPage() {
                   {!overview.checklist.policyAccepted && (
                     <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <p className="m-0 max-w-2xl text-[11px] leading-5 text-neutral-500">{policyRead ? "Your acceptance is recorded against this exact version." : "Open the policy and read it to the end. Acceptance stays locked until you do."}</p>
-                      <button type="button" onClick={() => { if (!policyRead) { setPolicyReaderOpen(true); return; } setPolicyConfirmed(false); setConfirmation("policy"); }} disabled={busy !== null} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border-0 px-4 text-xs font-bold transition disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 ${policyRead ? "bg-emerald-700 text-white hover:bg-emerald-800" : "bg-white text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-50"}`}>{policyRead ? <><Check className="h-4 w-4" />Accept current policy</> : <><FileText className="h-4 w-4" />Read the policy first</>}</button>
+                      <button type="button" onClick={() => { if (!policyRead) { setPolicyReaderOpen(true); return; } setPolicyConfirmed(false); setConfirmation("policy"); }} disabled={busy !== null} className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md border-0 px-4 text-xs font-bold transition disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 ${policyRead ? "bg-emerald-700 text-white hover:bg-emerald-800" : "bg-white text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-50"}`}>{policyRead ? <><Check className="h-4 w-4" />Accept current policy</> : <><FileText className="h-4 w-4" />Read the policy first</>}</button>
                     </div>
                   )}
                 </>
@@ -1640,7 +1640,7 @@ export default function NrmsPaymentsPage() {
             </div>
           </section>
 
-          <section id="setup-review" className="scroll-mt-24 rounded-2xl bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200 sm:p-6">
+          <section id="setup-review" className="scroll-mt-24 rounded-lg bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200 sm:p-6">
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,23rem)] lg:items-start">
               <div className="min-w-0">
                 <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">Final check</p>
@@ -1648,7 +1648,7 @@ export default function NrmsPaymentsPage() {
                 <p className="mb-0 mt-2 max-w-2xl text-sm leading-6 text-neutral-500">Submission freezes this application version for review. It does not activate online payments or create permission to collect money.</p>
                 <ul className="m-0 mt-4 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2">
                   {submitChecklist.map((entry) => (
-                    <li key={entry.label} className={`flex items-start gap-2.5 rounded-xl px-3 py-2.5 ring-1 ${entry.ready ? "bg-emerald-50/70 ring-emerald-200" : "bg-amber-50 ring-amber-200"}`}>
+                    <li key={entry.label} className={`flex items-start gap-2.5 rounded-md px-3 py-2.5 ring-1 ${entry.ready ? "bg-emerald-50/70 ring-emerald-200" : "bg-amber-50 ring-amber-200"}`}>
                       <span className={`mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${entry.ready ? "bg-emerald-700 text-white" : "bg-amber-600 text-white"}`}>
                         {entry.ready ? <Check className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
                       </span>
@@ -1660,7 +1660,7 @@ export default function NrmsPaymentsPage() {
                   ))}
                 </ul>
               </div>
-              <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
+              <div className="rounded-md bg-neutral-50 p-4 ring-1 ring-neutral-200">
                 <div className="flex items-center justify-between gap-3">
                   <p className="m-0 text-xs font-bold text-neutral-800">Application version {overview.application?.version ?? 1}</p>
                   <span className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] ${overview.checklist.canSubmit ? "bg-emerald-100 text-emerald-800" : "bg-white text-neutral-500 ring-1 ring-neutral-200"}`}>
@@ -1668,7 +1668,7 @@ export default function NrmsPaymentsPage() {
                   </span>
                 </div>
                 <p className="mb-0 mt-1.5 text-[11px] leading-5 text-neutral-500">{overview.checklist.canSubmit ? "Everything required for local review is ready." : editable ? "Complete every item on the left before submitting." : `This application is ${titleCase(overview.application?.status ?? "in review")}.`}</p>
-                <button type="button" onClick={() => setConfirmation("submit")} disabled={!overview.checklist.canSubmit || busy !== null} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"><ShieldCheck className="h-4 w-4" />Submit for review</button>
+                <button type="button" onClick={() => setConfirmation("submit")} disabled={!overview.checklist.canSubmit || busy !== null} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"><ShieldCheck className="h-4 w-4" />Submit for review</button>
                 <p className="mb-0 mt-3 flex items-start gap-1.5 text-[10px] font-semibold leading-4 text-neutral-500"><Lock className="mt-px h-3 w-3 shrink-0" />Once NoLSAF approves, these business details are final and cannot be edited here.</p>
               </div>
             </div>
@@ -1679,9 +1679,9 @@ export default function NrmsPaymentsPage() {
       {policyReaderOpen && policy && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-3 sm:p-6">
           <button type="button" aria-label="Close the payment policy" onClick={() => setPolicyReaderOpen(false)} className="absolute inset-0 border-0 bg-neutral-950/45 backdrop-blur-sm" />
-          <section role="dialog" aria-modal="true" aria-labelledby="policy-reader-title" className="relative flex h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-neutral-200">
+          <section role="dialog" aria-modal="true" aria-labelledby="policy-reader-title" className="relative flex h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-neutral-200">
             <div className="flex items-start gap-3 px-5 py-4 shadow-[inset_0_-1px_0_0_#e5e7eb] sm:px-6">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><ShieldCheck className="h-5 w-5" /></span>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><ShieldCheck className="h-5 w-5" /></span>
               <div className="min-w-0 flex-1">
                 <h2 id="policy-reader-title" className="m-0 text-base font-bold text-neutral-950" style={{ fontFamily: POLICY_FONT }}>NoLSAF Merchant Payment Policy</h2>
                 <p className="mb-0 mt-1 text-[11px] text-neutral-500">Version {policy.policyVersion} · {policy.policyId}</p>
@@ -1754,7 +1754,7 @@ export default function NrmsPaymentsPage() {
             <div className="flex flex-col gap-3 bg-neutral-50/80 px-5 py-3 shadow-[inset_0_1px_0_0_#e5e7eb] sm:flex-row sm:items-center sm:justify-between sm:px-6">
               <p className="m-0 text-[11px] leading-4 text-neutral-500">{overview.checklist.policyAccepted ? `You accepted version ${policy.policyVersion} of this policy.` : policyRead ? "You have reached the end. Accepting records your consent against this exact version." : "Scroll to the end of the document to unlock acceptance."}</p>
               {!overview.checklist.policyAccepted && (
-                <button type="button" onClick={() => { setPolicyReaderOpen(false); setPolicyConfirmed(false); setConfirmation("policy"); }} disabled={busy !== null || !policyRead} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{policyRead ? <><Check className="h-4 w-4" />Accept current policy</> : <>Keep reading to accept</>}</button>
+                <button type="button" onClick={() => { setPolicyReaderOpen(false); setPolicyConfirmed(false); setConfirmation("policy"); }} disabled={busy !== null || !policyRead} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{policyRead ? <><Check className="h-4 w-4" />Accept current policy</> : <>Keep reading to accept</>}</button>
               )}
             </div>
           </section>
@@ -1764,7 +1764,7 @@ export default function NrmsPaymentsPage() {
       {showTinConfirmation && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
           <button type="button" aria-label="Close Company TIN confirmation" onClick={() => setShowTinConfirmation(false)} className="absolute inset-0 border-0 bg-neutral-950/35 backdrop-blur-[2px]" />
-          <section role="dialog" aria-modal="true" aria-labelledby="tin-confirmation-title" className="relative w-full max-w-sm overflow-hidden rounded-xl bg-white shadow-xl ring-1 ring-neutral-200">
+          <section role="dialog" aria-modal="true" aria-labelledby="tin-confirmation-title" className="relative w-full max-w-sm overflow-hidden rounded-md bg-white shadow-xl ring-1 ring-neutral-200">
             <div className="flex items-start gap-3 p-5">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><BadgeCheck className="h-5 w-5" /></span>
               <div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Owner Workspace match</p><h2 id="tin-confirmation-title" className="mb-0 mt-1 text-base font-bold text-neutral-950">Company TIN confirmed</h2><p className="mb-0 mt-2 text-xs leading-5 text-neutral-600">This number matches the Company TIN saved in Owner Workspace. The application will use the same business identity.</p></div>
@@ -1777,14 +1777,14 @@ export default function NrmsPaymentsPage() {
       {confirmation && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
           <button type="button" aria-label="Close confirmation" onClick={() => { setConfirmation(null); setPolicyConfirmed(false); }} className="absolute inset-0 border-0 bg-neutral-950/45 backdrop-blur-sm" />
-          <section role="dialog" aria-modal="true" aria-labelledby="payment-confirmation-title" className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-neutral-200">
+          <section role="dialog" aria-modal="true" aria-labelledby="payment-confirmation-title" className="relative w-full max-w-md overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-neutral-200">
             <div className="flex items-start gap-3 px-5 py-4 shadow-[inset_0_-1px_0_0_#e5e7eb]">
-              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${confirmation === "policy" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"}`}>{confirmation === "policy" ? <FileText className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}</span>
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${confirmation === "policy" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"}`}>{confirmation === "policy" ? <FileText className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}</span>
               <div><h2 id="payment-confirmation-title" className="m-0 text-base font-bold text-neutral-950">{confirmation === "policy" ? "Accept this payment policy?" : "Submit this application?"}</h2><p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">{confirmation === "policy" ? `Your acceptance will be recorded against policy version ${policy?.policyVersion ?? "shown above"}.` : "This application version will be frozen and sent to NoLSAF for review. It cannot be edited while under review."}</p></div>
             </div>
             <div className="px-5 py-4">
               {confirmation === "policy" ? (
-                <label className={`flex cursor-pointer items-start gap-3 rounded-xl p-3.5 ring-1 transition ${policyConfirmed ? "bg-emerald-50/60 ring-emerald-300" : "bg-white ring-neutral-200 hover:ring-emerald-300"}`}>
+                <label className={`flex cursor-pointer items-start gap-3 rounded-md p-3.5 ring-1 transition ${policyConfirmed ? "bg-emerald-50/60 ring-emerald-300" : "bg-white ring-neutral-200 hover:ring-emerald-300"}`}>
                   {/* The native box renders as a near invisible grey square with
                       preflight disabled, so it is drawn below and the input is
                       kept, visually hidden, for keyboard and screen readers. */}
@@ -1795,7 +1795,7 @@ export default function NrmsPaymentsPage() {
                   <span className="text-xs leading-5 text-neutral-700">I have read this policy and I am authorized to accept it for this business.</span>
                 </label>
               ) : (
-                <div className="flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900 ring-1 ring-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Submitting does not activate payment collection. Activation requires a successful provider review.</div>
+                <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-xs leading-5 text-amber-900 ring-1 ring-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />Submitting does not activate payment collection. Activation requires a successful provider review.</div>
               )}
             </div>
             <div className="flex justify-end gap-2 bg-neutral-50/80 px-5 py-3 shadow-[inset_0_1px_0_0_#e5e7eb]">

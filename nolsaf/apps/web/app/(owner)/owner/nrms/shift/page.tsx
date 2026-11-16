@@ -80,7 +80,7 @@ export default function NrmsShiftPage() {
         <button type="button" onClick={() => void load()} className="inline-flex h-9 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 hover:bg-neutral-50"><RefreshCw className="h-4 w-4" />Refresh</button>
       </header>
 
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       {loading && !data ? (
         <div className="flex min-h-[30vh] items-center justify-center text-neutral-300"><Loader2 className="h-6 w-6 animate-spin" /></div>
@@ -89,8 +89,8 @@ export default function NrmsShiftPage() {
           {data.canManageShift ? (
             <ShiftPanel shift={data.shift} handover={data.handover} canManageShift={data.canManageShift} propertyId={selectedPropertyId!} money={money} serviceLabel={serviceLabelForRole(selectedProperty?.nrmsAccessRole)} onChanged={load} />
           ) : (
-            <section className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-200 text-neutral-500"><WalletCards className="h-5 w-5" /></span>
+            <section className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+              <span className="flex h-10 w-10 items-center justify-center rounded-md bg-neutral-200 text-neutral-500"><WalletCards className="h-5 w-5" /></span>
               <div>
                 <p className="m-0 text-[13px] font-bold text-neutral-800">Your role does not run a cash shift</p>
                 <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Shifts and drawers are held by bar and restaurant staff at their assigned outlet.</p>
@@ -103,7 +103,7 @@ export default function NrmsShiftPage() {
               {STEPS.map((step, index) => {
                 const Icon = step.icon;
                 return (
-                  <div key={step.title} className="rounded-2xl border border-neutral-200 bg-white p-4">
+                  <div key={step.title} className="rounded-lg border border-neutral-200 bg-white p-4">
                     <div className="flex items-center gap-2.5">
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Icon className="h-4 w-4" /></span>
                       <span className="text-[10px] font-bold text-neutral-300">0{index + 1}</span>
@@ -117,7 +117,7 @@ export default function NrmsShiftPage() {
           )}
 
           {data.canManageShift && (
-            <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+            <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
               <div className="flex items-center gap-2 border-b border-neutral-100 px-4 py-3">
                 <History className="h-4 w-4 text-emerald-700" />
                 <p className="m-0 text-[13px] font-bold text-neutral-900">My recent shifts</p>

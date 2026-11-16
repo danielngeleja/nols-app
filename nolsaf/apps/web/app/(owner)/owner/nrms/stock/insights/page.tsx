@@ -56,7 +56,7 @@ export default function StockInsightsPage() {
         title="Stock insights"
         subtitle="What each menu item earns, which suppliers raise prices or deliver short, and what is wasted or sitting unsold."
         actions={RANGED.includes(tab) ? (
-          <div className="flex items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-neutral-50 px-2.5 py-2">
+          <div className="flex items-center gap-2 rounded-md border border-solid border-neutral-200 bg-neutral-50 px-2.5 py-2">
             <span className="text-[11px] font-bold uppercase tracking-wide text-neutral-500">Range</span>
             <div className="w-[140px]"><DatePickerField label="From" value={from} allowPast twoMonths={false} size="sm" widthClassName="!w-full" max={to} onChangeAction={(next) => setFrom(next.slice(0, 10))} /></div>
             <span className="text-sm text-neutral-400">to</span>
@@ -131,7 +131,7 @@ function DigestTab({ propertyId }: { propertyId: number }) {
     }
   };
 
-  if (error && !digest) return <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
+  if (error && !digest) return <div className="rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
   if (!digest || !settings) return <div className={`${cardClass} flex min-h-[24vh] items-center justify-center text-neutral-300`}><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
   return (
@@ -172,7 +172,7 @@ function DigestTab({ propertyId }: { propertyId: number }) {
             {([["OFF", "Off", "Check this page when you want"], ["DAILY", "Every morning", "Yesterday's stock news, before the day starts"], ["WEEKLY", "Every week", "One summary of the last seven days"]] as const).map(([value, label, hint]) => {
               const on = frequency === value;
               return (
-                <label key={value} className={`flex items-center gap-3 rounded-xl border border-solid px-3.5 py-3 transition ${settings.canEdit ? "cursor-pointer" : "cursor-default"} ${on ? "border-brand bg-brand/[0.05]" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
+                <label key={value} className={`flex items-center gap-3 rounded-md border border-solid px-3.5 py-3 transition ${settings.canEdit ? "cursor-pointer" : "cursor-default"} ${on ? "border-brand bg-brand/[0.05]" : "border-neutral-200 bg-white hover:border-neutral-300"}`}>
                   <input type="radio" name="digest-frequency" checked={on} disabled={!settings.canEdit} onChange={() => setFrequency(value)} className={radioClass} />
                   <span className="min-w-0">
                     <span className={`block text-sm font-bold ${on ? "text-brand" : "text-neutral-900"}`}>{label}</span>

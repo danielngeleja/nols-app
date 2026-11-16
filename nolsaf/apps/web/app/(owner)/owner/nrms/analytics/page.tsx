@@ -205,13 +205,13 @@ export default function RevenueAnalyticsPage() {
     <main className="mx-auto w-full max-w-[1500px] space-y-5 pb-10">
       <section className="flex flex-wrap items-center justify-between gap-4 px-1 py-2">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
             <BarChart3 className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="m-0 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">Revenue &amp; Analytics</h2>
-              <span className="hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-700 sm:inline-flex"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Live</span>
+              <span className="hidden items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-700 sm:inline-flex"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Live</span>
             </div>
             <p className="mb-0 mt-1 text-xs text-neutral-500">Confirmed value, collections, and outstanding revenue for {selectedProperty?.title ?? "this property"}.</p>
           </div>
@@ -220,7 +220,7 @@ export default function RevenueAnalyticsPage() {
         {/* ml-auto, not justify-between: a lone item on a wrapped flex row
             resolves to flex-start, which pushed this toolbar back to the left. */}
         <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:ml-auto sm:w-auto">
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-1 shadow-sm sm:flex-none">
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-md border border-neutral-200 bg-white p-1 shadow-sm sm:flex-none">
             <CalendarRange className="mx-2 hidden h-3.5 w-3.5 shrink-0 text-neutral-400 md:block" />
             {RANGE_OPTIONS.map((option) => (
               <button
@@ -236,7 +236,7 @@ export default function RevenueAnalyticsPage() {
           </div>
 
           {data && data.currencies.length > 1 && (
-            <label className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 shadow-sm">
+            <label className="inline-flex min-h-10 items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 shadow-sm">
               <CircleDollarSign className="h-3.5 w-3.5 text-neutral-400" />
               <span className="sr-only">Currency</span>
               <select value={selectedCurrency} onChange={(event) => setSelectedCurrency(event.target.value)} className="border-0 bg-transparent p-0 text-xs font-bold outline-none">
@@ -245,14 +245,14 @@ export default function RevenueAnalyticsPage() {
             </label>
           )}
 
-          <button type="button" onClick={() => void loadAnalytics()} disabled={loading} aria-label="Refresh analytics" title="Refresh data" className="inline-flex h-10 w-10 shrink-0 appearance-none items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-500 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-50">
+          <button type="button" onClick={() => void loadAnalytics()} disabled={loading} aria-label="Refresh analytics" title="Refresh data" className="inline-flex h-10 w-10 shrink-0 appearance-none items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-500 shadow-sm transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-50">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
       </section>
 
       {error && (
-        <div role="alert" className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <AlertCircle className="h-5 w-5 shrink-0" />
           <span className="flex-1">{error}</span>
           <button type="button" onClick={() => void loadAnalytics()} className="appearance-none rounded-lg border-0 bg-red-100 px-3 py-2 text-xs font-bold text-red-800">Try again</button>
@@ -260,7 +260,7 @@ export default function RevenueAnalyticsPage() {
       )}
 
       {loading && !analytics ? (
-        <div className="flex min-h-72 items-center justify-center rounded-3xl border border-neutral-200 bg-white text-neutral-500">
+        <div className="flex min-h-72 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-500">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading revenue data…
         </div>
       ) : analytics ? (
@@ -273,7 +273,7 @@ export default function RevenueAnalyticsPage() {
             <KpiCard icon={CircleDollarSign} label="Collection rate" value={`${analytics.collectionRate.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`} note="Collected against confirmed value" tone="violet" />
           </section>
 
-          <section className="grid overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_14px_38px_-34px_rgba(15,23,42,0.45)] sm:grid-cols-2 xl:grid-cols-5">
+          <section className="grid overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_14px_38px_-34px_rgba(15,23,42,0.45)] sm:grid-cols-2 xl:grid-cols-5">
             <MiniKpi label="Reservations" value={String(analytics.reservationCount)} icon={ReceiptText} />
             <MiniKpi label="Guest folios clear" value={String(analytics.fullyPaidCount)} icon={CheckCircle2} />
             <MiniKpi label="Guest folios partial" value={String(analytics.partiallyPaidCount)} icon={Banknote} />
@@ -281,20 +281,20 @@ export default function RevenueAnalyticsPage() {
             <MiniKpi label="Average reservation" value={money(analytics.averageReservationValue)} icon={BarChart3} />
           </section>
 
-          <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
+          <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
             <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h3 className="m-0 text-lg font-bold text-neutral-950">Restaurant, bar &amp; service revenue</h3>
                 <p className="mb-0 mt-1 text-sm text-neutral-500">Every non-voided folio charge is included in confirmed revenue and grouped by operating department.</p>
               </div>
-              <span className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700">{money(analytics.extraChargeRevenue)} total</span>
+              <span className="rounded-md bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700">{money(analytics.extraChargeRevenue)} total</span>
             </div>
             {analytics.chargesByCategory.length ? (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {analytics.chargesByCategory.map((charge) => {
                   const share = analytics.extraChargeRevenue > 0 ? (charge.amount / analytics.extraChargeRevenue) * 100 : 0;
                   return (
-                    <article key={charge.category} className="rounded-2xl border border-neutral-100 bg-neutral-50/70 p-4">
+                    <article key={charge.category} className="rounded-lg border border-neutral-100 bg-neutral-50/70 p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="m-0 truncate text-xs font-bold uppercase tracking-[0.08em] text-neutral-500">{readableCode(charge.category, CHARGE_CATEGORY_LABELS)}</p>
@@ -312,7 +312,7 @@ export default function RevenueAnalyticsPage() {
           </section>
 
           <section className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.8fr)]">
-            <article className="min-w-0 rounded-3xl border border-neutral-200 bg-white p-5 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
+            <article className="min-w-0 rounded-lg border border-neutral-200 bg-white p-5 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
               <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="m-0 text-lg font-bold text-neutral-950">Revenue trend</h3>
@@ -339,7 +339,7 @@ export default function RevenueAnalyticsPage() {
               ) : <EmptyPanel message="No monthly revenue is available for this period." />}
             </article>
 
-            <article className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
+            <article className="rounded-lg border border-neutral-200 bg-white p-5 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
               <h3 className="m-0 text-lg font-bold text-neutral-950">Payment methods</h3>
               <p className="mb-5 mt-1 text-sm text-neutral-500">How collected revenue was received</p>
               {analytics.paymentMethods.length ? (
@@ -347,7 +347,7 @@ export default function RevenueAnalyticsPage() {
                   {analytics.paymentMethods.map((method) => {
                     const share = analytics.collectedRevenue > 0 ? (method.amount / analytics.collectedRevenue) * 100 : 0;
                     return (
-                      <div key={method.method} className="rounded-2xl border border-neutral-100 bg-neutral-50/70 p-3.5">
+                      <div key={method.method} className="rounded-lg border border-neutral-100 bg-neutral-50/70 p-3.5">
                         <div className="flex items-baseline justify-between gap-3">
                           <span className="text-sm font-bold text-neutral-800">{readableCode(method.method, METHOD_LABELS)}</span>
                           <span className="text-sm font-bold tabular-nums text-neutral-950">{money(method.amount)}</span>
@@ -362,13 +362,13 @@ export default function RevenueAnalyticsPage() {
             </article>
           </section>
 
-          <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
+          <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-[0_18px_45px_-38px_rgba(15,23,42,0.5)] sm:p-6">
             <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h3 className="m-0 text-lg font-bold text-neutral-950">Revenue by booking source</h3>
                 <p className="mb-0 mt-1 text-sm text-neutral-500">See which channels are generating reservation value and cash</p>
               </div>
-              <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">{analytics.sources.length} active sources</span>
+              <span className="rounded-md bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">{analytics.sources.length} active sources</span>
             </div>
             {sourceRows.length ? (
               <div className="overflow-x-auto">
@@ -395,7 +395,7 @@ export default function RevenueAnalyticsPage() {
           </section>
         </>
       ) : !error ? (
-        <div className="rounded-3xl border border-dashed border-neutral-300 bg-white px-6 py-20 text-center">
+        <div className="rounded-lg border border-dashed border-neutral-300 bg-white px-6 py-20 text-center">
           <BarChart3 className="mx-auto h-10 w-10 text-neutral-300" />
           <h3 className="mb-0 mt-4 text-lg font-bold text-neutral-800">No revenue recorded yet</h3>
           <p className="mb-0 mt-1 text-sm text-neutral-500">Confirmed, checked-in, and completed reservations will appear here.</p>
@@ -414,7 +414,7 @@ function KpiCard({ icon: Icon, label, value, note, tone }: { icon: typeof Trendi
     violet: "bg-violet-50 text-violet-700",
   };
   return (
-    <article className="flex min-h-[138px] flex-col rounded-xl border border-neutral-200 bg-white p-4 shadow-[0_12px_30px_-30px_rgba(15,23,42,0.45)]">
+    <article className="flex min-h-[138px] flex-col rounded-md border border-neutral-200 bg-white p-4 shadow-[0_12px_30px_-30px_rgba(15,23,42,0.45)]">
       <div className="flex min-w-0 items-center justify-between gap-2.5">
         <p className="m-0 truncate text-[11px] font-semibold leading-4 text-neutral-500">{label}</p>
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}><Icon className="h-3.5 w-3.5" /></span>
@@ -428,12 +428,12 @@ function KpiCard({ icon: Icon, label, value, note, tone }: { icon: typeof Trendi
 function MiniKpi({ label, value, icon: Icon }: { label: string; value: string; icon: typeof ReceiptText }) {
   return (
     <div className="flex min-w-0 items-center gap-3 border-b border-neutral-100 p-4 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-600"><Icon className="h-4 w-4" /></span>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-neutral-100 text-neutral-600"><Icon className="h-4 w-4" /></span>
       <div className="min-w-0"><p className="m-0 text-xs font-semibold text-neutral-500">{label}</p><p className="mb-0 mt-0.5 truncate text-base font-bold text-neutral-950">{value}</p></div>
     </div>
   );
 }
 
 function EmptyPanel({ message, compact = false }: { message: string; compact?: boolean }) {
-  return <div className={`flex items-center justify-center rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 text-center text-sm text-neutral-500 ${compact ? "min-h-36 px-4" : "min-h-64 px-6"}`}>{message}</div>;
+  return <div className={`flex items-center justify-center rounded-lg border border-dashed border-neutral-200 bg-neutral-50 text-center text-sm text-neutral-500 ${compact ? "min-h-36 px-4" : "min-h-64 px-6"}`}>{message}</div>;
 }

@@ -75,7 +75,7 @@ const GROUP_STATUS_CLS: Record<string, string> = {
 };
 
 const inputCls =
-  "h-11 w-full min-w-0 max-w-full box-border rounded-xl border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+  "h-11 w-full min-w-0 max-w-full box-border rounded-md border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 
 // Shared column template for the member table. Header and body rows must use
 // the same string or the columns drift apart. Room and stay dates collapse into
@@ -132,7 +132,7 @@ export function CreateReservationGroupModal({
   return (
     <ModalFrame title="Create reservation group" onClose={onClose} wide>
       <div className="space-y-5">
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
           <div className="flex items-start gap-3">
             <Users className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
             <div className="min-w-0">
@@ -147,9 +147,9 @@ export function CreateReservationGroupModal({
         </label>
         <label className="block text-sm">
           <span className="mb-1.5 block font-semibold text-neutral-700">Front-desk note <span className="font-normal text-neutral-400">(optional)</span></span>
-          <textarea className="box-border min-h-24 w-full min-w-0 max-w-full resize-y rounded-xl border border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Tour leader, arrival transport, shared preferences…" />
+          <textarea className="box-border min-h-24 w-full min-w-0 max-w-full resize-y rounded-md border border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Tour leader, arrival transport, shared preferences…" />
         </label>
-        <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+        <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3">
           <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Members</p>
           <div>
             {reservations.map((reservation) => (
@@ -201,7 +201,7 @@ function AdvisoryCheckbox({
         detail: "text-neutral-500",
       };
   return (
-    <label className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-solid px-3.5 py-3 transition ${t.card}`}>
+    <label className={`flex cursor-pointer items-center justify-between gap-4 rounded-md border border-solid px-3.5 py-3 transition ${t.card}`}>
       <span className="flex min-w-0 items-center gap-3">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${t.icon}`}>
           {tone === "amber" ? <AlertTriangle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
@@ -408,10 +408,10 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
     <ModalFrame title={group?.name || "Reservation group"} onClose={onClose} extraWide>
       {loading ? <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-emerald-700" /></div> : !group ? <p className="py-10 text-center text-sm text-neutral-500">Group not found.</p> : (
         <div className="space-y-5">
-          <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+          <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white shadow-sm">
             <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
                   <Users className="h-[18px] w-[18px]" />
                 </span>
                 <div className="min-w-0">
@@ -426,7 +426,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                   {canOperateGroup && group.sourceBlock?.agentBookingRequestId ? <Link href={`/owner/nrms/agents/requests/${encodeURIComponent(group.sourceBlock.agentBookingRequestReference ?? String(group.sourceBlock.agentBookingRequestId))}/guests`} className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 no-underline hover:underline">Open verified traveller register <ArrowRight className="h-3 w-3" /></Link> : null}
                 </div>
               </div>
-              {canOperateGroup && <div className="grid shrink-0 grid-cols-2 gap-1 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-1">
+              {canOperateGroup && <div className="grid shrink-0 grid-cols-2 gap-1 rounded-md border border-solid border-neutral-200 bg-neutral-50 p-1">
                 <button type="button" onClick={() => setAction("CHECK_IN")} aria-pressed={action === "CHECK_IN"} className={`inline-flex min-h-10 cursor-pointer appearance-none items-center justify-center gap-2 rounded-lg border-0 px-3 text-xs font-bold transition-all ${action === "CHECK_IN" ? "bg-emerald-700 text-white shadow-sm" : "bg-transparent text-neutral-500 hover:bg-white hover:text-neutral-800"}`}><LogIn className="h-3.5 w-3.5" />Check in{confirmedCount > 0 ? ` ${confirmedCount}` : ""}</button>
                 <button type="button" onClick={() => setAction("CHECK_OUT")} aria-pressed={action === "CHECK_OUT"} className={`inline-flex min-h-10 cursor-pointer appearance-none items-center justify-center gap-2 rounded-lg border-0 px-3 text-xs font-bold transition-all ${action === "CHECK_OUT" ? "bg-emerald-700 text-white shadow-sm" : "bg-transparent text-neutral-500 hover:bg-white hover:text-neutral-800"}`}><LogOut className="h-3.5 w-3.5" />Check out{checkedInCount > 0 ? ` ${checkedInCount}` : ""}</button>
               </div>}
@@ -441,9 +441,9 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
               (member) => ["CONFIRMED"].includes(member.status) && (member.rooms.length === 0 || member.rooms.some((room) => !room.roomUnitCode)),
             ).length;
             return (
-              <div className={`flex flex-col gap-3 rounded-2xl border border-solid p-4 sm:flex-row sm:items-center sm:justify-between ${missing > 0 ? "border-amber-200 bg-amber-50/80" : "border-emerald-100 bg-emerald-50/50"}`}>
+              <div className={`flex flex-col gap-3 rounded-lg border border-solid p-4 sm:flex-row sm:items-center sm:justify-between ${missing > 0 ? "border-amber-200 bg-amber-50/80" : "border-emerald-100 bg-emerald-50/50"}`}>
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ${missing > 0 ? "text-amber-700 ring-1 ring-amber-200" : "text-emerald-700 ring-1 ring-emerald-100"}`}>
+                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white shadow-sm ${missing > 0 ? "text-amber-700 ring-1 ring-amber-200" : "text-emerald-700 ring-1 ring-emerald-100"}`}>
                     {missing > 0 ? <BedDouble className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
                   </span>
                   <div className="min-w-0">
@@ -459,7 +459,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                   type="button"
                   onClick={() => setShowRooms(true)}
                   disabled={busy}
-                  className={`inline-flex min-h-10 w-full cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border border-solid px-3.5 text-xs font-bold shadow-sm transition disabled:opacity-50 sm:w-auto ${missing > 0 ? "border-amber-700 bg-amber-700 text-white hover:bg-amber-800" : "border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100"}`}
+                  className={`inline-flex min-h-10 w-full cursor-pointer appearance-none items-center justify-center gap-2 rounded-md border border-solid px-3.5 text-xs font-bold shadow-sm transition disabled:opacity-50 sm:w-auto ${missing > 0 ? "border-amber-700 bg-amber-700 text-white hover:bg-amber-800" : "border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100"}`}
                 >
                   <BedDouble className="h-3.5 w-3.5" /> {missing > 0 ? "Assign rooms" : "Manage rooms"}
                 </button>}
@@ -467,7 +467,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
             );
           })()}
 
-          <div className="overflow-hidden rounded-xl border border-solid border-neutral-200">
+          <div className="overflow-hidden rounded-md border border-solid border-neutral-200">
             <div className={`${groupRowCls} border-0 border-b border-solid border-neutral-200 bg-neutral-50 py-2.5 text-[10px] font-bold uppercase tracking-wide text-neutral-400`}>
               <span>Guest</span>
               <span className="hidden sm:block">Room</span>
@@ -562,18 +562,18 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
             )}
           </div>}
           {canOperateGroup && action === "CHECK_OUT" && earlyDepartureCount > 0 && (
-            <label className="block rounded-xl border border-solid border-amber-200 bg-amber-50/70 p-3 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+            <label className="block rounded-md border border-solid border-amber-200 bg-amber-50/70 p-3 text-[10px] font-bold uppercase tracking-wide text-amber-800">
               Reason for {earlyDepartureCount} early {earlyDepartureCount === 1 ? "departure" : "departures"}
               <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={2} maxLength={300} placeholder="Example: Group changed its travel schedule" className="mt-1.5 box-border w-full resize-none rounded-lg border border-solid border-amber-200 bg-white px-3 py-2 text-xs font-normal normal-case tracking-normal text-neutral-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/10" />
             </label>
           )}
           {canOperateGroup && action === "CHECK_OUT" && earlyDepartureCount > 0 && <NrmsCheckoutPolicyNotice group />}
-          {resultMessage && <p className="m-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{resultMessage}</p>}
-          {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+          {resultMessage && <p className="m-0 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{resultMessage}</p>}
+          {error && <p className="m-0 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
           {canOperateGroup && confirmExecution && preview && (
-            <section className={`rounded-2xl border border-solid p-4 shadow-sm ${action === "CHECK_OUT" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`} aria-label={`Confirm group ${action === "CHECK_OUT" ? "checkout" : "check-in"}`}>
+            <section className={`rounded-lg border border-solid p-4 shadow-sm ${action === "CHECK_OUT" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`} aria-label={`Confirm group ${action === "CHECK_OUT" ? "checkout" : "check-in"}`}>
               <div className="flex items-start gap-3">
-                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ${action === "CHECK_OUT" ? "text-amber-700 ring-amber-200" : "text-emerald-700 ring-emerald-200"}`}>
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white shadow-sm ring-1 ${action === "CHECK_OUT" ? "text-amber-700 ring-amber-200" : "text-emerald-700 ring-emerald-200"}`}>
                   {action === "CHECK_OUT" ? <LogOut className="h-4 w-4" /> : <LogIn className="h-4 w-4" />}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -590,13 +590,13 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                       : `${eligibleCount} ready ${eligibleCount === 1 ? "reservation" : "reservations"} in ${group.name} will be checked in and their assigned rooms will become occupied.`}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold">
-                    <span className="rounded-full border border-white/80 bg-white px-2.5 py-1 text-neutral-700">{eligibleCount} ready</span>
-                    {completedPreviewCount > 0 && <span className="rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-neutral-600">{completedPreviewCount} already complete</span>}
-                    {blockedPreviewCount > 0 && <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-red-700">{blockedPreviewCount} blocked and unchanged</span>}
-                    <span className="rounded-full border border-white/80 bg-white px-2.5 py-1 text-neutral-700">{billingLabel}</span>
+                    <span className="rounded-md border border-white/80 bg-white px-2.5 py-1 text-neutral-700">{eligibleCount} ready</span>
+                    {completedPreviewCount > 0 && <span className="rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-neutral-600">{completedPreviewCount} already complete</span>}
+                    {blockedPreviewCount > 0 && <span className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-red-700">{blockedPreviewCount} blocked and unchanged</span>}
+                    <span className="rounded-md border border-white/80 bg-white px-2.5 py-1 text-neutral-700">{billingLabel}</span>
                   </div>
                   {blockedPreviewCount > 0 && (
-                    <div className="mt-3 overflow-hidden rounded-xl border border-solid border-amber-200 bg-white/90">
+                    <div className="mt-3 overflow-hidden rounded-md border border-solid border-amber-200 bg-white/90">
                       <div className="border-0 border-b border-solid border-amber-100 px-3 py-2">
                         <p className="m-0 text-[10px] font-bold uppercase tracking-[0.1em] text-amber-800">Not included in this action</p>
                       </div>
@@ -625,19 +625,19 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                   )}
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                     {eligibleCount > 0 && (
-                      <button type="button" onClick={() => void execute()} disabled={busy || (action === "CHECK_OUT" && !departureDeclarationReady)} className={`inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border-0 px-4 text-xs font-bold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${action === "CHECK_OUT" ? "bg-amber-700 hover:bg-amber-800" : "bg-emerald-700 hover:bg-emerald-800"}`}>
+                      <button type="button" onClick={() => void execute()} disabled={busy || (action === "CHECK_OUT" && !departureDeclarationReady)} className={`inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border-0 px-4 text-xs font-bold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${action === "CHECK_OUT" ? "bg-amber-700 hover:bg-amber-800" : "bg-emerald-700 hover:bg-emerald-800"}`}>
                         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                         Yes, {action === "CHECK_OUT" ? `check out ${eligibleCount} ready` : "check in group"}
                       </button>
                     )}
-                    <button type="button" onClick={() => setConfirmExecution(false)} disabled={busy} className={`min-h-10 cursor-pointer rounded-xl border border-solid bg-white px-4 text-xs font-bold transition disabled:opacity-50 ${action === "CHECK_OUT" ? "border-amber-300 text-amber-900 hover:bg-amber-100" : "border-emerald-300 text-emerald-900 hover:bg-emerald-100"}`}>Not yet</button>
+                    <button type="button" onClick={() => setConfirmExecution(false)} disabled={busy} className={`min-h-10 cursor-pointer rounded-md border border-solid bg-white px-4 text-xs font-bold transition disabled:opacity-50 ${action === "CHECK_OUT" ? "border-amber-300 text-amber-900 hover:bg-amber-100" : "border-emerald-300 text-emerald-900 hover:bg-emerald-100"}`}>Not yet</button>
                   </div>
                 </div>
               </div>
             </section>
           )}
           {canOperateGroup && terminalAction && (
-            <div className="rounded-xl border border-solid border-red-200 bg-red-50 p-4">
+            <div className="rounded-md border border-solid border-red-200 bg-red-50 p-4">
               <p className="m-0 text-sm font-bold text-red-950">{terminalAction === "cancel" ? "Cancel this entire group?" : "Mark the entire group no-show?"}</p>
               <p className="m-0 mt-1 text-xs leading-5 text-red-800">All {group.memberCount} reservations will release their rooms. Agency room charges will be reversed on the master folio; any resulting credit must then be refunded.</p>
               <textarea value={terminalReason} onChange={(e) => { setTerminalReason(e.target.value); setError(null); }} rows={2} maxLength={300} autoFocus placeholder={terminalAction === "cancel" ? "Cancellation reason" : "No-show reason"} className="mt-3 box-border w-full resize-y rounded-lg border border-solid border-red-200 bg-white px-3 py-2 text-xs outline-none focus:border-red-500" />
@@ -645,7 +645,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
             </div>
           )}
           {canOperateGroup && confirmUngroup && (
-            <div className="rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+            <div className="rounded-md border border-solid border-amber-300 bg-amber-50 p-4">
               <div className="flex items-start gap-3">
                 <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700"><AlertTriangle className="h-4 w-4" /></span>
                 <div className="min-w-0">
@@ -661,21 +661,21 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
               </div>
             </div>
           )}
-          {canOperateGroup && <div className="flex flex-col gap-3 rounded-2xl border border-solid border-neutral-200 bg-neutral-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+          {canOperateGroup && <div className="flex flex-col gap-3 rounded-lg border border-solid border-neutral-200 bg-neutral-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2">
-              {preArrivalGroup && canCancelGroup && <button type="button" onClick={() => { setTerminalAction("cancel"); setTerminalReason(""); }} disabled={busy || terminalAction !== null} className="inline-flex min-h-10 cursor-pointer items-center rounded-xl border border-solid border-red-200 bg-white px-3 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">Cancel group</button>}
-              {confirmedGroup && <button type="button" onClick={() => { setTerminalAction("no-show"); setTerminalReason(""); }} disabled={busy || terminalAction !== null} className="inline-flex min-h-10 cursor-pointer items-center rounded-xl border border-solid border-amber-200 bg-white px-3 text-xs font-bold text-amber-800 hover:bg-amber-50 disabled:opacity-50">Mark no-show</button>}
+              {preArrivalGroup && canCancelGroup && <button type="button" onClick={() => { setTerminalAction("cancel"); setTerminalReason(""); }} disabled={busy || terminalAction !== null} className="inline-flex min-h-10 cursor-pointer items-center rounded-md border border-solid border-red-200 bg-white px-3 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">Cancel group</button>}
+              {confirmedGroup && <button type="button" onClick={() => { setTerminalAction("no-show"); setTerminalReason(""); }} disabled={busy || terminalAction !== null} className="inline-flex min-h-10 cursor-pointer items-center rounded-md border border-solid border-amber-200 bg-white px-3 text-xs font-bold text-amber-800 hover:bg-amber-50 disabled:opacity-50">Mark no-show</button>}
               {agencyBilled ? (
                 <span className="self-center text-xs font-semibold text-neutral-500">Agency billing is locked to {group.sourceBlock?.reference ?? "the source block"}</span>
               ) : confirmUngroup ? (
                 <span className="self-center text-xs font-semibold text-neutral-400">Confirm above to ungroup</span>
               ) : (
-                <button type="button" onClick={() => setConfirmUngroup(true)} disabled={busy} className="inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-xl border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 sm:w-auto">Ungroup</button>
+                <button type="button" onClick={() => setConfirmUngroup(true)} disabled={busy} className="inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-md border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 sm:w-auto">Ungroup</button>
               )}
             </div>
             <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-2">
-              <button type="button" onClick={() => void review()} disabled={busy} className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-solid border-neutral-300 bg-white px-4 text-xs font-bold text-neutral-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />}Review readiness</button>
-              <button type="button" onClick={() => setConfirmExecution(true)} disabled={busy || !preview || confirmExecution} className="inline-flex min-h-11 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none"><Check className="h-3.5 w-3.5" />Review {action === "CHECK_IN" ? "check-in" : "checkout"}{preview ? ` (${eligibleCount} ready)` : ""}</button>
+              <button type="button" onClick={() => void review()} disabled={busy} className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-md border border-solid border-neutral-300 bg-white px-4 text-xs font-bold text-neutral-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />}Review readiness</button>
+              <button type="button" onClick={() => setConfirmExecution(true)} disabled={busy || !preview || confirmExecution} className="inline-flex min-h-11 cursor-pointer appearance-none items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none"><Check className="h-3.5 w-3.5" />Review {action === "CHECK_IN" ? "check-in" : "checkout"}{preview ? ` (${eligibleCount} ready)` : ""}</button>
             </div>
           </div>}
 

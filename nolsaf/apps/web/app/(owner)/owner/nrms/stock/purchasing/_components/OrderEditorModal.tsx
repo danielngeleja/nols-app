@@ -179,7 +179,7 @@ export default function OrderEditorModal({ propertyId, overview, suppliers, init
       )}
     >
       <div className="space-y-5">
-        <section className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-4">
+        <section className="rounded-md border border-solid border-neutral-200 bg-neutral-50/70 p-4">
           <p className="m-0 mb-3 text-[11px] font-bold uppercase tracking-wide text-neutral-500">Order details</p>
           <div className="grid gap-4 md:grid-cols-3">
             <label className={labelClass}>
@@ -204,7 +204,7 @@ export default function OrderEditorModal({ propertyId, overview, suppliers, init
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-solid border-neutral-300">
+        <section className="overflow-hidden rounded-md border border-solid border-neutral-300">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[820px] border-collapse text-sm">
               <thead>

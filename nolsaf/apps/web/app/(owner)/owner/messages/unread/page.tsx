@@ -90,7 +90,7 @@ export default function UnreadMessagesPage() {
           <div className="text-center py-8 text-gray-600">No unread messages.</div>
         ) : (
           items.map((m) => (
-            <article key={m.id} className="border rounded-md p-4">
+            <article key={m.id} className="border border-solid rounded-md p-4">
               <div className="flex items-start justify-between">
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-gray-900 truncate">{m.subject}</h3>
@@ -118,7 +118,7 @@ export default function UnreadMessagesPage() {
           <div className="inline-block">
             {/* import inline to avoid top-level changes in this file; use component path */}
             <a href="/owner/messages" className="inline-flex items-center gap-2 group no-underline hover:no-underline" aria-label="Back to messages">
-              <span className="inline-flex items-center justify-center p-2 rounded-full bg-white border border-gray-200 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+              <span className="inline-flex items-center justify-center p-2 rounded-full bg-white border border-solid border-gray-200 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300">
                 <ArrowLeft className="h-4 w-4 text-gray-700 group-hover:text-blue-600" />
               </span>
               <span className="hidden group-hover:inline-block group-focus:inline-block transition-opacity text-sm text-black no-underline">Back to messages</span>
