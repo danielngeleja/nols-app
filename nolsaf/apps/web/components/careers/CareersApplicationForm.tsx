@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, FileText, Languages, Upload, X, XCircle } from "lucide-react";
 import { REGIONS as TZ_REGIONS } from "@/lib/tzRegions";
 import {
@@ -103,14 +103,10 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
   });
 
   const [languageInput, setLanguageInput] = useState("");
-  const [tourismTypeInput, setTourismTypeInput] = useState("");
-  const [serviceCategoryInput, setServiceCategoryInput] = useState("");
-  const [partnershipServiceInput, setPartnershipServiceInput] = useState("");
   const [serviceSelectionByCategory, setServiceSelectionByCategory] = useState<Record<string, string[]>>({});
   const [toolsAssetInput, setToolsAssetInput] = useState("");
   const [specializationInput, setSpecializationInput] = useState("");
   const [certInput, setCertInput] = useState({ name: "", issuer: "", year: "", expiryDate: "" });
-  const [parkInput, setParkInput] = useState("");
   const [vehicleInput, setVehicleInput] = useState({
     type: "",
     count: "",
@@ -127,6 +123,7 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
   const [currentStep, setCurrentStep] = useState(0);
   const [tourismSites, setTourismSites] = useState<{ id: number; name: string }[]>([]);
   const [tourismSitesLoading, setTourismSitesLoading] = useState(false);
+  const [tourismSitesError, setTourismSitesError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const travelFlowSteps = [
@@ -137,17 +134,30 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
     "Compliance & Submit",
   ];
 
-  useEffect(() => {
-    if (!isTravelAgentPosition) return;
+  // A failed load used to look exactly like an empty list: the dropdown held only
+  // its placeholder and picking "did nothing". Keep the failure visible and retryable.
+  const loadTourismSites = useCallback(() => {
     setTourismSitesLoading(true);
+    setTourismSitesError(false);
     const base = (process.env.NEXT_PUBLIC_API_URL as string) ?? "";
     const url = base ? base.replace(/\/$/, "") + "/api/public/tourism-sites" : "/api/public/tourism-sites";
     fetch(url)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
       .then((data) => setTourismSites(Array.isArray(data.items) ? data.items : []))
-      .catch(() => setTourismSites([]))
+      .catch(() => {
+        setTourismSites([]);
+        setTourismSitesError(true);
+      })
       .finally(() => setTourismSitesLoading(false));
-  }, [isTravelAgentPosition]);
+  }, []);
+
+  useEffect(() => {
+    if (!isTravelAgentPosition) return;
+    loadTourismSites();
+  }, [isTravelAgentPosition, loadTourismSites]);
 
   const districtsForSelectedRegion = useMemo(() => {
     const selected = TZ_REGIONS.find((r) => r.name === formData.region);
@@ -158,12 +168,6 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
   const aboutTooShort = aboutWords > 0 && aboutWords < ABOUT_MIN_WORDS;
   const aboutTooLong = aboutWords > ABOUT_MAX_WORDS;
   const aboutInvalid = aboutWords < ABOUT_MIN_WORDS || aboutWords > ABOUT_MAX_WORDS;
-  const serviceOptionsForCategory = useMemo(() => {
-    if (!serviceCategoryInput) return [] as string[];
-    if (serviceCategoryInput === "COMMON") return COMMON_SERVICES;
-    return TOURISM_TYPE_SERVICES[serviceCategoryInput as keyof typeof TOURISM_TYPE_SERVICES] ?? [];
-  }, [serviceCategoryInput]);
-
   const cleanedServiceClassification = useMemo(() => {
     const next: Record<string, string[]> = {};
     Object.entries(serviceSelectionByCategory).forEach(([category, services]) => {
@@ -254,48 +258,6 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
     });
   };
 
-  const handleAddPartnershipService = () => {
-    const value = String(partnershipServiceInput || "").trim();
-    if (!value) return;
-    if (!serviceCategoryInput) {
-      setError("Choose a service category first (Common or a Tourism Type)");
-      return;
-    }
-    if (!serviceOptionsForCategory.includes(value)) {
-      setError("Select a service that belongs to the chosen category");
-      return;
-    }
-    if (formData.partnershipServices.includes(value)) {
-      setPartnershipServiceInput("");
-      return;
-    }
-    const categoryLabel = serviceCategoryInput === "COMMON" ? "Common Services" : serviceCategoryInput;
-    setFormData({
-      ...formData,
-      partnershipServices: [...formData.partnershipServices, value],
-    });
-    setServiceSelectionByCategory((prev) => ({
-      ...prev,
-      [categoryLabel]: Array.from(new Set([...(prev[categoryLabel] || []), value])),
-    }));
-    setPartnershipServiceInput("");
-    setError(null);
-  };
-
-  const handleAddTourismType = () => {
-    const value = String(tourismTypeInput || "").trim();
-    if (!value) return;
-    if (formData.tourismTypes.includes(value)) {
-      setTourismTypeInput("");
-      return;
-    }
-    setFormData({
-      ...formData,
-      tourismTypes: [...formData.tourismTypes, value],
-    });
-    setTourismTypeInput("");
-  };
-
   const handleRemoveTourismType = (value: string) => {
     const remainingTypes = formData.tourismTypes.filter((item) => item !== value);
     const remainingAllowedServices = getServiceOptionsForTypes(remainingTypes);
@@ -313,10 +275,6 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
       });
       return next;
     });
-    if (serviceCategoryInput === value) {
-      setServiceCategoryInput("");
-      setPartnershipServiceInput("");
-    }
   };
 
   const handleAddToolsAsset = () => {
@@ -337,21 +295,6 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
     setFormData({
       ...formData,
       toolsAndAssets: formData.toolsAndAssets.filter((item) => item !== value),
-    });
-  };
-
-  const handleRemovePartnershipService = (value: string) => {
-    setFormData({
-      ...formData,
-      partnershipServices: formData.partnershipServices.filter((item) => item !== value),
-    });
-    setServiceSelectionByCategory((prev) => {
-      const next: Record<string, string[]> = {};
-      Object.entries(prev).forEach(([category, services]) => {
-        const filtered = services.filter((s) => s !== value);
-        if (filtered.length > 0) next[category] = filtered;
-      });
-      return next;
     });
   };
 
@@ -380,15 +323,46 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
     });
   };
 
-  const handleAddPark = () => {
-    const val = parkInput.trim();
-    if (!val || formData.registeredParks.includes(val)) {
-      setParkInput("");
+  // ── Tick-to-select (operator flow): what looks chosen is chosen. ──
+  const toggleTourismType = (type: string) => {
+    if (formData.tourismTypes.includes(type)) {
+      handleRemoveTourismType(type);
       return;
     }
-    setFormData((prev) => ({ ...prev, registeredParks: [...prev.registeredParks, val] }));
-    setParkInput("");
+    setFormData((prev) => ({ ...prev, tourismTypes: [...prev.tourismTypes, type] }));
   };
+
+  /** A service is ticked per group; it stays in the list while any group still holds it. */
+  const toggleService = (category: string, service: string) => {
+    const inGroup = (serviceSelectionByCategory[category] || []).includes(service);
+    const nextByCategory: Record<string, string[]> = { ...serviceSelectionByCategory };
+    if (inGroup) {
+      nextByCategory[category] = (nextByCategory[category] || []).filter((s) => s !== service);
+      if (!nextByCategory[category].length) delete nextByCategory[category];
+    } else {
+      nextByCategory[category] = Array.from(new Set([...(nextByCategory[category] || []), service]));
+    }
+    const stillHeld = Object.values(nextByCategory).some((list) => list.includes(service));
+    setServiceSelectionByCategory(nextByCategory);
+    setFormData((prev) => ({
+      ...prev,
+      partnershipServices: stillHeld
+        ? Array.from(new Set([...prev.partnershipServices, service]))
+        : prev.partnershipServices.filter((s) => s !== service),
+    }));
+    setError(null);
+  };
+
+  const toggleSpecialization = (spec: string) => {
+    if (!AGENT_SPECIALIZATION_VALUES.has(spec)) return;
+    setFormData((prev) => ({
+      ...prev,
+      specializations: prev.specializations.includes(spec)
+        ? prev.specializations.filter((s) => s !== spec)
+        : [...prev.specializations, spec],
+    }));
+  };
+
 
   const handleRemovePark = (park: string) => {
     setFormData((prev) => ({ ...prev, registeredParks: prev.registeredParks.filter((p) => p !== park) }));
@@ -1093,189 +1067,130 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
           )}
 
           {isTravelAgentPosition && currentStep === 1 && (
-          <div className="w-full box-border rounded-2xl border border-sky-200 bg-sky-50/60 p-4 sm:p-5 space-y-4">
-            <div className="mb-1">
-              <h3 className="text-base font-semibold text-sky-900">Tourism Serving</h3>
-              <p className="text-sm text-slate-500 mt-0.5">Classify the tourism types you serve, your categorised services, and your specializations.</p>
+          <div className="w-full box-border space-y-5 rounded-lg border border-solid border-slate-200 bg-white p-4 sm:p-5">
+            <div>
+              <h3 className="m-0 text-base font-semibold text-slate-900">Tourism you serve</h3>
+              <p className="m-0 mt-0.5 text-sm text-slate-500">Three short steps. Tick what applies; a ticked box is saved, nothing else is.</p>
             </div>
 
+            {/* Step A: tourism types */}
             <div className="min-w-0">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tourism Types <span className="text-red-500">*</span>
-              </label>
-              <p className="text-xs text-gray-500 mb-2">Select the tourism categories your company serves.</p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <select
-                  value={tourismTypeInput}
-                  onChange={(e) => setTourismTypeInput(e.target.value)}
-                  className="min-w-0 flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent box-border bg-white"
-                >
-                  <option value="">Select tourism type</option>
-                  {TOURISM_TYPES.map((tourismType) => {
-                    const alreadySelected = formData.tourismTypes.includes(tourismType);
-                    return (
-                      <option key={tourismType} value={tourismType} disabled={alreadySelected}>
-                        {alreadySelected ? `${tourismType} (selected)` : tourismType}
-                      </option>
-                    );
-                  })}
-                </select>
-                <button type="button"
-                  onClick={handleAddTourismType}
-                  className="w-full px-4 py-2 bg-[#02665e] text-white rounded-lg text-sm font-medium hover:bg-[#014d47] transition-colors sm:w-auto"
-                >
-                  Add
-                </button>
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="m-0 text-sm font-semibold text-slate-800">
+                  1. Tourism types <span className="text-red-500">*</span>
+                </p>
+                <span className="text-xs text-slate-500">{formData.tourismTypes.length} selected</span>
               </div>
-              {formData.tourismTypes.length > 0 && (
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {formData.tourismTypes.map((tourismType) => (
-                    <span
-                      key={tourismType}
-                      className={`inline-flex items-center justify-between gap-1 px-3 py-1.5 bg-sky-100 text-sky-800 rounded-lg text-sm${tourismType.length > 22 ? " col-span-2" : ""}`}
+              <p className="m-0 mt-0.5 text-xs text-slate-500">The kinds of tourism your company serves.</p>
+              <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Tourism types">
+                {TOURISM_TYPES.map((type) => {
+                  const on = formData.tourismTypes.includes(type);
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      onClick={() => toggleTourismType(type)}
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-solid px-3 py-1.5 text-sm transition-colors ${on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white text-slate-700 hover:border-[#02665e]/60"}`}
                     >
-                      <span className="truncate">{tourismType}</span>
-                      <button type="button" onClick={() => handleRemoveTourismType(tourismType)} className="shrink-0 hover:text-sky-900">
-                        <XCircle className="h-4 w-4" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
+                      <span className={`inline-flex h-4 w-4 items-center justify-center rounded border border-solid ${on ? "border-white bg-white text-[#02665e]" : "border-slate-300 bg-white"}`}>
+                        {on ? <CheckCircle2 className="h-3 w-3" /> : null}
+                      </span>
+                      {type}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="min-w-0">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Your Company Services <span className="text-red-500">*</span>
-              </label>
-              <p className="text-xs text-gray-500 mb-2">
-                Services are classified by category. Choose a tourism type (or common services), then choose the matching service.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                <select
-                  value={serviceCategoryInput}
-                  onChange={(e) => {
-                    setServiceCategoryInput(e.target.value);
-                    setPartnershipServiceInput("");
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent box-border bg-white"
-                >
-                  <option value="">Select service category</option>
-                  <option value="COMMON">Common Services</option>
-                  {formData.tourismTypes.map((tourismType) => (
-                    <option key={tourismType} value={tourismType}>
-                      {tourismType}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={partnershipServiceInput}
-                  onChange={(e) => setPartnershipServiceInput(e.target.value)}
-                  disabled={!serviceCategoryInput}
-                  className="md:col-span-2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent box-border bg-white disabled:bg-gray-50 disabled:text-gray-400"
-                >
-                  <option value="">{serviceCategoryInput ? "Select a service" : "Choose category first"}</option>
-                  {serviceOptionsForCategory.map((service) => (
-                    <option key={service} value={service}>
-                      {service}
-                    </option>
-                  ))}
-                </select>
+            {/* Step B: services, grouped. Common always; one group per ticked type. */}
+            <div className="min-w-0 border-0 border-t border-solid border-slate-100 pt-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="m-0 text-sm font-semibold text-slate-800">
+                  2. Your services <span className="text-red-500">*</span>
+                </p>
+                <span className="text-xs text-slate-500">{formData.partnershipServices.length} selected</span>
               </div>
-              <div className="mt-2">
-                <button type="button"
-                  onClick={handleAddPartnershipService}
-                  className="px-4 py-2 bg-[#02665e] text-white rounded-lg text-sm font-medium hover:bg-[#014d47] transition-colors"
-                >
-                  Add
-                </button>
-              </div>
-              {Object.keys(cleanedServiceClassification).length > 0 && (
-                <div className="space-y-3 mt-3">
-                  {Object.entries(cleanedServiceClassification).map(([category, services]) => (
-                    <div key={category} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-2">{category}</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {services.map((service) => (
-                          <span
-                            key={`${category}:${service}`}
-                            className={`inline-flex items-center justify-between gap-1 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-sm${service.length > 22 ? " col-span-2" : ""}`}
-                          >
-                            <span className="truncate">{service}</span>
-                            <button type="button"
-                              onClick={() => handleRemovePartnershipService(service)}
-                              className="shrink-0 hover:text-emerald-900"
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </button>
-                          </span>
-                        ))}
+              <p className="m-0 mt-0.5 text-xs text-slate-500">Tick at least one service for each tourism type you chose.</p>
+              <div className="mt-2 space-y-2">
+                {[{ key: "Common Services", label: "Common services", options: COMMON_SERVICES, required: false },
+                  ...formData.tourismTypes.map((type) => ({
+                    key: type,
+                    label: type,
+                    options: (TOURISM_TYPE_SERVICES[type as keyof typeof TOURISM_TYPE_SERVICES] ?? []) as readonly string[],
+                    required: true,
+                  })),
+                ].map((group) => {
+                  const picked = serviceSelectionByCategory[group.key] || [];
+                  const missing = group.required && picked.length === 0;
+                  return (
+                    <fieldset key={group.key} className={`m-0 min-w-0 rounded-md border border-solid p-3 ${missing ? "border-amber-300 bg-amber-50/40" : "border-slate-200 bg-white"}`}>
+                      <legend className="sr-only">{group.label}</legend>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[13px] font-semibold text-slate-800">{group.label}</span>
+                        <span className={`text-xs ${missing ? "font-semibold text-amber-700" : "text-slate-500"}`}>
+                          {missing ? "Tick at least one" : `${picked.length} ticked`}
+                        </span>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {formData.partnershipServices.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-xs text-slate-500">Total selected services: {formData.partnershipServices.length}</p>
-                </div>
-              )}
-              {formData.partnershipServices.length > 0 && Object.keys(cleanedServiceClassification).length === 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {formData.partnershipServices.map((service) => (
-                    <span key={service} className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-sm">
-                      {service}
-                      <button type="button"
-                        onClick={() => handleRemovePartnershipService(service)}
-                        className="hover:text-emerald-900"
-                      >
-                        <XCircle className="h-4 w-4" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
+                      {group.options.length ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {group.options.map((service) => {
+                            const on = picked.includes(service);
+                            return (
+                              <button
+                                key={service}
+                                type="button"
+                                role="checkbox"
+                                aria-checked={on}
+                                onClick={() => toggleService(group.key, service)}
+                                className={`inline-flex cursor-pointer items-center gap-1.5 rounded border border-solid px-2.5 py-1 text-[13px] transition-colors ${on ? "border-[#02665e] bg-[#02665e]/10 font-medium text-[#02665e]" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
+                              >
+                                {on ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="h-3.5 w-3.5 rounded-full border border-solid border-slate-300" />}
+                                {service}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="m-0 mt-1 text-xs text-slate-500">No services listed for this type yet.</p>
+                      )}
+                    </fieldset>
+                  );
+                })}
+                {formData.tourismTypes.length === 0 ? (
+                  <p className="m-0 text-xs text-slate-500">Tick a tourism type above to see its services here.</p>
+                ) : null}
+              </div>
             </div>
 
-            <div className="min-w-0">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Specializations <span className="text-red-500">*</span>
-              </label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <select
-                  value={specializationInput}
-                  onChange={(e) => setSpecializationInput(e.target.value)}
-                  className="min-w-0 flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent box-border bg-white"
-                >
-                  <option value="">Select specialization</option>
-                  {AGENT_SPECIALIZATIONS.map((spec) => {
-                    const alreadySelected = formData.specializations.includes(spec);
-                    return (
-                      <option key={spec} value={spec} disabled={alreadySelected}>
-                        {alreadySelected ? `${spec} (selected)` : spec}
-                      </option>
-                    );
-                  })}
-                </select>
-                <button type="button"
-                  onClick={handleAddSpecialization}
-                  className="w-full px-4 py-2 bg-[#02665e] text-white rounded-lg text-sm font-medium hover:bg-[#014d47] transition-colors sm:w-auto"
-                >
-                  Add
-                </button>
+            {/* Step C: specializations */}
+            <div className="min-w-0 border-0 border-t border-solid border-slate-100 pt-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="m-0 text-sm font-semibold text-slate-800">
+                  3. Specializations <span className="text-red-500">*</span>
+                </p>
+                <span className="text-xs text-slate-500">{formData.specializations.length} selected</span>
               </div>
-              {formData.specializations.length > 0 && (
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {formData.specializations.map((spec, idx) => (
-                    <span key={idx} className={`inline-flex items-center justify-between gap-1 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-sm${spec.length > 22 ? " col-span-2" : ""}`}>
-                      <span className="truncate">{spec}</span>
-                      <button type="button" onClick={() => handleRemoveSpecialization(spec)} className="shrink-0 hover:text-green-900">
-                        <XCircle className="h-4 w-4" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
+              <p className="m-0 mt-0.5 text-xs text-slate-500">What your company is best known for.</p>
+              <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Specializations">
+                {AGENT_SPECIALIZATIONS.map((spec) => {
+                  const on = formData.specializations.includes(spec);
+                  return (
+                    <button
+                      key={spec}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      onClick={() => toggleSpecialization(spec)}
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded border border-solid px-2.5 py-1 text-[13px] transition-colors ${on ? "border-[#02665e] bg-[#02665e]/10 font-medium text-[#02665e]" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
+                    >
+                      {on ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="h-3.5 w-3.5 rounded-full border border-solid border-slate-300" />}
+                      {spec}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
           )}
@@ -1376,30 +1291,56 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                     Permitted Parks &amp; Tour Sites <span className="text-red-500">*</span>
                   </h3>
                   <p className="text-sm text-gray-500">Select all parks and tour sites your company is permitted to operate in.</p>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                    <select
-                      value={parkInput}
-                      onChange={(e) => setParkInput(e.target.value)}
-                      disabled={tourismSitesLoading}
-                      className="min-w-0 flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent bg-white text-gray-700 text-sm box-border"
-                    >
-                      <option value="">{tourismSitesLoading ? "Loading..." : "Select a permitted park or tour site"}</option>
-                      {tourismSites
-                        .filter((s) => !formData.registeredParks.includes(s.name))
-                        .map((s) => (
-                          <option key={s.id} value={s.name}>
-                            {s.name}
+                  {/* Picking a park adds it straight away: no separate "Add" step to miss. */}
+                  {(() => {
+                    const remaining = tourismSites.filter((s) => s.name && !formData.registeredParks.includes(s.name));
+                    const empty = !tourismSitesLoading && !tourismSitesError && tourismSites.length === 0;
+                    const allPicked = !tourismSitesLoading && tourismSites.length > 0 && remaining.length === 0;
+                    return (
+                      <>
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const val = e.target.value.trim();
+                            if (!val || formData.registeredParks.includes(val)) return;
+                            setFormData((prev) => ({ ...prev, registeredParks: [...prev.registeredParks, val] }));
+                          }}
+                          disabled={tourismSitesLoading || tourismSitesError || remaining.length === 0}
+                          aria-label="Add a permitted park or tour site"
+                          className="block w-full min-w-0 box-border rounded-md border border-solid border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-700 focus:border-transparent focus:ring-2 focus:ring-[#02665e] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                        >
+                          <option value="">
+                            {tourismSitesLoading
+                              ? "Loading parks and sites..."
+                              : tourismSitesError
+                                ? "Could not load the list"
+                                : empty
+                                  ? "No parks or sites listed yet"
+                                  : allPicked
+                                    ? "All listed parks and sites added"
+                                    : formData.registeredParks.length
+                                      ? "Add another park or tour site"
+                                      : "Choose a park or tour site to add"}
                           </option>
-                        ))}
-                    </select>
-                    <button type="button"
-                      onClick={handleAddPark}
-                      disabled={!parkInput}
-                      className="flex h-11 w-full items-center justify-center px-5 bg-[#02665e] text-white rounded-lg text-sm font-medium hover:bg-[#014d47] transition-colors disabled:opacity-40 disabled:cursor-not-allowed sm:w-auto"
-                    >
-                      Add
-                    </button>
-                  </div>
+                          {remaining.map((s) => (
+                            <option key={s.id} value={s.name}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                        {tourismSitesError ? (
+                          <p className="m-0 flex flex-wrap items-center gap-2 text-sm text-red-700">
+                            The parks list did not load.
+                            <button type="button" onClick={loadTourismSites} className="cursor-pointer border-0 bg-transparent p-0 text-sm font-semibold text-[#02665e] underline">
+                              Try again
+                            </button>
+                          </p>
+                        ) : empty ? (
+                          <p className="m-0 text-sm text-amber-700">No parks or tour sites are set up on NoLSAF yet. Please contact NoLSAF support so we can add yours.</p>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   {formData.registeredParks.length > 0 && (
                     <div className="grid grid-cols-2 gap-2">
                       {formData.registeredParks.map((park, idx) => (
