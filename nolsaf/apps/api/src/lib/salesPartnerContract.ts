@@ -323,9 +323,8 @@ export function generateSalesContractPdf(body: string): Promise<Buffer> {
     });
     const chunks: Buffer[] = [];
     const fonts = registerSalesContractFonts(doc);
-    const pageWidth = 595.28;
     const contentWidth = 491.28;
-    const teal = "#073c35";
+    const teal = "#02665e";
     const emerald = "#087f68";
     const ink = "#172033";
     const muted = "#667085";
@@ -333,80 +332,110 @@ export function generateSalesContractPdf(body: string): Promise<Buffer> {
     const pale = "#eef8f5";
     let inCode = false;
     let codeRows: Array<{ label: string; value: string }> = [];
-    let metadataRow = 0;
+    const metadata: Array<{ label: string; value: string }> = [];
+    let metadataDone = false;
 
     doc.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
     doc.on("end", () => resolveBuffer(Buffer.concat(chunks)));
     doc.on("error", reject);
 
+    // Later pages: brand left, document right, one hairline.
     const drawRunningHeader = () => {
       doc.font(fonts.bold).fontSize(8).fillColor(teal)
-        .text("NoLSAF", 52, 22, { lineBreak: false });
+        .text("NoLSAF", 52, 24, { lineBreak: false });
       doc.font(fonts.regular).fontSize(7.5).fillColor(muted)
-        .text("SALES PARTNER AGREEMENT", 52, 22, { width: contentWidth, align: "right", lineBreak: false });
-      doc.moveTo(52, 39).lineTo(543.28, 39).lineWidth(0.6).strokeColor(border).stroke();
-      doc.y = 53;
+        .text("Sales partner agreement", 52, 24.5, { width: contentWidth, align: "right", lineBreak: false });
+      doc.moveTo(52, 40).lineTo(543.28, 40).lineWidth(0.5).strokeColor(border).stroke();
+      doc.y = 56;
+      doc.x = 52;
       doc.fillColor(ink);
     };
 
     doc.on("pageAdded", drawRunningHeader);
 
-    doc.rect(0, 0, pageWidth, 98).fill(teal);
-    doc.font(fonts.bold).fontSize(22).fillColor("#ffffff")
-      .text("NoLSAF", 52, 25, { lineBreak: false });
-    doc.font(fonts.bold).fontSize(15).fillColor("#ffffff")
-      .text("SALES PARTNER AGREEMENT", 52, 52, { lineBreak: false });
-    doc.font(fonts.regular).fontSize(8).fillColor("#bce8dc")
-      .text("Controlled partner onboarding document", 52, 75, { lineBreak: false });
-    doc.y = 118;
+    // First page: a document title block, not a coloured banner.
+    doc.font(fonts.bold).fontSize(9).fillColor(teal)
+      .text("NoLSAF", 52, 46, { lineBreak: false });
+    doc.font(fonts.regular).fontSize(8).fillColor(muted)
+      .text("NoLS Africa Co Ltd", 52, 46.5, { width: contentWidth, align: "right", lineBreak: false });
+    doc.font(fonts.bold).fontSize(21).fillColor(ink)
+      .text("Sales partner agreement", 52, 66, { width: contentWidth, lineBreak: false });
+    doc.font(fonts.regular).fontSize(9).fillColor(muted)
+      .text("Controlled partner agreement record. The platform copy is the reference.", 52, 94, { width: contentWidth, lineBreak: false });
+    doc.moveTo(52, 114).lineTo(543.28, 114).lineWidth(1.2).strokeColor(teal).stroke();
+    doc.y = 128;
 
     const ensureSpace = (height: number) => {
       if (doc.y + height > 775) doc.addPage();
     };
 
-    const drawMetadataRow = (label: string, value: string) => {
-      ensureSpace(32);
-      const y = doc.y;
-      if (metadataRow % 2 === 0) doc.rect(52, y, contentWidth, 30).fill("#f7faf9");
-      doc.rect(52, y, contentWidth, 30).lineWidth(0.5).strokeColor(border).stroke();
-      doc.moveTo(190, y).lineTo(190, y + 30).strokeColor(border).stroke();
-      doc.font(fonts.bold).fontSize(8).fillColor(muted).text(label.toUpperCase(), 62, y + 10, {
-        width: 118,
-        lineBreak: false,
+    // Contract facts: a grid of label-over-value cells, drawn once.
+    const sentence = (value: string) => value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+    const drawMetadata = () => {
+      if (metadataDone || !metadata.length) return;
+      metadataDone = true;
+      const cols = 3;
+      const cellW = contentWidth / cols;
+      const cellH = 40;
+      const rows = Math.ceil(metadata.length / cols);
+      ensureSpace(rows * cellH + 16);
+      const top = doc.y;
+      doc.rect(52, top, contentWidth, rows * cellH).fill("#f8faf9");
+      metadata.forEach((item, i) => {
+        const x = 52 + (i % cols) * cellW;
+        const y = top + Math.floor(i / cols) * cellH;
+        doc.font(fonts.regular).fontSize(7.5).fillColor(muted)
+          .text(sentence(item.label), x + 12, y + 9, { width: cellW - 24, lineBreak: false });
+        doc.font(fonts.bold).fontSize(10).fillColor(ink)
+          .text(item.value, x + 12, y + 21, { width: cellW - 24, lineBreak: false, ellipsis: true });
       });
-      doc.font(fonts.bold).fontSize(9).fillColor(ink).text(value, 202, y + 9, {
-        width: 328,
-        lineBreak: false,
-        ellipsis: true,
-      });
-      doc.y = y + 30;
+      doc.lineWidth(0.5).strokeColor(border);
+      doc.rect(52, top, contentWidth, rows * cellH).stroke();
+      for (let c = 1; c < cols; c += 1) doc.moveTo(52 + c * cellW, top).lineTo(52 + c * cellW, top + rows * cellH).stroke();
+      for (let r = 1; r < rows; r += 1) doc.moveTo(52, top + r * cellH).lineTo(543.28, top + r * cellH).stroke();
+      doc.y = top + rows * cellH + 18;
       doc.x = 52;
-      metadataRow += 1;
     };
 
+    // Worked example as a sum: operator, label, amount; subtotal ruled, result highlighted.
+    const exampleStep = (label: string): { op: string; kind: "start" | "apply" | "subtotal" | "result" } => {
+      const l = label.toLowerCase();
+      if (/partner earning/.test(l)) return { op: "=", kind: "result" };
+      if (/eligible|net /.test(l)) return { op: "=", kind: "subtotal" };
+      if (/tax|processing|fee/.test(l)) return { op: "-", kind: "apply" };
+      if (/rate|commission/.test(l)) return { op: "x", kind: "apply" };
+      return { op: "", kind: "start" };
+    };
     const drawWorkedExample = () => {
       if (!codeRows.length) return;
-      ensureSpace(34 + codeRows.length * 27);
+      const width = 330;
+      const rowH = 22;
+      ensureSpace(34 + codeRows.length * rowH);
       let y = doc.y + 4;
-      doc.roundedRect(52, y, contentWidth, 26, 4).fill(teal);
-      doc.font(fonts.bold).fontSize(8.5).fillColor("#ffffff")
-        .text("WORKED MARKETPLACE EXAMPLE", 62, y + 9, { width: 300, lineBreak: false });
-      doc.text("AMOUNT", 390, y + 9, { width: 140, align: "right", lineBreak: false });
-      y += 26;
-      doc.y = y;
-      for (const [index, row] of codeRows.entries()) {
-        ensureSpace(27);
-        y = doc.y;
-        doc.rect(52, y, contentWidth, 27).fill(index % 2 ? "#f7faf9" : "#ffffff");
-        doc.rect(52, y, contentWidth, 27).lineWidth(0.5).strokeColor(border).stroke();
-        doc.moveTo(360, y).lineTo(360, y + 27).strokeColor(border).stroke();
-        doc.font(fonts.regular).fontSize(8.5).fillColor(ink)
-          .text(row.label, 62, y + 9, { width: 286, lineBreak: false });
-        doc.font(fonts.bold).fontSize(8.5).fillColor(ink)
-          .text(row.value, 372, y + 9, { width: 158, align: "right", lineBreak: false });
-        doc.y = y + 27;
+      const boxTop = y;
+      doc.rect(52, y, width, 24).fill("#f3f6f5");
+      doc.font(fonts.bold).fontSize(8.5).fillColor(ink)
+        .text("Worked marketplace example", 62, y + 8, { width: 200, lineBreak: false });
+      doc.font(fonts.regular).fontSize(7.5).fillColor(muted)
+        .text("Illustration only", 52, y + 8.5, { width: width - 10, align: "right", lineBreak: false });
+      y += 24;
+      for (const row of codeRows) {
+        const step = exampleStep(row.label);
+        const strong = step.kind === "subtotal" || step.kind === "result";
+        const result = step.kind === "result";
+        if (result) doc.rect(52, y, width, rowH).fill(pale);
+        doc.moveTo(52, y).lineTo(52 + width, y).lineWidth(strong ? 0.8 : 0.4).strokeColor(strong ? "#b8c4c2" : border).stroke();
+        const color = result ? emerald : ink;
+        doc.font(fonts.bold).fontSize(9).fillColor(result ? emerald : muted)
+          .text(step.op, 58, y + 6.5, { width: 14, align: "center", lineBreak: false });
+        doc.font(strong ? fonts.bold : fonts.regular).fontSize(8.6).fillColor(color)
+          .text(row.label, 78, y + 7, { width: 170, lineBreak: false });
+        doc.font(fonts.bold).fontSize(result ? 10 : 8.6).fillColor(color)
+          .text(row.value, 52, y + (result ? 6 : 7), { width: width - 12, align: "right", lineBreak: false });
+        y += rowH;
       }
-      doc.moveDown(0.45);
+      doc.rect(52, boxTop, width, y - boxTop).lineWidth(0.5).strokeColor(border).stroke();
+      doc.y = y + 10;
       doc.x = 52;
       codeRows = [];
     };
@@ -441,32 +470,39 @@ export function generateSalesContractPdf(body: string): Promise<Buffer> {
       if (line.startsWith("# ") || line.trim() === "NoLSAF SALES PARTNER AGREEMENT") {
         continue;
       }
-      const metadata =
+      const meta =
         rawLine.match(/^\*\*(.+?):\*\*\s*(.+)$/) ||
         rawLine.match(/^([^:]+):\s*(.+)$/);
-      if (metadata && metadataRow < 5 && SALES_CONTRACT_METADATA_LABELS.has(metadata[1].trim())) {
-        drawMetadataRow(metadata[1], safePdfText(metadata[2]));
+      if (meta && !metadataDone && SALES_CONTRACT_METADATA_LABELS.has(meta[1].trim())) {
+        metadata.push({ label: meta[1].trim(), value: safePdfText(meta[2]) });
       } else {
+        if (line.trim()) drawMetadata();
         const plainSection = line.match(/^(\d+)\.\s+(.+)$/);
         const isPlainSection = Boolean(
           plainSection && SALES_CONTRACT_SECTION_TITLES.has(plainSection[2].trim()),
         );
         if (line.startsWith("## ") || isPlainSection) {
-        ensureSpace(42);
-        doc.moveDown(0.35);
+        // Section: number in brand colour, title in ink, a hairline under it.
+        ensureSpace(46);
+        doc.moveDown(0.6);
         const y = doc.y;
-        doc.roundedRect(52, y, contentWidth, 23, 4).fill(pale);
-        const sectionTitle = line.startsWith("## ") ? line.slice(3) : line;
-        doc.font(fonts.bold).fontSize(10.2).fillColor(teal).text(sectionTitle, 62, y + 6, {
-          width: contentWidth - 20,
+        const heading = (line.startsWith("## ") ? line.slice(3) : line).trim();
+        const num = heading.match(/^(\d+)\.?\s*/);
+        const titleText = num ? heading.slice(num[0].length) : heading;
+        if (num) {
+          doc.font(fonts.bold).fontSize(11).fillColor(emerald).text(num[1], 52, y, { width: 24, lineBreak: false });
+        }
+        doc.font(fonts.bold).fontSize(11).fillColor(ink).text(titleText, num ? 76 : 52, y, {
+          width: contentWidth - (num ? 24 : 0),
           lineBreak: false,
         });
-        doc.y = y + 28;
+        doc.moveTo(52, y + 17).lineTo(543.28, y + 17).lineWidth(0.5).strokeColor(border).stroke();
+        doc.y = y + 25;
         doc.x = 52;
         } else if (line.trim() === "Partner" || line.trim() === "For NoLSAF") {
           ensureSpace(30);
-          doc.moveDown(0.35);
-          doc.font(fonts.bold).fontSize(10).fillColor(teal).text(line.trim(), {
+          doc.moveDown(0.5);
+          doc.font(fonts.bold).fontSize(10).fillColor(ink).text(line.trim(), 52, doc.y, {
             width: contentWidth,
             underline: false,
           });
@@ -481,20 +517,21 @@ export function generateSalesContractPdf(body: string): Promise<Buffer> {
           const y = doc.y;
           doc.font(fonts.bold).fontSize(8.5).fillColor(emerald)
             .text(clause[1], 52, y, { width: 36, lineBreak: false });
-          doc.font(fonts.regular).fontSize(8.9).fillColor(ink)
-            .text(clause[2], 94, y, { width: 449, lineGap: 1.5, align: "justify" });
-          doc.moveDown(0.15);
+          doc.font(fonts.regular).fontSize(9).fillColor(ink)
+            .text(clause[2], 94, y, { width: 449, lineGap: 2, align: "left" });
+          doc.moveDown(0.25);
           doc.x = 52;
         } else {
           doc.x = 52;
-          doc.font(fonts.regular).fontSize(8.9).fillColor(ink)
-            .text(line, { width: contentWidth, lineGap: 1.5, align: "justify" });
-          doc.moveDown(0.12);
+          doc.font(fonts.regular).fontSize(9).fillColor(ink)
+            .text(line, { width: contentWidth, lineGap: 2, align: "left" });
+          doc.moveDown(0.2);
         }
         }
       }
     }
     if (codeRows.length) drawWorkedExample();
+    drawMetadata();
 
     const pages = doc.bufferedPageRange();
     for (let index = pages.start; index < pages.start + pages.count; index += 1) {
@@ -504,7 +541,7 @@ export function generateSalesContractPdf(body: string): Promise<Buffer> {
       doc.moveTo(52, 804).lineTo(543.28, 804).lineWidth(0.5).strokeColor(border).stroke();
       doc.font(fonts.regular).fontSize(7.2).fillColor(muted);
       doc.text(
-        `NoLSAF controlled agreement · Page ${index - pages.start + 1} of ${pages.count} · Verify the acceptance reference against the platform record.`,
+        `Page ${index - pages.start + 1} of ${pages.count}  ·  NoLSAF sales partner agreement  ·  Check the acceptance reference against the platform record`,
         52,
         814,
         { width: 491, align: "center", lineBreak: false },
