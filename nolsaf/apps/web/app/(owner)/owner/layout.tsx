@@ -117,7 +117,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
             <span className="sm:hidden">{returning ? "Wait…" : supportSession?.canReturn ? "Return" : "Sign out"}</span>
           </button>
         </div>
-        {returnError && <p role="alert" className="border-t border-rose-100 bg-rose-50 px-4 py-2 text-xs font-medium text-rose-800">{returnError}</p>}
+        {returnError && <p role="alert" className="border-0 border-t border-solid border-rose-100 bg-rose-50 px-4 py-2 text-xs font-medium text-rose-800">{returnError}</p>}
       </div>
     </section>
   ) : null;

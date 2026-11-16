@@ -46,14 +46,14 @@ export default function MessagesPage() {
         <div className="flex justify-center gap-3">
           <Link
             href="/owner/messages/unread"
-            className={`inline-flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors border border-gray-200 text-gray-700 bg-white shadow-sm hover:bg-gray-50 no-underline hover:no-underline focus:outline-none focus:ring-4 focus:ring-indigo-300/40 focus:ring-offset-2 focus:ring-offset-white`}
+            className={`inline-flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors border border-solid border-gray-200 text-gray-700 bg-white shadow-sm hover:bg-gray-50 no-underline hover:no-underline focus:outline-none focus:ring-4 focus:ring-indigo-300/40 focus:ring-offset-2 focus:ring-offset-white`}
           >
             Unread ({unreadCount})
           </Link>
 
           <Link
             href="/owner/messages/viewed"
-            className={`inline-flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors border border-gray-200 text-gray-700 bg-white shadow-sm hover:bg-gray-50 no-underline hover:no-underline focus:outline-none focus:ring-4 focus:ring-indigo-300/40 focus:ring-offset-2 focus:ring-offset-white`}
+            className={`inline-flex items-center px-4 py-1.5 rounded-md text-sm font-medium transition-colors border border-solid border-gray-200 text-gray-700 bg-white shadow-sm hover:bg-gray-50 no-underline hover:no-underline focus:outline-none focus:ring-4 focus:ring-indigo-300/40 focus:ring-offset-2 focus:ring-offset-white`}
           >
             Viewed ({viewedCount})
           </Link>

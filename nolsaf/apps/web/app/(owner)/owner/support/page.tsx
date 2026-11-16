@@ -313,7 +313,7 @@ export default function OwnerSupportPage() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         {/* ── Answers ── */}
-        <section className="overflow-hidden rounded-lg border border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]">
+        <section className="overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-slate-200 px-5 py-4">
             <div>
               <p className="m-0 text-sm font-bold text-slate-900">
@@ -322,7 +322,7 @@ export default function OwnerSupportPage() {
               <p className="m-0 mt-0.5 text-xs text-slate-500">{results.length} {results.length === 1 ? "answer" : "answers"}</p>
             </div>
             {topic !== "all" || q ? (
-              <button type="button" onClick={() => { setTopic("all"); setQuery(""); }} className="h-8 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              <button type="button" onClick={() => { setTopic("all"); setQuery(""); }} className="h-8 rounded-lg border border-solid border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                 Show all questions
               </button>
             ) : null}
@@ -408,13 +408,13 @@ export default function OwnerSupportPage() {
                 Message on WhatsApp
                 <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]"><MessageCircle className="h-3.5 w-3.5" aria-hidden /></span>
               </a>
-              <a href={`mailto:${email}`} className="inline-flex h-10 items-center justify-between rounded-md border border-white/15 bg-white/[0.06] px-4 text-sm font-semibold text-white no-underline hover:bg-white/10">
+              <a href={`mailto:${email}`} className="inline-flex h-10 items-center justify-between rounded-md border border-solid border-white/15 bg-white/[0.06] px-4 text-sm font-semibold text-white no-underline hover:bg-white/10">
                 Email the team <Mail className="h-4 w-4 text-white/60" aria-hidden />
               </a>
             </div>
           </section>
 
-          <section className="rounded-lg border border-slate-300/80 bg-white p-5">
+          <section className="rounded-lg border border-solid border-slate-300/80 bg-white p-5">
             <p className="m-0 text-sm font-bold text-slate-900">Guides and policies</p>
             <ul className="m-0 mt-3 list-none space-y-1 p-0">
               {[

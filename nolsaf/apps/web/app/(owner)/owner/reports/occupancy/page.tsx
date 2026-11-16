@@ -68,7 +68,7 @@ export default function Occupancy() {
       <ReportsFilter onChangeAction={setFilters} />
 
       {error ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
+        <div className="rounded-lg border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5" aria-hidden />
           <div className="min-w-0">
             <div className="font-semibold">Couldn’t load occupancy</div>
@@ -84,8 +84,8 @@ export default function Occupancy() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-200">
+        <div className="lg:col-span-2 bg-white rounded-lg border border-solid border-gray-200 shadow-sm overflow-hidden">
+          <div className="border-0 px-5 py-4 border-b border-solid border-gray-200">
             <div className="text-sm font-semibold text-gray-900">Occupancy trend</div>
             <div className="text-xs text-gray-500 mt-0.5">Estimated occupancy percentage over time</div>
           </div>
@@ -116,8 +116,8 @@ export default function Occupancy() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-200">
+        <div className="bg-white rounded-lg border border-solid border-gray-200 shadow-sm overflow-hidden">
+          <div className="border-0 px-5 py-4 border-b border-solid border-gray-200">
             <div className="text-sm font-semibold text-gray-900">Net revenue by property</div>
             <div className="text-xs text-gray-500 mt-0.5">Net totals for the selected window</div>
           </div>
@@ -146,9 +146,9 @@ export default function Occupancy() {
 
 function Kpi({ icon: Icon, title, value, loading }: { icon: any; title: string; value: string; loading: boolean }) {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+    <div className="bg-white rounded-lg border border-solid border-gray-200 shadow-sm p-4">
       <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
-        <span className="inline-flex items-center justify-center h-8 w-8 rounded-md bg-gray-50 border border-gray-200">
+        <span className="inline-flex items-center justify-center h-8 w-8 rounded-md bg-gray-50 border border-solid border-gray-200">
           <Icon className="h-4 w-4 text-gray-600" aria-hidden />
         </span>
         {title}
@@ -182,7 +182,7 @@ function OccTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const v = payload?.[0]?.value;
   return (
-    <div className="rounded-lg border border-gray-200 bg-white shadow-lg px-3 py-2">
+    <div className="rounded-lg border border-solid border-gray-200 bg-white shadow-lg px-3 py-2">
       <div className="text-xs font-semibold text-gray-700">{label}</div>
       <div className="mt-1 text-xs text-gray-600">
         Occupancy: <span className="font-semibold text-gray-900">{Number(v ?? 0).toFixed(0)}%</span>
@@ -195,7 +195,7 @@ function MoneyTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const v = payload?.[0]?.value;
   return (
-    <div className="rounded-lg border border-gray-200 bg-white shadow-lg px-3 py-2">
+    <div className="rounded-lg border border-solid border-gray-200 bg-white shadow-lg px-3 py-2">
       <div className="text-xs font-semibold text-gray-700">{label}</div>
       <div className="mt-1 text-xs text-gray-600">
         Net: <span className="font-semibold text-gray-900">TZS {fmt(v ?? 0)}</span>

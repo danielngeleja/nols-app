@@ -360,7 +360,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("toggle-owner-sidebar"))}
-            className="flex min-h-9 w-full appearance-none items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.05] text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
+            className="flex min-h-9 w-full appearance-none items-center justify-center rounded-lg border border-solid border-white/[0.06] bg-white/[0.05] text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
             aria-label="Expand owner sidebar"
             title="Expand sidebar"
           >
@@ -439,7 +439,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
         <button
           type="button"
           onClick={() => window.dispatchEvent(new Event("toggle-owner-sidebar"))}
-          className="flex min-h-8 w-full appearance-none items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.05] px-2.5 text-[11px] font-semibold text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
+          className="flex min-h-8 w-full appearance-none items-center justify-between rounded-lg border border-solid border-white/[0.06] bg-white/[0.05] px-2.5 text-[11px] font-semibold text-emerald-100/60 transition hover:bg-white/10 hover:text-white"
           aria-label="Collapse owner sidebar"
         >
           Collapse sidebar

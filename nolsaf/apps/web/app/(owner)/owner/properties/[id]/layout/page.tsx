@@ -166,7 +166,7 @@ export default function OwnerPropertyLayoutPage() {
     return (
       <div id="owner-floorplan" className={shell}>
         {style}
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
+        <div className="rounded-lg border border-solid border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
           This property could not be found on your account.
           <Link href="/owner/properties/availability" className="ml-2 font-semibold text-rose-900 underline">Back to Room availability</Link>
         </div>
@@ -187,7 +187,7 @@ export default function OwnerPropertyLayoutPage() {
     return (
       <div id="owner-floorplan" className={shell}>
         {style}
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
+        <div className="rounded-lg border border-solid border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
           {error ?? "The floor plan could not be loaded."}
           <Link href={href(propertyId, "/availability")} className="ml-2 font-semibold text-rose-900 underline">Back to Room availability</Link>
         </div>
@@ -234,7 +234,7 @@ export default function OwnerPropertyLayoutPage() {
                 <button
                   type="button"
                   onClick={() => setConfirmRebuild(false)}
-                  className="h-11 flex-1 rounded-md border border-slate-300 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  className="h-11 flex-1 rounded-md border border-solid border-slate-300 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
                   Keep current plan
                 </button>
@@ -274,7 +274,7 @@ export default function OwnerPropertyLayoutPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Link
                 href={`/owner/properties/add?id=${ownerPropertyRefOrId(propertyId)}`}
-                className="inline-flex h-10 items-center gap-1.5 rounded-md border border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/10"
+                className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/10"
               >
                 <Pencil className="h-4 w-4" aria-hidden /> Edit rooms and floors
               </Link>
@@ -296,7 +296,7 @@ export default function OwnerPropertyLayoutPage() {
               { label: "Rooms", value: allRooms.length, Icon: BedDouble },
               { label: "Free tonight", value: freeTonight, Icon: Building2 },
             ].map((s) => (
-              <div key={s.label} className="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3">
+              <div key={s.label} className="min-w-0 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
                 <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white/55">
                   <s.Icon className="h-3.5 w-3.5 text-[#5eead4]" aria-hidden /> {s.label}
                 </span>
@@ -307,10 +307,10 @@ export default function OwnerPropertyLayoutPage() {
         </div>
       </header>
 
-      {error ? <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : null}
+      {error ? <div className="rounded-lg border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div> : null}
 
       {emptyFloors.length > 0 ? (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="flex items-start gap-3 rounded-lg border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>
             <strong className="font-semibold">{emptyFloors.length} {emptyFloors.length === 1 ? "floor has" : "floors have"} no rooms</strong>{" "}
@@ -382,7 +382,7 @@ export default function OwnerPropertyLayoutPage() {
         {/* ── Side panel: the selected room, or the room types ── */}
         <aside className="space-y-4 lg:sticky lg:top-4">
           {pick ? (
-            <section className="overflow-hidden rounded-lg border border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]">
+            <section className="overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)]">
               {pick.room.photos?.[0] ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={pick.room.photos[0]} alt="" className="h-36 w-full object-cover" />
@@ -434,7 +434,7 @@ export default function OwnerPropertyLayoutPage() {
                   </Link>
                   <Link
                     href={href(propertyId, "/availability")}
-                    className="flex h-11 items-center justify-between rounded-md border border-slate-300 px-4 text-sm font-semibold text-slate-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                    className="flex h-11 items-center justify-between rounded-md border border-solid border-slate-300 px-4 text-sm font-semibold text-slate-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
                   >
                     Check other dates <ArrowRight className="h-4 w-4" aria-hidden />
                   </Link>
@@ -442,7 +442,7 @@ export default function OwnerPropertyLayoutPage() {
               </div>
             </section>
           ) : (
-            <section className="rounded-lg border border-slate-300/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <section className="rounded-lg border border-solid border-slate-300/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <p className="m-0 text-sm font-bold text-slate-900">Room types</p>
               <p className="m-0 mt-0.5 text-xs text-slate-500">Tap a room in the building to see it here.</p>
               <ul className="m-0 mt-4 list-none space-y-2 p-0">

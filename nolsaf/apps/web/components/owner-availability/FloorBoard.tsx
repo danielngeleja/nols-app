@@ -157,7 +157,7 @@ export default function FloorBoard({
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
+    <section className="overflow-hidden rounded-lg border border-solid border-white/10 bg-[#012a26] shadow-[0_18px_40px_-28px_rgba(1,42,38,0.8)]">
       {/* Head */}
       <div className="flex flex-wrap items-end justify-between gap-3 px-5 pb-3 pt-4">
         <div className="min-w-0">
@@ -315,7 +315,7 @@ export default function FloorBoard({
 
         {/* Selected room */}
         {openRoom ? (
-          <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.05] p-4">
+          <div className="mt-4 rounded-lg border border-solid border-white/10 bg-white/[0.05] p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span

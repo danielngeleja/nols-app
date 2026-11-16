@@ -228,7 +228,7 @@ export default function OwnerCheckoutPage() {
       {/* Confirm modal (rating required) */}
       {confirmOpen && confirmTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-[3px]">
-          <div className="w-full max-w-sm rounded-lg bg-white border border-slate-200 shadow-2xl ring-1 ring-black/8 overflow-hidden">
+          <div className="w-full max-w-sm rounded-lg bg-white border border-solid border-slate-200 shadow-2xl ring-1 ring-black/8 overflow-hidden">
 
             {/* Header */}
             <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-4 py-3 flex items-start justify-between gap-3">
@@ -254,7 +254,7 @@ export default function OwnerCheckoutPage() {
             <div className="px-4 py-3 space-y-2.5 min-w-0 overflow-hidden">
 
               {/* Rating */}
-              <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2.5 space-y-2">
+              <div className="rounded-md border border-solid border-slate-100 bg-slate-50 px-3 py-2.5 space-y-2">
                 <div className="text-[11px] font-bold text-slate-400">Rate this guest <span className="text-rose-400">*</span></div>
                 <div className="flex items-center gap-1">
                   {[1,2,3,4,5].map((v) => (
@@ -285,14 +285,14 @@ export default function OwnerCheckoutPage() {
                   value={feedback}
                   onChange={(e) => setFeedback(e.target.value)}
                   rows={2}
-                  className="w-full box-border rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300 transition-all duration-200 resize-none"
+                  className="w-full box-border rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300 transition-all duration-200 resize-none"
                   placeholder="Short note about the guest (optional)…"
                   aria-label="Guest rating feedback"
                 />
               </div>
 
               {/* Terms – toggle switch */}
-              <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-600 cursor-pointer select-none transition-colors hover:border-[#02665e]/20">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-solid border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-600 cursor-pointer select-none transition-colors hover:border-[#02665e]/20">
                 <span>I agree to the{" "}
                   <Link href="/terms" target="_blank" className="font-semibold text-[#02665e] underline underline-offset-2 hover:text-[#034e47]">Terms of Service</Link>.
                 </span>
@@ -320,7 +320,7 @@ export default function OwnerCheckoutPage() {
               <button
                 type="button"
                 onClick={() => openAudit(confirmTarget)}
-                className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all duration-150 focus:outline-none inline-flex items-center gap-1.5"
+                className="h-8 rounded-md border border-solid border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all duration-150 focus:outline-none inline-flex items-center gap-1.5"
               >
                 <History className="h-3.5 w-3.5" aria-hidden />
                 Audit History
@@ -343,8 +343,8 @@ export default function OwnerCheckoutPage() {
       {/* Audit modal */}
       {auditOpen && auditTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="w-full max-w-2xl rounded-lg bg-white border border-slate-200 shadow-xl ring-1 ring-black/10 overflow-hidden">
-            <div className="p-5 sm:p-6 border-b border-slate-200 flex items-start justify-between gap-3">
+          <div className="w-full max-w-2xl rounded-lg bg-white border border-solid border-slate-200 shadow-xl ring-1 ring-black/10 overflow-hidden">
+            <div className="border-0 p-5 sm:p-6 border-b border-solid border-slate-200 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-xs font-bold text-slate-500">Audit History</div>
                 <div className="text-lg font-bold text-slate-900 truncate">{auditTarget.property?.title ?? "—"}</div>
@@ -355,7 +355,7 @@ export default function OwnerCheckoutPage() {
               <button
                 type="button"
                 onClick={() => { setAuditOpen(false); setAuditTarget(null); setAuditItems([]); }}
-                className="h-10 w-10 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.99] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 inline-flex items-center justify-center"
+                className="h-10 w-10 rounded-lg border border-solid border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.99] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 inline-flex items-center justify-center"
                 aria-label="Close audit dialog"
                 title="Close"
               >
@@ -369,13 +369,13 @@ export default function OwnerCheckoutPage() {
                   Loading audit history…
                 </div>
               ) : auditItems.length === 0 ? (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
+                <div className="rounded-lg border border-solid border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-700">
                   No audit history found yet for this booking.
                 </div>
               ) : (
                 <div className="w-full overflow-x-auto">
                   <table className="min-w-[700px] w-full text-sm">
-                    <thead className="bg-slate-50 border border-slate-200">
+                    <thead className="bg-slate-50 border border-solid border-slate-200">
                       <tr>
                         <th className="px-4 py-3 text-xs font-bold text-slate-600 text-left">Action</th>
                         <th className="px-4 py-3 text-xs font-bold text-slate-600 text-left">By</th>
@@ -384,7 +384,7 @@ export default function OwnerCheckoutPage() {
                         <th className="px-4 py-3 text-xs font-bold text-slate-600 text-left">Feedback</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200 border border-slate-200 border-t-0">
+                    <tbody className="divide-y divide-slate-200 border border-solid border-slate-200 border-t-0">
                       {auditItems.map((it, idx) => (
                         <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
                           <td className="px-4 py-3 font-semibold text-slate-900">

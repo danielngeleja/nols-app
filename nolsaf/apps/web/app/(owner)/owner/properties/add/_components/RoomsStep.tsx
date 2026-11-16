@@ -374,7 +374,7 @@ export function RoomsStep({
   const roomOnly = isRoomOnlyPropertyType(propertyType);
   const hasSavedWholeUnit = definedRooms.some((room) => room.bookingMode === "ENTIRE_UNIT");
   const modePicker = roomOnly
-    ? hasSavedWholeUnit && <div className="mb-3 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" role="alert">
+    ? hasSavedWholeUnit && <div className="mb-3 rounded-lg border border-solid border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" role="alert">
         {propertyType} listings use individually bookable rooms. Remove the saved whole-place unit below, then add its room types.
       </div>
     : <div className="ap-mode-bar">

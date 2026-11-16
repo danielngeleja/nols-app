@@ -1251,7 +1251,7 @@ export default function CheckinValidation() {
               className="absolute inset-0 bg-black/50 backdrop-blur-sm"
               onClick={() => setScanOpen(false)}
             />
-            <div className="relative bg-white rounded-lg shadow-2xl max-w-md w-full p-5 sm:p-6 z-10 animate-in zoom-in-95 duration-300 space-y-4 border border-slate-200">
+            <div className="relative bg-white rounded-lg shadow-2xl max-w-md w-full p-5 sm:p-6 z-10 animate-in zoom-in-95 duration-300 space-y-4 border border-solid border-slate-200">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-lg font-bold text-slate-900">Scan Receipt QR</div>
@@ -1260,7 +1260,7 @@ export default function CheckinValidation() {
                 <button
                   type="button"
                   onClick={() => setScanOpen(false)}
-                  className="p-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+                  className="p-2 rounded-md border border-solid border-slate-200 bg-white hover:bg-slate-50 transition-colors"
                   aria-label="Close scanner"
                   title="Close"
                 >
@@ -1269,12 +1269,12 @@ export default function CheckinValidation() {
               </div>
 
               {scanError && (
-                <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                <div className="rounded-md bg-red-50 border border-solid border-red-200 p-3 text-sm text-red-700">
                   {scanError}
                 </div>
               )}
 
-              <div className="rounded-lg overflow-hidden border border-slate-200 bg-black/5">
+              <div className="rounded-lg overflow-hidden border border-solid border-slate-200 bg-black/5">
                 <div className="relative aspect-video bg-black">
                   <video
                     ref={videoRef}
@@ -1283,7 +1283,7 @@ export default function CheckinValidation() {
                     className="absolute inset-0 h-full w-full object-cover"
                   />
                   <div className="absolute inset-0 pointer-events-none">
-                    <div className="absolute inset-6 rounded-lg border-2 border-white/70 shadow-[0_0_0_2000px_rgba(0,0,0,0.15)]" />
+                    <div className="absolute inset-6 rounded-lg border-2 border-solid border-white/70 shadow-[0_0_0_2000px_rgba(0,0,0,0.15)]" />
                   </div>
                 </div>
               </div>
@@ -1293,7 +1293,7 @@ export default function CheckinValidation() {
                 <button
                   type="button"
                   onClick={() => { stopScanner(); startScanner(); }}
-                  className="px-3 py-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-xs font-semibold"
+                  className="px-3 py-2 rounded-md border border-solid border-slate-200 bg-white hover:bg-slate-50 transition-colors text-xs font-semibold"
                 >
                   Restart
                 </button>

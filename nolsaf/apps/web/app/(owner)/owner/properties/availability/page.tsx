@@ -310,7 +310,7 @@ export default function PropertyAvailabilitySelectionPage() {
           </div>
           <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3">
+              <div key={i} className="rounded-lg border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
                 <div className="oal-d h-2.5 w-20 rounded-full" />
                 <div className="oal-d mt-2.5 h-6 w-10 rounded-md" />
               </div>
@@ -319,7 +319,7 @@ export default function PropertyAvailabilitySelectionPage() {
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <div key={i} className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
               <div className="oal-l h-32" />
               <div className="space-y-3 p-4">
                 <div className="oal-l h-2.5 w-16 rounded-full" />
@@ -339,7 +339,7 @@ export default function PropertyAvailabilitySelectionPage() {
     return (
       <div id="owner-avail-list" className={shell}>
         {style}
-        <div className="flex flex-col items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col items-start gap-3 rounded-lg border border-solid border-rose-200 bg-rose-50 p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" aria-hidden />
             <div>
@@ -359,7 +359,7 @@ export default function PropertyAvailabilitySelectionPage() {
     return (
       <div id="owner-avail-list" className={shell}>
         {style}
-        <section className="grid overflow-hidden rounded-lg border border-slate-300/80 bg-white md:grid-cols-2">
+        <section className="grid overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white md:grid-cols-2">
           <div className="p-8">
             <span className="grid h-12 w-12 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]"><CalendarDays className="h-6 w-6" aria-hidden /></span>
             <p className="m-0 mt-4 text-xl font-bold text-slate-900">No approved properties yet</p>
@@ -397,31 +397,61 @@ export default function PropertyAvailabilitySelectionPage() {
           style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
           aria-hidden
         />
-        <div className="relative px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
-          <Link href="/owner/properties/approved" className="inline-flex items-center gap-1 text-sm font-semibold text-white/60 no-underline transition hover:text-white">
-            <ChevronRight className="h-4 w-4 rotate-180" aria-hidden /> My properties
-          </Link>
-          <div className="mt-4">
-            <p className="m-0 text-[11px] font-semibold text-[#9fd8cc]">Front desk</p>
-            <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Room availability</h1>
-            <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">Pick a property to see its rooms by floor, check dates and block rooms booked outside NoLSAF.</p>
-          </div>
-          <div className="mt-6 grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
-            {[
-              { label: "Properties", value: String(properties.length), Icon: Building2 },
-              { label: "Rooms", value: String(roomsAll), Icon: BedDouble },
-              { label: "Free tonight", value: todayLoaded ? String(sumToday("totalAvailableRooms")) : "...", Icon: Sparkles },
-              { label: "Booked tonight", value: todayLoaded ? String(sumToday("totalBookedRooms")) : "...", Icon: CalendarDays },
-            ].map((s) => (
-              <div key={s.label} className="min-w-0 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3">
-                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-white/55">
-                  <s.Icon className="h-3.5 w-3.5 text-[#5eead4]" aria-hidden /> {s.label}
-                </span>
-                <span className="mt-1 block text-2xl font-bold tabular-nums">{s.value}</span>
+        {(() => {
+          // Tonight at a glance: one occupancy bar instead of four big tiles.
+          const free = todayLoaded ? sumToday("totalAvailableRooms") : null;
+          const booked = todayLoaded ? sumToday("totalBookedRooms") : null;
+          const total = Math.max(0, roomsAll);
+          const bookedPct = booked != null && total > 0 ? Math.min(100, Math.round((booked / total) * 100)) : 0;
+          const blocked = todayLoaded ? sumToday("totalBlockedRooms") : 0;
+          const blockedPct = total > 0 ? Math.min(100 - bookedPct, Math.round((blocked / total) * 100)) : 0;
+          return (
+            <div className="relative grid gap-4 px-4 py-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)] lg:items-center">
+              {/* Title, compact */}
+              <div className="min-w-0">
+                <Link href="/owner/properties/approved" className="inline-flex items-center gap-1 text-xs font-semibold text-white/55 no-underline transition hover:text-white">
+                  <ChevronRight className="h-3.5 w-3.5 rotate-180" aria-hidden /> My properties
+                </Link>
+                <h1 className="m-0 mt-1.5 flex flex-wrap items-baseline gap-x-2.5 text-[22px] font-bold leading-tight tracking-tight text-white sm:text-[24px]">
+                  Room availability
+                  <span className="text-xs font-semibold text-[#9fd8cc]">Front desk</span>
+                </h1>
+                <p className="m-0 mt-1 text-[13px] text-white/55">Rooms by floor, dates, and blocks for stays booked outside NoLSAF.</p>
               </div>
-            ))}
-          </div>
-        </div>
+
+              {/* Tonight: counts in one joined strip, with the occupancy bar under them */}
+              <div className="min-w-0 overflow-hidden rounded-lg border border-solid border-white/10 bg-white/[0.04]">
+                <dl className="m-0 grid grid-cols-4 divide-x divide-white/10">
+                  {[
+                    { label: "Properties", value: String(properties.length), Icon: Building2 },
+                    { label: "Rooms", value: String(roomsAll), Icon: BedDouble },
+                    { label: "Free tonight", value: free != null ? String(free) : "...", Icon: Sparkles },
+                    { label: "Booked tonight", value: booked != null ? String(booked) : "...", Icon: CalendarDays },
+                  ].map((s) => (
+                    <div key={s.label} className="min-w-0 px-3 py-2.5">
+                      <dt className="flex items-center gap-1 truncate text-[11px] font-medium text-white/55">
+                        <s.Icon className="h-3 w-3 flex-none text-[#5eead4]" aria-hidden />
+                        <span className="truncate">{s.label}</span>
+                      </dt>
+                      <dd className="m-0 mt-0.5 text-lg font-bold tabular-nums leading-tight">{s.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="border-0 border-t border-solid border-white/10 px-3 py-2">
+                  <div className="flex h-1.5 overflow-hidden rounded-full bg-white/10" role="img"
+                    aria-label={todayLoaded ? `Tonight: ${booked} booked, ${blocked} blocked, ${free} free of ${total} rooms` : "Loading tonight's rooms"}>
+                    <span className="h-full bg-[#5eead4]" style={{ width: `${bookedPct}%` }} />
+                    <span className="h-full bg-amber-300/80" style={{ width: `${blockedPct}%` }} />
+                  </div>
+                  <p className="m-0 mt-1 flex flex-wrap gap-x-3 text-[11px] text-white/55">
+                    <span><span className="font-semibold text-white">{todayLoaded ? `${bookedPct}%` : "..."}</span> booked tonight</span>
+                    {blocked > 0 ? <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-sm bg-amber-300/80" aria-hidden />{blocked} blocked</span> : null}
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </header>
 
       {/* ── Toolbar ── */}
@@ -437,7 +467,7 @@ export default function PropertyAvailabilitySelectionPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search name or area"
-              className="h-10 w-full rounded-md border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+              className="h-10 w-full rounded-md border border-solid border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
             />
           </label>
         ) : null}
@@ -461,7 +491,7 @@ export default function PropertyAvailabilitySelectionPage() {
             <li key={property.id}>
               <Link
                 href={propertyHref(property.id, "/availability")}
-                className="group flex h-full flex-col overflow-hidden rounded-lg border border-slate-300/80 bg-white no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_22px_44px_-26px_rgba(1,42,38,0.5)]"
+                className="group flex h-full flex-col overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_22px_44px_-26px_rgba(1,42,38,0.5)]"
               >
                 {/* Photo */}
                 <div className="relative h-32 overflow-hidden bg-slate-100">

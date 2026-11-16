@@ -19,7 +19,7 @@ export default function Revenue() {
 
       {data && (
         <>
-          <div className="bg-white border rounded-lg p-3">
+          <div className="bg-white border border-solid rounded-lg p-3">
             <div className="text-sm font-medium mb-2">Amount Paid vs Your Payout</div>
             <div className="w-full h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -36,21 +36,21 @@ export default function Revenue() {
             </div>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-200">
+          <div className="bg-white border border-solid border-gray-200 rounded-lg shadow-sm overflow-hidden">
+            <div className="border-0 px-5 py-4 border-b border-solid border-gray-200">
               <div className="text-sm font-semibold text-gray-900">Payout by Property</div>
               <div className="text-xs text-gray-500 mt-0.5">Total customer payments and your net payout per property</div>
             </div>
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500">
+                <tr className="border-0 bg-gray-50 border-b border-solid border-gray-200 text-xs text-gray-500">
                   <th className="text-left px-5 py-3 font-medium">Property</th>
                   <th className="text-right px-5 py-3 font-medium">Your Payout</th>
                 </tr>
               </thead>
               <tbody>
                 {data.byProperty.map((p: any) => (
-                  <tr key={p.title} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
+                  <tr key={p.title} className="border-0 border-b border-solid border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
                     <td className="px-5 py-3 font-medium text-gray-800">{p.title}</td>
                     <td className="px-5 py-3 text-right font-semibold text-emerald-700">TZS {fmt(p.net)}</td>
                   </tr>
@@ -59,7 +59,7 @@ export default function Revenue() {
             </table>
           </div>
 
-          <div className="bg-white border rounded-lg p-3 overflow-x-auto">
+          <div className="bg-white border border-solid rounded-lg p-3 overflow-x-auto">
             <div className="text-sm font-medium mb-2">Invoices</div>
             <table className="w-full text-sm">
               <thead><tr className="[&>th]:text-left [&>th]:py-2">

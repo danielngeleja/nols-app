@@ -85,7 +85,7 @@ export default function Overview() {
       <ReportsFilter onChangeAction={setFilters} />
 
       {error ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
+        <div className="rounded-lg border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5" aria-hidden />
           <div className="min-w-0">
             <div className="font-semibold">Reports could not be loaded</div>
@@ -310,7 +310,7 @@ function MoneyTooltip({ active, payload, label }: any) {
     }));
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white shadow-lg px-3 py-2">
+    <div className="rounded-lg border border-solid border-gray-200 bg-white shadow-lg px-3 py-2">
       <div className="text-xs font-semibold text-gray-700">{label}</div>
       <div className="mt-1 space-y-1">
         {items.map((it: any) => (
@@ -331,7 +331,7 @@ function CountTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const v = payload?.[0]?.value;
   return (
-    <div className="rounded-lg border border-gray-200 bg-white shadow-lg px-3 py-2">
+    <div className="rounded-lg border border-solid border-gray-200 bg-white shadow-lg px-3 py-2">
       <div className="text-xs font-semibold text-gray-700">{label}</div>
       <div className="mt-1 text-xs text-gray-600">
         Count: <span className="font-semibold text-gray-900">{Number(v ?? 0)}</span>

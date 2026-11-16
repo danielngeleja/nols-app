@@ -21,7 +21,7 @@ export function BoardTilesSkeleton({ count = 12 }: { count?: number }) {
       <style>{SHIMMER}</style>
       <ul className="m-0 grid list-none grid-cols-2 gap-2.5 p-0 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6" aria-hidden>
         {Array.from({ length: count }).map((_, i) => (
-          <li key={i} className="rounded-md border border-white/10 bg-white/[0.04] p-3">
+          <li key={i} className="rounded-md border border-solid border-white/10 bg-white/[0.04] p-3">
             <div className="flex items-center justify-between gap-2">
               <Bar className="h-2.5 w-14" />
               <Bar className="h-3.5 w-9" />
@@ -39,7 +39,7 @@ export function BoardTilesSkeleton({ count = 12 }: { count?: number }) {
 /** The floor board while the floor plan loads. */
 export function BoardSkeleton() {
   return (
-    <section className="overflow-hidden rounded-lg border border-white/10 bg-[#012a26]" aria-busy="true" aria-label="Loading rooms by floor">
+    <section className="overflow-hidden rounded-lg border border-solid border-white/10 bg-[#012a26]" aria-busy="true" aria-label="Loading rooms by floor">
       <style>{SHIMMER}</style>
       <div className="px-5 pb-3 pt-4">
         <Bar className="h-3.5 w-28" />
@@ -75,7 +75,7 @@ export function FloorPlanSkeleton() {
         </div>
         <div className="mt-6 grid grid-cols-3 gap-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3">
+            <div key={i} className="rounded-lg border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
               <Bar className="h-2.5 w-16" />
               <div className="oa-sk mt-2.5 h-6 w-10 rounded-md" />
             </div>
@@ -97,7 +97,7 @@ export function FloorPlanSkeleton() {
               </div>
               <div className="flex flex-wrap gap-2 px-3 py-3 sm:px-4">
                 {Array.from({ length: rooms }).map((_, i) => (
-                  <div key={i} className="h-14 w-[76px] rounded-md border border-white/10 bg-white/[0.04] p-2">
+                  <div key={i} className="h-14 w-[76px] rounded-md border border-solid border-white/10 bg-white/[0.04] p-2">
                     <Bar className="h-3.5 w-5" />
                     <Bar className="mt-3 h-2 w-12" />
                   </div>
@@ -106,7 +106,7 @@ export function FloorPlanSkeleton() {
             </div>
           ))}
         </div>
-        <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-5">
+        <div className="space-y-3 rounded-lg border border-solid border-slate-200 bg-white p-5">
           <div className="h-3 w-24 rounded-full bg-slate-200" />
           <div className="h-2.5 w-44 rounded-full bg-slate-100" />
           {[0, 1, 2].map((i) => <div key={i} className="h-12 rounded-md bg-slate-100" />)}
@@ -118,7 +118,7 @@ export function FloorPlanSkeleton() {
 
 /** The whole page, before the property and its calendar have loaded. */
 export function AvailabilityPageSkeleton() {
-  const panel = "rounded-lg border border-white/10 bg-[#012a26]";
+  const panel = "rounded-lg border border-solid border-white/10 bg-[#012a26]";
   return (
     <div aria-busy="true" aria-label="Loading room availability" className="space-y-5">
       <style>{SHIMMER}</style>

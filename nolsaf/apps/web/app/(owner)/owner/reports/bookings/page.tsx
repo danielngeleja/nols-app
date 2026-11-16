@@ -36,7 +36,7 @@ export default function Bookings() {
 
       {data && (
         <>
-          <div className="bg-white border rounded-lg p-3">
+          <div className="bg-white border border-solid rounded-lg p-3">
             <div className="text-sm font-medium mb-2">Bookings Over Time</div>
             <div className="w-full h-64">
               <ResponsiveContainer>
@@ -52,7 +52,7 @@ export default function Bookings() {
             </div>
           </div>
 
-          <div className="bg-white border rounded-lg p-3">
+          <div className="bg-white border border-solid rounded-lg p-3">
             <div className="text-sm font-medium mb-2">Status Mix</div>
             <div className="w-full h-64">
               <ResponsiveContainer>

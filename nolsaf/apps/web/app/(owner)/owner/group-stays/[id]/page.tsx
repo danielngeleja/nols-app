@@ -894,7 +894,7 @@ export default function GroupStayDetail() {
             </div>
 
             {/* Modal Footer */}
-            <div className="px-5 sm:px-6 py-4 border-t border-slate-200 flex-shrink-0">
+            <div className="border-0 px-5 sm:px-6 py-4 border-t border-solid border-slate-200 flex-shrink-0">
               <button
                 onClick={() => setShowPolicyModal(false)}
                 className="w-full px-5 py-2.5 rounded-md bg-gradient-to-r from-emerald-600 to-green-600 text-white font-semibold text-sm hover:from-emerald-700 hover:to-green-700 transition-all duration-200"
@@ -955,7 +955,7 @@ export default function GroupStayDetail() {
 
             {/* Search Bar */}
             {groupStay.passengers.length > 5 && (
-              <div className="px-4 sm:px-6 py-3 border-b border-slate-200 flex-shrink-0 flex items-center justify-center">
+              <div className="border-0 px-4 sm:px-6 py-3 border-b border-solid border-slate-200 flex-shrink-0 flex items-center justify-center">
                 <div className="relative w-full max-w-md">
                   <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                   <input
@@ -963,7 +963,7 @@ export default function GroupStayDetail() {
                     placeholder="Search by name, phone, or nationality..."
                     value={passengerSearch}
                     onChange={(e) => setPassengerSearch(e.target.value)}
-                    className="w-full pl-8 pr-8 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none transition-all duration-200 text-sm"
+                    className="w-full pl-8 pr-8 py-2 border border-solid border-slate-200 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none transition-all duration-200 text-sm"
                     aria-label="Search passengers"
                   />
                   {passengerSearch && (
@@ -997,7 +997,7 @@ export default function GroupStayDetail() {
                   {passengerSearch && (
                     <button
                       onClick={() => setPassengerSearch("")}
-                      className="mt-4 inline-flex items-center justify-center h-10 w-10 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-brand transition-all duration-200 shadow-sm hover:shadow-md hover:scale-110"
+                      className="mt-4 inline-flex items-center justify-center h-10 w-10 rounded-lg border border-solid border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-brand transition-all duration-200 shadow-sm hover:shadow-md hover:scale-110"
                       title="Clear search"
                       aria-label="Clear search"
                     >
@@ -1012,7 +1012,7 @@ export default function GroupStayDetail() {
                     .map((passenger, index) => (
                       <div
                         key={passenger.id || index}
-                        className="p-3 sm:p-4 rounded-md border border-slate-200 bg-slate-50 hover:bg-white hover:border-brand/30 transition-all duration-200 hover:shadow-md"
+                        className="p-3 sm:p-4 rounded-md border border-solid border-slate-200 bg-slate-50 hover:bg-white hover:border-brand/30 transition-all duration-200 hover:shadow-md"
                       >
                         <div className="flex items-start gap-3">
                           <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg bg-brand/10 flex items-center justify-center flex-shrink-0">
@@ -1072,7 +1072,7 @@ function PolicyItem({ icon, tone, title, body }: { icon: React.ReactNode; tone: 
   };
   return (
     <div className="flex items-start gap-3.5">
-      <div className={`h-10 w-10 rounded-md border flex items-center justify-center flex-shrink-0 ${toneClasses[tone]}`}>
+      <div className={`h-10 w-10 rounded-md border border-solid flex items-center justify-center flex-shrink-0 ${toneClasses[tone]}`}>
         {icon}
       </div>
       <div className="min-w-0">

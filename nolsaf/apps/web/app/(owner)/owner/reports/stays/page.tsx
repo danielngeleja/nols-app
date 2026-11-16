@@ -1141,12 +1141,12 @@ export default function StaysReportPage() {
     <div className="space-y-5">
       <ReportsFilter onChangeAction={setFilters} exportHref={null} />
 
-      <div className="relative rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+      <div className="relative rounded-lg border border-solid border-slate-200 shadow-sm overflow-hidden">
         {/* Cross-hatch bg */}
         <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%), repeating-linear-gradient(-45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%)', backgroundSize: '20px 20px' }} />
         <div className="relative bg-white/95 px-5 py-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="min-w-0">
-          <div className="inline-flex items-center gap-2 rounded-md bg-[#02665e]/10 border border-[#02665e]/20 px-3 py-1 text-xs font-bold text-[#02665e]">
+          <div className="inline-flex items-center gap-2 rounded-md bg-[#02665e]/10 border border-solid border-[#02665e]/20 px-3 py-1 text-xs font-bold text-[#02665e]">
             <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
             Operational Export
           </div>
@@ -1167,7 +1167,7 @@ export default function StaysReportPage() {
             disabled={!canUseReportActions}
             onClick={exportCsv}
             className={
-              "inline-flex items-center justify-center h-9 px-4 rounded-md border shadow-sm text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 " +
+              "inline-flex items-center justify-center h-9 px-4 rounded-md border border-solid shadow-sm text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 " +
               (canUseReportActions ? "bg-white border-[#02665e]/20 text-[#02665e] hover:bg-[#02665e]/5 hover:border-[#02665e]/30" : "bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed")
             }
           >
@@ -1191,7 +1191,7 @@ export default function StaysReportPage() {
       </div>
 
       {error ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
+        <div className="rounded-lg border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5" aria-hidden />
           <div className="min-w-0">
             <div className="font-semibold">Couldn’t load report</div>
@@ -1212,8 +1212,8 @@ export default function StaysReportPage() {
       </div>
 
       {/* Quick visualization */}
-      <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div className="bg-white rounded-md border border-solid border-gray-200 shadow-sm overflow-hidden">
+        <div className="border-0 px-5 py-4 border-b border-solid border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-gray-900">Booking sources</div>
             <div className="text-xs text-gray-400 mt-0.5">NoLSAF bookings vs external blocks vs group stays</div>
@@ -1232,7 +1232,7 @@ export default function StaysReportPage() {
           />
         </div>
         <div className="px-5 pb-4 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-          <div className="rounded-lg border border-gray-100 border-l-2 border-l-violet-400 bg-gray-50/60 px-3 py-2.5">
+          <div className="rounded-lg border border-solid border-gray-100 border-l-2 border-l-violet-400 bg-gray-50/60 px-3 py-2.5">
             <div className="font-semibold text-gray-800">Auction participation</div>
             <div className="mt-1 text-gray-500">
               <span className="font-medium text-gray-700">{loading ? "…" : String(kpis?.auctionClaimsSubmitted ?? 0)}</span> submitted
@@ -1240,11 +1240,11 @@ export default function StaysReportPage() {
               <span className="font-medium text-emerald-700">{loading ? "…" : String(kpis?.auctionClaimsAccepted ?? 0)}</span> accepted
             </div>
           </div>
-          <div className="rounded-lg border border-gray-100 border-l-2 border-l-sky-400 bg-gray-50/60 px-3 py-2.5">
+          <div className="rounded-lg border border-solid border-gray-100 border-l-2 border-l-sky-400 bg-gray-50/60 px-3 py-2.5">
             <div className="font-semibold text-gray-800">Group stay nights</div>
             <div className="mt-1 text-gray-500"><span className="font-medium text-gray-700">{loading ? "…" : String(kpis?.groupStayNights ?? 0)}</span> nights overlapping this period</div>
           </div>
-          <div className="rounded-lg border border-gray-100 border-l-2 border-l-amber-400 bg-gray-50/60 px-3 py-2.5">
+          <div className="rounded-lg border border-solid border-gray-100 border-l-2 border-l-amber-400 bg-gray-50/60 px-3 py-2.5">
             <div className="font-semibold text-gray-800">Revenue (TZS)</div>
             <div className="mt-1 text-gray-500">Total earned: <span className="font-medium text-emerald-700">{loading ? "…" : fmtMoneyTZS(kpis?.revenueTzs ?? 0)}</span></div>
           </div>
@@ -1253,8 +1253,8 @@ export default function StaysReportPage() {
 
       {/* Tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
+        <div className="bg-white rounded-md border border-solid border-gray-200 shadow-sm overflow-hidden">
+          <div className="border-0 px-5 py-3.5 border-b border-solid border-gray-100 flex items-center gap-3">
             <div className="h-7 w-1 rounded-full bg-emerald-500" />
             <div>
               <div className="text-sm font-semibold text-gray-900">NoLSAF bookings</div>
@@ -1264,7 +1264,7 @@ export default function StaysReportPage() {
           <div className="p-4 overflow-x-auto">
             <table className="min-w-[720px] w-full text-sm">
               <thead>
-                <tr className="text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-gray-100">
+                <tr className="border-0 text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-solid border-gray-100">
                   <th className="text-left py-2.5 px-3">Guest</th>
                   <th className="text-left py-2.5 px-3">Check-in</th>
                   <th className="text-left py-2.5 px-3">Check-out</th>
@@ -1277,7 +1277,7 @@ export default function StaysReportPage() {
               <tbody>
                 {data?.bookings?.length ? (
                   data.bookings.map((b) => (
-                    <tr key={b.id} className="border-b last:border-b-0 hover:bg-gray-50/60 transition-colors">
+                    <tr key={b.id} className="border-0 border-b border-solid last:border-b-0 hover:bg-gray-50/60 transition-colors">
                       <td className="py-2.5 px-3 font-medium text-gray-900">{b.guestName || "Guest"}</td>
                       <td className="py-2.5 px-3 text-gray-600">{fmtDate(b.checkIn)}</td>
                       <td className="py-2.5 px-3 text-gray-600">{fmtDate(b.checkOut)}</td>
@@ -1299,8 +1299,8 @@ export default function StaysReportPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
+        <div className="bg-white rounded-md border border-solid border-gray-200 shadow-sm overflow-hidden">
+          <div className="border-0 px-5 py-3.5 border-b border-solid border-gray-100 flex items-center gap-3">
             <div className="h-7 w-1 rounded-full bg-amber-500" />
             <div>
               <div className="text-sm font-semibold text-gray-900">External reservations</div>
@@ -1310,7 +1310,7 @@ export default function StaysReportPage() {
           <div className="p-4 overflow-x-auto">
             <table className="min-w-[760px] w-full text-sm">
               <thead>
-                <tr className="text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-gray-100">
+                <tr className="border-0 text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-solid border-gray-100">
                   <th className="text-left py-2.5 px-3">Source</th>
                   <th className="text-left py-2.5 px-3">Guest</th>
                   <th className="text-left py-2.5 px-3">Nationality</th>
@@ -1324,7 +1324,7 @@ export default function StaysReportPage() {
               <tbody>
                 {data?.external?.length ? (
                   data.external.map((x) => (
-                    <tr key={x.id} className="border-b last:border-b-0 hover:bg-gray-50/60 transition-colors">
+                    <tr key={x.id} className="border-0 border-b border-solid last:border-b-0 hover:bg-gray-50/60 transition-colors">
                       <td className="py-2.5 px-3 font-medium text-gray-900">{x.source || "External"}</td>
                       <td className="py-2.5 px-3 text-gray-700">{x.guestName || "—"}</td>
                       <td className="py-2.5 px-3 text-gray-600">{x.nationality || "—"}</td>
@@ -1350,8 +1350,8 @@ export default function StaysReportPage() {
 
       {/* Group stays + auction section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
+        <div className="bg-white rounded-md border border-solid border-gray-200 shadow-sm overflow-hidden">
+          <div className="border-0 px-5 py-3.5 border-b border-solid border-gray-100 flex items-center gap-3">
             <div className="h-7 w-1 rounded-full bg-indigo-500" />
             <div>
               <div className="text-sm font-semibold text-gray-900">Group stays received</div>
@@ -1361,7 +1361,7 @@ export default function StaysReportPage() {
           <div className="p-4 overflow-x-auto">
             <table className="min-w-[820px] w-full text-sm">
               <thead>
-                <tr className="text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-gray-100">
+                <tr className="border-0 text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-solid border-gray-100">
                   <th className="text-left py-2.5 px-3">Type</th>
                   <th className="text-left py-2.5 px-3">Destination</th>
                   <th className="text-left py-2.5 px-3">Check-in</th>
@@ -1373,7 +1373,7 @@ export default function StaysReportPage() {
               <tbody>
                 {data?.groupStays?.length ? (
                   data.groupStays.map((g) => (
-                    <tr key={g.id} className="border-b last:border-b-0 hover:bg-gray-50/60 transition-colors">
+                    <tr key={g.id} className="border-0 border-b border-solid last:border-b-0 hover:bg-gray-50/60 transition-colors">
                       <td className="py-2.5 px-3 font-medium text-gray-900">{g.groupType || "—"}</td>
                       <td className="py-2.5 px-3 text-gray-600">{[g.toRegion, g.toDistrict, g.toLocation].filter(Boolean).join(" • ") || "—"}</td>
                       <td className="py-2.5 px-3 text-gray-600">{g.checkIn ? fmtDate(g.checkIn) : "—"}</td>
@@ -1394,8 +1394,8 @@ export default function StaysReportPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
+        <div className="bg-white rounded-md border border-solid border-gray-200 shadow-sm overflow-hidden">
+          <div className="border-0 px-5 py-3.5 border-b border-solid border-gray-100 flex items-center gap-3">
             <div className="h-7 w-1 rounded-full bg-violet-500" />
             <div>
               <div className="text-sm font-semibold text-gray-900">Auction participation</div>
@@ -1405,7 +1405,7 @@ export default function StaysReportPage() {
           <div className="p-4 overflow-x-auto">
             <table className="min-w-[960px] w-full text-sm">
               <thead>
-                <tr className="text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-gray-100">
+                <tr className="border-0 text-[10px] font-semibold text-gray-400 bg-gray-50/70 border-b border-solid border-gray-100">
                   <th className="text-left py-2.5 px-3">Group stay</th>
                   <th className="text-left py-2.5 px-3">Property</th>
                   <th className="text-right py-2.5 px-3">Offer / night</th>
@@ -1420,7 +1420,7 @@ export default function StaysReportPage() {
                   data.auctionClaims.map((c) => {
                     const accepted = String(c.status || "").toUpperCase() === "ACCEPTED";
                     return (
-                      <tr key={c.id} className="border-b last:border-b-0 hover:bg-gray-50/60 transition-colors">
+                      <tr key={c.id} className="border-0 border-b border-solid last:border-b-0 hover:bg-gray-50/60 transition-colors">
                         <td className="py-2.5 px-3 font-medium text-gray-900">#{c.groupBookingId}</td>
                         <td className="py-2.5 px-3 text-gray-600">{c.property?.title || "—"}</td>
                         <td className="py-2.5 px-3 text-right font-semibold text-indigo-700">{c.currency || "TZS"} {fmtMoneyTZS(Number(c.offeredPricePerNight || 0))}</td>
@@ -1441,7 +1441,7 @@ export default function StaysReportPage() {
               </tbody>
               {auctionSummary.acceptedCount > 0 && (
                 <tfoot>
-                  <tr className="border-t-2 border-gray-200 bg-emerald-50/40">
+                  <tr className="border-0 border-t-2 border-solid border-gray-200 bg-emerald-50/40">
                     <td className="py-3 px-3 text-xs font-semibold text-gray-700" colSpan={4}>
                       You collect at check-in
                       <span className="ml-1.5 font-normal text-gray-400">
@@ -1476,7 +1476,7 @@ export default function StaysReportPage() {
 
 function Kpi({ title, value, sub, loading, accent }: { title: string; value: string; sub?: string; loading: boolean; accent?: string; borderColor?: string }) {
   return (
-    <div className="relative rounded-md border border-slate-200 shadow-sm overflow-hidden">
+    <div className="relative rounded-md border border-solid border-slate-200 shadow-sm overflow-hidden">
       <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%), repeating-linear-gradient(-45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%)', backgroundSize: '20px 20px' }} />
       <div className="relative bg-white/95 p-4 flex flex-col justify-between">
         <div className="text-[10px] font-bold text-slate-400 leading-tight">{title}</div>
