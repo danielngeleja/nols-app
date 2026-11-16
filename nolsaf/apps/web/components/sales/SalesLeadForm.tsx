@@ -6,7 +6,9 @@
  * says what is missing, catches a bad phone or email before saving, and
  * explains duplicate checks and lead protection.
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
+import apiClient from "@/lib/apiClient";
 import {
   Building2,
   Check,
@@ -161,6 +163,102 @@ function Section({ step, icon: Icon, title, hint, children }: { step: number; ic
   );
 }
 
+type Availability = { lead: "CLEAR" | "OWN" | "TAKEN"; listed: boolean; ownRef: string | null };
+
+/**
+ * Asks the API, a moment after typing stops, whether this prospect is free.
+ * Only once there is enough to match on: a name plus an area, or a phone,
+ * email, registration or tax number. The server runs the same check on save.
+ */
+function useLeadAvailability(value: SalesLeadFormValue, checkRef?: string) {
+  const [result, setResult] = useState<Availability | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const seq = useRef(0);
+  const name = value.propertyName.trim();
+  const key = JSON.stringify([
+    name.toLocaleLowerCase("en"),
+    value.region,
+    value.district,
+    value.contactPhone.replace(/\D/g, ""),
+    value.contactEmail.trim().toLocaleLowerCase("en"),
+    value.registrationNumber.trim(),
+    value.taxNumber.trim(),
+  ]);
+  const ready = name.length >= 3 && Boolean(
+    value.region || value.district || value.contactPhone.trim() || value.contactEmail.trim() || value.registrationNumber.trim() || value.taxNumber.trim(),
+  );
+
+  useEffect(() => {
+    if (!ready) {
+      setResult(null);
+      setProblem(null);
+      return;
+    }
+    const mine = ++seq.current;
+    const timer = window.setTimeout(async () => {
+      setChecking(true);
+      try {
+        const { data } = await apiClient.post("/api/sales/leads/check", {
+          propertyName: name,
+          region: value.region || null,
+          district: value.district || null,
+          contactPhone: value.contactPhone.trim() || null,
+          contactEmail: value.contactEmail.trim() || null,
+          registrationNumber: value.registrationNumber.trim() || null,
+          taxNumber: value.taxNumber.trim() || null,
+          ref: checkRef || null,
+        });
+        if (mine !== seq.current) return;
+        setResult({ lead: data?.lead ?? "CLEAR", listed: Boolean(data?.listed), ownRef: data?.ownRef ?? null });
+        setProblem(null);
+      } catch (error: any) {
+        if (mine !== seq.current) return;
+        setResult(null);
+        setProblem(error?.response?.data?.error || "Could not check this property right now. It is checked again when you save.");
+      } finally {
+        if (mine === seq.current) setChecking(false);
+      }
+    }, 700);
+    return () => window.clearTimeout(timer);
+    // `key` captures every field the check reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, ready, checkRef]);
+
+  return { result: ready ? result : null, checking: ready && checking, problem: ready ? problem : null };
+}
+
+function AvailabilityLine({ result, checking, problem }: ReturnType<typeof useLeadAvailability>) {
+  if (checking && !result) {
+    return <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-500"><Loader2 className="h-3 w-3 animate-spin" aria-hidden />Checking whether this property is free</span>;
+  }
+  if (problem) return <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-500"><CircleAlert className="h-3 w-3 shrink-0" aria-hidden />{problem}</span>;
+  if (!result) return null;
+  if (result.lead === "OWN") {
+    return (
+      <span role="status" className="mt-1.5 flex flex-wrap items-center gap-1.5 rounded-md border border-solid border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[12px] font-medium text-sky-900">
+        <CircleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />You already registered this property.
+        {result.ownRef ? <Link href={`/sales/leads/${result.ownRef}`} className="font-semibold text-sky-800 underline">Open your lead</Link> : null}
+      </span>
+    );
+  }
+  if (result.lead === "TAKEN") {
+    return (
+      <span role="status" className="mt-1.5 flex items-start gap-1.5 rounded-md border border-solid border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[12px] font-medium text-rose-800">
+        <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />Another sales partner is already working with this property. Choose a different prospect.
+      </span>
+    );
+  }
+  if (result.listed) {
+    return (
+      <span role="status" className="mt-1.5 flex items-start gap-1.5 rounded-md border border-solid border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[12px] font-medium text-amber-900">
+        <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />Already listed on NoLSAF, so a Marketplace claim cannot earn. You can still propose NRMS.
+      </span>
+    );
+  }
+  return <span role="status" className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium text-[#02665e]"><Check className="h-3 w-3" aria-hidden />Free to register</span>;
+}
+
 function Problem({ text }: { text: string | null }) {
   if (!text) return null;
   return <span className="mt-1 flex items-center gap-1 text-[11px] font-medium text-rose-700"><CircleAlert className="h-3 w-3 shrink-0" aria-hidden />{text}</span>;
@@ -171,8 +269,11 @@ export default function SalesLeadForm({
   submitLabel,
   submitting,
   onSubmit,
+  checkRef,
 }: {
   initial?: Partial<SalesLeadFormValue>;
+  /** When editing: the lead's own reference, so the availability check skips it. */
+  checkRef?: string;
   submitLabel: string;
   /** Kept for callers; the Lead check panel now always holds the save button. */
   showTopSubmit?: boolean;
@@ -212,7 +313,19 @@ export default function SalesLeadForm({
   ];
   const done = checks.filter((c) => c.ok).length;
   const percent = Math.round((done / checks.length) * 100);
-  const blocked = !nameOk || !!phoneErr || !!emailErr || !!roomsErr;
+  const availability = useLeadAvailability(value, checkRef);
+  // Editing: the rules apply only once the partner changes who or what the
+  // lead is (the server does the same), so an older lead can still be updated.
+  const identityChanged = !initial || (["propertyName", "contactPhone", "contactEmail", "registrationNumber", "taxNumber", "region", "district", "proposedProduct"] as const)
+    .some((key) => String(value[key] ?? "").trim() !== String(initial[key] ?? "").trim());
+  const listed = identityChanged && Boolean(availability.result?.listed);
+  const unavailable = identityChanged && (availability.result?.lead === "OWN" || availability.result?.lead === "TAKEN");
+  const marketplaceLocked = listed && value.proposedProduct !== "NRMS";
+  // A listed property can only be pitched NRMS: move a Marketplace choice there.
+  useEffect(() => {
+    if (listed && value.proposedProduct !== "NRMS") setValue((current) => ({ ...current, proposedProduct: "NRMS" }));
+  }, [listed, value.proposedProduct]);
+  const blocked = !nameOk || !!phoneErr || !!emailErr || !!roomsErr || unavailable || marketplaceLocked;
   const showErr = (key: string) => tried || touched[key];
 
   return (
@@ -242,6 +355,7 @@ export default function SalesLeadForm({
               aria-invalid={showErr("propertyName") && !nameOk}
             />
             <Problem text={showErr("propertyName") && !nameOk ? "Enter at least 2 characters." : null} />
+            <AvailabilityLine {...availability} />
           </label>
 
           <label className={labelText}>
@@ -338,14 +452,17 @@ export default function SalesLeadForm({
             <div className="mt-1.5 grid grid-cols-3 gap-2" role="radiogroup">
               {PRODUCTS.map(({ value: product, title, hint, Icon }) => {
                 const on = value.proposedProduct === product;
+                const off = listed && product !== "NRMS";
                 return (
                   <button
                     key={product}
                     type="button"
                     role="radio"
                     aria-checked={on}
+                    disabled={off}
+                    title={off ? "Already listed on NoLSAF: a Marketplace claim cannot earn" : undefined}
                     onClick={() => set("proposedProduct", product)}
-                    className={`flex min-w-0 items-start gap-2 rounded-md border border-solid px-3 py-2.5 text-left transition ${on ? "border-[#02665e] bg-[#02665e]/[0.06] ring-1 ring-[#02665e]" : "border-slate-300 bg-white hover:border-slate-400"}`}
+                    className={`flex min-w-0 items-start gap-2 rounded-md border border-solid px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${on ? "border-[#02665e] bg-[#02665e]/[0.06] ring-1 ring-[#02665e]" : "border-slate-300 bg-white hover:border-slate-400"}`}
                   >
                     <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${on ? "text-[#02665e]" : "text-slate-400"}`} aria-hidden />
                     <span className="min-w-0">
@@ -423,10 +540,14 @@ export default function SalesLeadForm({
         </ul>
         <div className="space-y-2 border-0 border-t border-solid border-slate-100 px-4 py-3 text-[12px] leading-5 text-slate-600">
           <p className="m-0 flex gap-2"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />{initial ? "Logging progress keeps this lead protected for you." : "Once saved, this lead is protected for you for 60 days. Logging calls, meetings and proposals extends it."}</p>
-          <p className="m-0 flex gap-2"><CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />Phone, email, registration and tax numbers are checked against every lead. A match is saved and flagged for review, not refused.</p>
+          <p className="m-0 flex gap-2"><CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />The name and area, phone, email, registration and tax numbers are checked against NoLSAF listings and every partner&apos;s leads while you type.</p>
         </div>
         <div className="border-0 border-t border-solid border-slate-100 p-4">
-          {tried && blocked ? <p className="m-0 mb-2 text-[12px] font-medium text-rose-700" role="alert">Fix the fields marked in red first.</p> : null}
+          {tried && blocked ? (
+            <p className="m-0 mb-2 text-[12px] font-medium text-rose-700" role="alert">
+              {unavailable ? "This property is not free to register." : "Fix the fields marked in red first."}
+            </p>
+          ) : null}
           <button
             type="submit"
             disabled={submitting}

@@ -607,7 +607,7 @@ export default function TourPackageTimelinePage() {
   );
   const marketingPath = /^[a-z0-9]{20,40}$/.test(operatorPublicKey)
     ? withMarketingSource(
-        `/public/tour-packages/operators/${operatorPublicKey}/submitted-profile/${slugifyProfile(operatorName)}`
+        `/public/tour-packages/operators/${operatorPublicKey}/${slugifyProfile(operatorName)}`
       )
     : withMarketingSource("/public/tour-packages");
 

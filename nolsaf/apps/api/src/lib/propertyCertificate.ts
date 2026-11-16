@@ -43,6 +43,36 @@ export function certificateReference(propertyId: number, verificationId: number)
   return `NLS-${body.slice(0, 4)}-${body.slice(4)}-${referenceCheckChar(body)}`;
 }
 
+/**
+ * "NLS-TO-7K3Q-9XMD-F": a tour operator's certificate. Keyed on the operator
+ * and the approval moment, so a fresh approval issues a fresh reference and
+ * the number never reveals or counts operator rows.
+ */
+export function operatorCertificateReference(agentId: number, approvedAt: string): string {
+  const body = base32(keyed("operator-certificate", `${agentId}:${approvedAt}`), 8);
+  return `NLS-TO-${body.slice(0, 4)}-${body.slice(4)}-${referenceCheckChar(body)}`;
+}
+
+// Approved operator document kinds as a traveller should read them. Types not
+// listed (contracts, NDAs, generic uploads) prove nothing to a traveller.
+const OPERATOR_CHECK_LABELS: Array<{ label: string; types: string[] }> = [
+  { label: "Business registration (BRELA)", types: ["BRELA_CERTIFICATE"] },
+  { label: "Tax registration (TIN)", types: ["TIN_CERTIFICATE", "TIN_NUMBER"] },
+  { label: "Business licence", types: ["BUSINESS_LICENSE", "BUSINESS_LICENCE", "BUSINESS_LISENCE"] },
+  { label: "Tourism licence", types: ["TOURISM_LICENSE", "TOURISM_LICENCE", "LICENSE"] },
+  { label: "Vehicle permit", types: ["VEHICLE_PERMIT"] },
+  { label: "Director identity", types: ["NATIONAL_ID", "PASSPORT", "NATIONAL_ID_OR_PASSPORT"] },
+];
+
+/** The checklist printed on an operator certificate, from approved documents only. */
+export function operatorCertificateChecks(approvedTypes: Array<string | null | undefined>): string[] {
+  const have = new Set(approvedTypes.map((t) => String(t || "").toUpperCase()));
+  return [
+    "Company profile reviewed by NoLSAF",
+    ...OPERATOR_CHECK_LABELS.filter((item) => item.types.some((t) => have.has(t))).map((item) => item.label),
+  ];
+}
+
 /** True when the reference is well formed and its check character matches. */
 export function isValidCertificateReference(ref: string): boolean {
   const m = /^NLS-([0-9A-HJKMNP-TV-Z]{4})-([0-9A-HJKMNP-TV-Z]{4})-([0-9A-HJKMNP-TV-Z])$/.exec(String(ref || "").toUpperCase());

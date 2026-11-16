@@ -170,10 +170,10 @@ function discountText(pkg: PublicPackage): string | null {
 /** Section card in the stay page's language: header band with icon, eyebrow and title. */
 function SectionCard({ icon, eyebrow, title, children, action }: { icon: ReactNode; eyebrow: string; title: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-sm">
       <div className="flex items-start justify-between gap-4 border-0 border-b border-solid border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white text-[#02665e] shadow-sm ring-1 ring-[#02665e]/10">{icon}</span>
+          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-white text-[#02665e] shadow-sm ring-1 ring-[#02665e]/10">{icon}</span>
           <div className="min-w-0">
             <div className="text-xs font-bold tracking-[0.08em] text-[#02665e]">{eyebrow}</div>
             <h2 className="m-0 mt-1 text-lg font-semibold text-slate-950">{title}</h2>
@@ -411,7 +411,7 @@ export default function OperatorPublicProfile({
       <style>{"#operator-public-profile, #operator-public-profile * { box-sizing: border-box; }"}</style>
 
       {/* ── Header: who they are, the facts a traveller checks first, and proof of verification ── */}
-      <div className="overflow-hidden rounded-xl border border-solid border-slate-300/80 bg-white">
+      <div className="overflow-hidden rounded-lg border border-solid border-slate-300/80 bg-white">
         <div className="px-4 pb-4 pt-3 sm:px-6 sm:pb-5 sm:pt-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <Link href="/public/tour-packages" className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-slate-500 no-underline hover:text-[#02665e]">
@@ -520,8 +520,8 @@ export default function OperatorPublicProfile({
 
       {/* ── Gallery: one large, two stacked ── */}
       {photos.length ? (
-        <div className="mt-6 grid grid-cols-1 gap-3 overflow-hidden rounded-2xl border border-solid border-slate-200 md:grid-cols-3">
-          <button type="button" onClick={() => setLightbox(0)} aria-label="Open photo gallery" className={`relative aspect-[16/10] cursor-pointer overflow-hidden rounded-2xl border-0 bg-slate-100 p-0 md:col-span-2 ${TILE_MOTION}`}>
+        <div className="mt-6 grid grid-cols-1 gap-3 overflow-hidden rounded-lg border border-solid border-slate-200 md:grid-cols-3">
+          <button type="button" onClick={() => setLightbox(0)} aria-label="Open photo gallery" className={`relative aspect-[16/10] cursor-pointer overflow-hidden rounded-lg border-0 bg-slate-100 p-0 md:col-span-2 ${TILE_MOTION}`}>
             <Image src={photos[0]} alt={`${p.companyName} photo 1`} fill sizes="(min-width: 768px) 66vw, 100vw" className="object-cover" unoptimized priority />
             <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
           </button>
@@ -534,12 +534,12 @@ export default function OperatorPublicProfile({
                   type="button"
                   onClick={() => (opensTour ? openAllPhotos() : setLightbox(i))}
                   aria-label={opensTour ? "View all photos" : `Open photo ${i + 1}`}
-                  className={`relative aspect-[16/10] cursor-pointer overflow-hidden rounded-xl border-0 bg-slate-100 p-0 ${TILE_MOTION}`}
+                  className={`relative aspect-[16/10] cursor-pointer overflow-hidden rounded-lg border-0 bg-slate-100 p-0 ${TILE_MOTION}`}
                 >
                   <Image src={photos[i]} alt={`${p.companyName} photo ${i + 1}`} fill sizes="(min-width: 768px) 22vw, 50vw" className="object-cover" unoptimized priority />
                   {opensTour ? (
                     <div className="absolute bottom-3 right-3">
-                      <div className="inline-flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1.5 shadow-sm ring-1 ring-white/10 backdrop-blur-sm">
+                      <div className="inline-flex items-center gap-1.5 rounded bg-black/60 px-2.5 py-1.5 shadow-sm ring-1 ring-white/10 backdrop-blur-sm">
                         <Eye className="h-3.5 w-3.5 flex-shrink-0 text-white/90" aria-hidden />
                         <span className="text-[11px] font-semibold leading-none text-white tabular-nums">{photos.length}</span>
                       </div>
@@ -547,7 +547,7 @@ export default function OperatorPublicProfile({
                   ) : null}
                 </button>
               ) : (
-                <div key={i} className="relative aspect-[16/10] overflow-hidden rounded-xl bg-slate-100">
+                <div key={i} className="relative aspect-[16/10] overflow-hidden rounded-lg bg-slate-100">
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_25%,rgba(2,102,94,0.10),transparent_55%),linear-gradient(135deg,#f8fafc,#e2e8f0)]" />
                   <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]" />
                   <div className="absolute inset-0 flex items-center justify-center">
@@ -564,14 +564,21 @@ export default function OperatorPublicProfile({
         {/* ── Main ── */}
         <div className="space-y-6 lg:col-span-2">
           {keyFacts.length ? (
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2.5 rounded-2xl border border-solid border-slate-200 bg-white px-5 py-3.5">
-              {keyFacts.map(({ Icon, value, label }) => (
-                <span key={`fact-${label}`} className="inline-flex items-center gap-2 text-[14px] text-slate-700">
-                  <Icon className="h-[18px] w-[18px] flex-none text-[#02665e]" strokeWidth={1.8} aria-hidden />
-                  <span><span className="font-semibold text-slate-900">{value}</span> {label}</span>
-                </span>
+            // One even row of figures: the number leads, the label sits under it,
+            // a thin rule between cells. Never wraps into a ragged second line.
+            <dl className="m-0 flex overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+              {keyFacts.map(({ Icon, value, label }, i) => (
+                <div
+                  key={`fact-${label}`}
+                  className={`flex min-w-0 flex-1 flex-col items-center px-1.5 py-3 text-center sm:px-3 sm:py-3.5 ${i > 0 ? "border-0 border-l border-solid border-slate-200" : ""}`}
+                >
+                  <Icon className="h-4 w-4 flex-none text-[#02665e]" strokeWidth={1.9} aria-hidden />
+                  {/* dt before dd for valid markup; flex order shows the number first */}
+                  <dt className="order-3 mt-1 text-[11px] leading-tight text-slate-500 sm:text-[12px]">{label.charAt(0).toUpperCase() + label.slice(1)}</dt>
+                  <dd className="order-2 m-0 mt-1.5 text-[18px] font-bold leading-none tabular-nums text-slate-900 sm:text-[22px]">{value}</dd>
+                </div>
               ))}
-            </div>
+            </dl>
           ) : null}
 
           {p.description ? (
@@ -580,7 +587,7 @@ export default function OperatorPublicProfile({
               eyebrow="Operator overview"
               title={`About ${p.companyName || "this operator"}`}
               action={aboutLong ? (
-                <button type="button" onClick={() => setAboutOpen((v) => !v)} aria-label={aboutOpen ? "Show less" : "Read more"} className="inline-flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50">
+                <button type="button" onClick={() => setAboutOpen((v) => !v)} aria-label={aboutOpen ? "Show less" : "Read more"} className="inline-flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-solid border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50">
                   {aboutOpen ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
                 </button>
               ) : undefined}
@@ -595,11 +602,11 @@ export default function OperatorPublicProfile({
                 <dl className="m-0 mt-4 grid grid-cols-1 gap-3 border-0 border-t border-solid border-slate-100 pt-4 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-x-4">
                   {languages.length ? (
                     <>
-                      <dt className="pt-1 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">Speaks</dt>
+                      <dt className="pt-1 text-[12px] font-semibold text-slate-500">Speaks</dt>
                       <dd className="m-0 flex flex-wrap gap-1.5">
                         {languages.map((lang) => (
-                          <span key={lang} className="inline-flex items-center gap-1.5 rounded-full bg-white py-0.5 pl-0.5 pr-2.5 text-[12.5px] font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-rose-50 text-[9.5px] font-black uppercase tracking-wide text-rose-700">{lang.slice(0, 2)}</span>
+                          <span key={lang} className="inline-flex items-center gap-1.5 rounded-md bg-white py-0.5 pl-0.5 pr-2.5 text-[12.5px] font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
+                            <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-rose-50 text-[9.5px] font-black uppercase tracking-wide text-rose-700">{lang.slice(0, 2)}</span>
                             {lang}
                           </span>
                         ))}
@@ -608,13 +615,13 @@ export default function OperatorPublicProfile({
                   ) : null}
                   {p.tourismTypes?.length ? (
                     <>
-                      <dt className="pt-1 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">Tour styles</dt>
+                      <dt className="pt-1 text-[12px] font-semibold text-slate-500">Tour styles</dt>
                       <dd className="m-0 flex flex-wrap gap-1.5">
                         {p.tourismTypes.map((t) => {
                           const { Icon, hex } = experienceLook(t);
                           return (
-                            <span key={t} className="inline-flex items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2.5 text-[12.5px] font-semibold" style={{ backgroundColor: `${hex}12`, color: hex }}>
-                              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full text-white" style={{ backgroundColor: hex }}>
+                            <span key={t} className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-0.5 pr-2.5 text-[12.5px] font-semibold" style={{ backgroundColor: `${hex}12`, color: hex }}>
+                              <span className="inline-flex h-6 w-6 items-center justify-center rounded text-white" style={{ backgroundColor: hex }}>
                                 <Icon className="h-3.5 w-3.5" aria-hidden />
                               </span>
                               {t}
@@ -646,10 +653,10 @@ export default function OperatorPublicProfile({
                 {sites.map((site, i) => {
                   const { Icon, kind, hex } = placeLook(site);
                   return (
-                    <div key={site} className="flex min-w-0 items-center gap-3 rounded-xl border border-solid border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-slate-300">
-                      <span className="relative inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: `${hex}14`, color: hex }}>
+                    <div key={site} className="flex min-w-0 items-center gap-3 rounded-lg border border-solid border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-slate-300">
+                      <span className="relative inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: `${hex}14`, color: hex }}>
                         <Icon className="h-5 w-5" aria-hidden />
-                        <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[9.5px] font-bold tabular-nums text-slate-600 shadow ring-1 ring-slate-200">{i + 1}</span>
+                        <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded bg-white px-1 text-[9.5px] font-bold tabular-nums text-slate-600 shadow ring-1 ring-slate-200">{i + 1}</span>
                       </span>
                       <div className="min-w-0 leading-tight">
                         <div className="truncate text-[14px] font-semibold text-slate-900" title={site}>{site === site.toUpperCase() ? tidyPlace(site) : site}</div>
@@ -680,11 +687,11 @@ export default function OperatorPublicProfile({
                     const seats = Math.max(0, Math.min(14, Number(v.seatsPerVehicle) || 0));
                     const modes = String(v.serviceMode || "").split(/\s*(?:,|\/|\band\b|&)\s*/i).map((m) => m.trim()).filter(Boolean);
                     return (
-                      <div key={v.id} className="rounded-2xl border border-solid border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+                      <div key={v.id} className="rounded-lg border border-solid border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
                         <div className="flex items-start gap-3">
-                          <span className="relative inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-[#02665e] text-white shadow-sm">
+                          <span className="relative inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e] text-white shadow-sm">
                             <Car className="h-6 w-6" aria-hidden />
-                            <span className="absolute -bottom-1.5 -right-1.5 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-white px-1.5 text-[11px] font-black tabular-nums text-[#02665e] shadow ring-1 ring-slate-200">×{v.quantity || 1}</span>
+                            <span className="absolute -bottom-1.5 -right-1.5 inline-flex h-6 min-w-6 items-center justify-center rounded bg-white px-1.5 text-[11px] font-black tabular-nums text-[#02665e] shadow ring-1 ring-slate-200">×{v.quantity || 1}</span>
                           </span>
                           <div className="min-w-0 flex-1">
                             <div className="text-[15px] font-bold leading-snug text-slate-900">{v.type || "Tour vehicle"}</div>
@@ -716,14 +723,14 @@ export default function OperatorPublicProfile({
               {p.tools?.length ? (
                 <div className={p.vehicles?.length ? "mt-5" : ""}>
                   <div className="mb-2.5 flex items-baseline justify-between gap-2">
-                    <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">On board and on hand</span>
+                    <span className="text-[12px] font-semibold text-slate-500">On board and on hand</span>
                     <span className="text-[11.5px] tabular-nums text-slate-400">{p.tools.length} items</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                     {p.tools.map((tool) => {
                       const ToolIcon = toolIcon(tool);
                       return (
-                        <div key={tool} className="flex min-w-0 items-center gap-2 rounded-xl bg-slate-50 px-2.5 py-2 ring-1 ring-inset ring-slate-200/80">
+                        <div key={tool} className="flex min-w-0 items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-2 ring-1 ring-inset ring-slate-200/80">
                           <span className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-white text-[#02665e] shadow-sm ring-1 ring-slate-200">
                             <ToolIcon className="h-3.5 w-3.5" aria-hidden />
                           </span>
@@ -747,8 +754,8 @@ export default function OperatorPublicProfile({
                     { label: "Daily capacity", value: p.maxTripsPerDay ? `${p.maxTripsPerDay} tour${p.maxTripsPerDay === "1" ? "" : "s"}` : "", Icon: Route, hint: "run per day" },
                     { label: "Peak season", value: p.peakSeasonAvailability, Icon: Sun, hint: "availability" },
                   ].filter((row) => row.value).map(({ label, value, Icon, hint }) => (
-                    <div key={label} className="min-w-0 rounded-xl border border-solid border-slate-200 bg-white px-3 py-3">
-                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                    <div key={label} className="min-w-0 rounded-lg border border-solid border-slate-200 bg-white px-3 py-3">
+                      <div className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-500">
                         <Icon className="h-3.5 w-3.5 text-[#02665e]" aria-hidden />
                         {label}
                       </div>
@@ -761,7 +768,7 @@ export default function OperatorPublicProfile({
 
               {/* Seasons on a 12-month ruler: when to go, at a glance */}
               {seasons.length ? (
-                <div className="mt-4 rounded-xl border border-solid border-slate-200 bg-white p-3 sm:p-4">
+                <div className="mt-4 rounded-lg border border-solid border-slate-200 bg-white p-3 sm:p-4">
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 sm:grid-cols-[7.5rem_minmax(0,1fr)]">
                     <span />
                     <div className="grid grid-cols-12">
@@ -818,7 +825,7 @@ export default function OperatorPublicProfile({
         {/* ── Side: booking card, payments, contact ── */}
         <aside className="h-fit min-w-0 space-y-6">
           {tours.length ? (
-            <div id="booking-card" className="scroll-mt-24 rounded-2xl border border-solid border-slate-200 bg-white p-5 shadow-[0_18px_40px_-24px_rgba(2,40,36,0.35)]">
+            <div id="booking-card" className="scroll-mt-24 rounded-lg border border-solid border-slate-200 bg-white p-5 shadow-[0_18px_40px_-24px_rgba(2,40,36,0.35)]">
               <div className="flex items-baseline gap-1.5">
                 <span className="text-[13px] text-slate-500">From</span>
                 <span className="text-[24px] font-bold leading-none tracking-tight text-slate-900">{cheapest ? money(cheapest.price, cheapest.currency) : "On request"}</span>
@@ -829,12 +836,12 @@ export default function OperatorPublicProfile({
                 {cheapest?.pkg.duration ? ` · from ${durationText(cheapest.pkg.duration)}` : ""}
               </p>
               {singleBookHref ? (
-                <Link href={singleBookHref} className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#02665e] text-[15px] font-semibold text-white no-underline shadow-sm transition-colors hover:bg-[#014e47]">
+                <Link href={singleBookHref} className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#02665e] text-[15px] font-semibold text-white no-underline shadow-sm transition-colors hover:bg-[#014e47]">
                   Book this tour
                   <ChevronRight className="h-4 w-4" aria-hidden />
                 </Link>
               ) : (
-                <button type="button" onClick={scrollToTours} className="mt-4 inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] text-[15px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47]">
+                <button type="button" onClick={scrollToTours} className="mt-4 inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] text-[15px] font-semibold text-white shadow-sm transition-colors hover:bg-[#014e47]">
                   {tours.length > 1 ? "Choose a tour" : "See the tour"}
                   <ChevronRight className="h-4 w-4" aria-hidden />
                 </button>
@@ -858,9 +865,9 @@ export default function OperatorPublicProfile({
                           <p className="m-0 truncate text-[12px] text-slate-500">{p.companyName}</p>
                         </div>
                         {singleBookHref ? (
-                          <Link href={singleBookHref} className="inline-flex h-11 flex-none items-center gap-1.5 rounded-xl bg-[#02665e] px-4 text-[14px] font-semibold text-white no-underline">Book now</Link>
+                          <Link href={singleBookHref} className="inline-flex h-11 flex-none items-center gap-1.5 rounded-md bg-[#02665e] px-4 text-[14px] font-semibold text-white no-underline">Book now</Link>
                         ) : (
-                          <button type="button" onClick={scrollToTours} className="inline-flex h-11 flex-none cursor-pointer items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white">
+                          <button type="button" onClick={scrollToTours} className="inline-flex h-11 flex-none cursor-pointer items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white">
                             {tours.length > 1 ? "Choose a tour" : "See the tour"}
                           </button>
                         )}
@@ -872,9 +879,9 @@ export default function OperatorPublicProfile({
             </div>
           ) : null}
 
-          <div className="hidden rounded-2xl border border-solid border-slate-200 bg-white p-5 lg:block">
+          <div className="hidden rounded-lg border border-solid border-slate-200 bg-white p-5 lg:block">
             <div className="flex items-center gap-2">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-[#02665e]/10 text-[#02665e]">
                 <CreditCard className="h-6 w-6" aria-hidden />
               </span>
               <h2 className="m-0 text-2xl font-semibold text-slate-900">Payment Methods</h2>
@@ -901,9 +908,9 @@ export default function OperatorPublicProfile({
 
           {/* ── Tour chooser: pick one, see what matters, set travellers, book ── */}
           {selected ? (
-            <div id="toursSection" className="scroll-mt-24 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-[0_18px_40px_-24px_rgba(2,40,36,0.35)]">
+            <div id="toursSection" className="scroll-mt-24 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-[0_18px_40px_-24px_rgba(2,40,36,0.35)]">
               <div className="flex items-center gap-2 px-5 pt-5">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-[#02665e]/10 text-[#02665e]">
                   <Package className="h-5 w-5" aria-hidden />
                 </span>
                 <div className="min-w-0 leading-tight">
@@ -914,7 +921,7 @@ export default function OperatorPublicProfile({
 
               {/* Options: one decision, compared on duration and price */}
               {tours.length > 1 ? (
-                <div role="radiogroup" aria-label="Tour packages" className="mt-4 space-y-2 px-5">
+                <div role="radiogroup" aria-label="Tour packages" className="mx-5 mt-4 overflow-hidden rounded-lg border border-solid border-slate-300">
                   {tours.map((pkg, idx) => {
                     const active = idx === selectedIdx;
                     const price = displayPrice(pkg.pricePerPerson);
@@ -928,22 +935,32 @@ export default function OperatorPublicProfile({
                         aria-checked={active}
                         onClick={() => pickTour(idx)}
                         className={[
-                          "flex w-full cursor-pointer items-center gap-3 rounded-xl border border-solid px-3 py-2.5 text-left transition-colors",
-                          active ? "border-[#02665e] bg-[#02665e]/[0.05] ring-1 ring-[#02665e]" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                          // One joined list with a clear rule between packages. The chosen one
+                          // is told by a filled check and brand-coloured name and price, not a box.
+                          "flex w-full cursor-pointer items-center gap-3 border-0 border-solid border-slate-200 px-3.5 py-3 text-left transition-colors",
+                          idx > 0 ? "border-t" : "",
+                          active ? "bg-[#02665e]/[0.05]" : "bg-white hover:bg-slate-50",
                         ].join(" ")}
                       >
-                        <span className={`flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-full border-2 border-solid ${active ? "border-[#02665e]" : "border-slate-300"}`}>
-                          {active ? <span className="h-2 w-2 rounded-full bg-[#02665e]" /> : null}
+                        <span
+                          className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-solid transition-colors ${active ? "border-0 bg-[#02665e] text-white" : "border-[1.5px] border-slate-300 bg-white"}`}
+                          aria-hidden
+                        >
+                          {active ? <Check className="h-3 w-3" strokeWidth={3.2} /> : null}
                         </span>
                         <span className="min-w-0 flex-1 leading-tight">
-                          <span className="block truncate text-[14px] font-semibold text-slate-900">{pkg.name || `Tour ${idx + 1}`}</span>
-                          <span className="mt-1 block truncate text-[12px] text-slate-500">{meta || "Guided tour"}</span>
+                          <span className={`block truncate text-[14px] font-semibold ${active ? "text-[#02665e]" : "text-slate-800"}`}>{pkg.name || `Tour ${idx + 1}`}</span>
+                          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[12px] text-slate-500">
+                            <span className="truncate">{meta || "Guided tour"}</span>
+                            {cheapest && cheapest.index === idx && priced.length > 1 ? (
+                              <span className="inline-flex flex-shrink-0 items-center gap-1 font-semibold text-emerald-700">
+                                <span className="h-1 w-1 rounded-full bg-emerald-600" aria-hidden />Lowest price
+                              </span>
+                            ) : null}
+                          </span>
                         </span>
                         <span className="flex flex-shrink-0 flex-col items-end leading-tight">
-                          {cheapest && cheapest.index === idx && priced.length > 1 ? (
-                            <span className="mb-1 rounded-full bg-emerald-100 px-1.5 py-px text-[10px] font-bold uppercase tracking-[0.04em] text-emerald-800">Lowest price</span>
-                          ) : null}
-                          <span className="text-[14.5px] font-bold tabular-nums text-slate-900">{hasPrice ? money(price, String(pkg.currency || "USD").toUpperCase()) : "On request"}</span>
+                          <span className={`text-[15px] font-bold tabular-nums ${active ? "text-[#02665e]" : "text-slate-900"}`}>{hasPrice ? money(price, String(pkg.currency || "USD").toUpperCase()) : "On request"}</span>
                           {hasPrice ? <span className="mt-0.5 text-[11px] text-slate-500">per person</span> : null}
                         </span>
                       </button>
@@ -957,23 +974,42 @@ export default function OperatorPublicProfile({
                 {tours.length === 1 ? (
                   <h3 className="m-0 text-[16px] font-bold text-slate-900">{selected.name || "Tour"}</h3>
                 ) : (
-                  <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">In this tour</div>
+                  <div className="mb-2.5 text-[12px] font-semibold text-slate-500">In this tour</div>
                 )}
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    durationText(selected.duration) ? { Icon: Clock3, text: durationText(selected.duration) } : null,
-                    groupText(selected) ? { Icon: Users, text: groupText(selected) } : null,
-                    selected.mode ? { Icon: Car, text: selected.mode } : null,
-                    selected.accommodation ? { Icon: Landmark, text: selected.accommodation } : selected.mealPlan ? { Icon: Utensils, text: selected.mealPlan } : null,
-                  ].filter((c): c is { Icon: typeof Clock3; text: string } => Boolean(c)).map(({ Icon, text }) => (
-                    <span key={text} className={`inline-flex max-w-full items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-[12.5px] font-medium text-slate-700 ring-1 ring-inset ring-slate-200 ${tours.length === 1 ? "mt-2" : ""}`}>
-                      <Icon className="h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
-                      <span className="truncate">{text}</span>
-                    </span>
-                  ))}
-                </div>
+                {(() => {
+                  // Fixed cells, label over value: they line up in two even
+                  // columns however long a value is, instead of wrapping chips.
+                  const facts = [
+                    durationText(selected.duration) ? { Icon: Clock3, label: "Duration", text: durationText(selected.duration) } : null,
+                    groupText(selected) ? { Icon: Users, label: "Group size", text: groupText(selected) } : null,
+                    selected.mode ? { Icon: Car, label: "Transport", text: selected.mode } : null,
+                    selected.accommodation
+                      ? { Icon: Landmark, label: "Stay", text: selected.accommodation }
+                      : selected.mealPlan ? { Icon: Utensils, label: "Meals", text: selected.mealPlan } : null,
+                  ].filter((c): c is { Icon: typeof Clock3; label: string; text: string } => Boolean(c));
+                  if (!facts.length) return null;
+                  return (
+                    <dl className={`m-0 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-200 ${tours.length === 1 ? "mt-3" : ""}`}>
+                      {facts.map(({ Icon, label, text }, i) => (
+                        <div
+                          key={label}
+                          className={`flex min-w-0 items-start gap-2 bg-white px-3 py-2.5 ${facts.length % 2 === 1 && i === facts.length - 1 ? "col-span-2" : ""}`}
+                        >
+                          <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#02665e]" aria-hidden />
+                          <div className="min-w-0 leading-tight">
+                            <dt className="text-[11px] text-slate-500">{label}</dt>
+                            <dd className="m-0 mt-0.5 truncate text-[13px] font-semibold text-slate-900" title={text}>{text}</dd>
+                          </div>
+                        </div>
+                      ))}
+                    </dl>
+                  );
+                })()}
                 {selected.included?.length ? (
-                  <ul className="m-0 mt-3 grid list-none grid-cols-2 gap-x-3 gap-y-2 p-0">
+                  <div className="mt-3.5 text-[12px] font-semibold text-slate-500">Included</div>
+                ) : null}
+                {selected.included?.length ? (
+                  <ul className="m-0 mt-2 grid list-none grid-cols-2 gap-x-3 gap-y-2 p-0">
                     {selected.included.slice(0, 4).map((item) => (
                       <li key={item} className="flex min-w-0 items-center gap-2 text-[13px] text-slate-700">
                         <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e]/10">
@@ -987,9 +1023,9 @@ export default function OperatorPublicProfile({
                 <button
                   type="button"
                   onClick={() => setDetailsFor(selectedIdx)}
-                  className="group mt-3.5 flex w-full cursor-pointer items-center gap-3 rounded-xl border border-solid border-[#02665e]/20 bg-[#02665e]/[0.04] px-3 py-2.5 text-left transition-colors hover:border-[#02665e]/45 hover:bg-[#02665e]/[0.07]"
+                  className="group mt-3.5 flex w-full cursor-pointer items-center gap-3 rounded-lg border border-solid border-[#02665e]/25 bg-[#02665e]/[0.04] px-3 py-2.5 text-left transition-colors hover:border-[#02665e]/45 hover:bg-[#02665e]/[0.07]"
                 >
-                  <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e] text-white">
+                  <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e] text-white">
                     <Route className="h-4 w-4" aria-hidden />
                   </span>
                   <span className="min-w-0 flex-1 leading-tight">
@@ -1019,7 +1055,7 @@ export default function OperatorPublicProfile({
                   <ChevronRight className="h-4 w-4 flex-shrink-0 text-[#02665e] transition-transform group-hover:translate-x-0.5" aria-hidden />
                 </button>
                 {discountText(selected) ? (
-                  <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-[#02665e]/[0.07] px-2.5 py-1.5 text-[12px] font-semibold text-[#02665e]">
+                  <div className="mt-3 flex items-center gap-1.5 rounded-md bg-[#02665e]/[0.07] px-2.5 py-1.5 text-[12px] font-semibold text-[#02665e]">
                     <BadgeCheck className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
                     {discountText(selected)}
                   </div>
@@ -1033,10 +1069,10 @@ export default function OperatorPublicProfile({
                     <div className="text-[14px] font-semibold text-slate-900">Travellers</div>
                     <div className="mt-0.5 text-[11.5px] text-slate-500">{selected.maxPax ? `Group of ${selMin} to ${selMax}` : `Minimum ${selMin}`}</div>
                   </div>
-                  <div className="inline-flex items-center rounded-full border border-solid border-slate-200 bg-white shadow-sm">
-                    <button type="button" aria-label="Fewer travellers" disabled={selTravellers <= selMin} onClick={() => setTravellers(selTravellers - 1)} className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-lg font-semibold text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300">−</button>
+                  <div className="inline-flex items-center rounded-md border border-solid border-slate-300 bg-white">
+                    <button type="button" aria-label="Fewer travellers" disabled={selTravellers <= selMin} onClick={() => setTravellers(selTravellers - 1)} className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-lg font-semibold text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300">−</button>
                     <span className="w-7 text-center text-[15px] font-bold tabular-nums text-slate-900" aria-live="polite">{selTravellers}</span>
-                    <button type="button" aria-label="More travellers" disabled={selTravellers >= selMax} onClick={() => setTravellers(selTravellers + 1)} className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-lg font-semibold text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300">+</button>
+                    <button type="button" aria-label="More travellers" disabled={selTravellers >= selMax} onClick={() => setTravellers(selTravellers + 1)} className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-lg font-semibold text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300">+</button>
                   </div>
                 </div>
                 {selHasPrice ? (
@@ -1053,13 +1089,13 @@ export default function OperatorPublicProfile({
                 {selHref ? (
                   <Link
                     href={`${selHref}&travelers=${selTravellers}`}
-                    className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#02665e] text-[15px] font-semibold text-white no-underline shadow-sm transition-colors hover:bg-[#014e47]"
+                    className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#02665e] text-[15px] font-semibold text-white no-underline shadow-sm transition-colors hover:bg-[#014e47]"
                   >
                     Book this tour
                     <ChevronRight className="h-4 w-4" aria-hidden />
                   </Link>
                 ) : (
-                  <span className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-xl bg-slate-200 text-[13px] font-semibold text-slate-500">
+                  <span className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-md bg-slate-200 text-[13px] font-semibold text-slate-500">
                     {previewOnly ? "Booking opens on your live profile" : "Booking unavailable"}
                   </span>
                 )}
@@ -1116,12 +1152,12 @@ export default function OperatorPublicProfile({
                   setLightbox(null);
                   openAllPhotos();
                 }}
-                className="hidden h-10 cursor-pointer items-center gap-2 rounded-full border-0 bg-white/10 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-white/20 sm:inline-flex"
+                className="hidden h-10 cursor-pointer items-center gap-2 rounded-md border-0 bg-white/10 px-4 text-[13px] font-semibold text-white transition-colors hover:bg-white/20 sm:inline-flex"
               >
                 <LayoutGrid className="h-4 w-4" aria-hidden />
                 All photos
               </button>
-              <button type="button" onClick={() => setLightbox(null)} aria-label="Close photo gallery" className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-0 bg-white/10 text-white transition-colors hover:bg-white/20">
+              <button type="button" onClick={() => setLightbox(null)} aria-label="Close photo gallery" className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-md border-0 bg-white/10 text-white transition-colors hover:bg-white/20">
                 <X className="h-4 w-4" aria-hidden />
               </button>
             </div>
@@ -1143,7 +1179,7 @@ export default function OperatorPublicProfile({
                   type="button"
                   onClick={() => setLightbox((i) => (i == null ? i : i <= 0 ? photos.length - 1 : i - 1))}
                   aria-label="Previous photo"
-                  className="absolute left-2 top-1/2 flex h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-0 bg-white/10 text-white transition-colors hover:bg-white/25 sm:left-5"
+                  className="absolute left-2 top-1/2 flex h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border-0 bg-white/10 text-white transition-colors hover:bg-white/25 sm:left-5"
                 >
                   <ChevronLeft className="h-6 w-6" aria-hidden />
                 </button>
@@ -1151,7 +1187,7 @@ export default function OperatorPublicProfile({
                   type="button"
                   onClick={() => setLightbox((i) => (i == null ? i : i >= photos.length - 1 ? 0 : i + 1))}
                   aria-label="Next photo"
-                  className="absolute right-2 top-1/2 flex h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-0 bg-white/10 text-white transition-colors hover:bg-white/25 sm:right-5"
+                  className="absolute right-2 top-1/2 flex h-12 w-12 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border-0 bg-white/10 text-white transition-colors hover:bg-white/25 sm:right-5"
                 >
                   <ChevronRight className="h-6 w-6" aria-hidden />
                 </button>
@@ -1205,7 +1241,7 @@ export default function OperatorPublicProfile({
                     {photoSections.length > 1 ? ` · ${photoSections.length} sections` : ""}
                   </div>
                 </div>
-                <button type="button" onClick={closeAllPhotos} aria-label="Close" className="inline-flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50">
+                <button type="button" onClick={closeAllPhotos} aria-label="Close" className="inline-flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-solid border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50">
                   <X className="h-4 w-4" aria-hidden />
                 </button>
               </div>
@@ -1316,7 +1352,7 @@ function PaymentRow({ label, children }: { label: string; children: ReactNode })
   return (
     <div
       title={label}
-      className="group box-border inline-flex w-full select-none items-center justify-between gap-2 whitespace-nowrap rounded-xl border border-solid border-slate-200 bg-slate-50 px-3 py-2 text-slate-800 shadow-sm shadow-transparent hover:border-slate-300 hover:bg-white active:scale-[0.98] motion-safe:transition-all motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-sm"
+      className="group box-border inline-flex w-full select-none items-center justify-between gap-2 whitespace-nowrap rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2 text-slate-800 shadow-sm shadow-transparent hover:border-slate-300 hover:bg-white active:scale-[0.98] motion-safe:transition-all motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-sm"
     >
       <span className="text-sm font-semibold text-slate-700">{label}</span>
       <span className="inline-flex items-center gap-2">{children}</span>
@@ -1416,13 +1452,13 @@ function OfferOverview({ groups, specialities, extras }: { groups: Array<[string
             return (
               <div
                 key={group}
-                className="group relative overflow-hidden rounded-2xl border border-solid bg-white p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-18px_rgba(15,23,42,0.35)]"
+                className="group relative overflow-hidden rounded-lg border border-solid bg-white p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-18px_rgba(15,23,42,0.35)]"
                 style={{ borderColor: `${hex}33`, backgroundImage: `linear-gradient(160deg, ${hex}14 0%, #ffffff 55%)` }}
               >
                 {/* Large faint mark: each area is recognisable before it is read */}
                 <Icon aria-hidden className="pointer-events-none absolute -right-4 -top-4 h-28 w-28 opacity-[0.07] transition-transform duration-300 group-hover:rotate-6" style={{ color: hex }} strokeWidth={1.4} />
                 <div className="relative flex items-center gap-3">
-                  <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl text-white shadow-sm" style={{ backgroundColor: hex }}>
+                  <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md text-white shadow-sm" style={{ backgroundColor: hex }}>
                     <Icon className="h-5 w-5" aria-hidden />
                   </span>
                   <div className="min-w-0 flex-1 leading-tight">
@@ -1449,9 +1485,9 @@ function OfferOverview({ groups, specialities, extras }: { groups: Array<[string
       {showKnown || showExtras ? (
         <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${shownGroups.length ? "mt-3" : ""}`}>
           {showKnown ? (
-            <div className="min-w-0 rounded-xl border border-solid border-amber-200/70 bg-amber-50/40 p-4">
+            <div className="min-w-0 rounded-lg border border-solid border-amber-200/70 bg-amber-50/40 p-4">
               <div className="flex items-center gap-3">
-                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700">
                   <Award className="h-5 w-5" aria-hidden />
                 </span>
                 <div className="min-w-0 leading-tight">
@@ -1470,9 +1506,9 @@ function OfferOverview({ groups, specialities, extras }: { groups: Array<[string
             </div>
           ) : null}
           {showExtras ? (
-            <div className="min-w-0 rounded-xl border border-solid border-violet-200/70 bg-violet-50/40 p-4">
+            <div className="min-w-0 rounded-lg border border-solid border-violet-200/70 bg-violet-50/40 p-4">
               <div className="flex items-center gap-3">
-                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-700">
                   <PlusCircle className="h-5 w-5" aria-hidden />
                 </span>
                 <div className="min-w-0 leading-tight">
@@ -1500,7 +1536,7 @@ function OfferOverview({ groups, specialities, extras }: { groups: Array<[string
             type="button"
             onClick={() => setShowAll((v) => !v)}
             aria-expanded={showAll}
-            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-solid border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-800 shadow-sm transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
+            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-solid border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-800 shadow-sm transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
           >
             {showAll ? "Show less" : `View ${hiddenCount} more`}
             {showAll ? <ChevronUp className="h-4 w-4" aria-hidden /> : <ChevronDown className="h-4 w-4" aria-hidden />}
@@ -1622,7 +1658,7 @@ function TourDetailsModal({
       aria-label={pkg.name || "Tour details"}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div id="tour-details-modal" className="flex h-[96dvh] w-full max-w-7xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:h-[94dvh] sm:rounded-3xl">
+      <div id="tour-details-modal" className="flex h-[96dvh] w-full max-w-7xl flex-col overflow-hidden rounded-t-lg bg-white shadow-2xl sm:h-[94dvh] sm:rounded-lg">
         <style>{"#tour-details-modal, #tour-details-modal * { box-sizing: border-box; }"}</style>
 
         {/* Header */}
@@ -1631,7 +1667,7 @@ function TourDetailsModal({
             <div className="text-[11px] font-bold tracking-[0.08em] text-[#02665e]">{[pkg.category, pkg.destination].filter(Boolean).join(" · ") || "Tour package"}</div>
             <h2 className="m-0 mt-0.5 text-lg font-bold leading-tight tracking-tight text-slate-950 sm:text-xl">{pkg.name || "Tour"}</h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="inline-flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-700 hover:bg-slate-50">
+          <button type="button" onClick={onClose} aria-label="Close" className="inline-flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border border-solid border-slate-200 bg-white text-slate-700 hover:bg-slate-50">
             <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
@@ -1640,12 +1676,12 @@ function TourDetailsModal({
           {/* ── Left: what the tour is ── */}
           <aside className="space-y-3.5 border-0 border-b border-solid border-slate-100 bg-slate-50/60 px-5 py-3.5 sm:px-6 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-4">
             {/* Facts: one compact strip */}
-            <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
+            <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
               {facts.map(({ label, value, Icon }, i) => (
                 <div key={label} className={["flex min-w-0 items-start gap-2 border-0 border-solid border-slate-100 px-3 py-2", i % 2 === 1 ? "border-l" : "", i >= 2 ? "border-t" : ""].join(" ")}>
                   <Icon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
                   <div className="min-w-0 leading-tight">
-                    <div className="text-[9.5px] font-bold uppercase tracking-[0.08em] text-slate-400">{label}</div>
+                    <div className="text-[11px] text-slate-500">{label}</div>
                     <div className="line-clamp-2 break-words text-[12.5px] font-semibold text-slate-800" title={value || ""}>{value || "Not set"}</div>
                   </div>
                 </div>
@@ -1654,9 +1690,9 @@ function TourDetailsModal({
 
             {/* The journey in one look: activity per day, and how the days are spent */}
             {glance ? (
-              <div className="rounded-xl border border-solid border-slate-200 bg-white p-3">
+              <div className="rounded-lg border border-solid border-slate-200 bg-white p-3">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[#02665e]">Journey at a glance</span>
+                  <span className="text-[12px] font-semibold text-[#02665e]">Journey at a glance</span>
                   <span className="text-[11px] tabular-nums text-slate-500">{glance.total} activit{glance.total === 1 ? "y" : "ies"}</span>
                 </div>
 
@@ -1700,13 +1736,13 @@ function TourDetailsModal({
                   <div className="mt-2.5 grid grid-cols-2 gap-2">
                     {glance.earliest ? (
                       <div className="rounded-lg bg-amber-50/70 px-2.5 py-1.5 leading-tight">
-                        <div className="text-[9.5px] font-bold uppercase tracking-[0.08em] text-amber-700/80">Earliest start</div>
+                        <div className="text-[11px] font-medium text-amber-800">Earliest start</div>
                         <div className="text-[13px] font-bold tabular-nums text-slate-900">{glance.earliest}</div>
                       </div>
                     ) : null}
                     {glance.latest ? (
                       <div className="rounded-lg bg-indigo-50/70 px-2.5 py-1.5 leading-tight">
-                        <div className="text-[9.5px] font-bold uppercase tracking-[0.08em] text-indigo-700/80">Latest finish</div>
+                        <div className="text-[11px] font-medium text-indigo-800">Latest finish</div>
                         <div className="text-[13px] font-bold tabular-nums text-slate-900">{glance.latest}</div>
                       </div>
                     ) : null}
@@ -1735,10 +1771,10 @@ function TourDetailsModal({
 
             {/* Covered or not, as two tight rows of tags */}
             {pkg.included?.length || pkg.excluded?.length ? (
-              <div className="space-y-2.5 rounded-xl border border-solid border-slate-200 bg-white p-3">
+              <div className="space-y-2.5 rounded-lg border border-solid border-slate-200 bg-white p-3">
                 {pkg.included?.length ? (
                   <div>
-                    <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#02665e]">Included · {pkg.included.length}</div>
+                    <div className="mb-1.5 text-[12px] font-semibold text-[#02665e]">Included · {pkg.included.length}</div>
                     <div className="flex flex-wrap gap-1">
                       {pkg.included.map((item) => (
                         <span key={item} className="inline-flex items-center gap-1 rounded-md bg-[#02665e]/[0.07] px-2 py-0.5 text-[12px] font-medium text-[#024d47]">
@@ -1751,7 +1787,7 @@ function TourDetailsModal({
                 ) : null}
                 {pkg.excluded?.length ? (
                   <div className={pkg.included?.length ? "border-0 border-t border-dashed border-slate-200 pt-2.5" : ""}>
-                    <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">Not included · {pkg.excluded.length}</div>
+                    <div className="mb-1.5 text-[12px] font-semibold text-slate-500">Not included · {pkg.excluded.length}</div>
                     <div className="flex flex-wrap gap-1">
                       {pkg.excluded.map((item) => (
                         <span key={item} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-[12px] text-slate-500">
@@ -1787,7 +1823,7 @@ function TourDetailsModal({
                 {/* NoLSAF's part in this plan, said once and plainly */}
                 <div
                   title="Kept on record with your booking and followed live in your NoLSAF account. If the trip differs from this plan, NoLSAF steps in."
-                  className="flex max-w-full items-center gap-1.5 rounded-full bg-[#02665e]/[0.07] py-0.5 pl-0.5 pr-2.5 ring-1 ring-inset ring-[#02665e]/15"
+                  className="flex max-w-full items-center gap-1.5 rounded-md bg-[#02665e]/[0.07] py-0.5 pl-0.5 pr-2.5 ring-1 ring-inset ring-[#02665e]/15"
                 >
                   <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e] text-white">
                     <ShieldCheck className="h-3 w-3" aria-hidden />
@@ -1809,12 +1845,12 @@ function TourDetailsModal({
                           onClick={() => goToDay(idx)}
                           title={day.title || undefined}
                           className={[
-                            "inline-flex h-8 flex-shrink-0 cursor-pointer items-center gap-2 rounded-full border border-solid pl-3 pr-1 text-[12.5px] font-semibold transition-colors",
+                            "inline-flex h-8 flex-shrink-0 cursor-pointer items-center gap-2 rounded-md border border-solid pl-3 pr-1 text-[12.5px] font-semibold transition-colors",
                             active ? "border-[#02665e] bg-[#02665e] text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
                           ].join(" ")}
                         >
                           Day {day.day || idx + 1}
-                          <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-[10.5px] font-bold tabular-nums ${active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>{count}</span>
+                          <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-[10.5px] font-bold tabular-nums ${active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>{count}</span>
                         </button>
                       );
                     })}
@@ -1841,17 +1877,17 @@ function TourDetailsModal({
                       {/* The spine joining the days */}
                       {!last ? <span aria-hidden className="absolute bottom-0 left-[21px] top-12 w-0.5 bg-[repeating-linear-gradient(to_bottom,#cbd5e1_0_6px,transparent_6px_11px)] sm:left-[23px]" /> : null}
                       {/* Day marker */}
-                      <span className="absolute left-0 top-0 flex h-11 w-11 flex-col items-center justify-center rounded-2xl bg-[#02665e] text-white shadow-[0_8px_18px_-10px_rgba(2,102,94,0.8)] sm:h-12 sm:w-12">
-                        <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-white/70">Day</span>
+                      <span className="absolute left-0 top-0 flex h-11 w-11 flex-col items-center justify-center rounded-md bg-[#02665e] text-white shadow-[0_8px_18px_-10px_rgba(2,102,94,0.8)] sm:h-12 sm:w-12">
+                        <span className="text-[10px] font-medium text-white/75">Day</span>
                         <span className="text-[17px] font-black leading-none tabular-nums">{String(day.day || idx + 1).padStart(2, "0")}</span>
                       </span>
 
-                      <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
+                      <div className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-sm">
                         <div className="px-4 pb-3 pt-3.5 sm:px-5">
                           <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
                             <h4 className="m-0 text-[16px] font-bold leading-snug text-slate-900">{day.title || `Day ${day.day || idx + 1}`}</h4>
                             {span || events.length ? (
-                              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11.5px] font-semibold tabular-nums text-slate-600">
+                              <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-0.5 text-[11.5px] font-semibold tabular-nums text-slate-600">
                                 <Clock3 className="h-3 w-3" aria-hidden />
                                 {[span, events.length ? `${events.length} activit${events.length === 1 ? "y" : "ies"}` : ""].filter(Boolean).join(" · ")}
                               </span>
@@ -1894,18 +1930,18 @@ function TourDetailsModal({
                                   </div>
                                   {/* Activity */}
                                   <div className={`min-w-0 ${lastEvt ? "" : "pb-2.5"}`}>
-                                    <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200/80 sm:px-3.5 sm:py-2.5">
+                                    <div className="rounded-md bg-white px-3 py-2 ring-1 ring-slate-200/80 sm:px-3.5 sm:py-2.5">
                                       {/* Activity left, its tags right: the row reads edge to edge */}
                                       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                                         <div className="min-w-0 text-[14px] font-semibold leading-snug text-slate-900">{evt.activity || "Activity"}</div>
                                         <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
-                                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-px text-[10.5px] font-semibold ${part.soft} ${part.text}`}>
+                                          <span className={`inline-flex items-center gap-1 rounded px-2 py-px text-[10.5px] font-semibold ${part.soft} ${part.text}`}>
                                             <part.Icon className="h-3 w-3" aria-hidden />
                                             {part.label}
                                           </span>
-                                          {length ? <span className="rounded-full bg-slate-100 px-2 py-px text-[10.5px] font-semibold tabular-nums text-slate-600">{length}</span> : null}
+                                          {length ? <span className="rounded bg-slate-100 px-2 py-px text-[10.5px] font-semibold tabular-nums text-slate-600">{length}</span> : null}
                                           {evt.difficulty ? (
-                                            <span className={`rounded-full px-2 py-px text-[10.5px] font-semibold ring-1 ring-inset ${difficultyTone(evt.difficulty)}`}>{evt.difficulty}</span>
+                                            <span className={`rounded px-2 py-px text-[10.5px] font-semibold ring-1 ring-inset ${difficultyTone(evt.difficulty)}`}>{evt.difficulty}</span>
                                           ) : null}
                                         </div>
                                       </div>
@@ -1939,7 +1975,7 @@ function TourDetailsModal({
                 })}
                 {/* Journey end */}
                 <li className="relative pl-14 sm:pl-16">
-                  <span className="absolute left-0 top-0 flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-dashed border-[#02665e]/40 bg-[#02665e]/[0.06] text-[#02665e] sm:h-12 sm:w-12">
+                  <span className="absolute left-0 top-0 flex h-11 w-11 items-center justify-center rounded-md border-2 border-dashed border-[#02665e]/40 bg-[#02665e]/[0.06] text-[#02665e] sm:h-12 sm:w-12">
                     <Flag className="h-5 w-5" aria-hidden />
                   </span>
                   <div className="flex min-h-[44px] flex-col justify-center leading-tight sm:min-h-[48px]">
@@ -1950,7 +1986,7 @@ function TourDetailsModal({
               </ol>
             ) : (
               <div className="px-5 py-10 text-center sm:px-7">
-                <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#02665e]/10 text-[#02665e]"><Route className="h-6 w-6" aria-hidden /></span>
+                <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-lg bg-[#02665e]/10 text-[#02665e]"><Route className="h-6 w-6" aria-hidden /></span>
                 <p className="m-0 mt-3 text-[14px] font-semibold text-slate-900">Day plan coming from the operator</p>
                 <p className="m-0 mt-1 text-[13px] text-slate-500">You will get the full timeline in your account once you book.</p>
               </div>
@@ -1965,7 +2001,7 @@ function TourDetailsModal({
             {priceText ? <div className="text-[11.5px] text-slate-500">per person{durationText(pkg.duration) ? ` · ${durationText(pkg.duration)}` : ""}</div> : null}
           </div>
           {bookUrl ? (
-            <Link href={bookUrl} className="inline-flex h-11 items-center gap-1.5 rounded-xl bg-[#02665e] px-6 text-[15px] font-semibold text-white no-underline shadow-sm hover:bg-[#014e47]">
+            <Link href={bookUrl} className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-[#02665e] px-6 text-[15px] font-semibold text-white no-underline shadow-sm hover:bg-[#014e47]">
               Continue to book
               <ChevronRight className="h-4 w-4" aria-hidden />
             </Link>

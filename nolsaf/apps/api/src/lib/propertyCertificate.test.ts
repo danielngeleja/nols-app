@@ -8,8 +8,32 @@ import {
   certificateLocation,
   certificateReference,
   isValidCertificateReference,
+  operatorCertificateChecks,
+  operatorCertificateReference,
   reviewerCode,
 } from "./propertyCertificate.js";
+
+describe("operator certificate checks", () => {
+  it("lists only approved document kinds a traveller can rely on, once each", () => {
+    expect(operatorCertificateChecks(["BRELA_CERTIFICATE", "TIN_NUMBER", "TIN_CERTIFICATE", "NDA", "CONTRACT", null])).toEqual([
+      "Company profile reviewed by NoLSAF",
+      "Business registration (BRELA)",
+      "Tax registration (TIN)",
+    ]);
+    expect(operatorCertificateChecks([])).toEqual(["Company profile reviewed by NoLSAF"]);
+  });
+});
+
+describe("operator certificate reference", () => {
+  it("is signed, stable per approval, and changes on a new approval", () => {
+    const a = operatorCertificateReference(9, "2026-07-10T08:00:00.000Z");
+    expect(a).toMatch(/^NLS-TO-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]$/);
+    expect(a).not.toContain("000009");
+    expect(operatorCertificateReference(9, "2026-07-10T08:00:00.000Z")).toBe(a);
+    expect(operatorCertificateReference(9, "2026-09-01T08:00:00.000Z")).not.toBe(a);
+    expect(operatorCertificateReference(10, "2026-07-10T08:00:00.000Z")).not.toBe(a);
+  });
+});
 
 describe("property certificate", () => {
   it("never prints the row id and cannot be walked forward", () => {

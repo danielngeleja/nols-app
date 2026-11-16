@@ -14,6 +14,7 @@ import { limitSalesAdminRead, limitSalesAdminWrite } from "../middleware/rateLim
 import { notifyUser } from "../lib/notifications.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { loadPartnerIdentity, partnerOwnsPropertyReason } from "../lib/salesSelfDealing.js";
+import { loadPropertiesListedAt, loadPropertyListedAt, marketplaceListingCheck } from "../lib/salesListingHistory.js";
 import { serializeVisit, visitSelect } from "../lib/salesVisitView.js";
 import {
   deliverOwnerConfirmationNotices,
@@ -70,6 +71,8 @@ const approveSchema = z.object({
   propertyId: z.coerce.number().int().positive(),
   reason,
   duplicateDecision: z.enum(["CLEAR", "MATCH"]).optional(),
+  /** Marketplace claim on a property that was live before the lead: only with proof, in the reason. */
+  listedBeforeOverride: z.boolean().optional(),
 }).strict();
 const rejectSchema = z.object({
   reason,
@@ -264,7 +267,10 @@ router.get("/properties/search", limitSalesAdminRead, asyncHandler(async (req: A
       },
     },
   });
-  res.json({ properties });
+  const listedAt = await loadPropertiesListedAt(db, properties.map((property: any) => property.id));
+  res.json({
+    properties: properties.map((property: any) => ({ ...property, listedAt: listedAt.get(property.id) ?? null })),
+  });
 }));
 
 /** POST /api/admin/sales/leads/:id/approve-conversion */
@@ -287,6 +293,7 @@ router.post("/leads/:id/approve-conversion", limitSalesAdminWrite, asyncHandler(
           proposedProduct: true,
           status: true,
           duplicateReviewStatus: true,
+          createdAt: true,
           salesPartner: {
             select: {
               id: true,
@@ -326,6 +333,18 @@ router.post("/leads/:id/approve-conversion", limitSalesAdminWrite, asyncHandler(
       const ownsReason = identity ? await partnerOwnsPropertyReason(tx, identity, property.id) : null;
       if (ownsReason) throw new AttributionConflictError(`${ownsReason} A partner cannot earn from their own property.`);
       const products = requestedAttributionProducts(lead.proposedProduct);
+      // A property already public before the lead was visible to anyone:
+      // copying it into a lead proves nothing about who brought it.
+      let listing: { check: string; listedAt: Date | null } | null = null;
+      if (products.includes("MARKETPLACE")) {
+        const listedAt = await loadPropertyListedAt(tx, property.id);
+        listing = { check: marketplaceListingCheck({ listedAt, claimedAt: lead.createdAt }), listedAt };
+        if (listing.check === "LISTED_BEFORE_CLAIM" && input.listedBeforeOverride !== true) {
+          throw new AttributionConflictError(
+            `This property was already live on NoLSAF on ${listedAt!.toISOString().slice(0, 10)}, before this partner registered the lead on ${new Date(lead.createdAt).toISOString().slice(0, 10)}, so the listing alone does not show they brought it. Reject the request, or tick the override and give the proof in the reason. The owner will then have to confirm the partner themselves.`,
+          );
+        }
+      }
       const existing = await tx.propertySalesAttribution.findMany({
         where: { propertyId: property.id, productType: { in: products } },
         select: {
@@ -426,6 +445,11 @@ router.post("/leads/:id/approve-conversion", limitSalesAdminWrite, asyncHandler(
             attributionIds: attributions.map((item: any) => item.id),
             products,
             ...(takenOver.length ? { takenOverLapsedClaims: takenOver } : {}),
+            ...(listing ? {
+              listingCheck: listing.check,
+              listedAt: listing.listedAt,
+              listedBeforeOverride: listing.check === "LISTED_BEFORE_CLAIM",
+            } : {}),
             reason: input.reason,
           }),
       });
@@ -701,6 +725,19 @@ router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFina
       throw new AttributionConflictError("The owner did not confirm this partner. Revoke or reassign the attribution, or ask the owner again.");
     }
     const ownerOverride = ownerStatus !== "CONFIRMED";
+    let listingCheck: string | null = null;
+    if (attribution.productType === "MARKETPLACE") {
+      listingCheck = marketplaceListingCheck({
+        listedAt: await loadPropertyListedAt(tx, attribution.propertyId),
+        claimedAt: attribution.lead?.createdAt ?? attribution.attributedAt,
+      });
+      // Already public before the claim: only the owner's own "yes" can activate it.
+      if (listingCheck === "LISTED_BEFORE_CLAIM" && ownerOverride) {
+        throw new AttributionConflictError(
+          "This property was already live on NoLSAF before the partner registered the lead. Only the owner's own confirmation can activate this claim; the override is not available.",
+        );
+      }
+    }
     if (ownerOverride && input.ownerOverride !== true) {
       throw new AttributionConflictError("The owner has not confirmed this partner. Ask the owner, or tick the override and give a reason.");
     }
@@ -731,6 +768,7 @@ router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFina
           ownerConfirmation: ownerStatus,
           ownerOverride,
           ...(nrmsCheck ? { nrmsCheck, nrmsOverride: nrmsCheck === "ON_BEFORE_CLAIM", nrmsActivatedAt: attribution.property?.nrmsActivatedAt ?? null } : {}),
+          ...(listingCheck ? { listingCheck } : {}),
           reason: input.reason,
         }),
     });

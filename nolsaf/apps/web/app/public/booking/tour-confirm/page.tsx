@@ -319,7 +319,7 @@ export default function TourConfirmPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-[#f5faf9]">
         <div
-          className="w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg"
+          className="w-14 h-14 rounded-lg flex items-center justify-center shadow-lg"
           style={{ background: "linear-gradient(135deg, #02665e, #4ecdc4)" }}
         >
           <Tag className="w-7 h-7 text-white" />
@@ -333,7 +333,7 @@ export default function TourConfirmPage() {
   if (loadError) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#f5faf9] px-4">
-        <div className="bg-white rounded-2xl border border-red-200 p-6 max-w-sm w-full text-center shadow-sm">
+        <div className="bg-white rounded-lg border border-solid border-red-200 p-6 max-w-sm w-full text-center shadow-sm">
           <p className="text-sm text-red-600 mb-4">{loadError}</p>
           <button type="button" onClick={() => router.back()} className="cursor-pointer border-0 bg-transparent text-[#02665e] text-sm font-semibold underline">
             Go back
@@ -345,28 +345,28 @@ export default function TourConfirmPage() {
 
   // Shared package hero card — rendered in mobile header AND desktop sidebar
   const packageHeroCard = (
-    <div className="rounded-2xl overflow-hidden shadow-sm border border-solid border-[#02665e]/10">
+    <div className="rounded-lg overflow-hidden shadow-sm border border-solid border-[#02665e]/10">
       <div
         className="px-5 pt-5 pb-4"
         style={{ background: "linear-gradient(135deg, #02665e 0%, #028570 55%, #3ab8af 100%)" }}
       >
-        <span className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-sm text-white/90 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full mb-3">
-          <Tag className="w-2.5 h-2.5" /> Selected Package
+        <span className="inline-flex items-center gap-1.5 bg-white/20 backdrop-blur-sm text-white/90 text-[11px] font-semibold px-2.5 py-1 rounded mb-3">
+          <Tag className="w-2.5 h-2.5" /> Selected package
         </span>
         <h2 className="text-xl font-extrabold text-white leading-snug">{pkgName}</h2>
         <div className="flex flex-wrap items-center gap-2 mt-2.5">
           {pkg?.destination && (
-            <span className="flex items-center gap-1 text-white/85 text-xs bg-white/15 px-2.5 py-1 rounded-full">
+            <span className="flex items-center gap-1 text-white/85 text-xs bg-white/15 px-2.5 py-1 rounded">
               <MapPin className="w-3 h-3 flex-shrink-0" />{pkg.destination}
             </span>
           )}
           {pkg?.category && (
-            <span className="flex items-center gap-1 text-white/85 text-xs bg-white/15 px-2.5 py-1 rounded-full">
+            <span className="flex items-center gap-1 text-white/85 text-xs bg-white/15 px-2.5 py-1 rounded">
               <BadgeCheck className="w-3 h-3 flex-shrink-0" />{pkg.category}
             </span>
           )}
           {pkg?.duration && (
-            <span className="flex items-center gap-1 text-white/85 text-xs bg-white/15 px-2.5 py-1 rounded-full">
+            <span className="flex items-center gap-1 text-white/85 text-xs bg-white/15 px-2.5 py-1 rounded">
               <Clock className="w-3 h-3 flex-shrink-0" />
               {pkg.duration}{typeof pkg.duration === "number" ? " days" : ""}
             </span>
@@ -375,11 +375,11 @@ export default function TourConfirmPage() {
       </div>
       {unitPrice > 0 && (
         <div className="bg-white px-5 py-3.5 flex items-center justify-between">
-          <span className="text-sm text-gray-400">
-            {fmt(unitPrice, currency)}&nbsp;<span className="text-gray-300">/ person</span>
+          <span className="text-sm text-gray-600">
+            {fmt(unitPrice, currency)}&nbsp;<span className="text-gray-500">per person</span>
           </span>
           <div className="text-right">
-            <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide leading-none mb-0.5">Estimated total</p>
+            <p className="text-[11px] text-gray-500 font-medium leading-none mb-0.5">Estimated total</p>
             <p className="text-lg font-extrabold text-[#02665e] leading-none">{fmt(total, currency)}</p>
           </div>
         </div>
@@ -397,16 +397,16 @@ export default function TourConfirmPage() {
             type="button"
             aria-label="Back"
             onClick={() => router.back()}
-            className="-ml-2 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent transition-colors hover:bg-gray-100 active:bg-gray-200"
+            className="-ml-2 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent transition-colors hover:bg-gray-100 active:bg-gray-200"
           >
             <ChevronLeft className="w-5 h-5 text-gray-700" />
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-gray-900 leading-tight truncate">Book Tour Package</p>
+            <p className="text-sm font-bold text-gray-900 leading-tight truncate">Book a tour</p>
             <p className="text-xs text-gray-400 truncate">{agent?.profile?.companyName || "Tour Operator"}</p>
           </div>
-          <span className="flex-shrink-0 text-[10px] font-bold text-[#02665e] bg-[#02665e]/10 px-2.5 py-1 rounded-full tracking-wide">
-            STEP 1 OF 2
+          <span className="flex-shrink-0 text-[11px] font-semibold text-[#02665e] bg-[#02665e]/10 px-2 py-1 rounded">
+            Step 1 of 2
           </span>
         </div>
       </div>
@@ -424,13 +424,13 @@ export default function TourConfirmPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
 
           {/* ── Section 1: Trip Details ─────────────────────────────────── */}
-          <div className="bg-white rounded-2xl border border-solid border-gray-100 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-lg border border-solid border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 pt-4 pb-3 flex items-center gap-2.5">
               <span
-                className="w-6 h-6 rounded-full text-white text-[11px] font-extrabold flex items-center justify-center flex-shrink-0"
+                className="w-6 h-6 rounded-md text-white text-[11px] font-extrabold flex items-center justify-center flex-shrink-0"
                 style={{ background: "linear-gradient(135deg, #02665e, #4ecdc4)" }}
               >1</span>
-              <h3 className="text-sm font-bold text-gray-800">Trip Details</h3>
+              <h3 className="text-sm font-bold text-gray-800">Trip details</h3>
             </div>
 
             {/* Traveler stepper */}
@@ -445,13 +445,13 @@ export default function TourConfirmPage() {
                   </p>
                 </div>
                 {/* Pill stepper; preflight is off, so buttons need their own background and border */}
-                <div className="inline-flex items-center rounded-full border border-solid border-slate-200 bg-white shadow-sm">
+                <div className="inline-flex items-center rounded-md border border-solid border-slate-300 bg-white">
                   <button
                     type="button"
                     aria-label="Fewer travellers"
                     onClick={() => setTravelers((v) => Math.max(minPax, v - 1))}
                     disabled={travelers <= minPax}
-                    className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-slate-700 transition-colors hover:bg-[#02665e]/5 hover:text-[#02665e] disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                    className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-slate-700 transition-colors hover:bg-[#02665e]/5 hover:text-[#02665e] disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
@@ -461,7 +461,7 @@ export default function TourConfirmPage() {
                     aria-label="More travellers"
                     onClick={() => setTravelers((v) => Math.min(maxPax, v + 1))}
                     disabled={travelers >= maxPax}
-                    className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-slate-700 transition-colors hover:bg-[#02665e]/5 hover:text-[#02665e] disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                    className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-slate-700 transition-colors hover:bg-[#02665e]/5 hover:text-[#02665e] disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
@@ -474,7 +474,7 @@ export default function TourConfirmPage() {
             {/* Travel date */}
             <div className="px-5 py-4">
               <p className="text-xs font-medium text-gray-500 mb-2.5 flex items-center gap-1.5">
-                <CalendarDays className="w-3.5 h-3.5 text-[#02665e]" /> Preferred Travel Date
+                <CalendarDays className="w-3.5 h-3.5 text-[#02665e]" /> Preferred travel date
                 <span className="text-red-500 ml-0.5">*</span>
               </p>
               <DatePickerField
@@ -484,20 +484,22 @@ export default function TourConfirmPage() {
                 min={new Date().toISOString().slice(0, 10)}
                 widthClassName="w-full"
                 allowPast={false}
+                squared
+                strongBorder
               />
             </div>
           </div>
 
           {/* ── Section 2: Your Information ── (no overflow-hidden: the nationality list drops below the card) */}
-          <div className="relative z-10 bg-white rounded-2xl border border-solid border-gray-100 shadow-sm">
+          <div className="relative z-10 bg-white rounded-lg border border-solid border-slate-200 shadow-sm">
             <div className="px-5 pt-4 pb-3 flex items-center gap-2.5">
               <span
-                className="w-6 h-6 rounded-full text-white text-[11px] font-extrabold flex items-center justify-center flex-shrink-0"
+                className="w-6 h-6 rounded-md text-white text-[11px] font-extrabold flex items-center justify-center flex-shrink-0"
                 style={{ background: "linear-gradient(135deg, #02665e, #4ecdc4)" }}
               >2</span>
-              <h3 className="text-sm font-bold text-gray-800">Your Information</h3>
+              <h3 className="text-sm font-bold text-gray-800">Your information</h3>
               {prefilledFromAccount ? (
-                <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-[#02665e]/[0.08] px-2.5 py-0.5 text-[11px] font-semibold text-[#02665e]">
+                <span className="ml-auto inline-flex items-center gap-1 rounded bg-[#02665e]/[0.08] px-2.5 py-0.5 text-[11px] font-semibold text-[#02665e]">
                   <BadgeCheck className="h-3 w-3" aria-hidden />
                   Filled from your account
                 </span>
@@ -510,7 +512,7 @@ export default function TourConfirmPage() {
                 <div className="min-w-0">
                   <label className="flex items-center gap-1 text-xs font-medium text-slate-600 mb-1">
                     <User className="w-3 h-3 text-gray-400" />
-                    Full Name <span className="text-red-500">*</span>
+                    Full name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -518,7 +520,7 @@ export default function TourConfirmPage() {
                     onChange={(e) => setGuestName(e.target.value)}
                     placeholder="e.g. John Doe"
                     autoComplete="name"
-                    className="block w-full max-w-full min-w-0 box-border rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e]"
+                    className="block w-full max-w-full min-w-0 box-border rounded-md border border-solid border-slate-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e]"
                   />
                 </div>
 
@@ -526,7 +528,7 @@ export default function TourConfirmPage() {
                 <div className="min-w-0">
                   <label className="flex items-center gap-1 text-xs font-medium text-slate-600 mb-1">
                     <Phone className="w-3 h-3 text-gray-400" />
-                    Phone Number <span className="text-red-500">*</span>
+                    Phone number <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="tel"
@@ -534,7 +536,7 @@ export default function TourConfirmPage() {
                     onChange={(e) => setGuestPhone(e.target.value)}
                     placeholder="07XX XXX XXX or +255 7XX XXX XXX"
                     autoComplete="tel"
-                    className="block w-full max-w-full min-w-0 box-border rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e]"
+                    className="block w-full max-w-full min-w-0 box-border rounded-md border border-solid border-slate-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e]"
                   />
                   <p className="mt-1 text-[10px] leading-4 text-slate-400">You&apos;ll use this number to pay via mobile money</p>
                 </div>
@@ -552,7 +554,7 @@ export default function TourConfirmPage() {
                     placeholder="your@email.com"
                     autoComplete="email"
                     required
-                    className="block w-full max-w-full min-w-0 box-border rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e]"
+                    className="block w-full max-w-full min-w-0 box-border rounded-md border border-solid border-slate-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e]"
                   />
                 </div>
 
@@ -616,7 +618,7 @@ export default function TourConfirmPage() {
                             }
                           }}
                           placeholder="Search, e.g. Tanzanian"
-                          className={`block w-full max-w-full min-w-0 box-border rounded-md border border-solid bg-white py-2 pl-3 pr-16 text-sm text-gray-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e] ${known ? "border-[#02665e]/50" : "border-slate-200"}`}
+                          className={`block w-full max-w-full min-w-0 box-border rounded-md border border-solid bg-white py-2 pl-3 pr-16 text-sm text-gray-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e] ${known ? "border-[#02665e]/50" : "border-slate-300"}`}
                         />
                         {known ? (
                           <CheckCircle2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#02665e]" aria-hidden />
@@ -629,7 +631,7 @@ export default function TourConfirmPage() {
                         <ul
                           id="tour-nationality-options"
                           role="listbox"
-                          className="absolute left-0 right-0 top-full z-30 m-0 mt-1 max-h-64 list-none overflow-y-auto rounded-xl border border-solid border-slate-200 bg-white p-1 shadow-[0_18px_40px_-16px_rgba(15,23,42,0.35)]"
+                          className="absolute left-0 right-0 top-full z-30 m-0 mt-1 max-h-64 list-none overflow-y-auto rounded-md border border-solid border-slate-200 bg-white p-1 shadow-[0_18px_40px_-16px_rgba(15,23,42,0.35)]"
                         >
                           {options.map((opt, i) => {
                             const active = i === nationalityCursor;
@@ -670,15 +672,15 @@ export default function TourConfirmPage() {
           </div>
 
           {/* ── Section 3: Special Requests ──────────────────────────────── */}
-          <div className="bg-white rounded-2xl border border-solid border-gray-100 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-lg border border-solid border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 pt-4 pb-3 flex items-center gap-2.5">
-              <span className="w-6 h-6 rounded-full border-2 border-solid border-gray-200 text-gray-400 text-[11px] font-extrabold flex items-center justify-center flex-shrink-0">3</span>
-              <h3 className="text-sm font-bold text-gray-800">Departure Airport</h3>
+              <span className="w-6 h-6 rounded-md border-2 border-solid border-gray-200 text-gray-400 text-[11px] font-extrabold flex items-center justify-center flex-shrink-0">3</span>
+              <h3 className="text-sm font-bold text-gray-800">Departure airport</h3>
             </div>
             <div className="px-5 pb-5">
               <div>
                 <label htmlFor="departure-airport" className="block text-sm font-medium text-slate-700">
-                  Select your Departure Airport <span className="text-[10px] font-semibold text-[#02665e]">(important, optional)</span>
+                  Select your departure airport <span className="text-[10px] font-semibold text-[#02665e]">(important, optional)</span>
                 </label>
                 <p className="mt-1 text-xs text-slate-500">
                   This will help us schedule your pickup.
@@ -690,7 +692,7 @@ export default function TourConfirmPage() {
                     id="departure-airport"
                     value={departureAirportId}
                     onChange={(e) => setDepartureAirportId(e.target.value)}
-                    className="block w-full appearance-none rounded-md border border-slate-200 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e]"
+                    className="block w-full appearance-none rounded-md border border-solid border-slate-300 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-[#02665e]"
                   >
                     <option value="">Select departure airport</option>
                     {TANZANIA_INTERNATIONAL_AIRPORTS.map((airport) => (
@@ -707,7 +709,7 @@ export default function TourConfirmPage() {
 
           {/* Form error */}
           {formError && (
-            <div className="rounded-xl bg-red-50 border border-solid border-red-200 px-4 py-3 text-sm text-red-700 flex items-start gap-2">
+            <div className="rounded-md bg-red-50 border border-solid border-red-200 px-4 py-3 text-sm text-red-700 flex items-start gap-2">
               <span className="flex-shrink-0 font-bold text-red-400 mt-0.5">!</span>
               {formError}
             </div>
@@ -715,7 +717,7 @@ export default function TourConfirmPage() {
 
           {/* Price summary */}
           {unitPrice > 0 && (
-            <div className="bg-white rounded-2xl border border-solid border-gray-100 shadow-sm px-5 py-4">
+            <div className="bg-white rounded-lg border border-solid border-slate-200 shadow-sm px-5 py-4">
               <div className="flex items-center justify-between text-sm mb-2">
                 <span className="text-gray-500">
                   {fmt(unitPrice, currency)} × {travelers} {travelers === 1 ? "person" : "people"}
@@ -723,7 +725,7 @@ export default function TourConfirmPage() {
                 <span className="font-semibold text-gray-700">{fmt(total, currency)}</span>
               </div>
               <div className="flex items-center justify-between border-0 border-t border-solid border-gray-100 pt-2.5">
-                <span className="text-sm font-bold text-gray-800">Total Due</span>
+                <span className="text-sm font-bold text-gray-800">Total due</span>
                 <span className="text-lg font-extrabold text-[#02665e]">{fmt(total, currency)}</span>
               </div>
             </div>
@@ -732,12 +734,12 @@ export default function TourConfirmPage() {
           {/* Submit button */}
           {/* Policy acceptance as a real switch: preflight is off, so the native checkbox rendered invisible */}
           <div
-            className={`rounded-2xl border border-solid p-4 transition-colors ${
+            className={`rounded-lg border border-solid p-4 transition-colors ${
               cancellationPolicyAccepted ? "border-[#02665e]/40 bg-[#02665e]/[0.05]" : "border-slate-200 bg-white"
             }`}
           >
             <div className="flex items-start gap-3">
-              <span className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl ${cancellationPolicyAccepted ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-500"}`}>
+              <span className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md ${cancellationPolicyAccepted ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-500"}`}>
                 <ShieldCheck className="h-[18px] w-[18px]" aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
@@ -776,7 +778,7 @@ export default function TourConfirmPage() {
           <button
             type="submit"
             disabled={submitting || !cancellationPolicyAccepted}
-            className="w-full cursor-pointer border-0 py-4 rounded-2xl text-white font-bold text-base disabled:opacity-60 active:scale-[0.98] transition-all duration-150 flex items-center justify-center gap-2 shadow-lg shadow-[#02665e]/25"
+            className="w-full cursor-pointer border-0 py-4 rounded-lg text-white font-bold text-base disabled:opacity-60 active:scale-[0.98] transition-all duration-150 flex items-center justify-center gap-2 shadow-lg shadow-[#02665e]/25"
             style={{
               background: submitting
                 ? "#9ca3af"
@@ -803,7 +805,7 @@ export default function TourConfirmPage() {
               { Icon: BadgeCheck, label: "Verified operator" },
               { Icon: Lock, label: "Payment protected" },
             ].map(({ Icon, label }) => (
-              <div key={label} className="bg-white rounded-xl border border-solid border-gray-100 shadow-sm px-2 py-3 flex flex-col items-center gap-1.5 text-center">
+              <div key={label} className="bg-white rounded-md border border-solid border-slate-200 shadow-sm px-2 py-3 flex flex-col items-center gap-1.5 text-center">
                 <Icon className="w-4 h-4 text-[#02665e]" />
                 <span className="text-[10px] font-medium text-gray-500 leading-tight">{label}</span>
               </div>
@@ -820,8 +822,8 @@ export default function TourConfirmPage() {
               {packageHeroCard}
 
               {/* Live booking summary */}
-              <div className="bg-white rounded-2xl border border-solid border-gray-100 shadow-sm p-5">
-                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-4">Booking summary</h4>
+              <div className="bg-white rounded-lg border border-solid border-slate-200 shadow-sm p-5">
+                <h4 className="text-[13px] font-semibold text-gray-500 mb-4">Booking summary</h4>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-500 flex items-center gap-1.5">
@@ -846,7 +848,7 @@ export default function TourConfirmPage() {
                         <span>{fmt(total, currency)}</span>
                       </div>
                       <div className="flex items-center justify-between border-0 border-t border-solid border-gray-100 pt-3">
-                        <span className="text-sm font-bold text-gray-800">Total Due</span>
+                        <span className="text-sm font-bold text-gray-800">Total due</span>
                         <span className="text-xl font-extrabold text-[#02665e]">{fmt(total, currency)}</span>
                       </div>
                     </>
@@ -855,7 +857,7 @@ export default function TourConfirmPage() {
               </div>
 
               {/* Trust list */}
-              <div className="bg-white rounded-2xl border border-solid border-gray-100 shadow-sm p-5 space-y-3.5">
+              <div className="bg-white rounded-lg border border-solid border-slate-200 shadow-sm p-5 space-y-3.5">
                 {[
                   { Icon: ShieldCheck, title: "Secure booking", desc: "Your data is encrypted and safe" },
                   { Icon: BadgeCheck, title: "Verified operator", desc: "All operators are vetted by NoLSAF" },

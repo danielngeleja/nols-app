@@ -15,6 +15,8 @@ import {
   type SalesAuthedRequest,
 } from "../middleware/salesWorkspace.js";
 import {
+  CONVERSION_CONTACT_ACTIVITIES,
+  conversionEvidenceMissing,
   LEAD_ACTIVITY_TYPES,
   LEAD_PROTECTION_DAYS,
   LEAD_STATUSES,
@@ -31,7 +33,8 @@ import {
 import { sanitizeText } from "../lib/sanitize.js";
 import { audit } from "../lib/audit.js";
 import { notifyAdmins } from "../lib/notifications.js";
-import { limitSalesLeadRead, limitSalesLeadWrite } from "../middleware/rateLimit.js";
+import { limitSalesLeadCheck, limitSalesLeadRead, limitSalesLeadWrite } from "../middleware/rateLimit.js";
+import { availabilityRefusal, loadLeadAvailability, type LeadAvailability } from "../lib/salesLeadAvailability.js";
 import { leadRef, resolvePartnerLead } from "../lib/salesReference.js";
 
 const router = Router();
@@ -104,6 +107,11 @@ function optionalText(max: number) {
     });
 }
 
+// null must be tried first: z.coerce.date() turns null into 1 Jan 1970.
+const followUpDate = z
+  .union([z.null(), z.coerce.date().min(new Date("2020-01-01"), "Pick a real follow-up date")])
+  .optional();
+
 const leadInputShape = {
   propertyName: z.string().trim().min(2).max(200).transform(sanitizeText),
   contactPerson: optionalText(160),
@@ -121,7 +129,7 @@ const leadInputShape = {
   registrationNumber: optionalText(80),
   taxNumber: optionalText(80),
   proposedProduct: z.enum(PROPOSED_PRODUCTS),
-  nextFollowUpAt: z.union([z.coerce.date(), z.null()]).optional(),
+  nextFollowUpAt: followUpDate,
   notes: optionalText(5_000),
 };
 
@@ -141,7 +149,7 @@ const activitySchema = z
   .object({
     type: z.enum(PARTNER_ACTIVITY_TYPES as [string, ...string[]]),
     description: z.string().trim().min(2).max(5_000).transform(sanitizeText),
-    nextFollowUpAt: z.union([z.coerce.date(), z.null()]).optional(),
+    nextFollowUpAt: followUpDate,
     fileUrl: z
       .string()
       .url()
@@ -404,6 +412,54 @@ router.get("/leads/pulse", limitSalesLeadRead as any, asyncHandler(async (req: S
   });
 }));
 
+const checkSchema = z.object({
+  propertyName: z.string().trim().min(3).max(200),
+  contactPhone: z.string().trim().max(40).nullish(),
+  contactEmail: z.string().trim().max(190).nullish(),
+  registrationNumber: z.string().trim().max(80).nullish(),
+  taxNumber: z.string().trim().max(80).nullish(),
+  region: z.string().trim().max(120).nullish(),
+  district: z.string().trim().max(120).nullish(),
+  /** The lead being edited, so it does not match itself. */
+  ref: z.string().trim().max(80).nullish(),
+}).strict();
+
+/**
+ * POST /api/sales/leads/check: is this prospect free? Asked while the partner
+ * types; the same rules run again on save. Never names another partner.
+ */
+router.post("/leads/check", limitSalesLeadCheck as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
+  const parsed = checkSchema.safeParse(req.body);
+  if (invalid(res, parsed)) return;
+  const scopedPartnerId = partnerId(req, res);
+  if (!scopedPartnerId) return;
+  const { ref, ...identity } = parsed.data!;
+  const excludeId = ref ? await resolvePartnerLead(db, ref, scopedPartnerId) : null;
+  const availability = await loadLeadAvailability(db, scopedPartnerId, identity as any, excludeId ?? undefined);
+  // Every lookup is kept, so a partner typing names to map the market shows up.
+  await audit(req, "SALES_LEAD_AVAILABILITY_CHECK", "SALES_LEAD", null, {
+    propertyName: identity.propertyName,
+    district: identity.district ?? null,
+    lead: availability.lead,
+    listed: availability.listed,
+  }, excludeId ?? null).catch(() => {});
+  return res.json({
+    lead: availability.lead,
+    listed: availability.listed,
+    ownRef: availability.ownLeadId ? leadRef(availability.ownLeadId) : null,
+  });
+}));
+
+function refuseUnavailable(res: Response, availability: LeadAvailability, proposedProduct: string): boolean {
+  const refusal = availabilityRefusal(availability, proposedProduct);
+  if (!refusal) return false;
+  res.status(409).json({
+    ...refusal,
+    ownRef: availability.ownLeadId ? leadRef(availability.ownLeadId) : null,
+  });
+  return true;
+}
+
 /** POST /api/sales/leads */
 router.post("/leads", blockImpersonated, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res) => {
   const parsed = createSchema.safeParse(req.body);
@@ -411,6 +467,7 @@ router.post("/leads", blockImpersonated, limitSalesLeadWrite as any, asyncHandle
   const scopedPartnerId = partnerId(req, res);
   if (!scopedPartnerId) return;
   const input = parsed.data!;
+  if (refuseUnavailable(res, await loadLeadAvailability(db, scopedPartnerId, input as any), input.proposedProduct)) return;
   const identity = normalizeSalesLeadIdentity(input);
   let matches = await duplicateMatches(identity);
   const now = new Date();
@@ -544,6 +601,12 @@ router.patch("/leads/:id", blockImpersonated, limitSalesLeadWrite as any, asyncH
 
   const input = parsed.data!;
   const merged = { ...current, ...input };
+  // Re-check only when the partner changes who or what the lead is, so a lead
+  // saved before these rules can still log progress, but cannot be renamed
+  // into someone else's prospect.
+  const identityFields = ["propertyName", "contactPhone", "contactEmail", "registrationNumber", "taxNumber", "region", "district", "proposedProduct"] as const;
+  const identityChanged = identityFields.some((key) => key in input && (input as any)[key] !== undefined && String((input as any)[key] ?? "") !== String((current as any)[key] ?? ""));
+  if (identityChanged && refuseUnavailable(res, await loadLeadAvailability(db, scopedPartnerId, merged as any, current.id), String(merged.proposedProduct))) return;
   const identity = identityFromLead(merged);
   const matches = await duplicateMatches(identity, current.id);
   const statusChanged = input.status && input.status !== current.status;
@@ -676,6 +739,9 @@ router.post("/leads/:id/request-conversion", blockImpersonated, limitSalesLeadWr
       status: true,
       conversionRequestedAt: true,
       duplicateReviewStatus: true,
+      contactPhone: true,
+      contactEmail: true,
+      createdAt: true,
     },
   });
   if (!lead) return res.status(404).json({ error: "Lead not found" });
@@ -686,6 +752,21 @@ router.post("/leads/:id/request-conversion", blockImpersonated, limitSalesLeadWr
     return res.status(409).json({ error: "This lead cannot request conversion in its current status" });
   }
   const now = new Date();
+  const contactActivities = await db.salesLeadActivity.count({
+    where: { leadId: lead.id, type: { in: [...CONVERSION_CONTACT_ACTIVITIES] } },
+  });
+  const missing = conversionEvidenceMissing({
+    contactPhone: lead.contactPhone,
+    contactEmail: lead.contactEmail,
+    createdAt: lead.createdAt,
+    contactActivities,
+  }, now);
+  if (missing.length) {
+    return res.status(422).json({
+      error: `Before asking NoLSAF to verify this lead: ${missing.join("; ")}.`,
+      missing,
+    });
+  }
   const result = await db.$transaction(async (tx: any) => {
     const updated = await tx.salesLead.updateMany({
       where: {

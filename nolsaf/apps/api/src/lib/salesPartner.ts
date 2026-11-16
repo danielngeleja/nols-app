@@ -132,6 +132,35 @@ export const PROTECTION_EXTENDING_ACTIVITIES: readonly LeadActivityType[] = [
 /** Claim protection window, in days, from registration or last real activity. */
 export const LEAD_PROTECTION_DAYS = 60;
 
+/** Logged contact with the owner that a conversion request must show at least once. */
+export const CONVERSION_CONTACT_ACTIVITIES: readonly LeadActivityType[] = ["VISIT", "CALL", "MEETING", "EMAIL"];
+
+/** A lead younger than this cannot ask for conversion: a real deal takes longer than one sitting. */
+export const CONVERSION_MIN_LEAD_AGE_HOURS = 24;
+
+/**
+ * What a lead still lacks before the partner may ask NoLSAF to verify it.
+ * Empty means it may be submitted. Each entry is a sentence fragment shown
+ * to the partner as is.
+ */
+export function conversionEvidenceMissing(
+  lead: { contactPhone: string | null; contactEmail: string | null; createdAt: Date | string; contactActivities: number },
+  now: Date = new Date(),
+): string[] {
+  const missing: string[] = [];
+  if (!String(lead.contactPhone ?? "").trim() && !String(lead.contactEmail ?? "").trim()) {
+    missing.push("add the owner's phone or email");
+  }
+  if (lead.contactActivities < 1) {
+    missing.push("log at least one call, meeting, email or visit with the owner");
+  }
+  const ageMs = now.getTime() - new Date(lead.createdAt).getTime();
+  if (!(ageMs >= CONVERSION_MIN_LEAD_AGE_HOURS * 60 * 60 * 1000)) {
+    missing.push(`wait until the lead is ${CONVERSION_MIN_LEAD_AGE_HOURS} hours old`);
+  }
+  return missing;
+}
+
 export const PROPOSED_PRODUCTS = ["NRMS", "MARKETPLACE", "NRMS_AND_MARKETPLACE"] as const;
 export type ProposedProduct = (typeof PROPOSED_PRODUCTS)[number];
 
