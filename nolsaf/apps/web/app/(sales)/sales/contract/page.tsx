@@ -44,8 +44,26 @@ function date(value: string | null): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Africa/Dar_es_Salaam",
   });
 }
+
+function dayOnly(value: string | null): string {
+  if (!value) return "Pending";
+  return new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+}
+
+/** How far through its term the agreement is, and the days left. */
+function termProgress(startsAt: string, expiresAt: string, now = Date.now()) {
+  const start = new Date(startsAt).getTime();
+  const end = new Date(expiresAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  const percent = Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
+  const daysLeft = Math.max(0, Math.ceil((end - now) / 86_400_000));
+  return { percent, daysLeft, notStarted: now < start };
+}
+
+const TIMELINE_STEPS = ["CREATED", "SENT", "VIEWED", "SIGNED", "ACTIVE"] as const;
 
 const CONTRACT_FONT = {
   fontFamily: '"Trebuchet MS", "Lucida Sans Unicode", "Lucida Grande", Arial, sans-serif',
@@ -102,7 +120,13 @@ function inlineContractText(value: string): ReactNode {
   );
 }
 
-function AgreementDocument({ content }: { content: string }) {
+/** "NoLSAF SALES PARTNER AGREEMENT" -> "Sales partner agreement". */
+function documentTitle(raw: string): string {
+  const t = raw.replace(/^NoLSAFs+/i, "").trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : "Sales partner agreement";
+}
+
+function AgreementDocument({ content, hash }: { content: string; hash?: string }) {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
   const metadata: Array<{ label: string; value: string }> = [];
   const blocks: ReactNode[] = [];
@@ -112,27 +136,44 @@ function AgreementDocument({ content }: { content: string }) {
 
   const flushCodeTable = () => {
     if (!codeRows.length) return;
+    // Read as a sum, top to bottom: each line says what it does to the one before.
+    const step = (label: string): { op: string; kind: "start" | "apply" | "subtotal" | "result" } => {
+      const l = label.toLowerCase();
+      if (/partner earning/.test(l)) return { op: "=", kind: "result" };
+      if (/eligible|net /.test(l)) return { op: "=", kind: "subtotal" };
+      if (/tax|processing|fee/.test(l)) return { op: "−", kind: "apply" };
+      if (/rate|commission/.test(l)) return { op: "×", kind: "apply" };
+      return { op: "", kind: "start" };
+    };
     blocks.push(
-      <div key={`table-${blocks.length}`} className="my-5 overflow-hidden rounded-xl border border-emerald-200">
+      <figure key={`table-${blocks.length}`} className="my-5 max-w-xl overflow-hidden rounded-md border border-solid border-slate-200">
+        <figcaption className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 bg-slate-50 px-4 py-2.5">
+          <span className="text-[13px] font-semibold text-slate-900">Worked marketplace example</span>
+          <span className="text-[11.5px] text-slate-500">Illustration only</span>
+        </figcaption>
         <table className="w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="bg-[#073c35] text-white">
-              <th className="px-4 py-3 font-bold">Worked marketplace example</th>
-              <th className="px-4 py-3 text-right font-bold">Amount</th>
-            </tr>
-          </thead>
           <tbody>
-            {codeRows.map((row, index) => (
-              <tr key={`${row.label}-${index}`} className={index % 2 ? "bg-slate-50" : "bg-white"}>
-                <td className="border-t border-slate-200 px-4 py-3 text-slate-700">{row.label}</td>
-                <td className="border-t border-slate-200 px-4 py-3 text-right font-bold tabular-nums text-slate-950">
-                  {row.value}
-                </td>
-              </tr>
-            ))}
+            {codeRows.map((row, index) => {
+              const s = step(row.label);
+              const result = s.kind === "result";
+              const subtotal = s.kind === "subtotal";
+              return (
+                <tr key={`${row.label}-${index}`} className={result ? "bg-[#02665e]/[0.06]" : "bg-white"}>
+                  <td className={`w-8 py-2.5 pl-4 pr-0 text-center font-mono text-[14px] font-semibold ${result ? "text-[#02665e]" : "text-slate-400"} ${index ? "border-0 border-t border-solid " + (subtotal || result ? "border-slate-300" : "border-slate-100") : ""}`}>
+                    {s.op}
+                  </td>
+                  <td className={`px-3 py-2.5 ${result ? "font-semibold text-[#02665e]" : subtotal ? "font-medium text-slate-900" : "text-slate-600"} ${index ? "border-0 border-t border-solid " + (subtotal || result ? "border-slate-300" : "border-slate-100") : ""}`}>
+                    {row.label}
+                  </td>
+                  <td className={`px-4 py-2.5 text-right tabular-nums ${result ? "text-[16px] font-bold text-[#02665e]" : subtotal ? "font-semibold text-slate-900" : "font-medium text-slate-800"} ${index ? "border-0 border-t border-solid " + (subtotal || result ? "border-slate-300" : "border-slate-100") : ""}`}>
+                    {row.value}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-      </div>,
+      </figure>,
     );
     codeRows = [];
   };
@@ -183,12 +224,12 @@ function AgreementDocument({ content }: { content: string }) {
     if (line.startsWith("## ") || isPlainSection) {
       const heading = line.startsWith("## ") ? line.slice(3).trim() : line.trim();
       blocks.push(
-        <section key={`heading-${blocks.length}`} className="mt-8 border-t border-slate-200 pt-6 first:mt-0 first:border-0 first:pt-0">
+        <section key={`heading-${blocks.length}`} className="mt-8 border-0 border-t border-solid border-slate-200 pt-6 first:mt-0 first:border-t-0 first:pt-0">
           <div className="flex items-center gap-3">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-xs font-black text-emerald-800">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[#02665e]/10 text-xs font-bold text-[#02665e]">
               {heading.match(/^\d+/)?.[0] || "•"}
             </span>
-            <h3 className="m-0 text-lg font-bold tracking-tight text-[#073c35]">
+            <h3 className="m-0 text-[17px] font-bold tracking-tight text-slate-900">
               {heading.replace(/^\d+\.\s*/, "")}
             </h3>
           </div>
@@ -198,7 +239,7 @@ function AgreementDocument({ content }: { content: string }) {
     }
     if (line.trim() === "Partner" || line.trim() === "For NoLSAF") {
       blocks.push(
-        <h3 key={`signature-${blocks.length}`} className="mb-0 mt-6 border-b border-slate-200 pb-2 text-base font-bold text-[#073c35]">
+        <h3 key={`signature-${blocks.length}`} className="mb-0 mt-6 border-0 border-b border-solid border-slate-200 pb-2 text-base font-bold text-slate-900">
           {line.trim()}
         </h3>,
       );
@@ -210,7 +251,7 @@ function AgreementDocument({ content }: { content: string }) {
     if (clause) {
       blocks.push(
         <div key={`clause-${blocks.length}`} className="mt-3 grid grid-cols-[3.2rem_minmax(0,1fr)] gap-2 text-sm leading-7 text-slate-700">
-          <span className="font-bold tabular-nums text-emerald-800">{clause[1]}</span>
+          <span className="font-semibold tabular-nums text-[#02665e]">{clause[1]}</span>
           <p className="m-0">{inlineContractText(clause[2])}</p>
         </div>,
       );
@@ -226,35 +267,33 @@ function AgreementDocument({ content }: { content: string }) {
   flushCodeTable();
 
   return (
-    <article style={CONTRACT_FONT} className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_20px_55px_-45px_rgba(15,23,42,0.45)]">
-      <header className="bg-[#073c35] px-5 py-6 text-white sm:px-8">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="m-0 text-[10px] font-bold text-emerald-200">NoLSAF legal document</p>
-            <h2 className="mb-0 mt-2 text-2xl font-bold tracking-tight">{title.replace(/^NoLSAF\s+/i, "")}</h2>
-            <p className="mb-0 mt-2 text-xs text-white/70">Partner onboarding · Controlled agreement record</p>
+    <article style={CONTRACT_FONT} className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 px-5 py-4 sm:px-8">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#02665e]/10 text-[#02665e]">
+            <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0 leading-tight">
+            <h2 className="m-0 text-[17px] font-bold text-slate-900">{documentTitle(title)}</h2>
+            <p className="m-0 mt-0.5 text-[12px] text-slate-500">Full legal terms · controlled agreement record</p>
           </div>
-          <ShieldCheck className="h-9 w-9 text-emerald-200" aria-hidden="true" />
         </div>
+        {hash ? (
+          <span title={`SHA-256 ${hash}`} className="rounded border border-solid border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-500">
+            SHA-256 {hash.slice(0, 12)}
+          </span>
+        ) : null}
       </header>
 
       {metadata.length ? (
-        <div className="border-b border-slate-200 bg-slate-50/80 px-5 py-5 sm:px-8">
-          <table className="w-full border-collapse text-sm">
-            <tbody>
-              {metadata.map((item) => (
-                <tr key={item.label}>
-                  <th className="w-[38%] border-b border-slate-200 py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500 last:border-0">
-                    {item.label}
-                  </th>
-                  <td className="border-b border-slate-200 py-2.5 font-bold text-slate-900 last:border-0">
-                    {item.value}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <dl className="m-0 grid gap-px border-0 border-b border-solid border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-3">
+          {metadata.map((item) => (
+            <div key={item.label} className="min-w-0 bg-slate-50 px-5 py-3 sm:px-8 lg:px-5">
+              <dt className="text-[12px] text-slate-500">{item.label.charAt(0) + item.label.slice(1).toLowerCase()}</dt>
+              <dd className="m-0 mt-0.5 break-words text-[13.5px] font-semibold text-slate-900">{item.value}</dd>
+            </div>
+          ))}
+        </dl>
       ) : null}
 
       <div className="px-5 py-6 sm:px-8 sm:py-8">{blocks}</div>
@@ -273,7 +312,7 @@ function ContractFrame({
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="px-4 pt-4 text-white sm:px-6">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-[24px] border border-white/10 bg-brand-800 px-5 py-4 shadow-[0_20px_45px_-30px_rgba(1,45,40,0.9)]">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-lg border border-solid border-white/10 bg-brand-800 px-5 py-4 shadow-[0_20px_45px_-30px_rgba(1,45,40,0.9)]">
           <div>
             <p className="font-semibold">NoLSAF</p>
             <p className="text-xs text-white/75">Sales partner onboarding</p>
@@ -291,9 +330,9 @@ function ContractFrame({
 function ContractLoadingContent() {
   return (
     <div className="space-y-6" role="status" aria-label="Loading sales agreement">
-      <section className="overflow-hidden rounded-[26px] border border-emerald-100 bg-white">
+      <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
         <div className="flex items-start gap-4 px-5 py-6 sm:px-7 sm:py-7">
-          <span className="h-14 w-14 shrink-0 animate-pulse rounded-2xl bg-emerald-100" />
+          <span className="h-14 w-14 shrink-0 animate-pulse rounded-md bg-emerald-100" />
           <div className="min-w-0 flex-1 space-y-3 pt-1">
             <span className="block h-3 w-36 animate-pulse rounded-full bg-emerald-100" />
             <span className="block h-7 w-72 max-w-full animate-pulse rounded-lg bg-slate-200" />
@@ -311,7 +350,7 @@ function ContractLoadingContent() {
         </div>
       </section>
 
-      <section className="rounded-[22px] border border-slate-200 bg-white p-5">
+      <section className="rounded-lg border border-solid border-slate-200 bg-white p-5">
         <span className="block h-4 w-36 animate-pulse rounded-full bg-slate-200" />
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, index) => (
@@ -406,22 +445,23 @@ export default function SalesContractPage() {
 
   return (
     <ContractFrame active={isActive}>
-      <section className="relative overflow-hidden rounded-[26px] border border-emerald-100 bg-white shadow-[0_20px_55px_-42px_rgba(3,73,61,0.55)]">
-        <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-emerald-100/60 blur-3xl" />
-        <div className="relative flex flex-wrap items-start justify-between gap-5 px-5 py-6 sm:px-7 sm:py-7">
-          <div className="flex min-w-0 items-start gap-4">
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#087f68] text-white shadow-[0_14px_30px_-18px_rgba(8,127,104,0.9)]">
-              <FileSignature className="h-6 w-6" />
+      <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+        <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5 sm:px-6">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#02665e] text-white">
+              <FileSignature className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <p className="m-0 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-700">
-                Agreement and access
-              </p>
-              <h1 className="mb-0 mt-1.5 text-[clamp(1.45rem,2.5vw,2rem)] font-black leading-tight tracking-[-0.035em] text-slate-950">
-                Sales partner agreement
-              </h1>
-              <p className="mb-0 mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Review your terms, track signing progress and retain the executed agreement for your records.
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="m-0 text-[22px] font-bold leading-tight tracking-tight text-slate-950">Sales partner agreement</h1>
+                {data ? (
+                  <span className={`inline-flex rounded px-2 py-0.5 text-[11px] font-semibold ${statusTone(data.contract.status)}`}>
+                    {codeLabel(data.contract.status)}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mb-0 mt-1 max-w-3xl text-[13.5px] leading-6 text-slate-600">
+                Your terms, signing progress and the executed agreement, kept on record.
               </p>
             </div>
           </div>
@@ -429,7 +469,7 @@ export default function SalesContractPage() {
           {data ? (
             <a
               href={`/api/sales/contracts/${data.contract.id}/download`}
-              className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white no-underline shadow-[0_12px_24px_-16px_rgba(7,60,53,0.9)] transition hover:bg-emerald-800"
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-md bg-[#02665e] px-4 text-sm font-semibold text-white no-underline transition hover:bg-[#014e47]"
             >
               <Download className="h-4 w-4" />
               Download PDF
@@ -437,103 +477,118 @@ export default function SalesContractPage() {
           ) : null}
         </div>
 
-        {data ? (
-          <dl className="relative m-0 grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="bg-white/95 px-5 py-4 sm:px-6">
-              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <Hash className="h-4 w-4 text-emerald-700" />
-                Agreement
-              </dt>
-              <dd className="m-0 mt-2">
-                <p className="m-0 text-sm font-black text-slate-900">{data.contract.contractNumber}</p>
-                <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${statusTone(data.contract.status)}`}>
-                  {data.contract.status}
-                </span>
-              </dd>
-            </div>
+        {data ? (() => {
+          const term = termProgress(data.contract.startsAt, data.contract.expiresAt);
+          const label = "flex items-center gap-1.5 text-[12px] font-medium text-slate-500";
+          return (
+            <dl className="m-0 grid gap-px border-0 border-t border-solid border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="min-w-0 bg-white px-5 py-4 sm:px-6">
+                <dt className={label}><Hash className="h-3.5 w-3.5 text-[#02665e]" />Agreement number</dt>
+                <dd className="m-0 mt-1.5 font-mono text-[15px] font-semibold tracking-wide text-slate-900">{data.contract.contractNumber}</dd>
+                <dd className="m-0 mt-1 text-[12px] text-slate-500">
+                  {data.contract.activatedAt ? `Active since ${dayOnly(data.contract.activatedAt)}` : data.contract.signedAt ? `Signed ${dayOnly(data.contract.signedAt)}` : "Not signed yet"}
+                </dd>
+              </div>
 
-            <div className="bg-white/95 px-5 py-4 sm:px-6">
-              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <CalendarClock className="h-4 w-4 text-emerald-700" />
-                Agreement term
-              </dt>
-              <dd className="m-0 mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs leading-5">
-                <span className="font-semibold text-slate-400">Starts</span>
-                <span className="font-semibold text-slate-800">{date(data.contract.startsAt)}</span>
-                <span className="font-semibold text-slate-400">Ends</span>
-                <span className="font-semibold text-slate-800">{date(data.contract.expiresAt)}</span>
-              </dd>
-            </div>
+              <div className="min-w-0 bg-white px-5 py-4 sm:px-6">
+                <dt className={label}><CalendarClock className="h-3.5 w-3.5 text-[#02665e]" />Term</dt>
+                <dd className="m-0 mt-1.5 text-[14px] font-semibold text-slate-900">
+                  {dayOnly(data.contract.startsAt)} <span className="font-normal text-slate-400">to</span> {dayOnly(data.contract.expiresAt)}
+                </dd>
+                {term ? (
+                  <dd className="m-0 mt-2">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                      <div className={`h-full rounded-full ${term.daysLeft <= 30 ? "bg-amber-500" : "bg-[#02665e]"}`} style={{ width: `${term.percent}%` }} />
+                    </div>
+                    <p className={`m-0 mt-1 text-[12px] ${term.daysLeft <= 30 ? "font-semibold text-amber-700" : "text-slate-500"}`}>
+                      {term.notStarted ? "Starts soon" : `${term.daysLeft} day${term.daysLeft === 1 ? "" : "s"} left`}
+                    </p>
+                  </dd>
+                ) : null}
+              </div>
 
-            <div className="bg-white/95 px-5 py-4 sm:px-6">
-              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <Percent className="h-4 w-4 text-emerald-700" />
-                Commission rates
-              </dt>
-              <dd className="m-0 mt-2 flex flex-wrap gap-2">
-                <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-emerald-900">
-                  <strong className="text-base">{data.contract.nrmsCommissionRate}%</strong>
-                  <span className="text-[10px] font-bold uppercase tracking-wide">NRMS</span>
-                </span>
-                <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-slate-800">
-                  <strong className="text-base">{data.contract.marketplaceRevenueRate}%</strong>
-                  <span className="text-[10px] font-bold uppercase tracking-wide">Marketplace</span>
-                </span>
-              </dd>
-            </div>
+              <div className="min-w-0 bg-white px-5 py-4 sm:px-6">
+                <dt className={label}><Percent className="h-3.5 w-3.5 text-[#02665e]" />Your commission</dt>
+                <dd className="m-0 mt-1.5 grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="m-0 text-[20px] font-bold leading-none tabular-nums text-slate-900">{data.contract.nrmsCommissionRate}%</p>
+                    <p className="m-0 mt-1 text-[12px] text-slate-500">NRMS</p>
+                  </div>
+                  <div className="border-0 border-l border-solid border-slate-200 pl-3">
+                    <p className="m-0 text-[20px] font-bold leading-none tabular-nums text-slate-900">{data.contract.marketplaceRevenueRate}%</p>
+                    <p className="m-0 mt-1 text-[12px] text-slate-500">Marketplace</p>
+                  </div>
+                </dd>
+              </div>
 
-            <div className="bg-white/95 px-5 py-4 sm:px-6">
-              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <MapPinned className="h-4 w-4 text-emerald-700" />
-                Territory
-              </dt>
-              <dd className="m-0 mt-2 text-sm font-black text-slate-900">
-                {data.contract.territory || "As stated in agreement"}
-              </dd>
-            </div>
-          </dl>
-        ) : null}
+              <div className="min-w-0 bg-white px-5 py-4 sm:px-6">
+                <dt className={label}><MapPinned className="h-3.5 w-3.5 text-[#02665e]" />Territory</dt>
+                <dd className="m-0 mt-1.5 text-[15px] font-semibold text-slate-900">{data.contract.territory || "As stated in the agreement"}</dd>
+                <dd className="m-0 mt-1 text-[12px] text-slate-500">Where you may register leads</dd>
+              </div>
+            </dl>
+          );
+        })() : null}
       </section>
 
       {error ? (
-        <p className="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+        <p className="mt-5 rounded-md border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
           {error}
         </p>
       ) : null}
 
       {data ? (
         <>
-
-          <section className="mt-6 rounded-[22px] border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-bold text-gray-900">Agreement timeline</h2>
-            <ol className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {data.timeline.map((event, index) => (
-                <li key={`${event.status}-${index}`} className="relative border-l-2 border-brand pl-4">
-                  <CheckCircle2 className="absolute -left-[9px] top-0 h-4 w-4 bg-white text-emerald-700" />
-                  <p className="text-xs font-bold text-gray-900">{codeLabel(event.status)}</p>
-                  <p className="mt-1 text-xs text-gray-500">{date(event.at)}</p>
-                </li>
-              ))}
-            </ol>
+          {/* Signing progress: the five fixed steps, done or still to come, joined by one line */}
+          <section className="mt-4 rounded-lg border border-solid border-slate-200 bg-white px-5 py-4 sm:px-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="m-0 text-[14px] font-semibold text-slate-900">Signing progress</h2>
+              <span className="text-[12px] text-slate-500">Times in EAT</span>
+            </div>
+            {(() => {
+              const reached = new Map<string, string>();
+              for (const event of data.timeline) if (!reached.has(event.status)) reached.set(event.status, event.at);
+              const steps = TIMELINE_STEPS.map((status) => ({ status, at: reached.get(status) ?? null }));
+              const lastDone = steps.reduce((acc, step, i) => (step.at ? i : acc), -1);
+              return (
+                <ol className="m-0 mt-4 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-5 sm:gap-0">
+                  {steps.map((step, i) => {
+                    const done = Boolean(step.at);
+                    const current = i === lastDone + 1;
+                    return (
+                      <li key={step.status} className="relative flex items-start gap-3 sm:flex-col sm:items-start sm:gap-2 sm:pr-3">
+                        {/* connector to the next step (desktop) */}
+                        {i < steps.length - 1 ? (
+                          <span aria-hidden className={`absolute left-[26px] right-0 top-[9px] hidden h-0.5 sm:block ${i < lastDone ? "bg-[#02665e]" : "bg-slate-200"}`} />
+                        ) : null}
+                        <span
+                          className={`relative z-[1] inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full ${
+                            done ? "bg-[#02665e] text-white" : current ? "border-2 border-solid border-[#02665e] bg-white" : "border-2 border-solid border-slate-200 bg-white"
+                          }`}
+                        >
+                          {done ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                        </span>
+                        <div className="min-w-0 leading-tight">
+                          <p className={`m-0 text-[13px] font-semibold ${done ? "text-slate-900" : current ? "text-[#02665e]" : "text-slate-400"}`}>{codeLabel(step.status)}</p>
+                          <p className="m-0 mt-0.5 text-[12px] tabular-nums text-slate-500">{step.at ? date(step.at) : current ? "Next" : "Not yet"}</p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              );
+            })()}
           </section>
 
-          <section className="mt-6">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="m-0 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Complete legal terms</p>
-                <h2 className="mb-0 mt-1 text-xl font-bold text-gray-950">Full agreement</h2>
-              </div>
-              <span className="text-xs text-gray-500">
-                SHA-256 {data.rendered.bodyHash.slice(0, 12)}…
-              </span>
-            </div>
-            <div className="mt-4">
-              <AgreementDocument content={data.rendered.content} />
-            </div>
+          <section className="mt-4">
+            <AgreementDocument
+              content={data.rendered.content}
+              hash={data.rendered.bodyHash}
+            />
           </section>
 
           {canAccept ? (
-            <section className="mt-6 rounded-[22px] border border-amber-200 bg-amber-50 p-5 shadow-sm">
+            <section className="mt-4 rounded-lg border border-solid border-amber-200 bg-amber-50 p-5">
               <h2 className="text-base font-bold text-gray-900">Accept this agreement</h2>
               <p className="mt-1 text-sm text-gray-700">
                 Your typed legal name, time, IP address and browser details form part of the acceptance evidence.
@@ -560,20 +615,20 @@ export default function SalesContractPage() {
                   value={acceptedName}
                   onChange={(event) => setAcceptedName(event.target.value)}
                   autoComplete="name"
-                  className="mt-2 block w-full max-w-md rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                  className="mt-2 block w-full max-w-md rounded-md border border-solid border-slate-300 bg-white px-3 py-2 text-sm"
                 />
               </label>
               <button
                 type="button"
                 onClick={accept}
                 disabled={!confirmAuthority || !confirmIndependent || !confirmExample || !acceptedName.trim() || submitting}
-                className="mt-5 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-5 cursor-pointer rounded-md border-0 bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {submitting ? "Recording acceptance…" : "Accept agreement"}
               </button>
             </section>
           ) : data.contract.status === "SIGNED" ? (
-            <section className="mt-6 rounded-xl border border-blue-200 bg-blue-50 p-5">
+            <section className="mt-4 rounded-lg border border-solid border-blue-200 bg-blue-50 p-5">
               <h2 className="text-sm font-semibold text-blue-900">Signature received</h2>
               <p className="mt-1 text-sm text-blue-800">
                 Accepted on {date(data.contract.signedAt)}. An administrator must countersign and activate your workspace.
