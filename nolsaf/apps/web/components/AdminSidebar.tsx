@@ -129,7 +129,7 @@ function Item({
               // default (light grey) and hides the label.
               : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}
             focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20`
-          : `group relative no-underline flex items-center justify-center rounded-2xl p-3 text-sm font-medium transition-colors duration-200
+          : `group relative no-underline flex items-center justify-center rounded-lg p-3 text-sm font-medium transition-colors duration-200
             bg-white/70 border shadow-sm backdrop-blur-[2px]
             ${active
               ? "text-[#02665e] border-[#02665e]/20 bg-[#02665e]/5"
@@ -143,7 +143,7 @@ function Item({
               <Icon className="h-3.5 w-3.5" aria-hidden />
             </span>
           ) : (
-            <span className={`grid place-items-center rounded-xl h-12 w-12 ${iconWrapClass}`}>
+            <span className={`grid place-items-center rounded-md h-12 w-12 ${iconWrapClass}`}>
               <Icon className={`h-6 w-6 ${iconClass}`} aria-hidden />
             </span>
           )
@@ -172,7 +172,7 @@ function Item({
             : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}
           focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
           ${isSubItem ? `min-h-8 ${active ? "font-semibold" : "font-medium text-emerald-50/55"}` : ""}`
-        : `group no-underline flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-medium
+        : `group no-underline flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm font-medium
           transition-colors duration-200 border bg-white/90 shadow-sm
           ${active
             ? "text-[#02665e] border-[#02665e]/20 bg-[#02665e]/5"
@@ -208,7 +208,7 @@ function Item({
         <>
           <div className="flex items-center gap-3 min-w-0">
             {Icon ? (
-              <span className={`grid place-items-center rounded-xl h-9 w-9 ${iconWrapClass}`}>
+              <span className={`grid place-items-center rounded-md h-9 w-9 ${iconWrapClass}`}>
                 <Icon className={`h-4 w-4 ${iconClass}`} aria-hidden />
               </span>
             ) : null}
@@ -536,7 +536,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               // disabled, so a <button> with no background falls back to the UA
               // default (light grey) and hides the label.
               : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`
-            : `group relative w-full flex items-center justify-center rounded-2xl p-3 text-sm font-medium border transition-colors duration-200 focus:outline-none focus-visible:ring-2
+            : `group relative w-full flex items-center justify-center rounded-lg p-3 text-sm font-medium border transition-colors duration-200 focus:outline-none focus-visible:ring-2
               text-[#02665e] bg-white/70 border-[#02665e]/10
               ${active
                 ? "bg-[#02665e]/6 border-[#02665e]/25"
@@ -549,7 +549,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               <Icon className="h-3.5 w-3.5" aria-hidden />
             </span>
           ) : (
-            <span className={`grid place-items-center rounded-xl h-12 w-12 border ${active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10"}`}>
+            <span className={`grid place-items-center rounded-md h-12 w-12 border ${active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10"}`}>
               <Icon className="h-6 w-6 text-[#02665e]" aria-hidden />
             </span>
           )}
@@ -573,7 +573,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               // disabled, so a <button> with no background falls back to the UA
               // default (light grey) and hides the label.
               : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`
-          : `group w-full flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-semibold border transition-colors duration-200 focus:outline-none focus-visible:ring-2
+          : `group w-full flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm font-semibold border transition-colors duration-200 focus:outline-none focus-visible:ring-2
             text-[#02665e] bg-white/90 border-[#02665e]/10 shadow-sm
             ${active
               ? "bg-[#02665e]/6 border-[#02665e]/25"
@@ -587,7 +587,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               <Icon className="h-3.5 w-3.5" aria-hidden />
             </span>
           ) : (
-            <span className={`grid place-items-center rounded-xl h-9 w-9 border ${active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10"}`}>
+            <span className={`grid place-items-center rounded-md h-9 w-9 border ${active ? "bg-[#02665e]/10 border-[#02665e]/20" : "bg-[#02665e]/5 border-[#02665e]/10"}`}>
               <Icon className="h-4 w-4 text-[#02665e]" aria-hidden />
             </span>
           )}
@@ -671,7 +671,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
           // transparent or it paints a second panel inside the green rail.
           // h-full lets the nav scroll internally while the footer stays pinned.
           ? "flex h-full min-h-0 flex-col"
-          : `rounded-3xl border border-[#02665e]/10 shadow-[0_12px_30px_rgba(2,102,94,0.08)] ${collapsed ? "p-2 bg-gradient-to-b from-white via-white to-[#02665e]/[0.09]" : "p-3 bg-white"}`
+          : `rounded-lg border border-[#02665e]/10 shadow-[0_12px_30px_rgba(2,102,94,0.08)] ${collapsed ? "p-2 bg-gradient-to-b from-white via-white to-[#02665e]/[0.09]" : "p-3 bg-white"}`
       }
     >
       <div className={dark ? "sidebar-scroll min-h-0 flex-1 space-y-0.5 overflow-y-auto" : `space-y-2 ${collapsed ? "space-y-1" : ""}`}>
@@ -701,7 +701,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin" label="Owners" Icon={Building2} collapsed={collapsed} path={path} variant={variant} badge={nav?.listings ?? 0} />
         ) : (
-          <div className={dark && adminOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
+          <div className={dark && adminOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Owners" 
               Icon={Building2} 
@@ -720,7 +720,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/drivers" label="Drivers" Icon={Truck} collapsed={collapsed} path={path} variant={variant} badge={nav?.trips ?? 0} />
         ) : (
-          <div className={dark && driverOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
+          <div className={dark && driverOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Drivers" 
               Icon={Truck} 
@@ -739,7 +739,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/users" label="Users" Icon={Users} collapsed={collapsed} path={path} variant={variant} />
         ) : (
-          <div className={dark && usersOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
+          <div className={dark && usersOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Users" 
               Icon={Users} 
@@ -759,7 +759,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/group-stays" label="Group Stay" Icon={Users} collapsed={collapsed} path={path} variant={variant} badge={nav?.groupStays ?? 0} />
         ) : (
-          <div className={dark && groupStayOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
+          <div className={dark && groupStayOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Group Stay" 
               Icon={Users} 
@@ -778,7 +778,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/agents/dashboard" label="No4P Agents" Icon={Bot} collapsed={collapsed} path={path} variant={variant} badge={twigaWaiting} />
         ) : (
-          <div className={dark && agentsOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
+          <div className={dark && agentsOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="No4P Agents" 
               Icon={Bot} 
@@ -797,7 +797,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/nrms" label="NRMS" Icon={Hotel} collapsed={collapsed} path={path} variant={variant} />
         ) : (
-          <div className={dark && nrmsOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
+          <div className={dark && nrmsOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton
               label="NRMS"
               Icon={Hotel}
@@ -818,7 +818,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/cancellations" label="Cancellations" Icon={Ban} collapsed={collapsed} path={path} variant={variant} badge={nav?.cancellations ?? 0} />
         ) : (
-          <div className={dark && cancellationsOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
+          <div className={dark && cancellationsOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Cancellations" 
               Icon={Ban} 
@@ -837,7 +837,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/management" label="Management" Icon={Settings} collapsed={collapsed} path={path} variant={variant} />
         ) : (
-          <div className={dark && managementOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
+          <div className={dark && managementOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Management" 
               Icon={Settings} 

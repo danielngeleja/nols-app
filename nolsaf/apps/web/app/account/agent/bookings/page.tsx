@@ -38,6 +38,8 @@ function BookingStatusBadge({ status }: { status?: string }) {
 
 type BookingItem = {
   id: string | number;
+  /** Opaque tr_ address for page links; URLs never carry the row id. */
+  ref?: string;
   title?: string;
   description?: string | null;
   plannedActivities?: string | null;
@@ -579,7 +581,7 @@ function bucketLabel(key: BucketKey) {
     case "confirmed":
       return "Confirmed";
     case "progress":
-      return "In Progress";
+      return "In progress";
     case "completed":
       return "Completed";
     case "cancelled":
@@ -590,6 +592,22 @@ function bucketLabel(key: BucketKey) {
 }
 
 const MAIN_BUCKETS: MainBucketKey[] = ["new", "confirmed", "progress", "completed"];
+
+/** One line under each step in the header flow: what a trip in that stage is waiting for. */
+const STAGE_HINT: Record<MainBucketKey, string> = {
+  new: "Just booked, check the details",
+  confirmed: "Paid, next is the pickup",
+  progress: "On tour, tick each activity",
+  completed: "Done, claim your balance",
+};
+
+/** What an empty stage means, and what will fill it. */
+const STAGE_EMPTY: Record<MainBucketKey, { title: string; text: string }> = {
+  new: { title: "No new bookings", text: "When a traveller books one of your packages, it lands here first so you can check the details." },
+  confirmed: { title: "No confirmed trips", text: "Paid bookings wait here until the pickup. You can claim an advance from 7 days before departure." },
+  progress: { title: "No trips on tour", text: "A trip moves here the moment you validate the pickup." },
+  completed: { title: "No completed trips", text: "Finished trips land here. Their balance becomes claimable on the revenues page." },
+};
 
 // The stage lives in the URL so the sidebar can deep link straight into a stage
 // and a shared link reopens the same one.
@@ -613,53 +631,6 @@ function bucketIconComponent(key: MainBucketKey): LucideIcon {
   }
 }
 
-function bucketIcon(key: MainBucketKey) {
-  const Icon = bucketIconComponent(key);
-  return <Icon className="h-4 w-4" />;
-}
-
-function tabClasses(key: MainBucketKey, isActive: boolean) {
-  if (key === "new") {
-    return isActive
-      ? "flex items-center justify-between rounded-full border px-3 py-2 text-left text-sm font-bold shadow-sm"
-      : "flex items-center justify-between rounded-full border px-3 py-2 text-left text-sm font-semibold transition-all hover:bg-white/10";
-  }
-  if (key === "confirmed") {
-    return isActive
-      ? "flex items-center justify-between rounded-full border px-3 py-2 text-left text-sm font-bold shadow-sm"
-      : "flex items-center justify-between rounded-full border px-3 py-2 text-left text-sm font-semibold transition-all hover:bg-white/10";
-  }
-  if (key === "progress") {
-    return isActive
-      ? "flex items-center justify-between rounded-full border px-3 py-2 text-left text-sm font-bold shadow-sm"
-      : "flex items-center justify-between rounded-full border px-3 py-2 text-left text-sm font-semibold transition-all hover:bg-white/10";
-  }
-  return isActive
-    ? "flex items-center justify-between rounded-full border px-3 py-2 text-left text-sm font-bold shadow-sm"
-    : "flex items-center justify-between rounded-full border px-3 py-2 text-left text-sm font-semibold transition-all hover:bg-white/10";
-}
-
-function tabCountPillClasses(key: MainBucketKey, isActive: boolean) {
-  if (key === "new") {
-    return isActive
-      ? "rounded-full bg-sky-300 px-2 py-0.5 text-xs font-extrabold text-sky-900"
-      : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600";
-  }
-  if (key === "confirmed") {
-    return isActive
-      ? "rounded-full bg-violet-300 px-2 py-0.5 text-xs font-extrabold text-violet-900"
-      : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600";
-  }
-  if (key === "progress") {
-    return isActive
-      ? "rounded-full bg-amber-300 px-2 py-0.5 text-xs font-extrabold text-amber-900"
-      : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600";
-  }
-  return isActive
-    ? "rounded-full bg-emerald-300 px-2 py-0.5 text-xs font-extrabold text-emerald-900"
-    : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600";
-}
-
 function StageEmptyState({
   Icon,
   title,
@@ -671,12 +642,12 @@ function StageEmptyState({
 }) {
   return (
     <div className="px-4 py-8">
-      <div className="mx-auto flex max-w-md flex-col items-center gap-2 rounded-2xl border border-dashed border-neutral-300 px-6 py-12 text-center">
-        <span className="grid h-10 w-10 place-items-center rounded-full bg-neutral-100 text-neutral-400">
+      <div className="mx-auto flex max-w-md flex-col items-center gap-2 rounded-lg border border-dashed border-neutral-300 px-6 py-10 text-center">
+        <span className="grid h-10 w-10 place-items-center rounded-md bg-emerald-50 text-emerald-700">
           <Icon className="h-5 w-5" aria-hidden />
         </span>
-        <p className="m-0 mt-1 text-sm font-bold text-neutral-800">{title}</p>
-        <p className="m-0 text-xs text-neutral-500">{description}</p>
+        <p className="m-0 mt-1 text-[14px] font-semibold text-neutral-800">{title}</p>
+        <p className="m-0 text-[12.5px] leading-5 text-neutral-500">{description}</p>
       </div>
     </div>
   );
@@ -710,7 +681,7 @@ function SortableHeader({
     <button
       type="button"
       onClick={() => onSort(column)}
-      className={`inline-flex cursor-pointer appearance-none items-center gap-1.5 border-0 bg-transparent p-0 text-[10px] font-bold uppercase tracking-[0.1em] shadow-none outline-none transition-colors focus-visible:underline ${colorClass}`}
+      className={`inline-flex cursor-pointer appearance-none items-center gap-1.5 border-0 bg-transparent p-0 text-[12px] font-medium shadow-none outline-none transition-colors focus-visible:underline ${colorClass}`}
       title={`Sort by ${label}`}
       aria-label={`Sort by ${label}`}
     >
@@ -1236,91 +1207,93 @@ export default function AgentBookingsPage() {
         Back to dashboard
       </Link>
 
-      <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Operator workspace</p>
-          <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-900 sm:text-2xl">My bookings</h1>
-          <p className="m-0 mt-1 text-sm text-neutral-500">
-            Bookings assigned to your operator account, organized by trip stage.
-          </p>
-        </div>
-
-        <div className="group/tooltip relative inline-flex shrink-0">
-          <button
-            type="button"
-            aria-label="Booking stages information"
-            className="inline-flex min-h-9 cursor-pointer appearance-none items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none transition hover:border-emerald-200 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-600/25"
+      {/* Header: the page, and the four booking stages as one numbered flow.
+          Each step is also the switch for that stage, on every screen size. */}
+      <header className="mb-4 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+        <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700">
+              <ClipboardList className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h1 className="m-0 text-[18px] font-bold tracking-tight text-neutral-900 sm:text-xl">My bookings</h1>
+              <p className="m-0 mt-1 text-[13px] leading-5 text-neutral-500">
+                Every trip travellers booked with you moves through four steps, left to right.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/account/agent/help#bookings"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-solid border-neutral-300 bg-white px-3 text-[13px] font-medium text-neutral-700 no-underline transition hover:border-emerald-300 hover:text-emerald-800"
           >
             <Info className="h-3.5 w-3.5" aria-hidden />
-            Booking stages
-          </button>
-          <div
-            role="tooltip"
-            className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-solid border-neutral-200 bg-white p-3 text-left opacity-0 shadow-[0_18px_45px_-25px_rgba(15,23,42,0.5)] transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100"
-          >
-            <p className="m-0 text-[11px] font-bold text-neutral-800">Booking stages</p>
-            <p className="m-0 mt-1 text-[11px] leading-relaxed text-neutral-500">
-              Use these stages to move from new booking review to confirmed trips, live activity tracking and completed
-              trip records.
-            </p>
-          </div>
+            How stages work
+          </Link>
         </div>
+
+        <ol role="tablist" aria-label="Booking stages" className="m-0 grid list-none grid-cols-2 border-0 border-t border-solid border-neutral-200 p-0 lg:grid-cols-4">
+          {tabs.map((key, i) => {
+            const isActive = activeTab === key;
+            const count = grouped[key].length;
+            const Icon = bucketIconComponent(key);
+            const hint = STAGE_HINT[key];
+            return (
+              <li
+                key={key}
+                className={`relative min-w-0 ${i % 2 ? "border-0 border-l border-solid border-neutral-100" : ""} ${i >= 2 ? "border-0 border-t border-solid border-neutral-100 lg:border-t-0" : ""} ${i ? "lg:border-0 lg:border-l lg:border-solid lg:border-neutral-100" : ""}`}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setActiveTab(key)}
+                  className={`relative flex h-full w-full cursor-pointer appearance-none items-start gap-3 border-0 px-4 py-3.5 text-left transition ${isActive ? "bg-emerald-50/70" : "bg-white hover:bg-neutral-50"}`}
+                >
+                  <span
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-md text-[13px] font-bold ${
+                      isActive ? "bg-emerald-700 text-white" : count ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-400"
+                    }`}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className={`inline-flex min-w-0 items-center gap-1.5 truncate text-[13.5px] font-semibold ${isActive ? "text-emerald-900" : "text-neutral-800"}`}>
+                        <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-emerald-700" : "text-neutral-400"}`} aria-hidden />
+                        {bucketLabel(key)}
+                      </span>
+                      <span className={`shrink-0 rounded px-1.5 text-[12px] font-semibold tabular-nums ${isActive ? "bg-emerald-700 text-white" : count ? "bg-neutral-100 text-neutral-700" : "text-neutral-400"}`}>
+                        {count}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block truncate text-[11.5px] text-neutral-500" title={hint}>{hint}</span>
+                  </span>
+                  {isActive ? <span className="absolute inset-x-0 bottom-0 h-[2px] bg-emerald-700" aria-hidden /> : null}
+                </button>
+                {i < tabs.length - 1 ? (
+                  <ChevronRight className="pointer-events-none absolute -right-2 top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 rounded-full bg-white text-neutral-300 lg:block" aria-hidden />
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
       </header>
 
       {error ? (
-        <div className="mb-4 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mb-4 rounded-lg border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       ) : null}
 
-      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">
-          {/* Stage switcher. Hidden from lg up, where the workspace sidebar owns
-              stage selection; below lg the sidebar is not rendered, so this stays
-              as the only way to move between stages. */}
-          <div
-            className="px-4 py-4 lg:hidden"
-            style={{ background: "linear-gradient(135deg, #10182e 0%, #143541 52%, #0f4f45 100%)" }}
-          >
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {tabs.map((key) => {
-                const isActive = activeTab === key;
-                const count = grouped[key].length;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setActiveTab(key)}
-                    className={tabClasses(key, isActive)}
-                    style={
-                      isActive
-                        ? { background: "rgba(255,255,255,0.18)", borderColor: "rgba(255,255,255,0.38)", color: "#fff" }
-                        : { background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.70)" }
-                    }
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      {bucketIcon(key)}
-                      {bucketLabel(key)}
-                    </span>
-                    <span
-                      className={tabCountPillClasses(key, isActive)}
-                      style={isActive ? { background: "rgba(255,255,255,0.20)", color: "#fff" } : undefined}
-                    >
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
+      <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
           {/* No top gap from lg up, where the stage strip above is hidden and the
               table header should sit flush with the top of the card. */}
-          <div className="mt-3 lg:mt-0">
+          <div>
             {isProgressTab ? (
               activeItems.length === 0 ? (
                 <div className="px-4 pb-6 pt-2 sm:px-6 lg:pt-5">
-                  <div className="flex flex-col items-center rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-                    <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#02665e]/10 text-[#02665e]">
+                  <div className="flex flex-col items-center rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
+                    <span className="grid h-10 w-10 place-items-center rounded-md bg-emerald-50 text-emerald-700">
                       <Activity className="h-6 w-6" aria-hidden />
                     </span>
                     <p className="m-0 mt-4 text-[16px] font-bold text-slate-900">No trips on tour right now</p>
@@ -1331,7 +1304,7 @@ export default function AgentBookingsPage() {
                       type="button"
                       onClick={() => setActiveTab("confirmed")}
                       style={{ fontFamily: "inherit" }}
-                      className="mt-5 inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-[#02665e] px-5 text-[13px] font-bold text-white transition-colors hover:bg-[#014d47]"
+                      className="mt-5 inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-5 text-[13px] font-semibold text-white transition-colors hover:bg-[#014d47]"
                     >
                       <UserCheck className="h-4 w-4" aria-hidden />
                       See upcoming pickups
@@ -1394,11 +1367,11 @@ export default function AgentBookingsPage() {
 
                     {/* Today strip: leads with whatever needs the operator first. */}
                     <section
-                      className="flex flex-col gap-4 rounded-3xl p-5 text-white sm:p-6 lg:flex-row lg:items-center lg:justify-between"
+                      className="flex flex-col gap-4 rounded-lg p-5 text-white sm:p-6 lg:flex-row lg:items-center lg:justify-between"
                       style={{ backgroundColor: totalLate > 0 ? "#9a3412" : "#02665e" }}
                     >
                       <div className="min-w-0">
-                        <p className="m-0 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white/65">
+                        <p className="m-0 inline-flex items-center gap-2 text-[12px] font-medium text-white/65">
                           <span className="relative flex h-2 w-2" aria-hidden>
                             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70" />
                             <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
@@ -1415,9 +1388,9 @@ export default function AgentBookingsPage() {
                           { value: String(totalLate), label: "Late", tone: totalLate ? "text-amber-200" : "text-white/40" },
                           { value: `${totalDone}/${totalTasks}`, label: "Ticked", tone: "text-white" },
                         ].map((s) => (
-                          <div key={s.label} className="min-w-[3.75rem] rounded-2xl bg-white/10 px-3 py-2.5 text-center">
-                            <dd className={`m-0 text-[22px] font-black leading-none tabular-nums ${s.tone}`}>{s.value}</dd>
-                            <dt className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white/60">{s.label}</dt>
+                          <div key={s.label} className="min-w-[3.75rem] rounded-lg bg-white/10 px-3 py-2.5 text-center">
+                            <dd className={`m-0 text-[22px] font-bold leading-none tabular-nums ${s.tone}`}>{s.value}</dd>
+                            <dt className="mt-1 text-[12px] font-medium text-white/60">{s.label}</dt>
                           </div>
                         ))}
                       </dl>
@@ -1441,7 +1414,7 @@ export default function AgentBookingsPage() {
                       return (
                         <article
                           key={bid}
-                          className={`min-w-0 overflow-hidden rounded-3xl border border-solid bg-white ${
+                          className={`min-w-0 overflow-hidden rounded-lg border border-solid bg-white ${
                             lateCount > 0 ? "border-orange-200" : liveCount > 0 ? "border-[#02665e]/40" : "border-slate-200"
                           }`}
                         >
@@ -1449,7 +1422,7 @@ export default function AgentBookingsPage() {
                           <div className="p-5 sm:p-6">
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div className="flex min-w-0 items-end gap-3">
-                                <span className="text-[34px] font-black leading-none tracking-[0.08em] text-[#02665e]">{placeCodeOf(booking)}</span>
+                                <span className="text-[34px] font-bold leading-none tracking-[0.08em] text-[#02665e]">{placeCodeOf(booking)}</span>
                                 <div className="min-w-0 pb-0.5">
                                   <h3 className="m-0 truncate text-[16px] font-bold text-slate-900">{booking.requester?.fullName || "Guest"}</h3>
                                   <p className="m-0 truncate text-[12.5px] text-slate-500">
@@ -1458,7 +1431,7 @@ export default function AgentBookingsPage() {
                                 </div>
                               </div>
                               <div className="flex flex-shrink-0 items-center gap-2">
-                                <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${chip.cls}`}>
+                                <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 text-[11.5px] font-semibold ${chip.cls}`}>
                                   {isChecklistLocked ? (
                                     <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
                                   ) : chip.pulse ? (
@@ -1472,10 +1445,10 @@ export default function AgentBookingsPage() {
                                   {chip.label}
                                 </span>
                                 <Link
-                                  href={`/account/agent/tour-bookings/${encodeURIComponent(bid)}`}
+                                  href={`/account/agent/tour-bookings/${encodeURIComponent(booking.ref || bid)}`}
                                   title="Trip details"
                                   aria-label={`Open details for ${booking.requester?.fullName || "this trip"}`}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-500 no-underline transition-colors hover:border-[#02665e] hover:text-[#02665e]"
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 no-underline transition-colors hover:border-[#02665e] hover:text-[#02665e]"
                                 >
                                   <Eye className="h-4 w-4" aria-hidden />
                                 </Link>
@@ -1490,7 +1463,7 @@ export default function AgentBookingsPage() {
                                 { label: "Plan", value: usesAgreedPlan ? "Agreed service plan" : "Package template" },
                               ].map((fact) => (
                                 <div key={fact.label} className="min-w-0">
-                                  <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">{fact.label}</dt>
+                                  <dt className="text-[12px] font-medium text-slate-400">{fact.label}</dt>
                                   <dd className="m-0 mt-0.5 truncate text-[14px] font-bold tabular-nums text-slate-900" title={fact.value}>{fact.value}</dd>
                                 </div>
                               ))}
@@ -1528,18 +1501,18 @@ export default function AgentBookingsPage() {
                             </div>
 
                             {overrunDays > 0 ? (
-                              <div className="mt-4 flex items-start gap-3 rounded-2xl border border-solid border-orange-200 bg-orange-50/70 px-4 py-3">
+                              <div className="mt-4 flex items-start gap-3 rounded-lg border border-solid border-orange-200 bg-orange-50/70 px-4 py-3">
                                 <Flag className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-600" aria-hidden />
                                 <div className="min-w-0 text-[12.5px] leading-relaxed text-orange-900">
                                   <strong className="font-bold">This trip should have closed {scheduledEnd ? `on ${scheduledEnd.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : "already"}.</strong>{" "}
                                   {allActivities.length - doneCount} {allActivities.length - doneCount === 1 ? "activity is" : "activities are"} still unticked, so the trip cannot complete. Tick what was delivered, or{" "}
-                                  <Link href={`/account/agent/tour-bookings/${encodeURIComponent(bid)}`} className="font-bold text-orange-900 underline underline-offset-2">open the trip</Link> to raise what was not.
+                                  <Link href={`/account/agent/tour-bookings/${encodeURIComponent(booking.ref || bid)}`} className="font-bold text-orange-900 underline underline-offset-2">open the trip</Link> to raise what was not.
                                 </div>
                               </div>
                             ) : null}
 
                             {showCongratsBanner ? (
-                              <div className="mt-4 flex items-start gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50/70 px-4 py-3">
+                              <div className="mt-4 flex items-start gap-3 rounded-lg border border-solid border-emerald-200 bg-emerald-50/70 px-4 py-3">
                                 <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" aria-hidden />
                                 <div>
                                   <p className="m-0 text-[13.5px] font-bold text-emerald-900">Well done, every activity is delivered.</p>
@@ -1552,7 +1525,7 @@ export default function AgentBookingsPage() {
                           {/* Timetable */}
                           <div className="border-0 border-t border-solid border-slate-100 bg-slate-50/60 p-5 sm:p-6">
                             {activityPlan.length === 0 ? (
-                              <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center">
+                              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-center">
                                 <p className="m-0 text-[13.5px] font-bold text-slate-700">No agreed service timetable yet</p>
                                 <p className="m-0 mt-1 text-[12px] text-slate-500">Once the planned activities are provided for this trip, they appear here for ticking.</p>
                               </div>
@@ -1566,7 +1539,7 @@ export default function AgentBookingsPage() {
                                   return (
                                     <li key={`${bid}-${group.label}`} className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-3">
                                       <span
-                                        className={`flex h-11 w-11 flex-col items-center justify-center rounded-2xl ${
+                                        className={`flex h-11 w-11 flex-col items-center justify-center rounded-lg ${
                                           groupComplete
                                             ? "bg-emerald-600 text-white"
                                             : groupLate
@@ -1576,15 +1549,15 @@ export default function AgentBookingsPage() {
                                                 : "border border-solid border-slate-200 bg-white text-slate-700"
                                         }`}
                                       >
-                                        <span className={`text-[8.5px] font-bold uppercase tracking-[0.12em] ${groupComplete || groupLate || isToday ? "text-white/75" : "text-slate-400"}`}>Day</span>
-                                        <span className="text-[16px] font-black leading-none">{group.day}</span>
+                                        <span className={`text-[11px] font-semibold ${groupComplete || groupLate || isToday ? "text-white/75" : "text-slate-400"}`}>Day</span>
+                                        <span className="text-[16px] font-bold leading-none">{group.day}</span>
                                       </span>
                                       <div className="min-w-0">
                                         <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
                                           <div className="flex min-w-0 items-center gap-2">
                                             <h4 className="m-0 truncate text-[14px] font-bold text-slate-900">{group.title || group.label}</h4>
-                                            {isToday ? <span className="rounded-full bg-[#02665e]/10 px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#02665e]">Today</span> : null}
-                                            {groupLate && !isToday ? <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-orange-700">Unfinished</span> : null}
+                                            {isToday ? <span className="rounded bg-[#02665e]/10 px-1.5 py-0.5 text-[12px] font-medium text-[#02665e]">Today</span> : null}
+                                            {groupLate && !isToday ? <span className="rounded bg-orange-50 px-1.5 py-0.5 text-[12px] font-medium text-orange-700">Unfinished</span> : null}
                                           </div>
                                           <span className={`text-[11.5px] font-bold tabular-nums ${groupComplete ? "text-emerald-600" : "text-slate-400"}`}>{groupDone}/{group.items.length} done</span>
                                         </div>
@@ -1622,7 +1595,7 @@ export default function AgentBookingsPage() {
                                                   aria-pressed={done}
                                                   aria-label={isChecklistLocked ? `Checklist locked for ${act.label}` : done ? `Unmark ${act.label}` : `Mark ${act.label} as done`}
                                                   style={{ fontFamily: "inherit" }}
-                                                  className={`group grid w-full cursor-pointer grid-cols-[auto_4.75rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-solid px-3.5 py-3 text-left transition-colors disabled:cursor-default max-sm:grid-cols-[auto_minmax(0,1fr)_auto] ${row}`}
+                                                  className={`group grid w-full cursor-pointer grid-cols-[auto_4.75rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-solid px-3.5 py-3 text-left transition-colors disabled:cursor-default max-sm:grid-cols-[auto_minmax(0,1fr)_auto] ${row}`}
                                                 >
                                                   <span className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border-2 border-solid transition-colors ${
                                                     done ? "border-emerald-500 bg-emerald-500 text-white" : t.state === "late" ? "border-orange-300 bg-white text-transparent group-hover:border-orange-500 group-hover:text-orange-500/40" : "border-slate-300 bg-white text-transparent group-hover:border-[#02665e] group-hover:text-[#02665e]/40"
@@ -1640,7 +1613,7 @@ export default function AgentBookingsPage() {
                                                     </span>
                                                   </span>
                                                   {tag ? (
-                                                    <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold ${tag.cls}`}>
+                                                    <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${tag.cls}`}>
                                                       {t.state === "live" ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" aria-hidden /> : null}
                                                       {tag.text}
                                                     </span>
@@ -1668,8 +1641,8 @@ export default function AgentBookingsPage() {
               activeItems.length === 0 ? (
                 <StageEmptyState
                   Icon={CheckCircle2}
-                  title="No completed trips yet"
-                  description="Completed bookings will appear here with guest ratings, issues and payout status."
+                  title={STAGE_EMPTY.completed.title}
+                  description={`${STAGE_EMPTY.completed.text} Each one shows its guest rating, any issues and the payout.`}
                 />
               ) : (() => {
                 const q = completedQuery.trim().toLowerCase();
@@ -1695,16 +1668,16 @@ export default function AgentBookingsPage() {
                     <style>{"#completed-stage, #completed-stage * { box-sizing: border-box; }"}</style>
 
                     {/* At a glance */}
-                    <section aria-label="Completed trips at a glance" className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-solid border-slate-200 bg-slate-200 lg:grid-cols-4">
+                    <section aria-label="Completed trips at a glance" className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-200 lg:grid-cols-4">
                       <div className="min-w-0 bg-white px-4 py-3.5">
-                        <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Trips delivered</p>
-                        <p className="m-0 mt-1.5 text-[26px] font-black leading-none tabular-nums text-slate-900">{completedStats.total}</p>
+                        <p className="m-0 truncate text-[12px] font-medium text-slate-400">Trips delivered</p>
+                        <p className="m-0 mt-1.5 text-[22px] font-bold leading-none tabular-nums text-slate-900">{completedStats.total}</p>
                         <p className="m-0 mt-1 truncate text-[11.5px] text-slate-400">all time</p>
                       </div>
                       <div className="min-w-0 bg-white px-4 py-3.5">
-                        <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Guest rating</p>
+                        <p className="m-0 truncate text-[12px] font-medium text-slate-400">Guest rating</p>
                         <div className="mt-1.5 flex items-center gap-2">
-                          <p className={`m-0 text-[26px] font-black leading-none tabular-nums ${completedStats.guestAvg != null ? "text-slate-900" : "text-slate-300"}`}>
+                          <p className={`m-0 text-[22px] font-bold leading-none tabular-nums ${completedStats.guestAvg != null ? "text-slate-900" : "text-slate-300"}`}>
                             {completedStats.guestAvg != null ? completedStats.guestAvg.toFixed(1) : "0.0"}
                           </p>
                           {completedStats.guestAvg != null ? <MiniStars value={completedStats.guestAvg} size="h-4 w-4" /> : null}
@@ -1719,13 +1692,13 @@ export default function AgentBookingsPage() {
                         style={{ fontFamily: "inherit" }}
                         className="min-w-0 cursor-pointer border-0 bg-white px-4 py-3.5 text-left transition-colors hover:bg-amber-50/50"
                       >
-                        <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Awaiting your rating</p>
-                        <p className={`m-0 mt-1.5 text-[26px] font-black leading-none tabular-nums ${completedStats.toRate ? "text-amber-600" : "text-slate-300"}`}>{completedStats.toRate}</p>
+                        <p className="m-0 truncate text-[12px] font-medium text-slate-400">Awaiting your rating</p>
+                        <p className={`m-0 mt-1.5 text-[22px] font-bold leading-none tabular-nums ${completedStats.toRate ? "text-amber-600" : "text-slate-300"}`}>{completedStats.toRate}</p>
                         <p className="m-0 mt-1 truncate text-[11.5px] text-slate-400">{completedStats.toRate ? "rate to build your record" : "all trips rated"}</p>
                       </button>
                       <div className="min-w-0 bg-white px-4 py-3.5">
-                        <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Payouts settled</p>
-                        <p className="m-0 mt-1.5 text-[26px] font-black leading-none tabular-nums text-slate-900">
+                        <p className="m-0 truncate text-[12px] font-medium text-slate-400">Payouts settled</p>
+                        <p className="m-0 mt-1.5 text-[22px] font-bold leading-none tabular-nums text-slate-900">
                           {completedStats.paid}<span className="text-[15px] font-bold text-slate-300">/{completedStats.total}</span>
                         </p>
                         <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
@@ -1748,17 +1721,17 @@ export default function AgentBookingsPage() {
                               aria-selected={on}
                               onClick={() => { setCompletedFilter(f.key); setCurrentPage(1); }}
                               style={{ fontFamily: "inherit" }}
-                              className={`inline-flex h-9 flex-shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-full border-0 px-3.5 text-[13px] font-semibold transition-colors ${
+                              className={`inline-flex h-9 flex-shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border-0 px-3.5 text-[13px] font-semibold transition-colors ${
                                 on ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                               }`}
                             >
                               {f.label}
-                              <span className={`inline-flex min-w-[20px] justify-center rounded-full px-1.5 text-[11.5px] font-bold tabular-nums ${on ? "bg-white/15 text-white" : f.key === "TO_RATE" ? "bg-amber-100 text-amber-800" : f.key === "ISSUES" ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-500"}`}>{f.count}</span>
+                              <span className={`inline-flex min-w-[20px] justify-center rounded px-1.5 text-[11.5px] font-semibold tabular-nums ${on ? "bg-white/15 text-white" : f.key === "TO_RATE" ? "bg-amber-100 text-amber-800" : f.key === "ISSUES" ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-500"}`}>{f.count}</span>
                             </button>
                           );
                         })}
                       </div>
-                      <label className="flex h-10 w-full items-center gap-2 rounded-full border border-solid border-slate-300 bg-white px-4 text-slate-400 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] hover:border-slate-400 focus-within:border-[#02665e] focus-within:text-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)] lg:w-80">
+                      <label className="flex h-10 w-full items-center gap-2 rounded-md border border-solid border-slate-300 bg-white px-4 text-slate-400 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] hover:border-slate-400 focus-within:border-[#02665e] focus-within:text-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)] lg:w-80">
                         <Search className="h-4 w-4 flex-shrink-0" aria-hidden />
                         <span className="sr-only">Search completed trips</span>
                         <input
@@ -1773,7 +1746,7 @@ export default function AgentBookingsPage() {
                     </div>
 
                     {rows.length === 0 ? (
-                      <div className="flex flex-col items-center rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+                      <div className="flex flex-col items-center rounded-lg border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
                         <CheckCircle2 className="h-8 w-8 text-slate-300" aria-hidden />
                         <p className="m-0 mt-3 text-[15px] font-bold text-slate-900">Nothing matches</p>
                         <p className="m-0 mt-1 text-[13px] text-slate-500">
@@ -1783,13 +1756,13 @@ export default function AgentBookingsPage() {
                           type="button"
                           onClick={() => { setCompletedFilter("ALL"); setCompletedQuery(""); }}
                           style={{ fontFamily: "inherit" }}
-                          className="mt-4 inline-flex h-9 cursor-pointer items-center rounded-full border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:border-[#02665e] hover:text-[#02665e]"
+                          className="mt-4 inline-flex h-9 cursor-pointer items-center rounded-md border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:border-[#02665e] hover:text-[#02665e]"
                         >
                           Show all completed trips
                         </button>
                       </div>
                     ) : (
-                      <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+                      <div className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
                         <TableScroller label="completed trips table">
                           <table className="w-full min-w-[1080px] border-collapse text-left">
                             <thead className="bg-slate-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
@@ -1807,7 +1780,7 @@ export default function AgentBookingsPage() {
                             <tbody className="bg-white [&>tr>td]:shadow-[inset_0_-1px_0_0_#f1f5f9] [&>tr:last-child>td]:shadow-none">
                               {pageRows.map((booking) => {
                                 const bid = String(booking.id);
-                                const detailsHref = `/account/agent/bookings/completed/${encodeURIComponent(bid)}?source=tour`;
+                                const detailsHref = `/account/agent/bookings/completed/${encodeURIComponent(booking.ref || bid)}?source=tour`;
                                 const { tour, destination } = tourParts(booking);
                                 const completedAt = booking.completedAt || booking.updatedAt || booking.createdAt || null;
                                 const tripDays = booking.tripDate && booking.endDate
@@ -1822,7 +1795,7 @@ export default function AgentBookingsPage() {
                                   <TableRow key={`tb-${bid}`} hover={false} className="group transition hover:bg-slate-50/70">
                                     <td className="px-4 py-3">
                                       <a href={detailsHref} className="flex min-w-0 items-center gap-3 no-underline">
-                                        <span className="inline-flex h-10 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[13px] font-black tracking-[0.08em] text-slate-500 transition-colors group-hover:bg-[#02665e]/10 group-hover:text-[#02665e]">
+                                        <span className="inline-flex h-10 w-12 flex-shrink-0 items-center justify-center rounded-md bg-slate-100 text-[13px] font-bold tracking-[0.08em] text-slate-500 transition-colors group-hover:bg-[#02665e]/10 group-hover:text-[#02665e]">
                                           {placeCodeOf(booking)}
                                         </span>
                                         <span className="min-w-0">
@@ -1837,7 +1810,7 @@ export default function AgentBookingsPage() {
                                     <td className="px-4 py-3">
                                       <span className="block whitespace-nowrap text-[13px] font-semibold text-slate-800">{completedAt ? new Date(completedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "-"}</span>
                                       {String(booking.status || "").toUpperCase() === "OPERATOR_COMPLETED" ? (
-                                        <span className="mt-0.5 inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800" title="Completes when the guest confirms, or 48 hours after the trip ends with no open case">
+                                        <span className="mt-0.5 inline-flex w-fit items-center gap-1 whitespace-nowrap rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800" title="Completes when the guest confirms, or 48 hours after the trip ends with no open case">
                                           <Clock className="h-3 w-3" aria-hidden />
                                           Awaiting guest confirmation
                                         </span>
@@ -1865,14 +1838,14 @@ export default function AgentBookingsPage() {
                                     </td>
                                     <td className="px-4 py-3">
                                       {typeof booking.selfRating === "number" ? (
-                                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[12px] font-bold text-amber-800">
+                                        <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-[12px] font-semibold text-amber-800">
                                           <Star className="h-3.5 w-3.5 text-amber-500" fill="currentColor" aria-hidden />
                                           {booking.selfRating.toFixed(1)}
                                         </span>
                                       ) : (
                                         <a
                                           href={detailsHref}
-                                          className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-full border border-solid border-amber-300 bg-white px-3 text-[12px] font-bold text-amber-700 no-underline transition-colors hover:bg-amber-50"
+                                          className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-solid border-amber-300 bg-white px-3 text-[12px] font-bold text-amber-700 no-underline transition-colors hover:bg-amber-50"
                                         >
                                           <Star className="h-3.5 w-3.5" aria-hidden />
                                           Rate now
@@ -1882,7 +1855,7 @@ export default function AgentBookingsPage() {
                                     <td className="max-w-[14rem] px-4 py-3">
                                       {issues && issues.total > 0 ? (
                                         <span className="flex min-w-0 flex-col gap-0.5" title={issues.latestTitle || undefined}>
-                                          <span className={`inline-flex w-fit items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${issues.highestSeverity === "HIGH" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"}`}>
+                                          <span className={`inline-flex w-fit items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 text-[11.5px] font-semibold ${issues.highestSeverity === "HIGH" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"}`}>
                                             <span className={`h-1.5 w-1.5 rounded-full ${issues.highestSeverity === "HIGH" ? "bg-rose-500" : "bg-amber-500"}`} aria-hidden />
                                             {issues.total} {issues.total === 1 ? "issue" : "issues"}
                                             {issues.open > 0 ? ` · ${issues.open} open` : ""}
@@ -1898,7 +1871,7 @@ export default function AgentBookingsPage() {
                                     </td>
                                     <td className="px-4 py-3">
                                       <span className="flex flex-col gap-0.5">
-                                        <span className={`inline-flex w-fit items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold capitalize ${payout.cls}`}>
+                                        <span className={`inline-flex w-fit items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 text-[11.5px] font-semibold capitalize ${payout.cls}`}>
                                           <span className={`h-1.5 w-1.5 rounded-full ${payout.dot}`} aria-hidden />
                                           {payout.label}
                                         </span>
@@ -1916,7 +1889,7 @@ export default function AgentBookingsPage() {
                                     <td className="px-4 py-3 text-right">
                                       <a
                                         href={detailsHref}
-                                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-500 no-underline transition-colors hover:border-[#02665e] hover:text-[#02665e]"
+                                        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 no-underline transition-colors hover:border-[#02665e] hover:text-[#02665e]"
                                         aria-label={`Open completed trip for ${booking.requester?.fullName || "guest"}`}
                                         title="Open record"
                                       >
@@ -1939,7 +1912,7 @@ export default function AgentBookingsPage() {
                                 type="button"
                                 onClick={() => setCurrentPage(Math.max(1, page - 1))}
                                 disabled={page <= 1}
-                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
                                 aria-label="Previous page"
                               >
                                 <ChevronLeft className="h-4 w-4" aria-hidden />
@@ -1949,7 +1922,7 @@ export default function AgentBookingsPage() {
                                 type="button"
                                 onClick={() => setCurrentPage(Math.min(pages, page + 1))}
                                 disabled={page >= pages}
-                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
                                 aria-label="Next page"
                               >
                                 <ChevronRight className="h-4 w-4" aria-hidden />
@@ -1969,7 +1942,7 @@ export default function AgentBookingsPage() {
                 {/* At a glance: everything here is paid and waiting for the pickup handover. */}
                 <section
                   aria-label="Confirmed bookings at a glance"
-                  className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-solid border-slate-200 bg-slate-200 sm:grid-cols-4"
+                  className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-200 sm:grid-cols-4"
                 >
                   {([
                     {
@@ -1998,8 +1971,8 @@ export default function AgentBookingsPage() {
                     },
                   ] as const).map((stat) => (
                     <div key={stat.label} className="min-w-0 bg-white px-4 py-3.5">
-                      <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{stat.label}</p>
-                      <p className={`m-0 mt-1.5 text-[26px] font-black leading-none tabular-nums ${stat.tone}`}>{stat.value}</p>
+                      <p className="m-0 truncate text-[12px] font-medium text-slate-400">{stat.label}</p>
+                      <p className={`m-0 mt-1.5 text-[22px] font-bold leading-none tabular-nums ${stat.tone}`}>{stat.value}</p>
                       <p className="m-0 mt-1 truncate text-[11.5px] text-slate-400">{stat.helper}</p>
                     </div>
                   ))}
@@ -2008,13 +1981,13 @@ export default function AgentBookingsPage() {
                 {activeItems.length === 0 ? (
                   <StageEmptyState
                     Icon={UserCheck}
-                    title="No confirmed bookings yet"
-                    description="Confirmed trips appear here once payment is settled."
+                    title={STAGE_EMPTY.confirmed.title}
+                    description={STAGE_EMPTY.confirmed.text}
                   />
                 ) : (
                   <>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <label className="flex h-10 w-full items-center gap-2 rounded-full border border-solid border-slate-300 bg-white px-4 text-slate-400 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] hover:border-slate-400 focus-within:border-[#02665e] focus-within:text-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)] sm:w-80">
+                      <label className="flex h-10 w-full items-center gap-2 rounded-md border border-solid border-slate-300 bg-white px-4 text-slate-400 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] hover:border-slate-400 focus-within:border-[#02665e] focus-within:text-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)] sm:w-80">
                         <Search className="h-4 w-4 flex-shrink-0" aria-hidden />
                         <span className="sr-only">Search confirmed bookings</span>
                         <input
@@ -2038,7 +2011,7 @@ export default function AgentBookingsPage() {
                       const { tour, destination } = tourParts(booking);
                       const d = daysToTrip(booking);
                       const { checkpoints, completedSteps, nextPending } = buildCheckpoints(booking);
-                      const detailHref = `/account/agent/tour-bookings/${encodeURIComponent(bid)}`;
+                      const detailHref = `/account/agent/tour-bookings/${encodeURIComponent(booking.ref || bid)}`;
                       const due = d != null && d <= 0;
                       const countdown = d == null
                         ? { big: "TBC", small: "date to confirm" }
@@ -2048,11 +2021,11 @@ export default function AgentBookingsPage() {
                             ? { big: "Today", small: "pickup day" }
                             : { big: String(d), small: d === 1 ? "day to pickup" : "days to pickup" };
                       return (
-                        <section aria-label="Needs you next" className="relative overflow-hidden rounded-3xl text-white shadow-[0_24px_48px_-28px_rgba(2,102,94,0.9)]" style={{ backgroundColor: "#02665e" }}>
+                        <section aria-label="Needs you next" className="relative overflow-hidden rounded-lg text-white shadow-[0_24px_48px_-28px_rgba(2,102,94,0.9)]" style={{ backgroundColor: "#02665e" }}>
                           <div className="grid md:grid-cols-[minmax(0,1fr)_14rem] lg:grid-cols-[minmax(0,1fr)_16rem]">
                             <div className="min-w-0 p-5 sm:p-6">
                               <div className="flex items-center justify-between gap-3">
-                                <p className="m-0 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white/70">
+                                <p className="m-0 inline-flex items-center gap-2 text-[12px] font-medium text-white/70">
                                   {due ? (
                                     <span className="relative flex h-2 w-2" aria-hidden>
                                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-300/80" />
@@ -2064,7 +2037,7 @@ export default function AgentBookingsPage() {
                                 {booking.bookingCode ? <span className="font-mono text-[11px] text-white/50">{booking.bookingCode}</span> : null}
                               </div>
                               <div className="mt-4 flex items-end gap-3 sm:gap-4">
-                                <span className="text-[40px] font-black leading-none tracking-[0.08em] text-white sm:text-[52px]">{placeCodeOf(booking)}</span>
+                                <span className="text-[40px] font-bold leading-none tracking-[0.08em] text-white sm:text-[52px]">{placeCodeOf(booking)}</span>
                                 <div className="min-w-0 pb-1">
                                   <h2 className="m-0 truncate text-[18px] font-bold leading-tight text-white">{booking.requester?.fullName || "Guest"}</h2>
                                   <p className="m-0 mt-0.5 truncate text-[13px] text-white/70">
@@ -2080,7 +2053,7 @@ export default function AgentBookingsPage() {
                                   { label: "Value", value: typeof booking.amountPaid === "number" ? `${booking.currency || "TZS"} ${booking.amountPaid.toLocaleString("en-US")}` : "-" },
                                 ].map((fact) => (
                                   <div key={fact.label} className="min-w-0">
-                                    <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/55">{fact.label}</dt>
+                                    <dt className="text-[12px] font-medium text-white/55">{fact.label}</dt>
                                     <dd className="m-0 mt-1 truncate text-[15px] font-bold tabular-nums text-white" title={fact.value}>{fact.value}</dd>
                                   </div>
                                 ))}
@@ -2096,12 +2069,12 @@ export default function AgentBookingsPage() {
                               <span aria-hidden className="absolute -top-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-white md:block" />
                               <span aria-hidden className="absolute -bottom-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-white md:block" />
                               <div className="flex items-baseline gap-2 md:block">
-                                <div className={`text-[36px] font-black leading-none tabular-nums md:text-[50px] ${due ? "text-amber-300" : "text-white"}`}>{countdown.big}</div>
+                                <div className={`text-[36px] font-bold leading-none tabular-nums md:text-[50px] ${due ? "text-amber-300" : "text-white"}`}>{countdown.big}</div>
                                 <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70 md:mt-1.5 md:text-[12px]">{countdown.small}</div>
                               </div>
                               <Link
                                 href={`${detailHref}#pickup-validation`}
-                                className="inline-flex h-10 flex-shrink-0 items-center justify-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-bold text-[#02665e] no-underline transition-colors hover:bg-white/90 md:w-full"
+                                className="inline-flex h-10 flex-shrink-0 items-center justify-center gap-1.5 rounded-md bg-white px-4 text-[13px] font-semibold text-[#02665e] no-underline transition-colors hover:bg-white/90 md:w-full"
                               >
                                 <UserCheck className="h-4 w-4" aria-hidden />
                                 {due ? "Validate pickup" : "Prepare pickup"}
@@ -2113,15 +2086,15 @@ export default function AgentBookingsPage() {
                     })() : null}
 
                     {confirmedOrdered.length === 0 ? (
-                      <div className="flex flex-col items-center rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-                        <span className="text-[40px] font-black leading-none tracking-[0.08em] text-slate-200">TRP</span>
+                      <div className="flex flex-col items-center rounded-lg border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+                        <span className="text-[40px] font-bold leading-none tracking-[0.08em] text-slate-200">TRP</span>
                         <p className="m-0 mt-3 text-[15px] font-bold text-slate-900">No matching bookings</p>
                         <p className="m-0 mt-1 text-[13px] text-slate-500">Nothing matches &quot;{confirmedQuery.trim()}&quot;. Try a guest name or tour code.</p>
                         <button
                           type="button"
                           onClick={() => setConfirmedQuery("")}
                           style={{ fontFamily: "inherit" }}
-                          className="mt-4 inline-flex h-9 cursor-pointer items-center rounded-full border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:border-[#02665e] hover:text-[#02665e]"
+                          className="mt-4 inline-flex h-9 cursor-pointer items-center rounded-md border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:border-[#02665e] hover:text-[#02665e]"
                         >
                           Clear search
                         </button>
@@ -2138,20 +2111,20 @@ export default function AgentBookingsPage() {
                           const d = daysToTrip(booking);
                           const chip = pickupChip(d);
                           const { checkpoints, completedSteps, nextPending, paidAt } = buildCheckpoints(booking);
-                          const detailHref = `/account/agent/tour-bookings/${encodeURIComponent(bid)}`;
+                          const detailHref = `/account/agent/tour-bookings/${encodeURIComponent(booking.ref || bid)}`;
                           const ratingLabel = typeof booking.rating === "number" ? `${booking.rating}/5` : "Pending";
                           const payout = String(booking.payoutStatus || "").replace(/_/g, " ").toLowerCase();
                           return (
                             <article
                               key={bookingKey}
-                              className={`flex min-w-0 flex-col rounded-3xl border border-solid bg-white transition-shadow hover:shadow-[0_16px_32px_-24px_rgba(15,23,42,0.45)] ${
+                              className={`flex min-w-0 flex-col rounded-lg border border-solid bg-white transition-shadow hover:shadow-[0_16px_32px_-24px_rgba(15,23,42,0.45)] ${
                                 chip.urgent ? "border-amber-300" : "border-slate-200"
                               }`}
                             >
                               <div className="flex-1 p-5">
                                 <div className="flex items-start justify-between gap-3">
-                                  <span className="text-[32px] font-black leading-none tracking-[0.08em] text-[#02665e]">{placeCodeOf(booking)}</span>
-                                  <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${chip.cls}`}>
+                                  <span className="text-[32px] font-bold leading-none tracking-[0.08em] text-[#02665e]">{placeCodeOf(booking)}</span>
+                                  <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 text-[11.5px] font-semibold ${chip.cls}`}>
                                     <span className={`h-1.5 w-1.5 rounded-full ${chip.dot}`} aria-hidden />
                                     {chip.label}
                                   </span>
@@ -2167,7 +2140,7 @@ export default function AgentBookingsPage() {
                                     { label: "Meet at", value: booking.airportDeparture || "Agreed" },
                                   ].map((fact) => (
                                     <div key={fact.label} className="min-w-0">
-                                      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">{fact.label}</dt>
+                                      <dt className="text-[12px] font-medium text-slate-400">{fact.label}</dt>
                                       <dd className="m-0 mt-0.5 truncate text-[14px] font-bold tabular-nums text-slate-900" title={fact.value}>{fact.value}</dd>
                                     </div>
                                   ))}
@@ -2208,7 +2181,7 @@ export default function AgentBookingsPage() {
                                   </button>
                                   <Link
                                     href={chip.urgent ? `${detailHref}#pickup-validation` : detailHref}
-                                    className={`inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-bold no-underline transition-colors ${
+                                    className={`inline-flex h-9 items-center gap-1.5 rounded-md px-4 text-[13px] font-semibold no-underline transition-colors ${
                                       chip.urgent
                                         ? "bg-amber-500 text-white hover:bg-amber-600"
                                         : "border-2 border-solid border-[#02665e] bg-white text-[#02665e] hover:bg-[#02665e] hover:text-white"
@@ -2262,7 +2235,7 @@ export default function AgentBookingsPage() {
                             type="button"
                             onClick={() => setCurrentPage(Math.max(1, confirmedPage - 1))}
                             disabled={confirmedPage <= 1}
-                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
                             aria-label="Previous page"
                           >
                             <ChevronLeft className="h-4 w-4" aria-hidden />
@@ -2272,7 +2245,7 @@ export default function AgentBookingsPage() {
                             type="button"
                             onClick={() => setCurrentPage(Math.min(confirmedPages, confirmedPage + 1))}
                             disabled={confirmedPage >= confirmedPages}
-                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
                             aria-label="Next page"
                           >
                             <ChevronRight className="h-4 w-4" aria-hidden />
@@ -2289,8 +2262,8 @@ export default function AgentBookingsPage() {
               activeItems.length === 0 ? (
                 <StageEmptyState
                   Icon={bucketIconComponent(activeTab)}
-                  title={`No ${bucketLabel(activeTab).toLowerCase()} bookings yet`}
-                  description="Bookings in this stage will appear here automatically."
+                  title={STAGE_EMPTY[activeTab].title}
+                  description={STAGE_EMPTY[activeTab].text}
                 />
               ) : (
               <>
@@ -2298,15 +2271,15 @@ export default function AgentBookingsPage() {
                 <table className="w-full min-w-[980px] border-collapse text-left">
                   <thead className="bg-neutral-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
                     <tr>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Booking By" column="bookingBy" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Tour Code" column="bookingCode" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Airport Departure" column="airportDeparture" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Booked by" column="bookingBy" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Tour code" column="bookingCode" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Airport departure" column="airportDeparture" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
                       <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Nationality" column="nationality" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Type of Package" column="typeOfPackage" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Package type" column="typeOfPackage" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
                       <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Status" column="status" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Date of Trip" column="dateOfTrip" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Amount Paid" column="amountPaid" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Action</th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Trip date" column="dateOfTrip" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Amount paid" column="amountPaid" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-right text-[12px] font-medium text-neutral-400">Action</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white [&>tr>td]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>tr:last-child>td]:shadow-none">
@@ -2351,8 +2324,8 @@ export default function AgentBookingsPage() {
                             <td className="px-4 py-3 text-sm font-semibold text-slate-700">{amountPaid}</td>
                             <td className="px-4 py-3 text-right">
                               <Link
-                                href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                                href={`/account/agent/tour-bookings/${encodeURIComponent(booking.ref || String(booking.id))}`}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
                                 aria-label={`View tour booking ${String(booking.id)}`}
                                 title="View details"
                               >

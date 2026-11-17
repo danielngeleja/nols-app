@@ -164,10 +164,25 @@ export async function renderMasterStatementPdf(block: any, generatedAt = new Dat
   return { pdf, number: meta.number, title: meta.title };
 }
 
+import { proDetailRows, proEmail } from "./emailBase.js";
+import { esc, gap, mutedPara, para, signOff } from "./proEmailParts.js";
+
 export async function emailMasterStatement(block: any, recipient: string) {
   const rendered = await renderMasterStatementPdf(block);
   const propertyName = block.property.title;
-  const html = `<div style="font-family:Arial,sans-serif;color:#1f2937"><p>Dear ${block.masterFolio.contactName || block.masterFolio.billToName},</p><p>Please find attached the ${rendered.title.toLowerCase()} for <strong>${block.name}</strong>.</p><p>Regards,<br><strong>${propertyName}</strong></p></div>`;
+  const docName = String(rendered.title || "statement").toLowerCase();
+  const html = proEmail(`Your ${esc(docName)} ${esc(rendered.number)}`, `
+    ${para(`Dear ${esc(block.masterFolio.contactName || block.masterFolio.billToName)},`)}
+    ${para(`<strong>${esc(propertyName)}</strong> has sent the ${esc(docName)} for <strong>${esc(block.name)}</strong>. The full document is attached as a PDF.`)}
+    ${proDetailRows("", [
+      ["Document", `${esc(rendered.title)} ${esc(rendered.number)}`],
+      ["Group", esc(block.name)],
+      ["From", esc(propertyName)],
+    ])}
+    ${gap()}
+    ${mutedPara("Reply to this email to reach the property directly about this account.")}
+    ${signOff(propertyName || "The property team", "Regards")}
+  `);
   const delivery = await sendMail(recipient, `${rendered.title.replace(/\b\w/g, (value) => value.toUpperCase())} ${rendered.number} from ${propertyName}`, html, [{ filename: `${rendered.number}.pdf`, content: rendered.pdf }], { replyTo: block.owner?.email || undefined, sensitiveContent: true });
   return { ...rendered, delivery };
 }

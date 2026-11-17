@@ -13,6 +13,8 @@ import { sendMail } from "../lib/mailer.js";
 import { sendSms } from "../lib/sms.js";
 import { generateOwnerDisbursementPdf } from "../lib/pdfDocuments.js";
 import { getOwnerDisbursementEmail } from "../lib/bookingEmailTemplates.js";
+import { proButton, proDivider, proEmail, proNoteCard } from "../lib/emailBase.js";
+import { AMBER, gap, mailLink, mutedPara, para, signOff } from "../lib/proEmailParts.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import { BASE_CURRENCY, getFxRates } from "../lib/fx.js";
 import { moneyStageOf } from "../lib/invoiceMoneyStage.js";
@@ -806,7 +808,14 @@ router.post("/invoices/:id/remind-payout", async (req, res) => {
         delivery = await sendMail(
           destination,
           "Action needed: complete your NoLSAF payout details",
-          `<p>Your owner payout claim is waiting for payout details.</p><p>${instruction}</p>${profileUrl ? `<p><a href="${profileUrl}">Open Owner Profile</a></p>` : ""}<p>Once saved, NoLSAF can continue processing your claim.</p>`,
+          proEmail("Add your payout details", `
+            ${para("A payout is waiting for you, but we cannot send it until your payout details are complete.")}
+            ${proNoteCard(AMBER, "What to do", "Sign in to NoLSAF, open your owner profile, and add your payout method (bank or mobile money) with the full account details.", "#fffaf3")}
+            ${profileUrl ? `${gap(22)}${proButton(profileUrl, "Open owner profile")}` : ""}
+            ${proDivider()}
+            ${mutedPara(`Once your details are saved, NoLSAF continues processing your payout. Questions? Write to ${mailLink("support@nolsaf.com")}.`)}
+            ${signOff()}
+          `),
         );
       } else {
         delivery = await sendSms(destination, `NoLSAF: Your owner payout claim is waiting. ${instruction}${profileUrl ? ` ${profileUrl}` : ""}`);

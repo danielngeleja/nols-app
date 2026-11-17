@@ -76,6 +76,13 @@ export const OWNER_SECURITY: SecurityScope = {
   overviewBlurb: "Your account controls your properties, bookings and payouts. Keep it locked to you.",
 };
 
+export const AGENT_SECURITY: SecurityScope = {
+  base: "/account/agent/security",
+  profileHref: "/account/agent/profile",
+  protects: "your account, your bookings and your payouts",
+  overviewBlurb: "Your account controls your tours, traveller bookings and payouts. Keep it locked to you.",
+};
+
 export const CUSTOMER_SECURITY: SecurityScope = {
   base: "/account/security",
   profileHref: "/account/profile",

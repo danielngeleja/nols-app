@@ -17,6 +17,9 @@ import {
   withContractWorkflow,
   type AgentContractWorkflow,
 } from "../lib/agentContractWorkflow.js";
+import { effectiveOperatorContractVersion } from "../lib/operatorContract.js";
+import { notifyUser } from "../lib/notifications.js";
+import { ONBOARDING_SETUP_HOURS, issuePasswordSetupToken, passwordSetupLink } from "../lib/passwordSetupLink.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler, requireAdmin as RequestHandler);
@@ -512,6 +515,7 @@ router.post("/:id/contract/sign", async (req: any, res) => {
         agent: {
           select: {
             id: true,
+            userId: true,
             operatorProfile: true,
           },
         },
@@ -543,6 +547,8 @@ router.post("/:id/contract/sign", async (req: any, res) => {
     const nowIso = new Date().toISOString();
     const nextWorkflow: AgentContractWorkflow = {
       ...existing,
+      // NoLSAF signs the current text; from here the version is fixed for both parties.
+      version: effectiveOperatorContractVersion(existing),
       status: "PENDING_AGENT_SIGNATURE",
       nolsafSignedAt: nowIso,
       sentAt: nowIso,
@@ -559,6 +565,11 @@ router.post("/:id/contract/sign", async (req: any, res) => {
       applicationId: application.id,
       workflow: nextWorkflow,
     });
+
+    // The operator's turn: their inbox links straight to the agreement to sign.
+    if ((application.agent as any).userId) {
+      await notifyUser((application.agent as any).userId, "agent_contract_ready", { version: nextWorkflow.version }).catch(() => undefined);
+    }
 
     return res.json({ ok: true, workflow: nextWorkflow });
   } catch (error: any) {
@@ -713,6 +724,39 @@ router.patch("/:id", async (req, res) => {
       updateData.adminNotes = adminNotes;
     }
 
+    // A hire attaches the applicant to a user account and emails that account a
+    // password link. The applicant typed their email and phone, and neither was
+    // verified, so (a) only the email may pick an existing account, never the
+    // phone, and (b) an account that already works as an owner, driver or admin
+    // is never turned into an operator here. Refuse before anything is saved.
+    if (statusChanged && newStatus === "HIRED" && isPartnershipApplication(existingApplication) && !(existingApplication as any).agent?.userId) {
+      const hireEmail = String(existingApplication.email || "").trim().toLowerCase();
+      const hirePhone = String(existingApplication.phone || "").trim();
+      if (!hireEmail) {
+        return res.status(409).json({
+          error: "HIRE_NEEDS_EMAIL",
+          message: "This applicant has no email address. The operator account and its password link go to an email, so add one before hiring.",
+        });
+      }
+      const byEmail = await prisma.user.findFirst({ where: { email: hireEmail }, select: { id: true, role: true } });
+      const blockedRole = byEmail && !["CUSTOMER", "USER", "AGENT"].includes(String(byEmail.role || "").toUpperCase());
+      if (blockedRole) {
+        return res.status(409).json({
+          error: "HIRE_EMAIL_BELONGS_TO_OTHER_ROLE",
+          message: `${hireEmail} already belongs to a NoLSAF ${String(byEmail!.role).toLowerCase()} account. Operators need their own account: ask the applicant for a different email.`,
+        });
+      }
+      if (hirePhone && !byEmail) {
+        const byPhone = await prisma.user.findFirst({ where: { phone: hirePhone }, select: { id: true } });
+        if (byPhone) {
+          return res.status(409).json({
+            error: "HIRE_PHONE_BELONGS_TO_OTHER_ACCOUNT",
+            message: "The applicant's phone number is already used by another NoLSAF account with a different email. Confirm the applicant's details before hiring.",
+          });
+        }
+      }
+    }
+
     if (Object.keys(updateData).length === 0) {
       const currentApplication = await prisma.jobApplication.findUnique({
         where: { id: parsedId },
@@ -807,9 +851,10 @@ router.patch("/:id", async (req, res) => {
             const email = String(existingApplication.email || "").trim().toLowerCase();
             const phone = String(existingApplication.phone || "").trim();
 
+            // Email only: the phone was typed by the applicant and never verified,
+            // so it must never select someone else's account (checked above too).
             const userOr: any[] = [];
             if (email) userOr.push({ email });
-            if (phone) userOr.push({ phone });
 
             const txResult = await prisma.$transaction(
               async (tx) => {
@@ -819,10 +864,11 @@ router.patch("/:id", async (req, res) => {
                 });
 
                 if (!user) {
+                  const phoneTaken = phone ? await tx.user.findFirst({ where: { phone }, select: { id: true } }) : null;
                   user = await tx.user.create({
                     data: {
                       email: email || undefined,
-                      phone: phone || undefined,
+                      phone: phone && !phoneTaken ? phone : undefined,
                       name: existingApplication.fullName,
                       fullName: existingApplication.fullName,
                       role: "AGENT",
@@ -833,7 +879,11 @@ router.patch("/:id", async (req, res) => {
                   });
                 } else {
                   const userUpdate: any = {};
-                  if ((user as any).role !== "AGENT") userUpdate.role = "AGENT";
+                  const currentRole = String((user as any).role || "").toUpperCase();
+                  if (!["CUSTOMER", "USER", "AGENT"].includes(currentRole)) {
+                    throw new Error(`Refusing to turn a ${currentRole} account into an operator`);
+                  }
+                  if (currentRole !== "AGENT") userUpdate.role = "AGENT";
                   if (!(user as any).fullName && existingApplication.fullName) userUpdate.fullName = existingApplication.fullName;
                   if (!(user as any).name && existingApplication.fullName) userUpdate.name = existingApplication.fullName;
                   if (!(user as any).nationality && appNationality) userUpdate.nationality = appNationality;
@@ -1108,37 +1158,16 @@ router.patch("/:id", async (req, res) => {
               if (a?.userId) userId = a.userId;
             }
 
-            if (!userId && (email || phone)) {
-              const u = await prisma.user.findFirst({
-                where: {
-                  OR: [
-                    ...(email ? [{ email }] : []),
-                    ...(phone ? [{ phone } as any] : []),
-                  ],
-                } as any,
-                select: { id: true },
-              });
+            if (!userId && email) {
+              const u = await prisma.user.findFirst({ where: { email }, select: { id: true } });
               if (u?.id) userId = u.id;
             }
 
             if (userId) {
-              const raw = crypto.randomBytes(24).toString("hex");
-              const hashed = crypto.createHash("sha256").update(raw).digest("hex");
-              const expiresAt = Date.now() + 1000 * 60 * 60 * 72; // 72 hours
-
-              await prisma.user.update({
-                where: { id: userId },
-                data: {
-                  resetPasswordToken: hashed as any,
-                  resetPasswordExpires: new Date(expiresAt) as any,
-                } as any,
-                select: { id: true },
-              });
-
-              const next = encodeURIComponent("/account/agent");
-              hiredSetupExpiresHours = 72;
-              const usernameParam = hiredUsername ? `&username=${encodeURIComponent(hiredUsername)}` : '';
-              hiredSetupLink = `${origin}/account/reset-password?token=${raw}&id=${userId}&next=${next}&reason=onboarding${usernameParam}`;
+              const { raw } = await issuePasswordSetupToken(userId, ONBOARDING_SETUP_HOURS);
+              hiredSetupExpiresHours = ONBOARDING_SETUP_HOURS;
+              // Token only: no row id and no email in the address.
+              hiredSetupLink = passwordSetupLink(origin, raw, { onboarding: true, next: "/account/agent" });
             }
           } catch (tokenErr: any) {
             console.error("[CAREERS_HIRED] Failed to generate setup token:", tokenErr?.message);

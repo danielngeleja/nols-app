@@ -7,6 +7,7 @@ export type NotificationDto = {
   createdAt: Date;
   unread: boolean;
   meta?: any;
+  type?: string | null;
 };
 
 /**
@@ -56,8 +57,9 @@ export async function fetchNotifications(opts: { tab?: 'unread' | 'viewed', page
       title: i.title, 
       body: i.body, 
       createdAt: i.createdAt, 
-      unread: !!i.unread, 
-      meta: i.meta ?? null 
+      unread: !!i.unread,
+      meta: i.meta ?? null,
+      type: (i as any).type ?? null,
     }));
     return { items: dto, total, totalUnread };
   } catch (err: any) {

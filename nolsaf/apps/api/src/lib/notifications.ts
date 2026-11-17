@@ -16,6 +16,34 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Guest check-in code needs checking",
         body: `An owner asked NoLSAF to resend the guest check-in code for booking ${data.bookingReference || ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""} (${data.reason || "needs checking"}). Handle it under Bookings, guest code requests.`
       },
+      operator_profile_submitted: {
+        title: data.firstSubmission ? "New operator profile to review" : "Operator profile changes to review",
+        body: `${data.operatorName || "An operator"} submitted ${data.firstSubmission ? "their profile" : `${data.changeCount ? `${data.changeCount} change${data.changeCount === 1 ? "" : "s"}` : "changes"} to their profile`} for review. Nothing goes live until it is approved.${data.changeSummary ? ` Changes: ${data.changeSummary}` : ""}`
+      },
+      operator_contract_signed: {
+        title: "Operator signed the partnership agreement",
+        body: `${data.operatorName || "An operator"} signed the partnership agreement${data.contractId ? ` ${data.contractId}` : ""}${data.version ? ` (version ${data.version})` : ""}. It is now in force.`
+      },
+      tour_case_operator_escalated: {
+        title: "Operator escalated a case",
+        body: `${data.operatorName || "An operator"} escalated case ${data.caseId ? `#${data.caseId}` : ""} on booking ${data.bookingCode || ""} and asks NoLSAF to step in.${data.message ? ` They wrote: "${data.message}"` : ""}`
+      },
+      tour_case_operator_update: {
+        title: "Operator responded to a case",
+        body: `${data.operatorName || "An operator"} ${String(data.action || "").toUpperCase() === "ACKNOWLEDGE" ? "acknowledged" : String(data.action || "").toUpperCase() === "RESOLVE" ? "marked as resolved" : "declined"} case ${data.caseId ? `#${data.caseId}` : ""} on booking ${data.bookingCode || ""}.${data.message ? ` "${data.message}"` : ""}`
+      },
+      tour_traveller_document_concern: {
+        title: "Operator flagged a traveller document",
+        body: `${data.operatorName || "An operator"} raised a document concern for ${data.memberName || "a traveller"} on booking ${data.bookingCode || ""}${data.concernType ? ` (${String(data.concernType).toLowerCase().replace(/_/g, " ")})` : ""}. The traveller was told.${data.message ? ` "${data.message}"` : ""}`
+      },
+      tour_trip_started: {
+        title: "Tour started",
+        body: `${data.operatorName || "An operator"} met the traveller and validated the pickup for booking ${data.bookingCode || ""}. The trip is now in progress.`
+      },
+      tour_trip_completed_by_operator: {
+        title: "Operator finished a trip",
+        body: `${data.operatorName || "An operator"} ticked the last activity of a trip. The traveller can now confirm it, or the dispute window closes on its own.`
+      },
       careers_application_submitted: {
         title: "New Career Application",
         body: `A new application was submitted${data.jobTitle ? ` for "${data.jobTitle}"` : ""}${data.fullName ? ` by ${data.fullName}` : ""}${data.email ? ` (${data.email})` : ""}.`
@@ -298,6 +326,10 @@ export async function notifyAdmins(template: string, data: any) {
               ? "invoice"
             : template.startsWith("cancellation")
               ? "cancellation"
+            : template.startsWith("operator_")
+              ? "agent"
+            : template.startsWith("tour_")
+              ? "booking"
               : template.startsWith("group_stay") || template.startsWith("tour_booking")
                 ? "booking"
               : template.startsWith("booking")
@@ -678,41 +710,67 @@ export async function notifyUser(userId: number, template: string, data: any) {
         body: `Assignment${data.requestId ? ` #${data.requestId}` : ""} was marked COMPLETED. Check the assignment for the final response and outputs.`
       },
       agent_tour_booking_paid: {
-        title: "New Paid Tour Booking",
-        body: `Tour booking ${data.bookingCode || ""} has been paid. Guest: ${data.guestName || "Unknown"}. Amount: ${data.currency || ""} ${Number(data.amount || 0).toLocaleString("en-US")}.`
+        title: "New paid tour booking",
+        body: `Tour booking ${data.bookingCode || ""} has been paid. Guest: ${data.guestName || "not given"}. Amount: ${data.currency || ""} ${Number(data.amount || 0).toLocaleString("en-US")}.`
       },
       agent_payout_verified: {
-        title: "Payout Claim Verified",
-        body: `Your payout claim for booking ${data.bookingCode || `#${data.tourBookingId}`} has been verified by NoLSAF. ${data.reason ? `Note: ${data.reason}` : "It is now awaiting approval."}`
+        title: "Payout claim verified",
+        body: `Your payout claim for booking ${data.bookingCode || "on your trip"} has been verified by NoLSAF. ${data.reason ? `Note: ${data.reason}` : "It is now awaiting approval."}`
       },
       agent_payout_approved: {
-        title: "Payout Approved",
-        body: `Your payout for booking ${data.bookingCode || `#${data.tourBookingId}`} has been approved and is queued for disbursement.`
+        title: "Payout approved",
+        body: `Your payout for booking ${data.bookingCode || "on your trip"} has been approved and is queued for payment.`
       },
       agent_payout_disbursed: data.tranche === "ADVANCE"
         ? {
-            title: "Trip Advance Disbursed",
-            body: `Your advance${data.amount ? ` of ${[data.currency, Number(data.amount).toLocaleString("en-US")].filter(Boolean).join(" ")}` : ""} for booking ${data.bookingCode || `#${data.tourBookingId}`} has been disbursed${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}. The balance follows after the trip.`
+            title: "Trip advance paid",
+            body: `Your advance${data.amount ? ` of ${[data.currency, Number(data.amount).toLocaleString("en-US")].filter(Boolean).join(" ")}` : ""} for booking ${data.bookingCode || "on your trip"} has been paid${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}. The balance follows after the trip.`
           }
         : {
-            title: "Payout Disbursed",
-            body: `Your payout for booking ${data.bookingCode || `#${data.tourBookingId}`} has been disbursed${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}. Check your revenues page for details.`
+            title: "Payout paid",
+            body: `Your payout for booking ${data.bookingCode || "on your trip"} has been paid${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}.`
           },
       agent_advance_approved: {
-        title: "Trip Advance Approved",
-        body: `Your advance for booking ${data.bookingCode || `#${data.tourBookingId}`} has been approved and is queued for disbursement.`
+        title: "Trip advance approved",
+        body: `Your advance for booking ${data.bookingCode || "on your trip"} has been approved and is queued for payment.`
       },
       agent_advance_rejected: {
-        title: "Trip Advance Not Approved",
-        body: `Your advance request for booking ${data.bookingCode || `#${data.tourBookingId}`} was not approved. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+        title: "Trip advance not approved",
+        body: `Your advance request for booking ${data.bookingCode || "on your trip"} was not approved. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
       },
       agent_balance_claimable: {
-        title: "Trip Balance Ready to Claim",
-        body: `Booking ${data.bookingCode || `#${data.tourBookingId}`} is now completed. Claim your balance from the revenues page.`
+        title: "Trip balance ready to claim",
+        body: `Booking ${data.bookingCode || "on your trip"} is completed. You can now claim your balance.`
       },
       agent_payout_rejected: {
-        title: "Payout Claim Rejected",
-        body: `Your payout claim for booking ${data.bookingCode || `#${data.tourBookingId}`} was rejected. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+        title: "Payout claim rejected",
+        body: `Your payout claim for booking ${data.bookingCode || "on your trip"} was rejected. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      // Operator account milestones. Each one links to where the operator acts
+      // (see agentNotificationAction.ts).
+      agent_contract_ready: {
+        title: "Your partnership agreement is ready to sign",
+        body: `NoLSAF has signed your Tour Operator Partnership Agreement${data.version ? ` (version ${data.version})` : ""}. Review it and add your signature to finish setting up your account.`
+      },
+      agent_profile_approved: {
+        title: "Your operator profile is approved",
+        body: `${data.companyName ? `${data.companyName} is` : "Your company profile is"} now live on NoLSAF. Travellers can see your company details and tours.`
+      },
+      agent_profile_changes_requested: {
+        title: "Your operator profile needs changes",
+        body: `NoLSAF reviewed your profile and asked for changes before it goes live.${data.reason ? ` Reason: ${data.reason}` : ""} Update it and submit it again.`
+      },
+      agent_document_approved: {
+        title: "Document approved",
+        body: `Your ${data.documentLabel || "document"} was checked and approved.`
+      },
+      agent_document_rejected: {
+        title: "Document needs replacing",
+        body: `Your ${data.documentLabel || "document"} could not be accepted.${data.reason ? ` Reason: ${data.reason}` : ""} Upload a new copy.`
+      },
+      agent_account_restored: {
+        title: "Your operator access is restored",
+        body: "Your account is active again. You can sign in, take bookings and claim payouts as before."
       },
       booking_payment_case_closed_not_paid: {
         title: "We checked your payment",

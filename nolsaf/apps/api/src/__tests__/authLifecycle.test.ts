@@ -22,6 +22,7 @@ vi.mock("@nolsaf/prisma", () => {
       if (typeof condition.email === "string" && user.email === condition.email) return true;
       if (typeof condition.phone === "string" && user.phone === condition.phone) return true;
       if (typeof condition.name === "string" && user.name === condition.name) return true;
+      if (typeof condition.resetPasswordToken === "string" && user.resetPasswordToken === condition.resetPasswordToken) return true;
       return false;
     };
 
@@ -205,19 +206,20 @@ describe("account authentication lifecycle", () => {
     expect(resetMailCall, "forgot-password should send a reset link").toBeDefined();
 
     const resetHtml = String(resetMailCall?.[2] ?? "");
-    const resetLinkMatch = resetHtml.match(/\/account\/reset-password\?token=([a-f0-9]+)(?:&|&amp;)id=(\d+)/i);
-    expect(resetLinkMatch, "reset email should contain a token and user id").not.toBeNull();
-    const [, resetToken, userId] = resetLinkMatch!;
+    // The link carries only the token: no user id and no email in the address.
+    const resetLinkMatch = resetHtml.match(/\/account\/reset-password\?token=([a-f0-9]+)/i);
+    expect(resetLinkMatch, "reset email should contain a token").not.toBeNull();
+    const [, resetToken] = resetLinkMatch!;
 
     await request(app)
       .post("/api/auth/reset-password")
-      .send({ token: resetToken, userId, password: originalPassword })
+      .send({ token: resetToken, password: originalPassword })
       .expect(400)
       .expect(({ body }) => expect(body.message).toBe("password_reused"));
 
     await request(app)
       .post("/api/auth/reset-password")
-      .send({ token: resetToken, userId, password: replacementPassword })
+      .send({ token: resetToken, password: replacementPassword })
       .expect(200)
       .expect(({ body }) => expect(body).toMatchObject({ ok: true, message: "password reset" }));
 
@@ -239,8 +241,46 @@ describe("account authentication lifecycle", () => {
 
     await request(app)
       .post("/api/auth/reset-password")
-      .send({ token: resetToken, userId, password: "Another@2026Safe" })
-      .expect(400)
-      .expect(({ body }) => expect(body.message).toBe("password_already_set"));
+      .send({ token: resetToken, password: "Another@2026Safe" })
+      .expect(400);
+  }, 30_000);
+
+  it("checks a link before use, masks the login, and still accepts links that carry a user id", async () => {
+    const email = "link.check@example.test";
+    await request(app)
+      .post("/api/auth/register")
+      .send({ email, name: "Link Check", phone: "+255700000003", password: "Start@2026Safe", role: "traveller" })
+      .expect(201);
+
+    await request(app).post("/api/auth/forgot-password").send({ email }).expect(200);
+    const html = String([...authState.sentMail.mock.calls].reverse().find((call) => String(call[2]).includes("token="))?.[2] ?? "");
+    expect(html).not.toMatch(/reset-password\?[^"']*[?&]id=/);
+    expect(html).not.toContain(encodeURIComponent(email));
+    const token = html.match(/token=([a-f0-9]+)/i)![1];
+
+    const valid = await request(app).post("/api/auth/reset-password/check").send({ token }).expect(200);
+    expect(valid.body).toMatchObject({ valid: true, firstPassword: false });
+    expect(valid.body.login).not.toBe(email);
+    expect(valid.body.login).toMatch(/^li.+@example\.test$/);
+    expect(valid.body).not.toHaveProperty("id");
+
+    const wrong = await request(app).post("/api/auth/reset-password/check").send({ token: "a".repeat(48) }).expect(200);
+    expect(wrong.body).toMatchObject({ valid: false, reason: "invalid" });
+
+    // A token that matches nobody is refused.
+    await request(app)
+      .post("/api/auth/reset-password")
+      .send({ token: "b".repeat(48), password: "Changed@2026Safe" })
+      .expect(400);
+
+    // Links sent before the change carry the user id too; they keep working.
+    await request(app)
+      .post("/api/auth/reset-password")
+      .send({ token, userId: String(authState.users[0].id), password: "Changed@2026Safe" })
+      .expect(200);
+
+    // Used once, the link is gone.
+    const used = await request(app).post("/api/auth/reset-password/check").send({ token }).expect(200);
+    expect(used.body).toMatchObject({ valid: false, reason: "invalid" });
   }, 30_000);
 });

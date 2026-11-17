@@ -20,6 +20,8 @@ import { classifyBookingAttempt } from '../lib/bookingAttemptState.js';
 import { shapeKaribuPreferences } from '../lib/karibuPreferences.js';
 import { mergeNotificationPrefs } from '../lib/notificationPrefs.js';
 import { DATA_EXPORT_REASON_LABEL, DATA_EXPORT_UNLOCKED_ACTION, dataExportLockState } from '../lib/dataExportVerification.js';
+import { proDetailRows, proDivider, proEmail } from '../lib/emailBase.js';
+import { eatDate, esc, mailLink, mutedPara, para, signOff } from '../lib/proEmailParts.js';
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole('ADMIN') as RequestHandler, blockImpersonated as RequestHandler);
@@ -2409,7 +2411,19 @@ router.post('/:id/lifecycle', requireAdminFinanceGrant as RequestHandler, asyncH
     // Security notice is best effort after the committed transaction. Failed
     // delivery is surfaced to operations without rolling back a completed action.
     const delivery = await Promise.allSettled([
-      result.email ? sendMail(result.email, 'NoLSAF account change', `<p>${message}</p>`, undefined, { bypassEligibilityCheck: true, sensitiveContent: true }) : Promise.resolve(null),
+      result.email ? sendMail(
+        result.email,
+        'NoLSAF account change',
+        proEmail(result.retired ? 'Your account has been retired' : 'Your account type has changed', `
+          ${para(message)}
+          ${proDetailRows('', [['Case reference', esc(caseReference)], ['Changed on', esc(eatDate(new Date(), true))]])}
+          ${proDivider()}
+          ${mutedPara(`If you did not ask for this, contact ${mailLink('support@nolsaf.com')} straight away and quote the case reference.`)}
+          ${signOff('NoLSAF Support')}
+        `),
+        undefined,
+        { bypassEligibilityCheck: true, sensitiveContent: true },
+      ) : Promise.resolve(null),
       result.phone ? sendSms(result.phone, message, { bypassEligibilityCheck: true, sensitiveContent: true }) : Promise.resolve(null),
     ]);
     const noticeFailed = (!result.email && !result.phone) || delivery.some((item) => item.status === 'rejected' || (item.value && item.value.success === false));

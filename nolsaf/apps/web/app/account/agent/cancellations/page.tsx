@@ -10,7 +10,7 @@ import { publishRailCounts } from "@/lib/agentRailSignals";
 type TourCase = {
   id: number; type: string; status: string; title: string; description: string; createdAt: string;
   operatorReceiptStatus?: "AWAITING_RECEIPT" | "RECEIVED";
-  booking: { id: number; bookingCode: string; title: string; destination?: string | null; startDate?: string | null; status: string; payoutStatus: string; currency: string; grossAmount: number | string; operatorPayoutAmount: number | string; guestName?: string | null };
+  booking: { id: number; ref?: string; bookingCode: string; title: string; destination?: string | null; startDate?: string | null; status: string; payoutStatus: string; currency: string; grossAmount: number | string; operatorPayoutAmount: number | string; guestName?: string | null };
   events: Array<{ id: number; type: string; message?: string | null; createdAt: string }>;
 };
 
@@ -21,7 +21,13 @@ const needsRecordReconciliation = (item: TourCase) => {
   const payoutStatus = String(item.booking.payoutStatus || "").toUpperCase();
   return caseStatus === "REJECTED" && (["CANCELED", "REFUNDED"].includes(bookingStatus) || payoutStatus === "HELD");
 };
-const label = (value: string) => value.replaceAll("_", " ");
+const label = (value: string) => {
+  const text = value.replaceAll("_", " ").toLowerCase();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+const EAT = "Africa/Dar_es_Salaam";
+const eatDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: EAT });
+const eatTime = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: EAT });
 const caseTitle = (value: string) => {
   const [prefix, ...detailParts] = value.split(":");
   if (!detailParts.length) return value;
@@ -62,10 +68,11 @@ const VIEW_DESCRIPTION: Record<CaseView, string> = {
 export default function OperatorCancellationInboxPage() {
   const [items, setItems] = useState<TourCase[]>([]);
   const [summary, setSummary] = useState({ total: 0, submitted: 0, inReview: 0, refundQueue: 0, reconciliation: 0, closed: 0, awaitingReceipt: 0, received: 0, attention: 0 });
-  const [query, setQuery] = useState("");
+  const searchParams = useSearchParams();
+  // Email and alert links open one case by its booking code (never a row id).
+  const [query, setQuery] = useState(() => String(searchParams.get("booking") || "").trim().slice(0, 40));
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const view = parseView(searchParams.get(VIEW_PARAM));
 
   // View buttons and sidebar links both go through the URL, so there is a
@@ -89,7 +96,7 @@ export default function OperatorCancellationInboxPage() {
     try {
       const response = await apiClient.get("/api/agent/tour-cases");
       setItems(Array.isArray(response.data?.cases) ? response.data.cases : []);
-      setSummary(response.data?.summary || summary);
+      setSummary((current) => response.data?.summary || current);
     } catch (requestError: any) { setError(String(requestError?.response?.data?.error || "Could not load the cancellation inbox.")); }
     finally { setLoading(false); }
   }, []);
@@ -121,89 +128,109 @@ export default function OperatorCancellationInboxPage() {
     });
   }, [loading, summary.attention, summary.total, summary.closed]);
 
-  return <div className="min-w-0 max-w-full pb-10">
-    <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div className="min-w-0">
-        <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Operator control</p>
-        <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-900 sm:text-2xl">Cancellation and case inbox</h1>
-        <p className="m-0 mt-1 text-sm text-neutral-500">Cases requiring operational response, evidence, or payout awareness.</p>
+  const attention = Number(summary.attention || 0);
+  return <div className="min-w-0 max-w-full space-y-4 pb-10">
+    {/* Header: what this inbox is, what needs you now, and the one action. */}
+    <header className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+      <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700">
+            <Inbox className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <h1 className="m-0 text-[18px] font-bold tracking-tight text-neutral-900 sm:text-xl">Cases and cancellations</h1>
+            <p className="m-0 mt-1 text-[13px] leading-5 text-neutral-500">Traveller cancellation requests on your trips. Each case says what NoLSAF needs from you.</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={`inline-flex h-9 items-center gap-1.5 rounded-md border border-solid px-3 text-[13px] font-semibold ${
+              attention ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800"
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${attention ? "bg-amber-500" : "bg-emerald-500"}`} aria-hidden />
+            {attention ? `${attention} need${attention === 1 ? "s" : ""} you` : "Nothing needs you"}
+          </span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            aria-label="Refresh cases"
+            className="inline-flex h-9 cursor-pointer appearance-none items-center gap-1.5 rounded-md border border-solid border-neutral-300 bg-white px-3 text-[13px] font-medium text-neutral-700 outline-none transition hover:border-emerald-300 hover:text-emerald-800 focus-visible:ring-2 focus-visible:ring-emerald-600/25"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
+            Refresh
+          </button>
+        </div>
       </div>
-      <button
-        type="button"
-        onClick={() => void load()}
-        className="inline-flex min-h-9 w-fit shrink-0 cursor-pointer appearance-none items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none transition hover:border-emerald-200 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-600/25"
-      >
-        <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
-        Refresh
-      </button>
+
+      {/* Where every case stands, left to right in the order a case moves. */}
+      <dl aria-label="Case summary" className="m-0 grid grid-cols-2 border-0 border-t border-solid border-neutral-200 sm:grid-cols-3 xl:grid-cols-6">
+        {([
+          ["All cases", summary.total, "", false],
+          ["Submitted", summary.submitted, "Waiting for you or NoLSAF", false],
+          ["In review", summary.inReview, "NoLSAF is deciding", false],
+          ["Refund queue", summary.refundQueue, "Approved, refund pending", false],
+          ["Reconciliation", summary.reconciliation, "Records disagree", true],
+          ["Closed", summary.closed, "Nothing left to do", false],
+        ] as const).map(([name, value, hint, alerts], i) => {
+          const flagged = alerts && Number(value) > 0;
+          return (
+            <div
+              key={name}
+              className={`min-w-0 px-4 py-3 ${flagged ? "bg-red-50" : ""} ${i ? "border-0 border-l border-solid border-neutral-100" : ""}`}
+            >
+              <dt className={`truncate text-[12px] ${flagged ? "font-medium text-red-700" : "text-neutral-500"}`}>{name}</dt>
+              <dd className={`m-0 mt-0.5 text-[20px] font-bold leading-tight tabular-nums ${flagged ? "text-red-700" : "text-neutral-900"}`}>{value}</dd>
+              {hint ? <dd className="m-0 truncate text-[11.5px] text-neutral-400" title={hint}>{hint}</dd> : null}
+            </div>
+          );
+        })}
+      </dl>
     </header>
 
-    {/* Hairline grid: one shared border colour showing through the gaps, the
-        NRMS tile treatment, instead of six separately bordered cards. */}
-    <section aria-label="Case summary" className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-3 xl:grid-cols-6">
-      {([
-        ["Total cases", summary.total, false],
-        ["Submitted", summary.submitted, false],
-        ["In review", summary.inReview, false],
-        ["Refund queue", summary.refundQueue, false],
-        ["Reconciliation", summary.reconciliation, true],
-        ["Closed", summary.closed, false],
-      ] as const).map(([name, value, alerts]) => {
-        const flagged = alerts && Number(value) > 0;
-        return (
-          <div key={name} className={`min-w-0 px-3 py-2.5 ${flagged ? "bg-red-50" : "bg-white"}`}>
-            <p className={`m-0 truncate text-[10px] font-bold uppercase tracking-[0.1em] ${flagged ? "text-red-600" : "text-neutral-400"}`} title={name}>{name}</p>
-            <p className={`m-0 mt-1 text-xl font-bold leading-none ${flagged ? "text-red-700" : "text-neutral-900"}`}>{value}</p>
-          </div>
-        );
-      })}
-    </section>
+    <section className="min-w-0 rounded-lg border border-solid border-neutral-200 bg-white p-4">
+      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by booking code, traveller, tour or case"
+            aria-label="Search cases"
+            className="box-border block h-10 w-full min-w-0 max-w-full rounded-md border border-solid border-neutral-300 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15"
+          />
+        </div>
 
-    <section className="mb-4 min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">
-      <div className="relative min-w-0 max-w-full">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search case, booking, traveller, or tour"
-          className="box-border block h-10 w-full min-w-0 max-w-full rounded-lg border border-solid border-neutral-300 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15"
-        />
-      </div>
-
-      {/* Case view. Hidden from lg up, where the workspace sidebar owns view
-          selection; below lg the sidebar is not rendered, so this stays as the
-          only way to switch views. */}
-      <div className="mt-3 flex min-w-0 flex-col gap-2 pt-3 shadow-[inset_0_1px_0_0_#f5f5f5] lg:hidden">
-        <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Case view</span>
-        <div className="grid min-w-0 grid-cols-3 gap-2">
+        {/* Case view. Shown everywhere: the sidebar also links to each view, but
+            the operator should not have to look away to switch. */}
+        <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-solid border-neutral-300" role="group" aria-label="Case view">
           {([
-            ["ACTIVE", `Needs attention (${summary.attention})`],
-            ["ALL", `All (${summary.total})`],
-            ["CLOSED", `Closed (${summary.closed})`],
-          ] as const).map(([option, text]) => (
+            ["ACTIVE", "Needs you", summary.attention],
+            ["ALL", "All", summary.total],
+            ["CLOSED", "Closed", summary.closed],
+          ] as const).map(([option, text, count], i) => (
             <button
               key={option}
               type="button"
               onClick={() => setView(option)}
               aria-pressed={view === option}
-              className={`min-w-0 cursor-pointer appearance-none rounded-lg border border-solid px-3 py-2.5 text-xs font-bold transition ${
-                view === option
-                  ? "border-emerald-700 bg-emerald-700 text-white"
-                  : "border-neutral-200 bg-white text-neutral-600 hover:border-emerald-200 hover:text-emerald-700"
+              className={`inline-flex h-10 cursor-pointer appearance-none items-center gap-1.5 border-0 px-3.5 text-[13px] font-medium transition ${i ? "border-l border-solid border-neutral-300" : ""} ${
+                view === option ? "bg-emerald-700 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"
               }`}
             >
               {text}
+              <span className={`rounded px-1.5 text-[11.5px] tabular-nums ${view === option ? "bg-white/20" : "bg-neutral-100 text-neutral-600"}`}>{count}</span>
             </button>
           ))}
         </div>
       </div>
 
-      <p className="m-0 mt-3 text-xs text-neutral-500">{VIEW_DESCRIPTION[view]}</p>
+      <p className="m-0 mt-2.5 text-[12.5px] text-neutral-500">{VIEW_DESCRIPTION[view]}</p>
     </section>
-    {error && <div className="mb-4 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-    <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">
-      {!loading && filtered.length > 0 && <div className="hidden grid-cols-[7rem_minmax(13rem,1.35fr)_minmax(10rem,0.9fr)_minmax(13rem,1.1fr)_9rem_3.5rem] gap-4 bg-neutral-50/90 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 shadow-[inset_0_-1px_0_0_#e5e5e5] xl:grid">
-        <div>Case ID</div><div>Traveller request</div><div>Booking</div><div>Required action</div><div>Submitted</div><div className="text-center">Open</div>
+    {error && <div className="rounded-lg border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+    <section className="min-w-0 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+      {!loading && filtered.length > 0 && <div className="hidden grid-cols-[7rem_minmax(13rem,1.35fr)_minmax(10rem,0.9fr)_minmax(13rem,1.1fr)_9rem_3.5rem] gap-4 border-0 border-b border-solid border-neutral-200 bg-neutral-50 px-4 py-2.5 text-[12px] font-medium text-neutral-500 xl:grid">
+        <div>Case</div><div>Traveller request</div><div>Booking</div><div>What to do</div><div>Submitted (EAT)</div><div className="text-center">Open</div>
       </div>}
       {loading ? (
         <div className="flex justify-center py-16 text-neutral-400">
@@ -212,13 +239,17 @@ export default function OperatorCancellationInboxPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="px-4 py-8">
-          <div className="mx-auto flex max-w-md flex-col items-center gap-2 rounded-2xl border border-dashed border-neutral-300 px-6 py-12 text-center">
-            <span className="grid h-10 w-10 place-items-center rounded-full bg-neutral-100 text-neutral-400">
+          <div className="mx-auto flex max-w-md flex-col items-center gap-2 rounded-lg border border-dashed border-neutral-300 px-6 py-10 text-center">
+            <span className="grid h-10 w-10 place-items-center rounded-md bg-neutral-100 text-neutral-400">
               <Inbox className="h-5 w-5" aria-hidden />
             </span>
-            <p className="m-0 mt-1 text-sm font-bold text-neutral-800">No cases in this view</p>
-            <p className="m-0 text-xs text-neutral-500">
-              {query.trim() ? "No cases match your search." : "Cancellation cases raised by travellers will appear here."}
+            <p className="m-0 mt-1 text-sm font-semibold text-neutral-800">{query.trim() ? "No cases match your search" : view === "ACTIVE" ? "Nothing needs you right now" : "No cases here"}</p>
+            <p className="m-0 text-[12.5px] leading-5 text-neutral-500">
+              {query.trim()
+                ? "Try a booking code or the traveller's name."
+                : view === "ACTIVE"
+                  ? "When a traveller asks to cancel a paid trip, it appears here with what to do and by when."
+                  : "Cancellation cases raised by travellers will appear here."}
             </p>
           </div>
         </div>
@@ -246,48 +277,51 @@ export default function OperatorCancellationInboxPage() {
                     ? "Stop affected operations and await refund reconciliation"
                     : "No operator action required";
         const displayId = `CASE-${String(item.id).padStart(6, "0")}`;
-        return <article key={item.id} className={`grid min-w-0 gap-4 px-4 py-4 shadow-[inset_0_-1px_0_0_#f5f5f5] transition last:shadow-none md:grid-cols-2 xl:grid-cols-[7rem_minmax(13rem,1.35fr)_minmax(10rem,0.9fr)_minmax(13rem,1.1fr)_9rem_3.5rem] xl:items-center ${needsReconciliation ? "bg-red-50/50" : "bg-white hover:bg-emerald-50/35"}`}>
+        const mustAct = item.operatorReceiptStatus === "AWAITING_RECEIPT" || needsReconciliation || ["OPEN", "ELIGIBLE"].includes(caseStatus);
+        const fieldLabel = "mb-1 text-[11.5px] text-neutral-400 xl:hidden";
+        return <article key={item.id} className={`relative grid min-w-0 gap-4 border-0 border-b border-solid border-neutral-100 px-4 py-4 transition last:border-b-0 md:grid-cols-2 xl:grid-cols-[7rem_minmax(13rem,1.35fr)_minmax(10rem,0.9fr)_minmax(13rem,1.1fr)_9rem_3.5rem] xl:items-center ${needsReconciliation ? "bg-red-50/50" : "bg-white hover:bg-emerald-50/35"}`}>
+          {mustAct ? <span className={`absolute inset-y-0 left-0 w-[3px] ${needsReconciliation ? "bg-red-500" : "bg-amber-500"}`} aria-hidden /> : null}
           <div className="min-w-0">
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 xl:hidden">Case ID</div>
-            <div className="font-mono text-xs font-bold text-emerald-700">{displayId}</div>
-            <span className={`mt-2 inline-flex rounded-full border border-solid px-2 py-0.5 text-[10px] font-bold ${statusTone(caseStatus, active)}`}>{label(caseStatus)}</span>
-            <div className={`mt-1 text-[10px] font-semibold ${item.operatorReceiptStatus === "AWAITING_RECEIPT" ? "text-amber-700" : "text-emerald-700"}`}>{item.operatorReceiptStatus === "AWAITING_RECEIPT" ? "Awaiting your receipt" : "Received by operator"}</div>
+            <div className={fieldLabel}>Case</div>
+            <div className="font-mono text-[12px] font-semibold text-emerald-800">{displayId}</div>
+            <span className={`mt-1.5 inline-flex rounded border border-solid px-1.5 py-0.5 text-[11.5px] font-semibold ${statusTone(caseStatus, active)}`}>{label(caseStatus)}</span>
+            <div className={`mt-1 text-[11.5px] font-medium ${item.operatorReceiptStatus === "AWAITING_RECEIPT" ? "text-amber-700" : "text-emerald-700"}`}>{item.operatorReceiptStatus === "AWAITING_RECEIPT" ? "Not opened by you yet" : "Opened by you"}</div>
           </div>
           <div className="min-w-0">
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 xl:hidden">Traveller request</div>
-            <div className="truncate text-sm font-bold text-neutral-900" title={caseTitle(item.title)}>{caseTitle(item.title)}</div>
-            <div className="mt-1 line-clamp-1 break-words text-xs text-neutral-500">{conciseDescription(item.description)}</div>
+            <div className={fieldLabel}>Traveller request</div>
+            <div className="truncate text-[14px] font-semibold text-neutral-900" title={caseTitle(item.title)}>{caseTitle(item.title)}</div>
+            <div className="mt-1 line-clamp-1 break-words text-[12.5px] text-neutral-500">{conciseDescription(item.description)}</div>
           </div>
           <div className="min-w-0">
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 xl:hidden">Booking</div>
-            <div className="truncate text-sm font-semibold text-neutral-800" title={item.booking.title}>{item.booking.title}</div>
-            <div className="mt-1 truncate font-mono text-[11px] text-neutral-500" title={item.booking.bookingCode}>{item.booking.bookingCode}</div>
+            <div className={fieldLabel}>Booking</div>
+            <div className="truncate text-[13.5px] font-medium text-neutral-800" title={item.booking.title}>{item.booking.title}</div>
+            <div className="mt-1 truncate font-mono text-[11.5px] text-neutral-500" title={item.booking.bookingCode}>{item.booking.bookingCode}</div>
           </div>
           <div className="min-w-0">
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 xl:hidden">Required action</div>
-            <div className={`text-sm font-semibold ${needsReconciliation ? "text-red-700" : "text-neutral-800"}`}>{requiredAction}</div>
-            <div className="mt-1 text-[11px] text-neutral-500">{outcome} · Booking {label(bookingStatus)} · Payout {active ? "unavailable" : label(payoutStatus)}</div>
+            <div className={fieldLabel}>What to do</div>
+            <div className={`text-[13.5px] font-semibold ${needsReconciliation ? "text-red-700" : mustAct ? "text-amber-900" : "text-neutral-800"}`}>{requiredAction}</div>
+            <div className="mt-1 text-[11.5px] text-neutral-500">{outcome} · Booking {label(bookingStatus).toLowerCase()}{active ? " · Payouts paused while open" : ` · Payout ${label(payoutStatus).toLowerCase()}`}</div>
           </div>
           <div className="min-w-0">
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400 xl:hidden">Submitted</div>
-            <div className="text-xs font-medium text-neutral-700">{new Date(item.createdAt).toLocaleDateString()}</div>
-            <div className="mt-1 text-[11px] text-neutral-500">{new Date(item.createdAt).toLocaleTimeString()}</div>
+            <div className={fieldLabel}>Submitted (EAT)</div>
+            <div className="text-[12.5px] font-medium text-neutral-700">{eatDate(item.createdAt)}</div>
+            <div className="mt-0.5 text-[11.5px] text-neutral-500">{eatTime(item.createdAt)}</div>
           </div>
           <div className="flex items-center md:justify-end xl:justify-center">
-            <Link href={`/account/agent/tour-bookings/${item.booking.id}`} aria-label={`Open ${displayId}`} title={`Open ${displayId}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-700 text-white no-underline transition hover:bg-emerald-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/30"><Eye className="h-4 w-4" /></Link>
+            <Link href={`/account/agent/tour-bookings/${encodeURIComponent(item.booking.ref || String(item.booking.id))}`} aria-label={`Open ${displayId}`} title={`Open ${displayId}`} className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-700 text-white no-underline transition hover:bg-emerald-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/30"><Eye className="h-4 w-4" /></Link>
           </div>
         </article>;
       })}</div>}
-      {!loading && filtered.length > 0 && <div className="flex flex-col gap-3 bg-neutral-50/70 px-4 py-3 shadow-[inset_0_1px_0_0_#eeeeee] sm:flex-row sm:items-center sm:justify-between">
+      {!loading && filtered.length > 0 && <div className="flex flex-col gap-3 border-0 border-t border-solid border-neutral-200 bg-neutral-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-[11px] font-semibold text-neutral-500">Showing {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} cases</div>
         <div className="flex items-center gap-2">
-          <button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="inline-flex min-h-9 cursor-pointer appearance-none items-center rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-600 transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+          <button type="button" disabled={currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="inline-flex min-h-9 cursor-pointer appearance-none items-center rounded-md border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 transition hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
           <span className="min-w-16 text-center text-[11px] font-semibold text-neutral-500">Page {currentPage} of {pageCount}</span>
-          <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))} className="inline-flex min-h-9 cursor-pointer appearance-none items-center rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-600 transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+          <button type="button" disabled={currentPage >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))} className="inline-flex min-h-9 cursor-pointer appearance-none items-center rounded-md border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 transition hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40">Next</button>
         </div>
       </div>}
     </section>
 
-    <footer className="mt-4 flex items-start gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-4 py-3 text-xs text-neutral-500"><LockKeyhole className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />NoLSAF is the system of record for cancellation, refund, and payout decisions. Email and SMS alerts link back to this workspace.</footer>
+    <footer className="flex items-start gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-4 py-3 text-xs text-neutral-500"><LockKeyhole className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />NoLSAF is the system of record for cancellation, refund, and payout decisions. Email and SMS alerts link back to this workspace.</footer>
   </div>;
 }

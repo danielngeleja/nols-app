@@ -39,6 +39,7 @@ import {
   Handshake,
   ArrowRight,
   Lock,
+  KeyRound,
 } from "lucide-react";
 import apiClient, { clearAuthToken } from "@/lib/apiClient";
 import { useAdminHref } from "@/lib/adminRecordRefs";
@@ -130,6 +131,160 @@ function fmtLong(iso?: string | null) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** How far the operator got into their workspace (GET /api/admin/agents/:id accountSetup). */
+type AccountAccess = {
+  passwordSet: boolean;
+  passwordSetAt: string | null;
+  linkExpiresAt: string | null;
+  linkActive: boolean;
+  linkSentAt: string | null;
+  linkResentCount: number;
+  accountCreatedAt: string | null;
+  emailVerified: boolean;
+  twoFactorEnabled: boolean;
+  firstSignInAt: string | null;
+  lastSignInAt: string | null;
+  lastSeenAt: string | null;
+  activeSessions: number;
+};
+
+function fmtWhen(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Africa/Dar_es_Salaam" })} EAT`;
+}
+
+function fmtAgo(iso?: string | null) {
+  if (!iso) return "";
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (minutes < 2) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function AccountAccessCard({
+  access,
+  email,
+  sending,
+  result,
+  onResend,
+}: {
+  access: AccountAccess;
+  email: string | null;
+  sending: boolean;
+  result: { tone: "success" | "error"; text: string } | null;
+  onResend: () => void;
+}) {
+  const signedIn = Boolean(access.firstSignInAt);
+  const linkExpired = !access.passwordSet && !access.linkActive;
+  const standing = access.passwordSet
+    ? signedIn
+      ? { label: "Active", tone: "bg-emerald-50 text-emerald-700 ring-emerald-200", line: `Last active ${fmtAgo(access.lastSeenAt || access.lastSignInAt)}` }
+      : { label: "Never signed in", tone: "bg-amber-50 text-amber-800 ring-amber-200", line: "Password created, but no sign-in yet" }
+    : linkExpired
+      ? { label: "Link expired", tone: "bg-rose-50 text-rose-700 ring-rose-200", line: "They cannot get in until you send a new link" }
+      : { label: "Waiting for password", tone: "bg-amber-50 text-amber-800 ring-amber-200", line: `Link works until ${fmtWhen(access.linkExpiresAt)}` };
+
+  const steps: Array<{ label: string; done: boolean; when: string; note?: string; bad?: boolean }> = [
+    { label: "Account created", done: Boolean(access.accountCreatedAt), when: fmtWhen(access.accountCreatedAt) },
+    {
+      label: "Setup link sent",
+      done: access.passwordSet || Boolean(access.linkSentAt),
+      when: access.passwordSet ? "Used" : fmtWhen(access.linkSentAt),
+      note: access.linkResentCount ? `Resent ${access.linkResentCount} time${access.linkResentCount === 1 ? "" : "s"}` : undefined,
+      bad: linkExpired,
+    },
+    {
+      label: "Password created",
+      done: access.passwordSet,
+      when: access.passwordSet ? (access.passwordSetAt ? fmtWhen(access.passwordSetAt) : "Done, date not on record") : linkExpired ? "Link expired" : "Not yet",
+      bad: linkExpired,
+    },
+    { label: "First sign-in", done: signedIn, when: signedIn ? fmtWhen(access.firstSignInAt) : "Not yet" },
+  ];
+  const doneCount = steps.filter((s) => s.done).length;
+
+  return (
+    <section className="min-w-0 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+      <div className="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#02665e]/[0.08] text-[#02665e]"><KeyRound className="h-4 w-4" aria-hidden /></span>
+          <div className="min-w-0">
+            <p className="m-0 text-[13px] font-semibold text-neutral-900">Account access</p>
+            <p className="m-0 truncate text-[11px] text-neutral-500">{standing.line}</p>
+          </div>
+        </div>
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold ring-1 ${standing.tone}`}>{standing.label}</span>
+      </div>
+
+      {/* Progress: four steps from invitation to first sign-in */}
+      <div className="flex gap-1 px-4" aria-label={`${doneCount} of 4 access steps done`}>
+        {steps.map((s) => (
+          <span key={s.label} className={`h-1 flex-1 rounded-full ${s.done ? "bg-[#02665e]" : s.bad ? "bg-rose-400" : "bg-neutral-200"}`} />
+        ))}
+      </div>
+
+      <ol className="m-0 mt-2 list-none px-2 pb-1">
+        {steps.map((s) => (
+          <li key={s.label} className="flex items-start gap-2.5 rounded-md px-2 py-1.5">
+            <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full ${s.done ? "bg-[#02665e] text-white" : s.bad ? "bg-rose-100 text-rose-600" : "bg-neutral-100 text-neutral-400"}`}>
+              {s.done ? <Check className="h-2.5 w-2.5" strokeWidth={3} aria-hidden /> : s.bad ? <X className="h-2.5 w-2.5" strokeWidth={3} aria-hidden /> : <span className="h-1 w-1 rounded-full bg-current" />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className={`m-0 text-[12.5px] font-medium ${s.done ? "text-neutral-900" : "text-neutral-500"}`}>{s.label}</p>
+              <p className={`m-0 text-[11px] ${s.bad ? "text-rose-700" : "text-neutral-500"}`}>
+                {s.when}
+                {s.note ? <span className="text-neutral-400"> · {s.note}</span> : null}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <dl className="m-0 grid grid-cols-3 border-0 border-t border-solid border-neutral-100 text-center">
+        {[
+          { label: "Sessions", value: String(access.activeSessions), good: access.activeSessions > 0 },
+          { label: "Two-step", value: access.twoFactorEnabled ? "On" : "Off", good: access.twoFactorEnabled },
+          { label: "Email", value: access.emailVerified ? "Verified" : "Unverified", good: access.emailVerified },
+        ].map((f, i) => (
+          <div key={f.label} className={`px-2 py-2 ${i ? "border-0 border-l border-solid border-neutral-100" : ""}`}>
+            <dt className="text-[10.5px] text-neutral-400">{f.label}</dt>
+            <dd className={`m-0 text-[12px] font-semibold ${f.good ? "text-neutral-900" : "text-neutral-500"}`}>{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {!access.passwordSet ? (
+        <div className="border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-4 py-3">
+          <button
+            type="button"
+            onClick={onResend}
+            disabled={sending || !email}
+            className={`inline-flex h-8 w-full cursor-pointer items-center justify-center gap-1.5 rounded-md px-3 text-[12px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              linkExpired ? "border-0 bg-[#02665e] text-white hover:bg-[#014e47]" : "border border-solid border-neutral-300 bg-white text-neutral-700 hover:border-[#02665e]/40 hover:text-[#02665e]"
+            }`}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${sending ? "animate-spin" : ""}`} aria-hidden />
+            {sending ? "Sending" : linkExpired ? "Send a new setup link" : "Resend setup link"}
+          </button>
+          <p className="m-0 mt-1.5 text-center text-[11px] text-neutral-400">
+            {email ? `Goes to ${email}. Any earlier link stops working.` : "No email on this account."}
+          </p>
+          {result ? (
+            <p role="status" className={`m-0 mt-2 rounded-md px-3 py-2 text-[11px] ${result.tone === "success" ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>
+              {result.text}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 // Tier colours shared with the tour operators register and the ladder editor.
 const TIERS = [
   { key: "BRONZE", label: "Bronze", hex: "#e0a26f" },
@@ -207,6 +362,8 @@ type Agent = {
   };
   suspendedAt?: string | null;
   suspensionReason?: string | null;
+  /** Whether the operator has created a password yet (first sign-in). */
+  accountSetup?: AccountAccess;
   languages?: string[];
   createdAt: string;
   user: {
@@ -540,6 +697,8 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   const [showRestoreConfirmation, setShowRestoreConfirmation] = useState(false);
   const [restoreError, setRestoreError] = useState("");
   const [pageNotice, setPageNotice] = useState("");
+  const [setupLinkSending, setSetupLinkSending] = useState(false);
+  const [setupLinkResult, setSetupLinkResult] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [showImpersonateForm, setShowImpersonateForm] = useState(false);
   const [impersonateReason, setImpersonateReason] = useState("");
   const [impersonateError, setImpersonateError] = useState("");
@@ -966,6 +1125,34 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
       setPageNotice(err?.response?.data?.error || err?.response?.data?.message || err?.message || "Could not send the notification.");
     } finally {
       setSendingNotification(false);
+    }
+  }
+
+  async function resendSetupLink() {
+    if (!agent || setupLinkSending) return;
+    setSetupLinkSending(true);
+    setSetupLinkResult(null);
+    try {
+      const r = await api.post<any>(`/api/admin/agents/${agent.id}/resend-setup-link`);
+      const expiresAt = r?.data?.data?.expiresAt ?? r?.data?.expiresAt ?? null;
+      setSetupLinkResult({ tone: "success", text: `Sent to ${agent.user?.email || "their email"}. Any earlier link stopped working.` });
+      setAgent((prev) => (prev && prev.accountSetup ? {
+        ...prev,
+        accountSetup: {
+          ...prev.accountSetup,
+          linkExpiresAt: expiresAt,
+          linkActive: true,
+          linkSentAt: new Date().toISOString(),
+          linkResentCount: prev.accountSetup.linkResentCount + 1,
+        },
+      } : prev));
+    } catch (err: any) {
+      setSetupLinkResult({
+        tone: "error",
+        text: err?.response?.data?.error || err?.response?.data?.message || "The setup link could not be sent. Try again.",
+      });
+    } finally {
+      setSetupLinkSending(false);
     }
   }
 
@@ -1723,6 +1910,17 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
                 </div>,
                 document.body
               )}
+
+              {/* Account access: invited, link, password, sign-in, each with its date */}
+              {agent.accountSetup ? (
+                <AccountAccessCard
+                  access={agent.accountSetup}
+                  email={agent.user?.email ?? null}
+                  sending={setupLinkSending}
+                  result={setupLinkResult}
+                  onResend={() => void resendSetupLink()}
+                />
+              ) : null}
 
               {/* Account actions: one row each, the form opens under its row */}
               <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">

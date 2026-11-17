@@ -34,6 +34,22 @@ async function byStatus(rows: Array<{ id: number; status: string }>, ids: number
 }
 
 export const SETTLE_RULES: Record<string, Rule> = {
+  // Closes "Operator profile to review" once an admin has decided on it.
+  operator_profile_submitted: {
+    field: "agentId",
+    check: async (client, ids) => {
+      const out: Settled = new Map();
+      const agents: Array<{ id: number; operatorProfile: any }> = await client.agent.findMany({ where: { id: { in: ids } }, select: { id: true, operatorProfile: true } });
+      const found = new Map(agents.map((a) => [a.id, a.operatorProfile]));
+      for (const id of ids) {
+        if (!found.has(id)) { out.set(id, "The operator no longer exists."); continue; }
+        const p = found.get(id) || {};
+        const status = String(p.reviewStatus || p.review?.status || "").toUpperCase();
+        if (status && status !== "PENDING") out.set(id, `The profile was ${lower(status)}.`);
+      }
+      return out;
+    },
+  },
   property_submitted: {
     field: "propertyId",
     check: async (client, ids) => byStatus(

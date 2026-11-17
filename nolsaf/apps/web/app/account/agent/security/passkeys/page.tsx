@@ -1,16 +1,9 @@
 "use client"
 
-import React from "react"
-import PasskeysManager from "@/components/security/PasskeysManager"
+import SecurityPasskeys from "@/components/account-security/SecurityPasskeys"
+import { AGENT_SECURITY } from "@/components/account-security/securityData"
 
+// Same security pages as owners and travellers, scoped to the operator workspace.
 export default function AgentPasskeysPage() {
-  return (
-    <PasskeysManager
-      apiBasePath="/api/account/security/passkeys"
-      backHref="/account/agent/security"
-      title="Passkeys"
-      description="Passwordless sign-in with biometrics or security keys."
-      containerClassName="public-container w-full"
-    />
-  )
+  return <SecurityPasskeys scope={AGENT_SECURITY} />
 }

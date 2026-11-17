@@ -20,10 +20,10 @@ import LogoSpinner from "@/components/LogoSpinner";
 import TableScroller from "@/components/TableScroller";
 import { buildPdfDocument } from "@/lib/pdfReportTemplate";
 import {
+  Bar,
   Cell,
-  Legend,
+  ComposedChart,
   Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -35,69 +35,13 @@ import {
 
 const api = apiClient;
 
-// Local mirrors of the NRMS report primitives (Metric / Panel / DataTable),
+// Local mirrors of the NRMS report primitives (DataTable),
 // so the operator report reads as part of the same reporting system.
-const METRIC_TONES = {
-  neutral: "bg-neutral-100 text-neutral-600",
-  emerald: "bg-emerald-50 text-emerald-700",
-  amber: "bg-amber-50 text-amber-700",
-  blue: "bg-blue-50 text-blue-700",
-} as const;
-
-function Metric({
-  label,
-  value,
-  note,
-  icon: Icon,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string | number;
-  note?: string;
-  icon: LucideIcon;
-  tone?: keyof typeof METRIC_TONES;
-}) {
-  return (
-    <article className="flex min-h-[116px] min-w-0 flex-col rounded-xl border border-solid border-neutral-200 bg-white p-3.5">
-      <div className="flex items-start justify-between gap-2">
-        <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">{label}</p>
-        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${METRIC_TONES[tone]}`}>
-          <Icon className="h-3.5 w-3.5" aria-hidden />
-        </span>
-      </div>
-      <p className="m-0 mt-2 truncate text-lg font-bold tabular-nums tracking-tight text-neutral-900">{value}</p>
-      {note ? <p className="m-0 mt-auto pt-1.5 text-[10px] leading-4 text-neutral-500">{note}</p> : null}
-    </article>
-  );
-}
-
-function Panel({
-  title,
-  description,
-  children,
-  bodyClassName = "min-w-0 p-3 sm:p-4",
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-  bodyClassName?: string;
-}) {
-  return (
-    <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
-      <header className="px-4 py-3 shadow-[inset_0_-1px_0_0_#f5f5f5]">
-        <h3 className="m-0 text-sm font-bold text-neutral-900">{title}</h3>
-        {description ? <p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">{description}</p> : null}
-      </header>
-      <div className={bodyClassName}>{children}</div>
-    </section>
-  );
-}
-
 function ReportEmpty({ icon: Icon, title, text }: { icon: LucideIcon; title: string; text: string }) {
   return (
     <div className="px-4 py-8">
-      <div className="mx-auto flex max-w-md flex-col items-center gap-2 rounded-2xl border border-solid border-dashed border-neutral-300 px-6 py-12 text-center">
-        <span className="grid h-10 w-10 place-items-center rounded-full bg-neutral-100 text-neutral-400">
+      <div className="mx-auto flex max-w-md flex-col items-center gap-2 rounded-lg border border-solid border-dashed border-neutral-300 px-6 py-12 text-center">
+        <span className="grid h-10 w-10 place-items-center rounded-md bg-neutral-100 text-neutral-400">
           <Icon className="h-5 w-5" aria-hidden />
         </span>
         <p className="m-0 mt-1 text-sm font-bold text-neutral-800">{title}</p>
@@ -724,144 +668,264 @@ export default function AgentReportsPage() {
         Back to dashboard
       </Link>
 
-      <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Operator reporting</p>
-          <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-900 sm:text-2xl">My reports</h1>
-          <p className="m-0 mt-1 text-sm text-neutral-500">Operational reports for your assigned trips.</p>
-        </div>
-        <button
-          type="button"
-          onClick={printReport}
-          className="inline-flex min-h-10 w-fit shrink-0 cursor-pointer appearance-none items-center gap-2 rounded-xl border-0 bg-[#073c35] px-3.5 text-[11px] font-bold text-white transition hover:bg-emerald-800 print:hidden"
-        >
-          <Printer className="h-4 w-4" aria-hidden />
-          Print report
-        </button>
-      </header>
-
-      {error ? (
-        <div role="alert" className="mb-4 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      ) : null}
-
-      {/* Report period. The NRMS toolbar keeps the range inputs grouped in one
-          control and the presets beside them, rather than stacking three rows. */}
-      <section className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-solid border-neutral-200 bg-white px-3 py-2.5 print:hidden">
-        <p className="m-0 mr-1 text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Report period</p>
-
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-1">
-          <div className="flex h-10 items-center gap-1">
-            <span className="pl-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">From</span>
-            <div className="w-[138px]">
-              <DatePickerField label="Report start date" value={from} max={to} onChangeAction={setFrom} widthClassName="!w-full" size="sm" twoMonths={false} allowPast />
+      {(() => {
+        // The period in words, and which preset (if any) it equals.
+        const dayMs = 86_400_000;
+        const fromDate = new Date(`${from}T00:00:00`);
+        const toDate = new Date(`${to}T00:00:00`);
+        const spanDays = Number.isFinite(fromDate.getTime()) && Number.isFinite(toDate.getTime())
+          ? Math.max(1, Math.round((toDate.getTime() - fromDate.getTime()) / dayMs) + 1)
+          : 0;
+        const fmtDay = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+        const presetRange = (preset: (typeof RANGE_PRESETS)[number]) => {
+          const now = new Date();
+          const start = new Date(now);
+          if (preset.days) start.setDate(start.getDate() - preset.days);
+          if (preset.months) start.setMonth(start.getMonth() - preset.months);
+          return { from: toDateOnlyInput(start), to: toDateOnlyInput(now) };
+        };
+        const kpiTiles = [
+          { label: "Trips in range", value: String(kpis.totalTrips), note: "Assigned trips in the period", icon: Package, tone: "text-neutral-900" },
+          { label: "Paid to you", value: fmtMoney(kpis.paidEarnings, reportCurrency), note: "Disbursed for completed trips", icon: DollarSign, tone: "text-emerald-700" },
+          { label: "Pending", value: fmtMoney(kpis.pendingEarnings, reportCurrency), note: "Claimed or approved, not yet paid", icon: Clock, tone: "text-amber-700" },
+          { label: "Average per trip", value: fmtMoney(kpis.avgPerTrip, reportCurrency), note: "Paid to you, divided by trips", icon: TrendingUp, tone: "text-sky-700" },
+        ];
+        return (
+          <header className="mb-4 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+            {/* Title and the one action */}
+            <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700">
+                  <BarChart3 className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <h1 className="m-0 text-[18px] font-bold tracking-tight text-neutral-900 sm:text-xl">My reports</h1>
+                  <p className="m-0 mt-1 text-[13px] leading-5 text-neutral-500">
+                    {spanDays
+                      ? <>Your trips and earnings from <strong className="font-semibold text-neutral-700">{fmtDay(fromDate)}</strong> to <strong className="font-semibold text-neutral-700">{fmtDay(toDate)}</strong>, {spanDays} day{spanDays === 1 ? "" : "s"}.</>
+                      : "Your trips and earnings for the period you choose."}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={printReport}
+                className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-[13px] font-semibold text-white transition hover:bg-emerald-800 print:hidden"
+              >
+                <Printer className="h-4 w-4" aria-hidden />
+                Print report
+              </button>
             </div>
-          </div>
-          <span className="hidden h-6 w-px bg-neutral-200 sm:block" aria-hidden />
-          <div className="flex h-10 items-center gap-1">
-            <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">To</span>
-            <div className="w-[138px]">
-              <DatePickerField label="Report end date" value={to} min={from} onChangeAction={setTo} widthClassName="!w-full" size="sm" twoMonths={false} allowPast />
+
+            {/* Period: quick ranges as one segmented control, exact dates beside it */}
+            <div className="flex flex-col gap-3 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-5 py-3 lg:flex-row lg:items-center lg:justify-between print:hidden">
+              <div className="flex min-w-0 items-center gap-2">
+                <CalendarDays className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden />
+                <div role="group" aria-label="Quick ranges" className="inline-flex min-w-0 overflow-x-auto rounded-md border border-solid border-neutral-300 bg-white [scrollbar-width:none]">
+                  {RANGE_PRESETS.map((preset, i) => {
+                    const range = presetRange(preset);
+                    const on = range.from === from && range.to === to;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => { setFrom(range.from); setTo(range.to); }}
+                        className={`h-9 shrink-0 cursor-pointer appearance-none border-0 px-3 text-[12.5px] font-medium transition ${i ? "border-l border-solid border-neutral-300" : ""} ${
+                          on ? "bg-emerald-700 text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="w-[150px]">
+                  <DatePickerField label="Report start date" value={from} max={to} onChangeAction={setFrom} widthClassName="!w-full" size="sm" twoMonths={false} allowPast />
+                </div>
+                <span className="text-[12.5px] text-neutral-400">to</span>
+                <div className="w-[150px]">
+                  <DatePickerField label="Report end date" value={to} min={from} onChangeAction={setTo} widthClassName="!w-full" size="sm" twoMonths={false} allowPast />
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <span className="hidden h-7 w-px bg-neutral-200 xl:block" aria-hidden />
-
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {RANGE_PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              onClick={() => {
-                const now = new Date();
-                const start = new Date(now);
-                if (preset.days) start.setDate(start.getDate() - preset.days);
-                if (preset.months) start.setMonth(start.getMonth() - preset.months);
-                setFrom(toDateOnlyInput(start));
-                setTo(toDateOnlyInput(now));
-              }}
-              className="inline-flex h-9 cursor-pointer appearance-none items-center rounded-lg border border-solid border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-600 transition hover:border-emerald-200 hover:bg-emerald-50/40 hover:text-emerald-700"
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section aria-label="Report summary" className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Trips in range" value={kpis.totalTrips} note="Assigned trips inside the selected period" icon={Package} />
-        <Metric label="Paid earnings" value={fmtMoney(kpis.paidEarnings, reportCurrency)} note="Disbursed to you for completed trips" icon={DollarSign} tone="emerald" />
-        <Metric label="Pending earnings" value={fmtMoney(kpis.pendingEarnings, reportCurrency)} note="Claimed or approved, not yet disbursed" icon={Clock} tone="amber" />
-        <Metric label="Avg paid per trip" value={fmtMoney(kpis.avgPerTrip, reportCurrency)} note="Paid earnings divided by trips in range" icon={TrendingUp} tone="blue" />
-      </section>
-
-      <section aria-label="Visual summary" className="mb-4 grid min-w-0 gap-3 xl:grid-cols-3">
-        <Panel title="Revenue trend" description="Earnings over the selected period against a smoothed trend line.">
-          <div className="h-64 min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trendSeries} margin={{ left: 4, right: 8, top: 6, bottom: 6 }}>
-                <CartesianGrid stroke="#f1f1f1" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#a3a3a3" }} tickLine={false} axisLine={{ stroke: "#e5e5e5" }} />
-                <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={{ fontSize: 10, fill: "#a3a3a3" }} tickLine={false} axisLine={false} width={34} />
-                <Tooltip formatter={(value: any) => fmtMoney(Number(value || 0), reportCurrency)} contentStyle={{ borderRadius: 12, border: "1px solid #e5e5e5", fontSize: 11 }} />
-                <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
-                <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#047857" strokeWidth={2.5} dot={false} />
-                <Line type="monotone" dataKey="trend" name="Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="4 3" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
-
-        <Panel title="Invoices by status" description="Where your invoices currently sit in the payout workflow.">
-          <div className="h-64 min-w-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={statusData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={88} paddingAngle={2} stroke="none">
-                  {statusData.map((entry, idx) => (
-                    <Cell key={`${entry.name}-${idx}`} fill={statusColors[idx % statusColors.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: any) => `${value} items`} contentStyle={{ borderRadius: 12, border: "1px solid #e5e5e5", fontSize: 11 }} />
-                <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
-
-        <Panel title="Revenue by tourism type" description="Share of earnings contributed by each trip type.">
-          {typeData.rows.length === 0 ? (
-            <p className="m-0 py-10 text-center text-xs text-neutral-400">No revenue recorded in this period.</p>
-          ) : (
-            <div className="space-y-3">
-              {typeData.rows.map((row, idx) => (
-                <div key={row.name} className="min-w-0">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="inline-flex min-w-0 items-center gap-2 text-[11px] font-bold text-neutral-700">
-                      <span className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: statusColors[idx % statusColors.length] }} aria-hidden />
-                      <span className="truncate">{row.name}</span>
-                    </span>
-                    <span className="shrink-0 text-[11px] font-bold tabular-nums text-neutral-900">{fmtMoney(row.value, reportCurrency)}</span>
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-100">
-                      <div
-                        className="h-full rounded-full"
-                        style={{ width: `${row.pct === 0 ? 0 : Math.max(3, row.pct)}%`, backgroundColor: statusColors[idx % statusColors.length] }}
-                      />
-                    </div>
-                    <span className="w-9 shrink-0 text-right text-[10px] font-bold tabular-nums text-neutral-500">{row.pct}%</span>
-                  </div>
+            {/* The four numbers, joined, so they read as one summary */}
+            <dl aria-label="Report summary" className="m-0 grid grid-cols-2 border-0 border-t border-solid border-neutral-200 lg:grid-cols-4">
+              {kpiTiles.map((tile, i) => (
+                <div
+                  key={tile.label}
+                  className={`min-w-0 px-5 py-3.5 ${i % 2 ? "border-0 border-l border-solid border-neutral-100" : ""} ${i >= 2 ? "border-0 border-t border-solid border-neutral-100 lg:border-t-0" : ""} ${i ? "lg:border-0 lg:border-l lg:border-solid lg:border-neutral-100" : ""}`}
+                >
+                  <dt className="flex items-center gap-1.5 text-[12px] font-medium text-neutral-500">
+                    <tile.icon className={`h-3.5 w-3.5 ${tile.tone}`} aria-hidden />
+                    {tile.label}
+                  </dt>
+                  <dd className={`m-0 mt-1 truncate text-[22px] font-bold leading-tight tabular-nums tracking-tight ${tile.tone}`}>{tile.value}</dd>
+                  <dd className="m-0 mt-0.5 truncate text-[11.5px] text-neutral-400">{tile.note}</dd>
                 </div>
               ))}
-            </div>
-          )}
-        </Panel>
-      </section>
+            </dl>
+          </header>
+        );
+      })()}
 
-      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
-          <header className="px-4 py-3 shadow-[inset_0_-1px_0_0_#f5f5f5]">
-            <h3 className="m-0 text-sm font-bold text-neutral-900">Operations details</h3>
-            <p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Every assigned trip in the period, with its invoice stage and your earning.</p>
+      {error ? (
+        <div role="alert" className="mb-4 rounded-lg border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      ) : null}
+
+
+      {(() => {
+        // Chart data: paid and pending per month, a smoothed total, and the
+        // stage and type breakdowns in readable words.
+        const series = trend.buckets.map((b, idx) => ({ label: b.label, paid: b.paid, pending: b.pending, trend: trendSeries[idx]?.trend ?? 0 }));
+        const paidTotal = series.reduce((s, b) => s + b.paid, 0);
+        const pendingTotal = series.reduce((s, b) => s + b.pending, 0);
+        const hasEarnings = paidTotal + pendingTotal > 0;
+        const stageTotal = statusData.reduce((s, d) => s + d.value, 0);
+        const sentence = (value: string) => {
+          const t = value.replaceAll("_", " ").toLowerCase();
+          return t.charAt(0).toUpperCase() + t.slice(1);
+        };
+        const axisMoney = (v: number) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : String(Math.round(v)));
+        const tipStyle = { borderRadius: 6, border: "1px solid #e5e5e5", fontSize: 12, boxShadow: "0 8px 24px -12px rgba(15,23,42,0.25)" };
+        const EmptyChart = ({ text }: { text: string }) => (
+          <div className="absolute inset-0 grid place-items-center">
+            <p className="m-0 rounded-md border border-dashed border-neutral-300 bg-white/90 px-3 py-2 text-[12.5px] text-neutral-500">{text}</p>
+          </div>
+        );
+
+        return (
+          <section aria-label="Visual summary" className="mb-4 grid min-w-0 gap-3 xl:grid-cols-3">
+            {/* Earnings over time: what was paid and what is still pending, month by month */}
+            <section className="min-w-0 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white xl:col-span-2">
+              <header className="flex flex-wrap items-start justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-3">
+                <div className="min-w-0">
+                  <h3 className="m-0 text-[14px] font-semibold text-neutral-900">Earnings over time</h3>
+                  <p className="m-0 mt-0.5 text-[12px] text-neutral-500">Your share per month, paid and still pending, with the 3-month trend.</p>
+                </div>
+                <dl className="m-0 flex shrink-0 items-start gap-4">
+                  <div>
+                    <dt className="flex items-center gap-1.5 text-[11.5px] text-neutral-500"><span className="h-2 w-2 rounded-sm bg-emerald-600" aria-hidden />Paid</dt>
+                    <dd className="m-0 text-[14px] font-bold tabular-nums text-neutral-900">{fmtMoney(paidTotal, reportCurrency)}</dd>
+                  </div>
+                  <div>
+                    <dt className="flex items-center gap-1.5 text-[11.5px] text-neutral-500"><span className="h-2 w-2 rounded-sm bg-amber-400" aria-hidden />Pending</dt>
+                    <dd className="m-0 text-[14px] font-bold tabular-nums text-neutral-900">{fmtMoney(pendingTotal, reportCurrency)}</dd>
+                  </div>
+                  <div className="hidden sm:block">
+                    <dt className="flex items-center gap-1.5 text-[11.5px] text-neutral-500"><span className="h-0.5 w-3 bg-neutral-500" aria-hidden />Trend</dt>
+                    <dd className="m-0 text-[12px] text-neutral-500">3-month average</dd>
+                  </div>
+                </dl>
+              </header>
+              <div className="relative h-72 min-w-0 px-2 pb-2 pt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={series} margin={{ left: 4, right: 12, top: 4, bottom: 0 }} barCategoryGap="28%">
+                    <CartesianGrid stroke="#f1f1f1" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#737373" }} tickLine={false} axisLine={{ stroke: "#e5e5e5" }} />
+                    <YAxis tickFormatter={axisMoney} tick={{ fontSize: 11, fill: "#a3a3a3" }} tickLine={false} axisLine={false} width={40} />
+                    <Tooltip
+                      cursor={{ fill: "rgba(2,102,94,0.05)" }}
+                      formatter={(value: any, name: any) => [fmtMoney(Number(value || 0), reportCurrency), name]}
+                      contentStyle={tipStyle}
+                    />
+                    <Bar dataKey="paid" name="Paid" stackId="earn" fill="#059669" maxBarSize={44} />
+                    <Bar dataKey="pending" name="Pending" stackId="earn" fill="#fbbf24" radius={[3, 3, 0, 0]} maxBarSize={44} />
+                    <Line type="monotone" dataKey="trend" name="Trend" stroke="#525252" strokeWidth={1.75} strokeDasharray="4 3" dot={false} activeDot={{ r: 3 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                {!hasEarnings ? <EmptyChart text="No earnings in this period yet" /> : null}
+              </div>
+            </section>
+
+            {/* Payout stages: a donut with the count in the middle and a counted legend */}
+            <section className="min-w-0 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+              <header className="border-0 border-b border-solid border-neutral-100 px-4 py-3">
+                <h3 className="m-0 text-[14px] font-semibold text-neutral-900">Payout stages</h3>
+                <p className="m-0 mt-0.5 text-[12px] text-neutral-500">Where each trip&apos;s payout is right now.</p>
+              </header>
+              <div className="grid min-w-0 grid-cols-[9.5rem_minmax(0,1fr)] items-center gap-3 p-4">
+                <div className="relative h-[9.5rem] w-[9.5rem]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={stageTotal ? statusData.filter((d) => d.value > 0) : [{ name: "None", value: 1 }]}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={50}
+                        outerRadius={70}
+                        paddingAngle={stageTotal ? 2 : 0}
+                        stroke="none"
+                        isAnimationActive={Boolean(stageTotal)}
+                      >
+                        {stageTotal
+                          ? statusData.filter((d) => d.value > 0).map((entry) => (
+                              <Cell key={entry.name} fill={statusColors[statusData.findIndex((d) => d.name === entry.name) % statusColors.length]} />
+                            ))
+                          : <Cell fill="#f1f5f9" />}
+                      </Pie>
+                      {stageTotal ? <Tooltip formatter={(value: any, name: any) => [`${value} trip${Number(value) === 1 ? "" : "s"}`, sentence(String(name))]} contentStyle={tipStyle} /> : null}
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+                    <div>
+                      <p className="m-0 text-[22px] font-bold leading-none tabular-nums text-neutral-900">{stageTotal}</p>
+                      <p className="m-0 mt-1 text-[11px] text-neutral-500">trip{stageTotal === 1 ? "" : "s"}</p>
+                    </div>
+                  </div>
+                </div>
+                <ul className="m-0 min-w-0 list-none space-y-1.5 p-0">
+                  {statusData.map((d, idx) => (
+                    <li key={d.name} className={`flex items-center justify-between gap-2 text-[12.5px] ${d.value ? "text-neutral-700" : "text-neutral-400"}`}>
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: d.value ? statusColors[idx % statusColors.length] : "#e5e5e5" }} aria-hidden />
+                        <span className="truncate">{sentence(d.name)}</span>
+                      </span>
+                      <span className="shrink-0 font-semibold tabular-nums">{d.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+
+            {/* By trip type: one bar per type, empty types muted */}
+            <section className="min-w-0 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white xl:col-span-3">
+              <header className="flex flex-wrap items-start justify-between gap-2 border-0 border-b border-solid border-neutral-100 px-4 py-3">
+                <div className="min-w-0">
+                  <h3 className="m-0 text-[14px] font-semibold text-neutral-900">By trip type</h3>
+                  <p className="m-0 mt-0.5 text-[12px] text-neutral-500">How much each kind of trip earned you in the period.</p>
+                </div>
+                <span className="text-[12px] text-neutral-500">Total <strong className="font-semibold tabular-nums text-neutral-900">{fmtMoney(typeData.total, reportCurrency)}</strong></span>
+              </header>
+              <div className="grid gap-x-8 gap-y-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
+                {typeData.rows.map((row, idx) => {
+                  const color = ["#047857", "#0284c7", "#d97706", "#7c3aed", "#64748b"][idx % 5];
+                  return (
+                    <div key={row.name} className={`min-w-0 ${row.value ? "" : "opacity-50"}`}>
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-[12.5px] font-medium text-neutral-700">{sentence(row.name)}</span>
+                        <span className="shrink-0 text-[12px] font-semibold tabular-nums text-neutral-500">{row.pct}%</span>
+                      </div>
+                      <p className="m-0 mt-0.5 text-[15px] font-bold tabular-nums text-neutral-900">{fmtMoney(row.value, reportCurrency)}</p>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100">
+                        <div className="h-full rounded-full" style={{ width: `${row.pct === 0 ? 0 : Math.max(3, row.pct)}%`, backgroundColor: color }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </section>
+        );
+      })()}
+
+      <section className="min-w-0 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+          <header className="border-0 border-b border-solid border-neutral-100 px-4 py-3">
+            <h3 className="m-0 text-[14px] font-semibold text-neutral-900">Operations details</h3>
+            <p className="m-0 mt-0.5 text-[12px] leading-4 text-neutral-500">Every assigned trip in the period, with its invoice stage and your earning.</p>
           </header>
 
           {rows.length === 0 ? (

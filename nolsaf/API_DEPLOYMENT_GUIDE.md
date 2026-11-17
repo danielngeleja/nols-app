@@ -586,6 +586,7 @@ test -f package-lock.json
 test -f docs/NoLSAF_Sales_Partner_Agreement.md
 test -f docs/NoLSAF_Sales_Partner_Agreement.fields.json
 test -f docs/NoLSAF_Operator_Mutual_NDA.md
+test -f docs/NoLSAF_Operator_Mutual_NDA.v1.0.0.md
 test -f docs/NoLSAF_Operator_Mutual_NDA.fields.json
 
 find prisma/migrations -name migration.sql -type f | wc -l

@@ -1,16 +1,15 @@
 {
   "template": {
     "name": "NoLSAF_Operator_Mutual_NDA",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "templateFile": "docs/NoLSAF_Operator_Mutual_NDA.md",
-    "description": "Placeholder field dictionary for system auto-fill and validation."
+    "description": "Field dictionary for the Tour Operator Partnership Agreement v2.0.0. Version 1.0.0 is frozen in NoLSAF_Operator_Mutual_NDA.v1.0.0.md for agreements already signed on it."
   },
   "generationRules": {
     "lockFieldsAtSigning": true,
     "allowManualOverrideBeforeSend": [
       "GOVERNING_LAW",
       "ARBITRATION_LOCATION",
-      "COMMISSION_SCHEDULE_REFERENCE",
       "SETTLEMENT_MIN_HOURS",
       "SETTLEMENT_MAX_DAYS",
       "PAYOUT_CURRENCY_RULE"
@@ -204,35 +203,11 @@
       }
     },
     {
-      "placeholder": "COMMISSION_SCHEDULE_REFERENCE",
-      "required": true,
-      "dataType": "string",
-      "source": "commercial_terms.commissionScheduleRef",
-      "example": "ANNEX-COMM-2026-01",
-      "editable": true,
-      "validation": {
-        "minLength": 3,
-        "maxLength": 120
-      }
-    },
-    {
       "placeholder": "COMMISSION_CHANGE_NOTICE_DAYS",
       "required": true,
       "dataType": "integer",
       "source": "commercial_terms.commissionChangeNoticeDays",
       "default": 30,
-      "editable": true,
-      "validation": {
-        "min": 0,
-        "max": 365
-      }
-    },
-    {
-      "placeholder": "SUBSCRIPTION_GRACE_DAYS",
-      "required": true,
-      "dataType": "integer",
-      "source": "commercial_terms.subscriptionGraceDays",
-      "default": 90,
       "editable": true,
       "validation": {
         "min": 0,
@@ -365,11 +340,11 @@
       "OPERATOR_REP_TITLE"
     ],
     "blockOnMissingCommercialTerms": [
-      "COMMISSION_SCHEDULE_REFERENCE",
-      "SUBSCRIPTION_GRACE_DAYS",
       "SETTLEMENT_MIN_HOURS",
       "SETTLEMENT_MAX_DAYS",
-      "PAYOUT_CURRENCY_RULE"
+      "PAYOUT_CURRENCY_RULE",
+      "COMMISSION_CHANGE_NOTICE_DAYS",
+      "COMMERCIAL_CHANGE_NOTICE_DAYS"
     ],
     "blockOnMissingNoticeData": [
       "NOLSAF_NOTICE_EMAIL",

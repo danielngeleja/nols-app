@@ -18,6 +18,8 @@ import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
 import { sanitizeText } from "../lib/sanitize.js";
+import { proButton, proDivider, proEmail, proHighlight } from "../lib/emailBase.js";
+import { AMBER, eatDate, esc, gap, mutedPara, para, signOff } from "../lib/proEmailParts.js";
 import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { sendMail } from "../lib/mailer.js";
 import {
@@ -247,7 +249,16 @@ router.post("/blocks/:blockId/send", (async (req: AuthedRequest, res: Response) 
     const recipient = parsed.data.email || loaded.block.contactEmail;
     if (!recipient) return res.status(400).json({ error: "The group contact email is missing", code: "CONTACT_EMAIL_REQUIRED" });
     const url = publicRoomingListUrl(loaded.list.publicToken);
-    const html = `<div style="font-family:Arial,sans-serif;color:#1f2937"><p>Dear ${loaded.block.contactName || "Group coordinator"},</p><p>${loaded.access.property.title} has shared the rooming list for <strong>${loaded.block.name}</strong>.</p><p><a href="${url}" style="display:inline-block;padding:11px 18px;background:#047857;color:#fff;text-decoration:none;border-radius:8px;font-weight:700">Open rooming list</a></p><p>Please submit the guest names by ${new Date(loaded.list.expiresAt).toLocaleDateString("en-GB")}.</p></div>`;
+    const html = proEmail("Please add your guest names", `
+      ${para(`Dear ${esc(loaded.block.contactName || "group coordinator")},`)}
+      ${para(`<strong>${esc(loaded.access.property.title)}</strong> has shared the rooming list for <strong>${esc(loaded.block.name)}</strong>. Open it to enter who is staying in each room.`)}
+      ${proHighlight("Submit by", esc(eatDate(loaded.list.expiresAt)), "The link stops working after this date.", AMBER, "#fffaf3")}
+      ${gap(22)}
+      ${proButton(url, "Open the rooming list")}
+      ${proDivider()}
+      ${mutedPara("This link is private to your group. Please do not forward it outside the people arranging the stay.")}
+      ${signOff(loaded.access.property.title || "The property team", "Regards")}
+    `);
     const delivery = await sendMail(recipient, `Rooming list for ${loaded.block.name}`, html, undefined, { sensitiveContent: true });
     await prisma.nrmsRoomingList.update({ where: { id: loaded.list.id }, data: { status: "SENT", sentAt: new Date() } });
     const list = await prisma.nrmsRoomingList.findUnique({ where: { id: loaded.list.id }, include: listInclude });

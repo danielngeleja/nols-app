@@ -8,7 +8,7 @@
  * the left, controls on the right, and a primary tab row underneath.
  *
  * The palette is the admin sidebar's, not NRMS's white: #082f2a on
- * border-emerald-950/70 with rounded-2xl, so the header and the sidebar read as
+ * border-emerald-950/70 with rounded-lg, so the header and the sidebar read as
  * one dark family rather than two unrelated surfaces.
  *
  * This lives outside SiteHeader for the same reason OwnerSiteHeader and
@@ -322,12 +322,12 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
             an ancestor of the menu's containing block, clipping here cuts the menu
             off at the card edge. The decorative layer below carries its own
             rounding instead. */}
-        <div className="relative rounded-2xl border border-solid border-emerald-950/70 bg-[#082f2a] shadow-[0_14px_34px_rgba(8,47,42,0.18)]">
+        <div className="relative rounded-lg border border-solid border-emerald-950/70 bg-[#082f2a] shadow-[0_14px_34px_rgba(8,47,42,0.18)]">
           {/* Depth without a hard band: a wide emerald bloom top-left and a cool
               highlight top-right, both far below the content in opacity. Rounded to
               match the card, since nothing clips it now. */}
           <div
-            className="pointer-events-none absolute inset-0 rounded-2xl"
+            className="pointer-events-none absolute inset-0 rounded-lg"
             aria-hidden
             style={{
               background:
@@ -336,7 +336,7 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
           />
 
           <div className="relative flex min-h-[4.75rem] items-center gap-3 px-3 sm:px-5">
-            <button type="button" onClick={toggleSidebar} className={`${iconButton} h-10 w-10 rounded-xl border border-solid border-white/10 bg-white/[0.06]`} aria-label="Toggle sidebar" title="Toggle sidebar">
+            <button type="button" onClick={toggleSidebar} className={`${iconButton} h-10 w-10 rounded-md border border-solid border-white/10 bg-white/[0.06]`} aria-label="Toggle sidebar" title="Toggle sidebar">
               <Menu className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
             </button>
 
@@ -365,7 +365,7 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
 
             {sessionLabel && (
               <div
-                className={`hidden h-10 shrink-0 select-none items-center gap-1.5 rounded-xl border border-solid px-3 transition duration-200 sm:inline-flex ${
+                className={`hidden h-10 shrink-0 select-none items-center gap-1.5 rounded-md border border-solid px-3 transition duration-200 sm:inline-flex ${
                   sessionCritical
                     ? "admin-session-blink border-rose-300/30 bg-rose-400/15 text-rose-100"
                     : "border-white/10 bg-white/[0.06] text-emerald-50/85"
@@ -378,7 +378,7 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
               </div>
             )}
 
-            <div className="hidden shrink-0 items-center gap-0.5 rounded-xl border border-solid border-white/10 bg-white/[0.05] p-1 md:flex">
+            <div className="hidden shrink-0 items-center gap-0.5 rounded-md border border-solid border-white/10 bg-white/[0.05] p-1 md:flex">
               <button type="button" onClick={handleRefresh} disabled={isRefreshing} className={iconButton} aria-label="Refresh" title="Refresh">
                 <RefreshCw className={`h-[18px] w-[18px] shrink-0 ${isRefreshing ? "animate-spin" : ""}`} strokeWidth={2} aria-hidden />
               </button>
@@ -410,7 +410,7 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
               <button
                 type="button"
                 onClick={() => setProfileOpen((v) => !v)}
-                className="group inline-flex h-10 cursor-pointer appearance-none items-center justify-center gap-2.5 rounded-xl border-0 bg-transparent px-1.5 transition duration-200 hover:bg-white/[0.1] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40"
+                className="group inline-flex h-10 cursor-pointer appearance-none items-center justify-center gap-2.5 rounded-md border-0 bg-transparent px-1.5 transition duration-200 hover:bg-white/[0.1] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40"
                 aria-label="Profile menu"
                 aria-expanded={profileOpen}
               >
@@ -433,7 +433,7 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
               {profileOpen && (
                 <div
                   ref={profileMenuRef}
-                  className={`admin-fade-in-up absolute right-0 z-[95] max-h-[calc(100vh-6rem)] w-64 overflow-hidden overflow-y-auto rounded-2xl border border-solid border-white/10 bg-gradient-to-b from-[#0b1220]/95 via-[#0a1624]/90 to-[#070f1a]/95 shadow-[0_24px_80px_rgba(0,0,0,0.55),0_0_40px_rgba(2,102,94,0.18)] backdrop-blur-xl ${
+                  className={`admin-fade-in-up absolute right-0 z-[95] max-h-[calc(100vh-6rem)] w-64 overflow-hidden overflow-y-auto rounded-lg border border-solid border-white/10 bg-gradient-to-b from-[#0b1220]/95 via-[#0a1624]/90 to-[#070f1a]/95 shadow-[0_24px_80px_rgba(0,0,0,0.55),0_0_40px_rgba(2,102,94,0.18)] backdrop-blur-xl ${
                     profilePlacement === "down" ? "top-full mt-3" : "bottom-full mb-3"
                   }`}
                 >
@@ -464,9 +464,9 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
                         key={item.href}
                         href={item.href}
                         onClick={() => setProfileOpen(false)}
-                        className="group mx-2 flex items-center gap-3 rounded-xl bg-transparent px-3 py-2 text-sm font-medium text-white/90 no-underline transition-all duration-200 ease-out hover:bg-white/10 hover:no-underline active:scale-[0.99] active:bg-white/10"
+                        className="group mx-2 flex items-center gap-3 rounded-md bg-transparent px-3 py-2 text-sm font-medium text-white/90 no-underline transition-all duration-200 ease-out hover:bg-white/10 hover:no-underline active:scale-[0.99] active:bg-white/10"
                       >
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-solid border-white/10 bg-white/5 transition-all duration-200 ease-out group-hover:border-white/20 group-hover:bg-white/10">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-solid border-white/10 bg-white/5 transition-all duration-200 ease-out group-hover:border-white/20 group-hover:bg-white/10">
                           <item.icon className="h-4 w-4 text-white/75 transition-all duration-200 ease-out group-hover:scale-105 group-hover:text-white" strokeWidth={2} aria-hidden />
                         </span>
                         {item.label}
@@ -478,9 +478,9 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
                     <button
                       type="button"
                       onClick={logoutAndRedirect}
-                      className="group mx-2 flex w-[calc(100%-1rem)] appearance-none items-center gap-3 rounded-xl border-0 bg-transparent px-3 py-2 text-sm font-semibold text-rose-200 transition-all duration-200 ease-out hover:bg-rose-500/10 active:scale-[0.99] active:bg-rose-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/30"
+                      className="group mx-2 flex w-[calc(100%-1rem)] appearance-none items-center gap-3 rounded-md border-0 bg-transparent px-3 py-2 text-sm font-semibold text-rose-200 transition-all duration-200 ease-out hover:bg-rose-500/10 active:scale-[0.99] active:bg-rose-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/30"
                     >
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-solid border-white/10 bg-white/5 transition-all duration-200 ease-out group-hover:border-rose-200/30 group-hover:bg-rose-500/10">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-solid border-white/10 bg-white/5 transition-all duration-200 ease-out group-hover:border-rose-200/30 group-hover:bg-rose-500/10">
                         <LogOut className="h-4 w-4 transition-all duration-200 ease-out group-hover:scale-105 group-hover:text-rose-100" strokeWidth={2} aria-hidden />
                       </span>
                       Logout

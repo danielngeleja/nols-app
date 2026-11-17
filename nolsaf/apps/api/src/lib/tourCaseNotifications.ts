@@ -1,6 +1,8 @@
 import { prisma } from "@nolsaf/prisma";
 import { sendMail } from "./mailer.js";
 import { sendSms } from "./sms.js";
+import { BRAND_TEAL, proButton, proDetailRows, proDivider, proEmail, proHighlight, proNoteCard } from "./emailBase.js";
+import { AMBER, RED, eatDate, escLines, gap, mutedPara, para, signOff } from "./proEmailParts.js";
 
 export type TourCaseOperatorNotificationKind =
   | "SUBMITTED"
@@ -76,14 +78,15 @@ export async function notifyTourOperatorCase(input: TourCaseOperatorNotification
 
     const copy = notificationCopy(input);
     const origin = (process.env.WEB_ORIGIN || process.env.APP_ORIGIN || process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "");
-    const caseUrl = `${origin}/account/agent/cancellations?case=${input.caseId}`;
+    // Opens the case by its booking code: the operator already knows it, and no row id leaves the server.
+    const caseUrl = `${origin}/account/agent/cancellations?view=all&booking=${encodeURIComponent(input.bookingCode)}`;
     const created = await prisma.notification.create({
       data: {
         userId: agent.userId,
         ownerId: null,
         type: "cancellation",
         title: copy.title,
-        body: `${copy.body} Booking ${input.bookingCode}, case #${input.caseId}.`,
+        body: `${copy.body} Booking ${input.bookingCode}.`,
         unread: true,
         meta: { href: caseUrl, tourBookingId: input.bookingId, bookingCode: input.bookingCode, caseId: input.caseId, kind: input.kind },
       },
@@ -114,35 +117,40 @@ export async function notifyTourOperatorCase(input: TourCaseOperatorNotification
     } catch { /* realtime is best-effort */ }
 
     const operatorName = agent.user.fullName || agent.user.name || "Tour operator";
-    const reason = input.reason ? `<p><strong>Case note:</strong> ${escapeHtml(input.reason)}</p>` : "";
-    const refund = input.refundAmount != null
-      ? `<p><strong>Refund:</strong> ${escapeHtml(input.currency || "TZS")} ${Number(input.refundAmount).toLocaleString()}</p>`
-      : "";
-    const recovery = input.recoveryAmount != null
-      ? `<p><strong>Amount to recover from you:</strong> ${escapeHtml(input.currency || "TZS")} ${Number(input.recoveryAmount).toLocaleString()}</p>`
-      : "";
-    const travelDate = input.startDate ? new Date(input.startDate).toLocaleString("en-GB") : "Not recorded";
-    const responseDeadline = input.responseDueAt
-      ? `<p><strong>Your response is due:</strong> ${escapeHtml(new Date(input.responseDueAt).toLocaleString("en-GB"))}</p>`
-      : "";
-    const emailHtml = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#172033">
-      <h2 style="color:#02665e">${escapeHtml(copy.title)}</h2>
-      <p>Hello ${escapeHtml(operatorName)},</p>
-      <p>${escapeHtml(copy.body)}</p>
-      <div style="background:#f4f7f8;border-radius:12px;padding:16px;margin:18px 0">
-        <p><strong>Tour:</strong> ${escapeHtml(input.tourTitle || "Tour package")}</p>
-        <p><strong>Booking:</strong> ${escapeHtml(input.bookingCode)}</p>
-        <p><strong>Travel date:</strong> ${escapeHtml(travelDate)}</p>
-        <p><strong>Case:</strong> #${input.caseId}</p>${responseDeadline}${reason}${refund}${recovery}
-      </div>
-      <p><a href="${escapeHtml(caseUrl)}" style="display:inline-block;background:#02665e;color:white;text-decoration:none;padding:11px 18px;border-radius:8px">Open cancellation workspace</a></p>
-      <p style="font-size:12px;color:#657086">NoLSAF makes the final cancellation and refund decision. Keep all evidence and communication inside the case workspace.</p>
-    </div>`;
+    // Accent follows the content: money owed is red, a request for action amber, the rest teal.
+    const accent = input.kind === "RECOVERY_REQUIRED" ? RED
+      : ["SUBMITTED", "EVIDENCE_REQUESTED", "TRAVELER_EVIDENCE_SUBMITTED"].includes(input.kind) ? AMBER
+        : BRAND_TEAL;
+    const currency = escapeHtml(input.currency || "TZS");
+    const money = (value: number) => `${currency} ${Number(value).toLocaleString("en-US")}`;
+    const rows: Array<[string, string]> = [
+      ["Tour", escapeHtml(input.tourTitle || "Tour package")],
+      ["Booking", escapeHtml(input.bookingCode)],
+      ["Travel date", input.startDate ? escapeHtml(eatDate(input.startDate)) : "Not recorded"],
+    ];
+    if (input.responseDueAt) rows.push(["Respond by", `<span style="color:${AMBER};">${escapeHtml(eatDate(input.responseDueAt, true))}</span>`]);
+    const amount = input.recoveryAmount != null
+      ? proHighlight("Amount to recover from you", money(input.recoveryAmount), "Recovered by repayment or by offsetting your upcoming payouts.", RED, "#fff6f5")
+      : input.refundAmount != null
+        ? proHighlight("Refund to the traveller", money(input.refundAmount), "", BRAND_TEAL)
+        : "";
+    const emailHtml = proEmail(escapeHtml(copy.title), `
+      ${para(`Hello ${escapeHtml(operatorName)},`)}
+      ${para(escapeHtml(copy.body))}
+      ${amount ? `${amount}${gap()}` : ""}
+      ${proDetailRows("Case details", rows)}
+      ${input.reason ? `${gap()}${proNoteCard(accent, "Case note", escLines(input.reason))}` : ""}
+      ${gap(22)}
+      ${proButton(caseUrl, "Open the case", accent)}
+      ${proDivider()}
+      ${mutedPara("NoLSAF makes the final cancellation and refund decision. Keep all evidence and messages inside the case workspace.")}
+      ${signOff("NoLSAF Traveller Care")}
+    `);
 
     const deliveries: Promise<unknown>[] = [];
-    if (agent.user.email) deliveries.push(sendMail(agent.user.email, `${copy.title} - ${input.bookingCode}`, emailHtml));
+    if (agent.user.email) deliveries.push(sendMail(agent.user.email, `${copy.title}: ${input.bookingCode}`, emailHtml));
     if (agent.user.phone && ["SUBMITTED", "APPROVED", "REJECTED", "REFUNDED", "RECOVERY_REQUIRED"].includes(input.kind)) {
-      deliveries.push(sendSms(agent.user.phone, `NoLSAF: ${copy.title}. Booking ${input.bookingCode}, case #${input.caseId}. ${copy.body} Open your Agent Portal.`));
+      deliveries.push(sendSms(agent.user.phone, `NoLSAF: ${copy.title}. Booking ${input.bookingCode}. ${copy.body} Open your operator portal.`));
     }
     if (deliveries.length) void Promise.allSettled(deliveries);
     return true;

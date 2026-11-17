@@ -1,14 +1,9 @@
 "use client"
 
-import React from "react"
-import LoginHistoryTable from "@/components/security/LoginHistoryTable"
+import SecurityLoginHistory from "@/components/account-security/SecurityLoginHistory"
+import { AGENT_SECURITY } from "@/components/account-security/securityData"
 
+// Same security pages as owners and travellers, scoped to the operator workspace.
 export default function AgentLoginHistoryPage() {
-  return (
-    <LoginHistoryTable
-      apiUrl="/api/account/security/logins"
-      backHref="/account/agent/security"
-      containerClassName="public-container w-full"
-    />
-  )
+  return <SecurityLoginHistory scope={AGENT_SECURITY} />
 }

@@ -189,7 +189,14 @@ export default function AgentTourBookingDetailPage() {
         const res = await api.get(`/api/agent/tour-bookings/${encodeURIComponent(bookingId)}`);
         if (!alive) return;
 
-        setItem(res.data?.item ?? res.data?.data?.item ?? res.data);
+        const loaded = res.data?.item ?? res.data?.data?.item ?? res.data;
+        setItem(loaded);
+        // An older link carried the row id: swap the address bar to the opaque
+        // tr_ reference without reloading, so ids never stay in a URL.
+        const ref = typeof loaded?.ref === "string" ? loaded.ref : "";
+        if (ref && /^\d+$/.test(bookingId) && typeof window !== "undefined") {
+          window.history.replaceState(window.history.state, "", `/account/agent/tour-bookings/${encodeURIComponent(ref)}${window.location.search}${window.location.hash}`);
+        }
       } catch (e: any) {
         if (!alive) return;
         if (e?.response?.status === 401) {

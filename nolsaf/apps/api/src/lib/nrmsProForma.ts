@@ -359,6 +359,9 @@ export async function renderProFormaReceiptPdf(record: any): Promise<{ pdf: Buff
   return { pdf, number };
 }
 
+import { proButton, proDivider, proEmail, proHighlight, proNoteCard } from "./emailBase.js";
+import { AMBER, eatDate, gap, mutedPara, para, signOff } from "./proEmailParts.js";
+
 function escapeHtml(value: unknown): string {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
 }
@@ -367,20 +370,19 @@ export async function emailMasterProForma(record: any, recipient: string) {
   const pdf = await renderMasterProFormaPdf(record);
   const url = proFormaVerificationUrl(record.publicToken);
   const amount = `${record.currency} ${money(record.balanceDue).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
-  const html = `
-    <div style="font-family:Arial,sans-serif;color:#16312f;max-width:640px;margin:auto">
-      <h2 style="color:#02665e">Pro Forma Invoice ${escapeHtml(record.number)}</h2>
-      <p>Dear ${escapeHtml(record.contactName)},</p>
-      <p>${escapeHtml(record.propertyName)} has issued a Pro Forma Invoice for <strong>${escapeHtml(record.billToName)}</strong>.</p>
-      <table style="width:100%;border-collapse:collapse;background:#f2f8f7;margin:20px 0">
-        <tr><td style="padding:10px">Amount requested</td><td style="padding:10px;text-align:right"><strong>${escapeHtml(amount)}</strong></td></tr>
-        <tr><td style="padding:10px">Due date</td><td style="padding:10px;text-align:right">${escapeHtml(new Date(record.dueAt).toLocaleDateString("en-GB"))}</td></tr>
-        <tr><td style="padding:10px">Payment reference</td><td style="padding:10px;text-align:right"><strong>${escapeHtml(record.number)}</strong></td></tr>
-      </table>
-      <p><a href="${escapeHtml(url)}" style="display:inline-block;background:#02665e;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold">View and verify Pro Forma</a></p>
-      ${record.bankSource === "MANUAL_UNVERIFIED" ? `<p style="padding:12px;background:#fff7ed;border:1px solid #fcd34d;border-radius:8px;font-size:12px;color:#92400e"><strong>Manual bank instructions — not verified:</strong> The property owner entered this account directly. NoLSAF and AzamPay have not verified it. Confirm the details independently with the property before payment.</p>` : ""}
-      <p style="font-size:12px;color:#667">Payment is made directly to ${escapeHtml(record.propertyName)} using the bank instructions in the attached document. NoLSAF does not receive or hold these funds.</p>
-    </div>`;
+  const html = proEmail(`Pro forma invoice ${escapeHtml(record.number)}`, `
+    ${para(`Dear ${escapeHtml(record.contactName)},`)}
+    ${para(`<strong>${escapeHtml(record.propertyName)}</strong> has issued a pro forma invoice for <strong>${escapeHtml(record.billToName)}</strong>. The full document is attached.`)}
+    ${proHighlight("Amount requested", escapeHtml(amount), `Due ${escapeHtml(eatDate(record.dueAt))}. Use <strong>${escapeHtml(record.number)}</strong> as the payment reference.`)}
+    ${record.bankSource === "MANUAL_UNVERIFIED"
+      ? `${gap()}${proNoteCard(AMBER, "Bank details not verified", "The property entered this bank account itself. NoLSAF and AzamPay have not verified it. Confirm the details with the property before you pay.", "#fffaf3")}`
+      : ""}
+    ${gap(22)}
+    ${proButton(url, "View and verify the invoice")}
+    ${proDivider()}
+    ${mutedPara(`Payment goes directly to ${escapeHtml(record.propertyName)} using the bank details in the attached document. NoLSAF does not receive or hold these funds.`)}
+    ${signOff(record.propertyName || "The property team", "Regards")}
+  `);
   const delivery = await sendMail(
     recipient,
     `Pro Forma Invoice ${record.number} from ${record.propertyName}`,

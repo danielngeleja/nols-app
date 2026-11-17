@@ -1,4 +1,4 @@
-# NON-DISCLOSURE AND PARTNERSHIP PROTECTION AGREEMENT
+# Tour Operator Partnership Agreement
 
 **Contract ID:** {{CONTRACT_ID}}
 
@@ -8,261 +8,273 @@
 
 **Effective Date:** {{EFFECTIVE_DATE}}
 
-This Non-Disclosure and Partnership Protection Agreement ("Agreement") is entered into by and between:
+This Tour Operator Partnership Agreement ("Agreement") is entered into by and between:
 
 1. **NoLSAF**, operating under the laws of {{NOLSAF_JURISDICTION}}, with its principal office located at {{NOLSAF_ADDRESS}} ("NoLSAF"); and
 2. **{{OPERATOR_COMPANY_NAME}}**, operating under the laws of {{OPERATOR_JURISDICTION}}, with its principal office located at {{OPERATOR_ADDRESS}} ("Operator").
 
-NoLSAF and Operator are each a "Party" and together the "Parties."
+NoLSAF and the Operator are each a "Party" and together the "Parties."
 
-The Parties acknowledge that they intend to establish and maintain a confidential business relationship involving tourism coordination, digital platform participation, accommodation services, transport services, tourism activities, payment coordination, customer management, and related commercial operations.
-
-During the course of this relationship, each Party may disclose proprietary, operational, financial, technical, strategic, and commercial information that requires protection from unauthorized disclosure, misuse, or exploitation.
+NoLSAF runs an online travel marketplace in Tanzania where travellers find, book and pay for stays, tours and transport. The Operator designs and delivers tours. This Agreement sets out how the Operator offers its tours through NoLSAF, how travellers' money is handled and paid to the Operator, and how each Party protects the other's information and business.
 
 The Parties therefore agree as follows:
 
 ## 1. Definitions
 
-1.1 **Confidential Information** means all technical, operational, commercial, strategic, financial, customer-related, and proprietary information disclosed by either Party, whether orally, electronically, visually, digitally, or in written form.
+1.1 **NoLSAF Platform** means the online travel marketplace operated by NoLSAF at nolsaf.com and in the NoLSAF mobile apps, through which travellers discover, book and pay for travel services offered by verified partners, together with the operator workspace, booking records, messaging, payment collection and payout tools that NoLSAF provides to partners as part of that marketplace. The NoLSAF Platform is not software licensed or sold to the Operator.
 
-1.2 Confidential Information includes dashboards, reports, workflows, APIs, customer records, pricing logic, commission structures, platform identity, source logic, credentials, operational methods, analytics, supplier information, communications, internal documents, partnership materials, and all information reasonably understood to be confidential.
+1.2 **Operator Workspace** means the Operator's account area on the NoLSAF Platform, where the Operator manages its profile, tour packages, bookings, cases, payout destination and revenues.
 
-## 2. Purpose of the Agreement
+1.3 **Traveller** means a person who books or pays for a tour offered by the Operator through the NoLSAF Platform.
 
-2.1 The purpose of this Agreement is to establish clear obligations governing confidentiality, operational protection, intellectual property, restricted use, data handling, and responsible management of information exchanged between the Parties in connection with their partnership relationship.
+1.4 **Package Price** means the price per person that the Operator sets for a tour package in the Operator Workspace, including any seasonal rate or discount the Operator has published.
 
-## 3. Confidentiality Obligations
+1.5 **NoLSAF Commission** means the service fee NoLSAF earns on each booking, calculated as a percentage of the Package Price total and added on top of it, so that it is paid by the Traveller and not deducted from the Operator's price.
 
-3.1 Each Party agrees to maintain strict confidentiality over all Confidential Information received from the other Party and shall not disclose, publish, reproduce, distribute, transfer, or exploit such information without prior written consent.
+1.6 **Booking Total** means the amount the Traveller pays for a booking: the Package Price total plus the NoLSAF Commission.
 
-3.2 The receiving Party shall use Confidential Information solely for purposes directly related to the partnership relationship and authorized operational activities.
+1.7 **Operator Net Share** means the part of a paid booking that belongs to the Operator: the Package Price total for that booking, before any recovery or deduction allowed by section 9.
 
-3.3 Neither Party shall disclose internal reports, operational details, credentials, pricing logic, financial structures, customer information, technical systems, business methodologies, dashboards, workflows, or strategic information to any third party without prior written authorization.
+1.8 **Advance** and **Balance** mean the two payments through which the Operator Net Share is paid: an Advance before the trip and the Balance after it, as set out in section 8 and the Disbursement Policy.
 
-## 4. Restricted Use of Information
+1.9 **Disbursement Policy** means the NoLSAF Tour Operator Disbursement Policy published at nolsaf.com/tour-operator-disbursement-policy, as updated under section 12.
 
-4.1 Neither Party shall use Confidential Information to replicate systems, interfere with business operations, compete unfairly, exploit customer relationships, or develop competing services derived from protected information obtained through the partnership.
+1.10 **Cancellation Policy** means the tour section of the NoLSAF Cancellation Policy published at nolsaf.com/cancellation-policy, as updated under section 12.
 
-4.2 The Parties agree that Confidential Information shall not be copied, reverse-engineered, modified, distributed, or commercially exploited outside the authorized scope of the relationship.
+1.11 **Case** means a change, issue, cancellation or refund request raised on a booking by a Traveller, the Operator or NoLSAF.
 
-## 5. Intellectual Property Rights
+1.12 **Recovery** means an amount the Operator owes NoLSAF because money was paid to the Operator for a booking that was later cancelled or refunded, calculated under the Cancellation Policy.
 
-5.1 NoLSAF retains full ownership over its systems, operational structures, APIs, workflows, dashboards, platform identity, source logic, reports, branding, infrastructure, software structures, technological frameworks, and proprietary methods.
+1.13 **Payout Destination** means the mobile money account the Operator registers in the Operator Workspace, whose account holder name has been verified with the payout provider. Bank accounts may be added as Payout Destinations when NoLSAF announces that bank payouts are available.
 
-5.2 The Operator retains ownership over its business methods, operational materials, customer relationships, branding, commercial structures, independently developed content, and internal operational systems.
+1.14 **Confidential Information** means all technical, operational, commercial, financial, customer-related and proprietary information disclosed by either Party, in any form. It includes dashboards, reports, booking and Traveller records, pricing, commission terms, supplier information, credentials, internal documents and any information reasonably understood to be confidential.
 
-5.3 Nothing in this Agreement shall transfer ownership of trademarks, copyrights, systems, software, branding, methodologies, or proprietary technologies from one Party to the other.
+## 2. Role of each Party
 
-## 6. Data Protection and Security
+2.1 NoLSAF provides the NoLSAF Platform: it lists the Operator's approved tours, markets them to Travellers, takes bookings, collects Traveller payments, handles Cases with the Parties, and pays the Operator under this Agreement.
 
-6.1 Each Party shall implement reasonable administrative, technical, and organizational safeguards to protect customer data, financial information, operational records, booking information, transaction records, and partnership materials.
+2.2 The Operator is the provider of the tour. It is responsible for delivering every confirmed booking as described in the published package, including transport, guides, accommodation, park and conservation fees, permits, meals and every other service listed as included.
 
-6.2 Customer information obtained through the relationship shall not be sold, disclosed, transferred, distributed, or misused outside the authorized scope of the partnership.
+2.3 The Operator acts as an independent business. Nothing in this Agreement makes either Party the employee, agent, partner in law or joint venturer of the other, and neither Party may bind the other to any obligation.
 
-6.3 The Parties agree to comply with all applicable data protection and privacy requirements relevant to their jurisdiction and operations.
+2.4 NoLSAF does not charge the Operator any subscription, registration or listing fee for the NoLSAF Platform. NoLSAF earns only the NoLSAF Commission described in section 6. Any optional paid service NoLSAF may offer in future will require the Operator's separate written acceptance.
 
-## 7. Work Product and Operational Materials
+## 3. Operator onboarding and standards
 
-7.1 All reports, dashboards, analytics, workflows, operational documents, booking records, communications, partnership materials, service records, and related outputs created, exchanged, or accessed during the partnership shall remain subject to the confidentiality and protection obligations contained in this Agreement.
+3.1 The Operator shall keep in force every licence, permit, registration and insurance the law of Tanzania requires for its tourism business, and shall provide copies to NoLSAF on request.
 
-## 8. Use of Names, Logos, and Branding
+3.2 The Operator shall keep its profile, packages, prices, inclusions, exclusions, itineraries, vehicles and photos accurate and current. A package must describe what the Traveller will actually receive.
 
-8.1 Neither Party may use the other Party's name, trademark, logo, screenshots, reports, dashboards, promotional materials, internal documents, or proprietary materials in public communications, advertisements, investor materials, social media, marketing activities, or external presentations without prior written authorization.
+3.3 Vehicles used for NoLSAF bookings shall be roadworthy, insured and suitable for the trip, and guides and drivers shall be qualified and licensed as required by law.
 
-## 9. Non-Solicitation
+3.4 NoLSAF reviews profiles and packages before they go live and may ask for changes, pause a package or refuse a listing that is inaccurate, unsafe or in breach of this Agreement.
 
-9.1 During the term of this Agreement and for **{{NON_SOLICIT_MONTHS}}** months following termination, neither Party shall intentionally solicit or interfere with the employees, contractors, suppliers, customers, or strategic business relationships of the other Party in a manner that materially undermines the partnership relationship.
+3.5 Operator levels (Bronze, Silver, Gold and Platinum) are set by NoLSAF from the Operator's completed trips, revenue and Traveller ratings. A level affects visibility, badges and access to Advances. It does not change the NoLSAF Commission rate.
 
-## 10. Non-Disparagement
+## 4. Bookings and delivery
 
-10.1 The Parties agree not to make false, misleading, defamatory, damaging, or harmful statements concerning the other Party, its personnel, systems, operations, services, business relationships, or reputation.
+4.1 A booking is confirmed only once the Traveller's payment is confirmed on the NoLSAF Platform. The Operator shall not deliver, or ask the Traveller to pay for, a booking that is not confirmed.
 
-## 11. Exclusions
+4.2 The Operator shall honour each confirmed booking at the Package Price and on the terms shown to the Traveller when the booking was made.
 
-11.1 Confidential Information shall not include information that:
-- becomes publicly available without breach of this Agreement;
-- was lawfully known prior to disclosure;
-- is independently developed without use of protected information;
+4.3 The Operator shall keep the trip timetable up to date in the Operator Workspace, mark activities as they are completed, and validate the Traveller's pickup only when the Traveller has actually been met.
+
+4.4 The Operator shall respond to every Case within the time the Operator Workspace shows and shall cooperate with NoLSAF in resolving it, including by providing evidence such as supplier receipts.
+
+## 5. How Traveller money is handled
+
+5.1 Every Traveller payment for a tour is made to NoLSAF through the NoLSAF Platform. NoLSAF holds the money and releases the Operator Net Share only under section 8 and the Disbursement Policy.
+
+5.2 The Operator shall not ask a Traveller to pay the Operator or anyone else directly for a booking made through the NoLSAF Platform, including any deposit, top-up or tip that the package presents as included.
+
+5.3 Holding Traveller money until delivery protects the Traveller's refund rights and the Operator's right to be paid. The Operator accepts that NoLSAF may hold payment for a booking while a Case is open on it.
+
+## 6. NoLSAF Commission
+
+6.1 NoLSAF earns the NoLSAF Commission on each paid booking. It is a percentage of the Package Price total, added on top of it and paid by the Traveller.
+
+6.2 The rate in force is shown in the Operator Workspace. The rate that applies to a booking is the rate recorded on that booking when the Traveller booked it, and it does not change afterwards.
+
+6.3 NoLSAF may change the rate on at least **{{COMMISSION_CHANGE_NOTICE_DAYS}}** days' written notice. A new rate applies only to bookings made on or after its effective date.
+
+6.4 The NoLSAF Commission is earned when the booking is paid. How much of the Booking Total is refunded when a booking is cancelled is decided by the Cancellation Policy. The Operator's part of any refund is limited to a Recovery under section 9.
+
+## 7. Package prices
+
+7.1 The Operator sets its own Package Prices, seasonal rates and discounts. NoLSAF does not change the Operator's prices without the Operator's agreement.
+
+7.2 The Operator shall not use pricing to mislead Travellers, for example by inflating a price to advertise a discount, or by publishing a price lower than the one it intends to charge.
+
+## 8. Payouts to the Operator
+
+8.1 The Operator Net Share of each booking is paid in two parts:
+- an Advance before the trip, available from 7 days before departure to Operators of Silver level or above with a verified Payout Destination and no unpaid Recovery, of up to 30% of the Operator Net Share, or up to 70% where supplier receipts cover the difference or departure is within 96 hours; and
+- the Balance after the trip, being the Operator Net Share less all Advances paid, once the Traveller confirms completion or, where no Case is open, automatically when the dispute window set out in the Disbursement Policy closes.
+
+8.2 The Disbursement Policy sets out the full rules, including when an Advance opens, what receipts are accepted, and how the dispute window is calculated.
+
+8.3 Each Advance and Balance is claimed in the Operator Workspace and moves through these stages: claimed by the Operator, verified by NoLSAF finance, approved for release, and paid to the Payout Destination.
+
+8.4 NoLSAF shall pay each valid claim within **{{SETTLEMENT_MIN_HOURS}}** hours to **{{SETTLEMENT_MAX_DAYS}}** days of the claim, subject to verification, fraud review and any open Case. A claim missing information is paused until the information is provided, and NoLSAF will say what is needed.
+
+8.5 Payouts are made in **{{PAYOUT_CURRENCY_RULE}}**, in the currency of the booking where the Payout Destination supports it, and otherwise as permitted by the payout provider and foreign exchange rules.
+
+8.6 Payouts are sent only to the verified Payout Destination, by mobile money. NoLSAF will give written notice when bank payouts become available. Changing the Payout Destination pauses any approved payment until the new destination is verified.
+
+8.7 The Operator can see every booking, its NoLSAF Commission, its Operator Net Share, each Advance and Balance and their stage, and every Recovery in the Operator Workspace.
+
+## 9. Cancellations, refunds and recoveries
+
+9.1 Traveller cancellations and refunds are handled under the Cancellation Policy. A Traveller's refund is paid without waiting for the Operator to repay any money already paid out.
+
+9.2 Where a booking is cancelled after the Operator has been paid an Advance or Balance, the amount to be returned becomes a Recovery:
+- when the Traveller cancels, the Recovery is the smaller of the amount paid to the Operator and the refund given to the Traveller; and
+- when the Operator is responsible for the cancellation or fails to deliver, the Recovery is the full amount paid to the Operator for that booking.
+
+9.3 Documented, non-recoverable supplier costs that NoLSAF accepts reduce the Traveller's refund and so reduce the Recovery. The Operator should keep supplier receipts for every trip.
+
+9.4 The Operator shall settle a Recovery by repayment or by deduction from its next payouts. While a Recovery is unpaid, NoLSAF will not pay new Advances to the Operator.
+
+9.5 Apart from a Recovery, a refund owed to a Traveller because of the Operator's failure, and tax NoLSAF must withhold by law, NoLSAF makes no deduction from the Operator Net Share.
+
+9.6 Refund charges described in the Cancellation Policy are borne by the Traveller as that policy states, and are not deducted from the Operator Net Share.
+
+## 10. Tax
+
+10.1 Each Party is responsible for its own taxes, registrations, filings and accounting. The Operator is responsible for tax on its Operator Net Share, including any VAT and tourism levies on the services it provides. NoLSAF is responsible for tax on the NoLSAF Commission.
+
+10.2 Where the law requires NoLSAF to withhold tax from a payout, NoLSAF will withhold it, pay it to the tax authority and give the Operator a record of the amount withheld.
+
+10.3 The Operator shall give NoLSAF its correct tax identification and business details, and update them when they change.
+
+## 11. Protecting the marketplace
+
+11.1 The Operator shall not move a Traveller who found or booked it through the NoLSAF Platform to a direct booking or payment outside the NoLSAF Platform, for that trip or for a later trip offered to that Traveller as a result of the booking, without NoLSAF's prior written consent.
+
+11.2 The Operator shall not submit false, altered or reused receipts, validate a pickup without meeting the Traveller, mark a trip completed before it is delivered, post or arrange fake reviews, or otherwise manipulate bookings, ratings, Cases or payout claims.
+
+11.3 Where NoLSAF reasonably suspects fraud or a serious breach, it may pause payouts and Advances, hide packages, or suspend the Operator's account while it investigates. NoLSAF will tell the Operator the reason, unless the law or an investigation prevents it, and will restore access and release money found to be properly due once the matter is resolved.
+
+11.4 NoLSAF may set off any Recovery or other amount the Operator owes under this Agreement against payouts due to the Operator, as permitted by law.
+
+## 12. Changes to commercial terms and policies
+
+12.1 NoLSAF shall give at least **{{COMMERCIAL_CHANGE_NOTICE_DAYS}}** days' written notice before a material change to the NoLSAF Commission, the Disbursement Policy, the Cancellation Policy or any other term affecting how the Operator is paid.
+
+12.2 A change does not apply to bookings made before it takes effect. A payout claim is handled under the Disbursement Policy version in force when the claim was made.
+
+12.3 The Operator may object in writing within the notice period. If the Parties cannot agree, the Operator may end this Agreement under section 22 without penalty before the change takes effect.
+
+12.4 Changes that only make a term more favourable to the Operator, or are required by law, may take effect immediately.
+
+12.5 If this Agreement and a NoLSAF policy differ, this Agreement prevails, then the Disbursement Policy, then the Cancellation Policy, then the NoLSAF Terms of Service.
+
+## 13. Confidentiality
+
+13.1 Each Party shall keep the other Party's Confidential Information confidential and shall not disclose, publish, copy or use it except to perform this Agreement, or with the other Party's prior written consent.
+
+13.2 Each Party may share Confidential Information with its staff, advisers and service providers who need it for this Agreement and who are bound by confidentiality duties at least as strict as these.
+
+13.3 Neither Party shall use the other Party's Confidential Information to copy its systems, interfere with its business, or build a competing service.
+
+## 14. Exclusions
+
+14.1 Confidential Information does not include information that:
+- becomes public without breach of this Agreement;
+- was lawfully known to the receiving Party before disclosure;
+- is independently developed without use of the other Party's information;
 - is lawfully obtained from a third party without restriction; or
-- is required to be disclosed by law or governmental order.
+- must be disclosed by law or by order of a court or authority, in which case the disclosing Party shall, where allowed, notify the other Party first.
 
-## 12. Term and Survival
+## 15. Traveller data and privacy
 
-12.1 This Agreement shall commence on the Effective Date and remain effective until terminated in writing by either Party.
+15.1 Traveller information the Operator receives through the NoLSAF Platform is shared only so the Operator can deliver the booked trip. The Operator shall use it for that purpose only.
 
-12.2 Obligations concerning confidentiality, intellectual property, restricted use, data protection, non-solicitation, non-disparagement, and operational protection shall survive termination indefinitely or for the maximum period permitted under applicable law.
+15.2 The Operator shall not sell, share or use Traveller information for its own marketing, and shall not contact a Traveller for any purpose other than delivering and supporting the booked trip.
 
-## 13. Termination
+15.3 Each Party shall keep personal data secure and comply with the Personal Data Protection Act, 2022 of Tanzania and any other data protection law that applies to it, and shall tell the other Party without delay of any breach affecting data received under this Agreement.
 
-13.1 Either Party may terminate this Agreement through written notice to the other Party.
+## 16. Intellectual property and branding
 
-13.2 Upon termination, both Parties shall cease unauthorized use of Confidential Information and comply with all obligations relating to protection and handling of confidential materials.
+16.1 NoLSAF owns the NoLSAF Platform, its software, design, data, reports and brand. The Operator owns its business name, logo, photos and content.
 
-## 14. Return or Destruction of Materials
+16.2 The Operator grants NoLSAF a non-exclusive, royalty-free licence, for the term of this Agreement, to display and adapt the content the Operator uploads in order to list and market its tours on and off the NoLSAF Platform.
 
-14.1 Upon request or termination, each Party shall return, destroy, or permanently delete all confidential records, credentials, reports, operational documents, partnership materials, and related information belonging to the other Party unless retention is required by law.
+16.3 Neither Party shall use the other Party's name, logo or materials in advertising or public statements without prior written consent, except that NoLSAF may name the Operator as a partner and show its listings, and the Operator may say that its tours are bookable on NoLSAF.
 
-## 15. Remedies for Breach
+## 17. Non-solicitation
 
-15.1 The Parties acknowledge that unauthorized disclosure or misuse of Confidential Information may cause irreparable harm.
+17.1 During this Agreement and for **{{NON_SOLICIT_MONTHS}}** months after it ends, neither Party shall knowingly solicit the other Party's employees or contractors to leave, or interfere with the other Party's supplier relationships, in a way that undermines this partnership.
 
-15.2 The injured Party shall be entitled to seek injunctive relief, equitable remedies, damages, compensation, and any other remedies available under applicable law.
+## 18. Non-disparagement
 
-## 16. Governing Law and Dispute Resolution
+18.1 Neither Party shall make false or misleading statements about the other Party, its people, services or reputation. This does not prevent honest Traveller reviews or a Party from raising a genuine complaint through proper channels.
 
-16.1 This Agreement shall be governed by the laws of **{{GOVERNING_LAW}}**.
+## 19. Liability and indemnity
 
-16.2 Any dispute arising under or relating to this Agreement shall first be resolved through good-faith negotiations between the Parties.
+19.1 The Operator is responsible for the safety and delivery of its tours and shall indemnify NoLSAF against claims, losses and costs arising from the Operator's services, staff, vehicles, suppliers or breach of this Agreement.
 
-16.3 Where unresolved, disputes shall be referred to mediation or arbitration in **{{ARBITRATION_LOCATION}}**.
+19.2 NoLSAF is responsible for operating the NoLSAF Platform with reasonable care and for paying amounts due under this Agreement, and shall indemnify the Operator against claims arising from NoLSAF's own breach of this Agreement.
 
-## 17. Notices
+19.3 Neither Party is liable to the other for indirect or consequential loss, or loss of profit, except in case of fraud, wilful misconduct or breach of section 13 or 15.
 
-17.1 All notices under this Agreement shall be made in writing and delivered through official email addresses, courier services, registered mail, or other authorized communication channels designated by the Parties.
+## 20. Records and review
 
-17.2 NoLSAF notice details:
+20.1 Both Parties shall keep accurate records of bookings, payments, receipts and payouts made under this Agreement for at least five years, or longer if the law requires.
+
+20.2 NoLSAF may review the records and evidence behind a booking, Case or payout claim, and the Operator shall cooperate by providing them on reasonable request.
+
+## 21. Term
+
+21.1 This Agreement starts on the Effective Date and continues until ended under section 22.
+
+21.2 Sections 9, 10, 11.4, 13 to 16, 17, 19 and 20, and any obligation to pay or repay money, survive the end of this Agreement.
+
+## 22. Ending this Agreement
+
+22.1 Either Party may end this Agreement on 30 days' written notice to the other Party.
+
+22.2 Either Party may end this Agreement at once by written notice if the other Party commits a serious breach, including fraud, and does not fix it, where it can be fixed, within 7 days of being asked to.
+
+22.3 When this Agreement ends, the Operator's packages are removed from sale. Unless NoLSAF agrees otherwise, the Operator shall deliver every booking confirmed before the end date, and NoLSAF shall pay the Operator Net Share for those bookings under section 8.
+
+22.4 Any Recovery or other amount owed by either Party remains payable after this Agreement ends.
+
+22.5 When this Agreement ends, each Party shall, on request, return or delete the other Party's Confidential Information and Traveller data it no longer needs, except where the law requires it to be kept.
+
+## 23. Remedies
+
+23.1 The Parties acknowledge that misuse of Confidential Information or Traveller data may cause harm that money cannot fully repair, and that the injured Party may seek an injunction as well as any other remedy available by law.
+
+## 24. Governing law and disputes
+
+24.1 This Agreement is governed by the **{{GOVERNING_LAW}}**.
+
+24.2 The Parties shall first try to settle any dispute in good faith. A dispute about a payout or Case should first be raised from the booking in the Operator Workspace.
+
+24.3 A dispute not settled within 30 days shall be referred to mediation and, if unresolved, to arbitration in **{{ARBITRATION_LOCATION}}**.
+
+## 25. Notices
+
+25.1 Notices under this Agreement shall be in writing and sent by email, courier, registered mail, or through the Operator Workspace. A notice sent by email or through the Operator Workspace is received on the next working day.
+
+25.2 NoLSAF notice details:
 - Address: {{NOLSAF_NOTICE_ADDRESS}}
 - Email: {{NOLSAF_NOTICE_EMAIL}}
 
-17.3 Operator notice details:
+25.3 Operator notice details:
 - Address: {{OPERATOR_NOTICE_ADDRESS}}
 - Email: {{OPERATOR_NOTICE_EMAIL}}
 
-## 18. Entire Agreement
+## 26. Entire agreement
 
-18.1 This Agreement constitutes the complete understanding between the Parties concerning confidentiality and partnership protection and supersedes prior oral or written understandings relating to the same subject matter.
+26.1 This Agreement, with the policies it names, is the whole agreement between the Parties about its subject and replaces any earlier version of the NoLSAF operator agreement signed by the Operator, for bookings made after its Effective Date.
 
-18.2 Any amendment or modification to this Agreement shall only be valid if made in writing and signed by both Parties.
+26.2 Apart from policy changes made under section 12, this Agreement may be changed only in writing signed by both Parties.
 
-## 19. Economic and Commercial Framework
+26.3 If any part of this Agreement is found invalid, the rest remains in force.
 
-### 19.1 Definitions
-
-19.1.1 **NoLSAF Platform** means the Software-as-a-Service (SaaS) digital infrastructure, marketplace environment, booking management system, reporting infrastructure, commission tracking system, subscription management system, operational workflow tools, dashboards, APIs, payment coordination systems, analytics systems, and related operational technologies operated and managed by NoLSAF.
-
-19.1.2 **Operator** means a verified and approved business user onboarded into the NoLSAF Platform with authorized account access rights for purposes of listing services, managing tours, handling bookings, coordinating customer services, fulfilling operational obligations, and earning revenue through transactions facilitated via the Platform.
-
-19.1.3 **Gross Booking Value** means the total monetary amount paid or payable by a customer for bookings, services, packages, tours, accommodations, transportation, activities, or related services before deductions.
-
-19.1.4 **Net Payable** means the remaining amount payable to the Operator after deduction of applicable Platform Commissions, Subscription Fees, Taxes, refunds, chargebacks, penalties, operational adjustments, or other authorized deductions.
-
-19.1.5 **Platform Commission** means the commission payable to NoLSAF for facilitating bookings, operational coordination, marketplace visibility, payment infrastructure, reporting services, and platform-related operational support.
-
-19.1.6 **Subscription Fee** means recurring monthly, annual, or other agreed fees payable by the Operator for continued access to Platform tools, dashboards, operational infrastructure, analytics, and related SaaS services.
-
-19.1.7 **Taxes** means all applicable government-imposed taxes, levies, duties, withholding obligations, VAT, tourism levies, digital service taxes, or related statutory charges.
-
-19.1.8 **Refunds and Chargebacks** means customer reimbursements and payment reversals processed due to cancellations, disputes, operational failures, approved refund requests, or financial institution actions.
-
-19.1.9 **Settlement Cycle** means the defined operational period within which NoLSAF processes reconciliation and payout calculations before disbursing Net Payable amounts to the Operator.
-
-19.1.10 **Payout Account** means the officially designated bank account, wallet account, or financial account submitted and verified by the Operator for receipt of payouts.
-
-### 19.2 Commission Model
-
-19.2.1 NoLSAF shall earn Platform Commission for transactions, bookings, or operational services facilitated through the NoLSAF Platform.
-
-19.2.2 Applicable Platform Commission may consist of:
-- a percentage-based commission;
-- a fixed operational fee;
-- a hybrid combination of percentage and fixed fees; or
-- service-specific commissions depending on booking category or operational structure.
-
-19.2.3 Applicable rates, percentages, billing logic, and effective dates shall be defined in:
-- {{COMMISSION_SCHEDULE_REFERENCE}};
-- official written notices;
-- operational schedules;
-- platform dashboards;
-- invoices; or
-- signed commercial annexures.
-
-19.2.4 Unless otherwise agreed in writing, Platform Commission shall become earned upon one of the following:
-- successful payment confirmation;
-- confirmed booking status;
-- operational completion of the booked service;
-- invoice approval; or
-- completion of the agreed Settlement Cycle.
-
-19.2.5 NoLSAF may deduct applicable Platform Commission directly before payout processing unless otherwise agreed in writing.
-
-19.2.6 Where transactions are subject to cancellation, refunds, disputes, reversals, or chargebacks, NoLSAF may suspend related payouts, reverse commission calculations, offset operational losses, apply reconciliation adjustments, or recover previously settled amounts where legally permissible.
-
-19.2.7 NoLSAF reserves the right to update commission rates, operational fees, billing logic, or applicable commercial structures upon prior written notice of not less than **{{COMMISSION_CHANGE_NOTICE_DAYS}}** days before the effective date.
-
-### 19.3 Subscription Model
-
-19.3.1 The Operator may be subject to recurring monthly, annual, or custom Subscription Fees for access to NoLSAF Platform services, dashboards, operational infrastructure, analytics systems, booking management systems, workflow tools, or premium marketplace features.
-
-19.3.2 Subscription Fees are payable on the scheduled billing date communicated by NoLSAF and may be processed through bank transfer, wallet deductions, card payments, automated billing systems, or approved payment processors.
-
-19.3.3 Where Subscription Fees remain unpaid beyond the applicable grace period of **{{SUBSCRIPTION_GRACE_DAYS}}** days, NoLSAF may suspend access to certain Platform functionalities, booking privileges, operational tools, or economic benefits until outstanding obligations are settled.
-
-19.3.4 Suspended accounts may be reactivated upon settlement of outstanding Subscription Fees, penalties, or applicable reactivation conditions.
-
-19.3.5 Subscription Fees are non-refundable except where expressly approved by NoLSAF in writing or where required under applicable law.
-
-19.3.6 Subscription Fees remain separate from Platform Commission obligations unless otherwise agreed in writing.
-
-### 19.4 Economic Flow and Settlement
-
-19.4.1 Customer payments processed through the NoLSAF Platform may first be collected into designated payment infrastructure, escrow systems, payment coordination systems, or operational settlement accounts managed by or integrated with NoLSAF.
-
-19.4.2 General operational fund flow:
-- customer initiates booking and payment;
-- payment confirmation is processed;
-- booking is validated and operationally confirmed;
-- operational reconciliation occurs;
-- deductions are calculated;
-- Net Payable is determined; and
-- payout is released to the verified Operator Payout Account.
-
-19.4.3 Unless prohibited by law, deductions may occur in this order:
-- applicable Taxes;
-- approved refunds or chargebacks;
-- Platform Commission;
-- unpaid Subscription Fees or operational arrears;
-- operational penalties or authorized adjustments; and
-- final Net Payable settlement.
-
-19.4.4 Payouts shall be processed within the applicable Settlement Cycle of **{{SETTLEMENT_MIN_HOURS}}** to **{{SETTLEMENT_MAX_DAYS}}** days subject to reconciliation, fraud review, operational verification, compliance obligations, and minimum payout thresholds.
-
-19.4.5 Payouts shall be processed in **{{PAYOUT_CURRENCY_RULE}}** unless otherwise agreed in writing or required by applicable foreign exchange regulations.
-
-19.4.6 The Operator shall have access to booking records, operational reports, commission calculations, payout summaries, reconciliation records, and transaction visibility through NoLSAF dashboards or reporting systems.
-
-19.4.7 NoLSAF reserves the right to perform reconciliation reviews and operational adjustments where inconsistencies, fraud indicators, disputes, or accounting irregularities are identified.
-
-### 19.5 Tax and Compliance
-
-19.5.1 Each Party remains solely responsible for its own taxes, statutory filings, operational licenses, accounting obligations, and regulatory compliance requirements.
-
-19.5.2 Where required by applicable law, NoLSAF may withhold applicable taxes, statutory deductions, or regulatory levies before processing payouts.
-
-19.5.3 The Operator shall provide valid tax information, banking details, payout credentials, regulatory documentation, and operational verification information.
-
-19.5.4 Both Parties shall maintain accurate operational and financial records relating to transactions conducted under the Platform.
-
-19.5.5 NoLSAF may conduct reasonable reconciliation reviews, transaction verification exercises, or operational audits relating to bookings, payouts, refunds, commissions, or platform usage.
-
-### 19.6 Commercial Protection Clauses
-
-19.6.1 The Operator shall not intentionally bypass the NoLSAF Platform to conduct direct off-platform transactions with customers, leads, or operational opportunities originating from the Platform without prior written authorization.
-
-19.6.2 The Operator shall not manipulate pricing structures, commission calculations, service charges, booking records, or operational reporting systems in a manner inconsistent with Platform rules or approved operational structures.
-
-19.6.3 Where legally permissible, NoLSAF may offset unpaid Subscription Fees, operational debts, chargebacks, penalties, refunds, or outstanding obligations against pending payouts.
-
-19.6.4 NoLSAF reserves the right to suspend economic privileges, booking access, payout rights, operational visibility, or account access in cases involving suspected fraud, abuse of Platform systems, operational misconduct, regulatory violations, or material breach.
-
-### 19.7 Transparency and Change Control
-
-19.7.1 NoLSAF shall provide written notice of not less than **{{COMMERCIAL_CHANGE_NOTICE_DAYS}}** days before implementing material changes relating to Platform Commission, Subscription Fees, operational billing structures, payout logic, or economic framework policies.
-
-19.7.2 Where commercial changes materially and adversely affect the Operator, the Operator may submit written objections within the applicable notice period.
-
-19.7.3 If the Parties fail to reach commercial alignment, either Party may terminate the operational relationship in accordance with the termination provisions of this Agreement.
-
-## 20. Signatures
+## 27. Signatures
 
 FOR NoLSAF
 

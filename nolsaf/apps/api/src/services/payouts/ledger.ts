@@ -32,6 +32,7 @@ import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
 import { canonicalAzamPayProvider } from "../azampay/disbursement/providers.js";
 import type { AzamPayDisburseCallback } from "../azampay/disbursement/types.js";
 import { notifyAdmins, notifyUser } from "../../lib/notifications.js";
+import { applyRecoveryDeduction, grossBalanceOf } from "../../lib/tourRecoveryOffset.js";
 
 const SOURCE_LABEL: Record<string, string> = {
   OWNER_INVOICE: "owner payout",
@@ -971,7 +972,20 @@ async function writeBackSourcePaid(
       const booking = await tx.tourBooking.update({
         where: { id: sourceId },
         data: { payoutStatus: "DISBURSED", operatorPayoutRef: externalReferenceId, payoutPaidAt: now },
-        select: { id: true, operatorAgentId: true, bookingCode: true },
+        select: { id: true, operatorAgentId: true, bookingCode: true, operatorPayoutAmount: true },
+      });
+      // Whatever the balance did not pay out went to the operator's unpaid
+      // recoveries (eligibility.ts, policy 6.4). Apply it now, oldest first.
+      const grossBalance = await grossBalanceOf(tx, booking.id, Number(booking.operatorPayoutAmount));
+      const recoveryDeduction = Math.max(0, Math.round((grossBalance - Number(amount)) * 100) / 100);
+      const offset = await applyRecoveryDeduction(tx, {
+        operatorAgentId: booking.operatorAgentId,
+        currency,
+        deduction: recoveryDeduction,
+        sourceBookingId: booking.id,
+        sourceBookingCode: booking.bookingCode,
+        reference: externalReferenceId,
+        now,
       });
       await tx.tourFinancialTransaction.upsert({
         where: { reference: externalReferenceId },
@@ -982,7 +996,13 @@ async function writeBackSourcePaid(
           reference: externalReferenceId,
           currency,
           amount,
-          metadata: { via: "azampay_disbursement", disbursementId: disbursement.id },
+          metadata: {
+            via: "azampay_disbursement",
+            disbursementId: disbursement.id,
+            ...(recoveryDeduction > 0
+              ? { grossBalance, recoveryDeduction, recoveryApplied: offset.applied, recoveryUnallocated: offset.unallocated, recoveryAllocations: offset.allocations }
+              : {}),
+          } as Prisma.InputJsonValue,
         },
         update: { status: "DISBURSED" },
       });

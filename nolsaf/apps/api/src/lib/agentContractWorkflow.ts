@@ -1,3 +1,5 @@
+import { OPERATOR_CONTRACT_CURRENT_VERSION } from "./operatorContract.js";
+
 export const CONTRACT_WORKFLOW_STATUSES = [
   "PENDING_NOLSAF_SIGNATURE",
   "PENDING_AGENT_SIGNATURE",
@@ -22,6 +24,14 @@ export type AgentContractWorkflow = {
   agentSignedAt?: string;
   agentSignerName?: string;
   agentSignedByUserId?: number;
+  /** What the operator did to sign: typed name, the consent they ticked, and where from. */
+  agentSignatureEvidence?: {
+    typedName: string;
+    consent: string;
+    version: string;
+    ip: string | null;
+    userAgent: string | null;
+  };
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -52,7 +62,7 @@ export function buildContractWorkflowSeed(params: {
   version?: string;
 }): AgentContractWorkflow {
   const nowIso = params.nowIso || new Date().toISOString();
-  const version = params.version || "1.0.0";
+  const version = params.version || OPERATOR_CONTRACT_CURRENT_VERSION;
 
   return {
     contractId: `NDA-AGENT-${String(params.agentId).padStart(6, "0")}`,
@@ -109,6 +119,16 @@ export function readContractWorkflow(profile: unknown): AgentContractWorkflow | 
   if (agentSignedAt) out.agentSignedAt = agentSignedAt;
   if (agentSignerName) out.agentSignerName = agentSignerName;
   if (agentSignedByUserId) out.agentSignedByUserId = agentSignedByUserId;
+  if (isRecord(raw.agentSignatureEvidence)) {
+    const ev = raw.agentSignatureEvidence;
+    out.agentSignatureEvidence = {
+      typedName: toStringOrEmpty(ev.typedName),
+      consent: toStringOrEmpty(ev.consent),
+      version: toStringOrEmpty(ev.version),
+      ip: toStringOrEmpty(ev.ip) || null,
+      userAgent: toStringOrEmpty(ev.userAgent) || null,
+    };
+  }
 
   return out;
 }

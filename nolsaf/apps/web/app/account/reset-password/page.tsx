@@ -1,362 +1,456 @@
 "use client";
-import React, { useEffect, useState } from "react";
-import { Eye, EyeOff, Lock, AlertCircle, CheckCircle2, ArrowLeft, Check } from 'lucide-react';
+import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { AlertCircle, ArrowRight, Check, CheckCircle2, Clock, Eye, EyeOff, KeyRound, Loader2, LockKeyhole, ShieldCheck, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { validatePasswordAgainstPolicy } from "@/lib/passwordPolicy";
 import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy";
 
+// The token is kept here for the life of the tab once it is taken out of the
+// address bar, so a reload still works but the link does not sit in history.
+const TOKEN_KEY = "nolsaf.passwordSetupToken";
+
+type LinkCheck =
+  | { state: "checking" }
+  | { state: "valid"; firstPassword: boolean; login: string | null; name: string | null; expiresAt: string | null }
+  | { state: "invalid"; reason: "missing" | "invalid" | "expired" | "unavailable" };
+
+function safeNext(raw: string): string {
+  const v = String(raw || "").trim();
+  if (!v || !v.startsWith("/") || v.startsWith("//")) return "";
+  return v;
+}
+
+function formatExpiry(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Dar_es_Salaam",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d)} EAT`;
+}
+
+function readStoredToken(): string {
+  try {
+    return window.sessionStorage.getItem(TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeToken(value: string | null) {
+  try {
+    if (value) window.sessionStorage.setItem(TOKEN_KEY, value);
+    else window.sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage blocked: the page still works for this load */
+  }
+}
+
 export default function ResetPasswordPage() {
   const search = useSearchParams();
   const router = useRouter();
-  const token = search?.get("token") ?? "";
-  const id = search?.get("id") ?? "";
-  const _method = search?.get("method") ?? "email";
-  const nextRaw = search?.get("next") ?? "";
+  const urlToken = search?.get("token") ?? "";
+  // Links sent before ids were removed from the address still carry one.
+  const legacyId = search?.get("id") ?? "";
   const reason = search?.get("reason") ?? "";
-  const usernameRaw = search?.get("username") ?? "";
+  const next = safeNext(search?.get("next") ?? "");
   const isOnboarding = reason === "onboarding";
 
-  const next = (() => {
-    const v = String(nextRaw || "").trim();
-    if (!v) return "";
-    if (!v.startsWith("/")) return "";
-    if (v.startsWith("//")) return "";
-    return v;
-  })();
-
+  const [token, setToken] = useState(urlToken);
+  const [link, setLink] = useState<LinkCheck>({ state: "checking" });
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reasons, setReasons] = useState<string[]>([]);
+  const [done, setDone] = useState<"saved" | "already_set" | null>(null);
+  const checked = useRef(false);
+
   const { policy: passwordPolicy, policyReady, policyStatus, retryPolicy } = useServerPasswordPolicy();
-  const [success, setSuccess] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const validation = validatePasswordAgainstPolicy(password, passwordPolicy);
 
-  const clientValidation = validatePasswordAgainstPolicy(password, passwordPolicy);
-  const clientReasons = clientValidation.reasons;
-  const strengthScore = clientValidation.requirements.filter((requirement) => requirement.pass).length;
-  const strengthMaximum = clientValidation.requirements.length;
-  const strengthLabel = clientValidation.valid ? "Strong" : strengthScore >= Math.max(1, strengthMaximum - 2) ? "Needs improvement" : "Weak";
-
+  // Check the link once, before the user types anything.
   useEffect(() => {
-    if (!token || !id) {
-      setError("Reset link missing token or id. Please request a new password reset link.");
+    if (checked.current) return;
+    checked.current = true;
+    const effective = urlToken || readStoredToken();
+    setToken(effective);
+    if (urlToken) {
+      storeToken(urlToken);
+      // Take the token out of the address bar and history.
+      const keep = new URLSearchParams();
+      if (reason) keep.set("reason", reason);
+      if (next) keep.set("next", next);
+      if (legacyId) keep.set("id", legacyId);
+      const qs = keep.toString();
+      window.history.replaceState(null, "", `/account/reset-password${qs ? `?${qs}` : ""}`);
     }
-  }, [token, id]);
+    if (!effective) {
+      setLink({ state: "invalid", reason: "missing" });
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/reset-password/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: effective }),
+        });
+        if (res.status === 429) {
+          setLink({ state: "invalid", reason: "unavailable" });
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        if (data?.valid) {
+          setLink({
+            state: "valid",
+            firstPassword: Boolean(data.firstPassword),
+            login: data.login ?? null,
+            name: data.name ?? null,
+            expiresAt: data.expiresAt ?? null,
+          });
+        } else {
+          const r = data?.reason;
+          setLink({ state: "invalid", reason: r === "expired" || r === "missing" || r === "unavailable" ? r : "invalid" });
+          if (r === "expired" || r === "invalid") storeToken(null);
+        }
+      } catch {
+        setLink({ state: "invalid", reason: "unavailable" });
+      }
+    })();
+  }, [urlToken, reason, next, legacyId]);
+
+  const firstPassword = link.state === "valid" ? link.firstPassword : isOnboarding;
+  const operatorSetup = isOnboarding && next.startsWith("/account/agent");
+  const title = firstPassword ? (operatorSetup ? "Set up your operator account" : "Create your password") : "Choose a new password";
+  const subtitle = firstPassword
+    ? "Create the password you will use to sign in. Only you will know it."
+    : "Your new password replaces the old one and signs you out on other devices.";
+  const loginHref = `/account/login${next ? `?next=${encodeURIComponent(next)}` : ""}`;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setReasons([]);
-    if (!token || !id) return setError("Missing token or id.");
-    if (!policyReady) return setError("Password requirements are unavailable. Reload them before continuing.");
-    if (!clientValidation.valid) {
-      setReasons(clientValidation.reasons);
-      return setError("Password does not meet all requirements.");
+    if (!token) return setError("This link is missing its code. Open the link from your email again.");
+    if (!policyReady) return setError("Password requirements are still loading.");
+    if (!validation.valid) {
+      setReasons(validation.reasons);
+      return setError("The password does not meet every requirement yet.");
     }
-    if (password !== confirm) return setError("Passwords do not match.");
+    if (password !== confirm) return setError("The two passwords do not match.");
 
     setLoading(true);
     try {
       const res = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, userId: id, password }),
+        body: JSON.stringify(legacyId ? { token, userId: legacyId, password } : { token, password }),
       });
-      const data = await res.json();
-      if (res.ok && data && data.ok) {
-        setSuccess(true);
-      } else {
-        if (data && (data.message === "weak_password" || data.message === "password_reused") && Array.isArray(data.reasons)) {
-          setReasons(data.reasons);
-        } else if (data && data.message === "password_already_set") {
-          setError("__password_already_set__");
-        } else if (data && data.message) {
-          setError(String(data.message));
-        } else {
-          setError("Failed to reset password. Try again.");
-        }
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        storeToken(null);
+        setPassword("");
+        setConfirm("");
+        setDone("saved");
+        return;
       }
-    } catch (err) {
-      setError("Network error. Please try again.");
+      if (res.status === 429) return setError("Too many attempts. Wait a few minutes and try again.");
+      const message = data?.message;
+      if ((message === "weak_password" || message === "password_reused") && Array.isArray(data?.reasons)) {
+        setReasons(data.reasons);
+        setError(message === "password_reused" ? "Choose a password you have not used before." : "The password does not meet every requirement yet.");
+      } else if (message === "password_already_set") {
+        storeToken(null);
+        setDone("already_set");
+      } else if (message === "token expired") {
+        storeToken(null);
+        setLink({ state: "invalid", reason: "expired" });
+      } else if (message === "invalid token") {
+        storeToken(null);
+        setLink({ state: "invalid", reason: "invalid" });
+      } else {
+        setError("The password could not be saved. Try again.");
+      }
+    } catch {
+      setError("No connection. Check your network and try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <main className="min-h-screen flex items-start sm:items-center justify-center bg-gradient-to-br from-slate-100 to-white py-8 px-4">
-      <div className="w-full flex items-center justify-center">
-      <div className="w-full max-w-[460px]">
-        <div className="rounded-[28px] bg-gradient-to-b from-slate-700/30 via-slate-800/20 to-transparent p-px shadow-2xl">
-        <div style={{ colorScheme: 'dark' }} className="flex flex-col rounded-[28px] overflow-hidden bg-slate-950 ring-1 ring-white/10 box-border">
-        {/* Header */}
-        <div className="h-1 bg-[#02665e]" />
-        
-        <div className="px-6 py-5 border-b border-slate-800">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push(next || "/account/login")}
-              className="w-10 h-10 rounded-xl border border-slate-800 bg-slate-900/30 flex items-center justify-center hover:bg-slate-900/50 transition-colors flex-shrink-0"
-            >
-              <ArrowLeft className="w-5 h-5 text-slate-200" />
-            </button>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-[#02665e]/10 flex items-center justify-center">
-                  <Lock className="w-5 h-5 text-[#02665e]" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold text-slate-50">Reset Password</h1>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Enter a new password for your account
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+    <main className="min-h-screen bg-slate-50 px-4 py-10 sm:py-16" style={{ boxSizing: "border-box" }}>
+      <div className="mx-auto w-full max-w-[440px] [&_*]:box-border">
+        <div className="mb-5 flex items-center justify-center gap-2 text-sm font-semibold text-[#02665e]">
+          <ShieldCheck className="h-4 w-4" aria-hidden />
+          <span>NoLSAF secure account setup</span>
         </div>
 
-        <div className="px-6 py-5 min-w-0 overflow-hidden">
-          {error === "__password_already_set__" ? (
-            <div className="p-5 bg-sky-500/10 border border-sky-500/20 rounded-xl min-w-0">
-              <div className="flex items-start gap-3 mb-4">
-                <CheckCircle2 className="w-5 h-5 text-sky-300 flex-shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-semibold text-sky-100 mb-1">Password already set</h3>
-                  <p className="text-xs text-sky-200">
-                    Your password has already been created. You can log in directly using your credentials.
-                  </p>
-                  {usernameRaw && (
-                    <p className="mt-2 text-xs text-sky-200">
-                      Username: <span className="font-semibold text-sky-100">{usernameRaw}</span>
-                    </p>
-                  )}
-                </div>
+        <div className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white shadow-sm">
+          {link.state === "checking" && (
+            <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+              <Loader2 className="h-6 w-6 animate-spin text-[#02665e]" aria-hidden />
+              <p className="text-sm text-slate-600">Checking your link…</p>
+            </div>
+          )}
+
+          {link.state === "invalid" && <InvalidLink reason={link.reason} isOnboarding={isOnboarding} loginHref={loginHref} />}
+
+          {link.state === "valid" && done && (
+            <div className="px-6 py-8">
+              <div className="flex h-11 w-11 items-center justify-center rounded-md bg-emerald-50 text-emerald-700">
+                <CheckCircle2 className="h-6 w-6" aria-hidden />
               </div>
+              <h1 className="mt-4 text-lg font-semibold text-slate-900">
+                {done === "already_set" ? "Your password is already set" : firstPassword ? "Your account is ready" : "Password changed"}
+              </h1>
+              <p className="mt-1.5 text-sm leading-6 text-slate-600">
+                {done === "already_set"
+                  ? "This link was already used to create a password. Sign in with it, or use Forgot password on the sign-in page."
+                  : firstPassword
+                    ? operatorSetup
+                      ? "Sign in with your new password to open your operator workspace."
+                      : "Sign in with your new password to continue."
+                    : "Sign in with your new password. Other devices were signed out."}
+              </p>
+              {link.login && (
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2.5 text-sm">
+                  <span className="text-slate-500">Sign in as</span>
+                  <span className="truncate font-medium text-slate-900">{link.login}</span>
+                </div>
+              )}
               <button
-                onClick={() => router.push("/account/login")}
-                className="w-full px-4 py-2.5 bg-[#02665e] hover:bg-[#014e47] text-white text-sm font-medium rounded-lg transition-colors"
+                type="button"
+                onClick={() => router.push(loginHref)}
+                className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#014e47]"
               >
-                Go to Login
+                Go to sign in
+                <ArrowRight className="h-4 w-4" aria-hidden />
               </button>
             </div>
-          ) : error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2.5 text-sm text-red-200">
-              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <span className="flex-1 min-w-0 break-words">{error}</span>
-            </div>
           )}
 
-          {reasons.length > 0 && (
-            <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-sm text-amber-200 min-w-0">
-              <div className="font-semibold mb-1.5">Password requirements:</div>
-              <ul className="pl-5 list-disc space-y-0.5">
-                {reasons.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {policyStatus !== "ready" && (
-            <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-200">
-              {policyStatus === "loading" ? "Loading password requirements…" : "Password requirements could not be loaded."}
-              {policyStatus === "error" && (
-                <button type="button" onClick={retryPolicy} className="ml-2 border-0 bg-transparent p-0 font-semibold text-amber-100 underline">
-                  Retry
-                </button>
-              )}
-            </div>
-          )}
-
-          {success ? (
-            <div className="min-w-0">
-              <div className="p-5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl min-w-0">
-                <div className="flex items-start gap-3 mb-4">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-300" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-bold text-emerald-100 mb-1">
-                      {isOnboarding ? "Welcome aboard! 🎉" : "Password set successfully!"}
-                    </h3>
-                    <p className="text-sm text-emerald-200">
-                      {isOnboarding
-                        ? "Your account is ready. You can now log in and start your journey with NoLSAF."
-                        : "Your new password has been saved."}
-                    </p>
-                  </div>
+          {link.state === "valid" && !done && (
+            <>
+              <div className="border-b border-solid border-x-0 border-t-0 border-slate-100 px-6 pb-5 pt-6">
+                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-[#02665e]/10 text-[#02665e]">
+                  {firstPassword ? <KeyRound className="h-5 w-5" aria-hidden /> : <LockKeyhole className="h-5 w-5" aria-hidden />}
                 </div>
+                <h1 className="mt-4 text-lg font-semibold text-slate-900">
+                  {link.name && firstPassword ? `Welcome, ${link.name}` : title}
+                </h1>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{link.name && firstPassword ? `${title}. ${subtitle}` : subtitle}</p>
 
-                {isOnboarding && (
-                  <div className="mb-4 p-3 bg-slate-900/60 border border-slate-800 rounded-lg text-sm text-slate-300 space-y-1.5">
-                    <p className="font-semibold text-slate-200 mb-2">Your login credentials:</p>
-                    {usernameRaw && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-400 text-xs w-20 flex-shrink-0">Username</span>
-                        <span className="font-medium text-slate-100 break-all">{usernameRaw}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-400 text-xs w-20 flex-shrink-0">Password</span>
-                      <span className="text-slate-400 text-xs">The password you just created</span>
+                <dl className="mt-4 grid gap-2 text-sm">
+                  {link.login && (
+                    <div className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2">
+                      <dt className="text-slate-500">Account</dt>
+                      <dd className="m-0 truncate font-medium text-slate-900">{link.login}</dd>
                     </div>
-                  </div>
-                )}
-
-                {isOnboarding && (
-                  <p className="text-xs text-emerald-300 mb-4 italic">
-                    Good luck in your new role — we&apos;re excited to have you on the team!
-                  </p>
-                )}
-
-                <button
-                  onClick={() => router.push("/account/login")}
-                  className="w-full px-4 py-2.5 bg-[#02665e] hover:bg-[#014e47] text-white text-sm font-semibold rounded-lg transition-colors shadow-sm"
-                >
-                  Go to Login
-                </button>
+                  )}
+                  {formatExpiry(link.expiresAt) && (
+                    <div className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2">
+                      <dt className="inline-flex items-center gap-1.5 text-slate-500">
+                        <Clock className="h-3.5 w-3.5" aria-hidden />
+                        Link works until
+                      </dt>
+                      <dd className="m-0 font-medium text-slate-900">{formatExpiry(link.expiresAt)}</dd>
+                    </div>
+                  )}
+                </dl>
               </div>
-            </div>
-          ) : (
-            <form onSubmit={onSubmit} className="space-y-4 min-w-0">
-              <div className="space-y-2 min-w-0">
-                <label className="block text-sm font-semibold text-slate-200">New password</label>
-                <div className="relative min-w-0">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full max-w-full px-3 pr-10 py-2.5 text-sm bg-slate-950 text-slate-100 border-2 border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-all shadow-sm hover:shadow-md placeholder:text-slate-500 box-border"
-                    placeholder="New password"
-                    autoComplete="new-password"
-                    maxLength={passwordPolicy.maxLength}
-                    disabled={!policyReady}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors focus:outline-none border-none bg-transparent p-0"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
 
-                {/* Strength meter */}
-                {password && policyReady && (
-                  <div className="mt-3 p-3 bg-slate-900/60 rounded-xl border border-slate-800 min-w-0">
-                    <div className="flex gap-1 mb-2 min-w-0">
-                      {clientValidation.requirements.map((requirement, i) => (
-                        <div 
-                          key={requirement.id}
-                          className={`h-2 flex-1 min-w-0 rounded transition-all ${
-                            i < strengthScore 
-                              ? !clientValidation.valid && strengthScore <= Math.max(2, strengthMaximum / 2)
-                                ? 'bg-red-400' 
-                                : !clientValidation.valid
-                                ? 'bg-amber-400' 
-                                : 'bg-emerald-600'
-                              : 'bg-slate-800'
-                          }`} 
-                        />
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-between text-xs min-w-0">
-                      <span className={`font-medium flex-shrink-0 ${
-                        strengthScore <= 2 ? 'text-red-400' : 
-                        strengthScore === 3 ? 'text-amber-400' : 
-                        'text-emerald-400'
-                      }`}>
-                        {strengthLabel} {password ? `(${strengthScore}/${strengthMaximum})` : ''}
-                      </span>
-                      {clientReasons.length > 0 && (
-                        <span className="text-slate-500 flex-shrink-0 ml-2">
-                          {clientReasons.length} requirement{clientReasons.length > 1 ? 's' : ''} remaining
-                        </span>
+              <form onSubmit={onSubmit} className="space-y-4 px-6 py-5" noValidate>
+                {policyStatus !== "ready" && (
+                  <div className="rounded-md border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                    {policyStatus === "loading" ? "Loading password requirements…" : "Password requirements could not be loaded."}
+                    {policyStatus === "error" && (
+                      <button type="button" onClick={retryPolicy} className="ml-2 border-0 bg-transparent p-0 font-semibold text-amber-900 underline">
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {error && (
+                  <div role="alert" className="flex items-start gap-2 rounded-md border border-solid border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+                    <div className="min-w-0">
+                      <p className="m-0">{error}</p>
+                      {reasons.length > 0 && (
+                        <ul className="mb-0 mt-1.5 list-disc space-y-0.5 pl-4 text-xs">
+                          {reasons.map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
                       )}
                     </div>
-                    {clientReasons.length > 0 && (
-                      <ul className="mt-2 pl-4 text-xs text-slate-400 list-disc space-y-0.5 min-w-0">
-                        {clientReasons.slice(0, 3).map((r, i) => (
-                          <li key={i} className="break-words">{r}</li>
-                        ))}
-                      </ul>
-                    )}
                   </div>
                 )}
-              </div>
 
-              <div className="space-y-2 min-w-0">
-                <label className="block text-sm font-semibold text-slate-200">Confirm password</label>
-                <div className="relative min-w-0">
+                {/* Hidden username field so password managers save the right login. */}
+                {link.login && <input type="text" name="username" autoComplete="username" value={link.login} readOnly hidden />}
+
+                <div>
+                  <label htmlFor="new-password" className="block text-sm font-medium text-slate-800">
+                    {firstPassword ? "Password" : "New password"}
+                  </label>
+                  <div className="relative mt-1.5">
+                    <input
+                      id="new-password"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="new-password"
+                      autoFocus
+                      maxLength={passwordPolicy.maxLength}
+                      disabled={!policyReady || loading}
+                      className="w-full rounded-md border border-solid border-slate-300 bg-white px-3 py-2.5 pr-10 text-sm text-slate-900 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15 disabled:bg-slate-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 border-0 bg-transparent p-1 text-slate-400 hover:text-slate-700"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+
+                  {policyReady && (
+                    <ul className="mb-0 mt-3 grid list-none grid-cols-1 gap-1.5 p-0 sm:grid-cols-2">
+                      {validation.requirements.map((req) => (
+                        <li key={req.id} className={`flex items-center gap-1.5 text-xs ${req.pass ? "text-emerald-700" : "text-slate-500"}`}>
+                          <span
+                            className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full ${req.pass ? "bg-emerald-100" : "bg-slate-100"}`}
+                            aria-hidden
+                          >
+                            {req.pass ? <Check className="h-3 w-3" /> : <span className="h-1 w-1 rounded-full bg-slate-400" />}
+                          </span>
+                          {req.label}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="confirm-password" className="block text-sm font-medium text-slate-800">
+                    Type it again
+                  </label>
                   <input
-                    type={showConfirmPassword ? 'text' : 'password'}
+                    id="confirm-password"
+                    type={showPassword ? "text" : "password"}
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
-                    className="w-full max-w-full px-3 pr-10 py-2.5 text-sm bg-slate-950 text-slate-100 border-2 border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-all shadow-sm hover:shadow-md placeholder:text-slate-500 box-border"
-                    placeholder="Confirm password"
                     autoComplete="new-password"
                     maxLength={passwordPolicy.maxLength}
-                    disabled={!policyReady}
+                    disabled={!policyReady || loading}
+                    className="mt-1.5 w-full rounded-md border border-solid border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15 disabled:bg-slate-50"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword((v) => !v)}
-                    aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors focus:outline-none border-none bg-transparent p-0"
-                  >
-                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                  {confirm && (
+                    <p className={`mb-0 mt-1.5 flex items-center gap-1 text-xs ${password === confirm ? "text-emerald-700" : "text-red-700"}`}>
+                      {password === confirm ? <Check className="h-3 w-3" aria-hidden /> : <X className="h-3 w-3" aria-hidden />}
+                      {password === confirm ? "Passwords match" : "Passwords do not match yet"}
+                    </p>
+                  )}
                 </div>
-                {confirm && password !== confirm && (
-                  <p className="text-xs text-red-400 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" />
-                    Passwords do not match
-                  </p>
-                )}
-                {confirm && password === confirm && clientValidation.valid && (
-                  <p className="text-xs text-emerald-400 flex items-center gap-1">
-                    <Check className="w-3 h-3" />
-                    Passwords match
-                  </p>
-                )}
-              </div>
 
-              <div className="flex items-center justify-between pt-2 min-w-0 gap-3">
                 <button
                   type="submit"
-                  disabled={loading || !policyReady || !token || !id || !clientValidation.valid || password !== confirm}
-                  className="flex-1 min-w-0 px-6 py-2.5 bg-[#02665e] hover:bg-[#014e47] text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:hover:shadow-md box-border"
+                  disabled={loading || !policyReady || !validation.valid || password !== confirm}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {loading ? (
-                    <span className="flex items-center gap-1.5 justify-center">
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin flex-shrink-0" />
-                      <span className="truncate">Resetting...</span>
-                    </span>
-                  ) : (
-                    <span className="truncate">Reset password</span>
-                  )}
+                  {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                  {loading ? "Saving…" : firstPassword ? "Create password" : "Save new password"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => router.push('/account/register')}
-                  className="flex-shrink-0 text-sm text-slate-400 hover:text-[#02665e] transition-colors flex items-center gap-1.5 whitespace-nowrap"
-                >
-                  <ArrowLeft className="w-4 h-4 flex-shrink-0" />
-                  <span>Back to sign in</span>
-                </button>
-              </div>
-            </form>
+              </form>
+            </>
           )}
         </div>
-      </div>
-      </div>
-      </div>
+
+        <SafetyNote />
       </div>
     </main>
+  );
+}
+
+function InvalidLink({
+  reason,
+  isOnboarding,
+  loginHref,
+}: {
+  reason: "missing" | "invalid" | "expired" | "unavailable";
+  isOnboarding: boolean;
+  loginHref: string;
+}) {
+  const copy = {
+    expired: {
+      title: "This link has expired",
+      body: isOnboarding
+        ? "Setup links work for a limited time. Ask the NoLSAF partnerships team to send you a new one."
+        : "Reset links work for a limited time. Request a new one below.",
+    },
+    invalid: {
+      title: "This link no longer works",
+      body: "It was already used, or a newer link replaced it. If you already created your password, sign in with it.",
+    },
+    missing: {
+      title: "This link is incomplete",
+      body: "Open the link straight from your email. Some email apps cut long links when they are copied.",
+    },
+    unavailable: {
+      title: "We could not check this link",
+      body: "Wait a minute and reload this page. If it keeps happening, contact NoLSAF support.",
+    },
+  }[reason];
+
+  return (
+    <div className="px-6 py-8">
+      <div className="flex h-11 w-11 items-center justify-center rounded-md bg-amber-50 text-amber-700">
+        {reason === "expired" ? <Clock className="h-5 w-5" aria-hidden /> : <AlertCircle className="h-5 w-5" aria-hidden />}
+      </div>
+      <h1 className="mt-4 text-lg font-semibold text-slate-900">{copy.title}</h1>
+      <p className="mt-1.5 text-sm leading-6 text-slate-600">{copy.body}</p>
+      <div className="mt-5 grid gap-2">
+        {isOnboarding ? (
+          <a
+            href="mailto:partners@nolsaf.com?subject=New%20password%20setup%20link"
+            className="inline-flex w-full items-center justify-center rounded-md bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white no-underline hover:bg-[#014e47]"
+          >
+            Ask for a new link
+          </a>
+        ) : (
+          <Link
+            href="/account/forgot-password"
+            className="inline-flex w-full items-center justify-center rounded-md bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white no-underline hover:bg-[#014e47]"
+          >
+            Request a new link
+          </Link>
+        )}
+        <Link
+          href={loginHref}
+          className="inline-flex w-full items-center justify-center rounded-md border border-solid border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-50"
+        >
+          Go to sign in
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function SafetyNote() {
+  return (
+    <p className="mx-auto mt-5 max-w-[380px] text-center text-xs leading-5 text-slate-500">
+      NoLSAF will never ask for your password by email, phone or WhatsApp. Only use links that open on nolsaf.com.
+    </p>
   );
 }

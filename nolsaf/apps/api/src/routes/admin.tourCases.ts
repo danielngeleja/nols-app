@@ -9,6 +9,7 @@ import { notifyTourOperatorCase } from "../lib/tourCaseNotifications.js";
 import { validateTourCancellationDecision } from "../lib/tourCancellationConsistency.js";
 import { calculateRefundChannelCharges, inferRefundChannel, REFUND_CHANNEL_POLICY_VERSION } from "../lib/refundChannelCharges.js";
 import { reverseTourRefund } from "../lib/revenueRecognition.js";
+import { offsetAppliedOf, outstandingOf, reservedRecoveryDeductions } from "../lib/tourRecoveryOffset.js";
 
 /** Policy 10.2: the terms accepted at booking time govern; bookings made before the charges policy pay no channel charges. */
 function chargesAcceptedAtBooking(bookingMetadata: unknown): boolean {
@@ -302,12 +303,23 @@ router.post("/:id/action", async (req: any, res) => {
     });
     if (!recoveryConsistency.valid) return res.status(409).json({ error: recoveryConsistency.message, code: recoveryConsistency.code, reconciliationRequired: true });
     if (!pendingRecovery) return res.status(409).json({ error: "No pending operator recovery record exists for this booking", code: "NO_RECOVERY_PENDING" });
+    // A balance payout already in flight may be deducting this debt; recording a
+    // repayment now would take the same money twice.
+    const reservedByPayouts = await reservedRecoveryDeductions(prisma, item.booking.operatorAgentId, pendingRecovery.currency);
+    if (reservedByPayouts > 0) {
+      return res.status(409).json({
+        error: `A balance payout to this operator is in progress and deducts ${pendingRecovery.currency} ${reservedByPayouts.toLocaleString("en-US")} toward their recoveries. Record a repayment once it is paid or failed.`,
+        code: "RECOVERY_OFFSET_IN_FLIGHT",
+      });
+    }
+    // Only what is still owed: part may already have come out of a balance.
+    const outstandingAmount = outstandingOf({ amount: Number(pendingRecovery.amount), offsetApplied: offsetAppliedOf(pendingRecovery.metadata) });
     await prisma.$transaction(async (tx) => {
-      await tx.tourFinancialTransaction.update({ where: { id: pendingRecovery.id }, data: { status: "RECOVERED", reference: recoveryReference, metadata: { ...(pendingRecovery.metadata as any || {}), recordedBy: adminId, recordedAt: new Date().toISOString() } } });
+      await tx.tourFinancialTransaction.update({ where: { id: pendingRecovery.id }, data: { status: "RECOVERED", reference: recoveryReference, metadata: { ...(pendingRecovery.metadata as any || {}), recordedBy: adminId, recordedAt: new Date().toISOString(), repaidAmount: outstandingAmount } } });
       await tx.tourBooking.update({ where: { id: item.booking.id }, data: { payoutStatus: "RECOVERED" } });
-      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { recoveryReference, amount: Number(pendingRecovery.amount) } } });
+      await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: adminId, type: action, message: reason, data: { recoveryReference, amount: outstandingAmount, originalAmount: Number(pendingRecovery.amount) } } });
     });
-    await notifyTourOperatorCase({ kind: "RECOVERY_RECORDED", operatorAgentId: item.booking.operatorAgentId, bookingId: item.booking.id, bookingCode: item.booking.bookingCode, caseId, tourTitle: item.booking.title, startDate: item.booking.startDate, reason, recoveryAmount: Number(pendingRecovery.amount), currency: item.booking.currency });
+    await notifyTourOperatorCase({ kind: "RECOVERY_RECORDED", operatorAgentId: item.booking.operatorAgentId, bookingId: item.booking.id, bookingCode: item.booking.bookingCode, caseId, tourTitle: item.booking.title, startDate: item.booking.startDate, reason, recoveryAmount: outstandingAmount, currency: item.booking.currency });
     return res.json({ ok: true, case: item, recoveryReference });
   }
 

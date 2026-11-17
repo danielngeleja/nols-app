@@ -17,6 +17,9 @@ import { setAuthCookie, setImpersonationHandoffCookie, signUserJwt } from "../li
 import { createSupportHandoff } from "../lib/supportImpersonation.js";
 import crypto from "crypto";
 import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
+import { ONBOARDING_SETUP_HOURS, issuePasswordSetupToken, passwordSetupLink } from "../lib/passwordSetupLink.js";
+import { generateOperatorSetupLinkEmail } from "../lib/careersEmailTemplates.js";
+import { notifyUser } from "../lib/notifications.js";
 import { ACCOMMODATION_BRIDGE_TX_OPTIONS, bridgeApprovedOperatorToAccommodation } from "../lib/nrmsPartnerCapability.js";
 
 // ============================================================
@@ -61,9 +64,76 @@ const AGENT_LEVEL = {
 // ============================================================
 // TypeScript Interfaces
 // ============================================================
+/** How far an operator got with getting into their workspace, for the admin record. */
+type OperatorAccountAccess = {
+  passwordSet: boolean;
+  /** When the password was created from the emailed link; null if not on record (set before this was logged). */
+  passwordSetAt: string | null;
+  linkExpiresAt: string | null;
+  linkActive: boolean;
+  /** When the current setup link was issued (expiry minus its 72 hours). */
+  linkSentAt: string | null;
+  /** Links an admin sent again by hand. */
+  linkResentCount: number;
+  accountCreatedAt: string | null;
+  emailVerified: boolean;
+  twoFactorEnabled: boolean;
+  firstSignInAt: string | null;
+  lastSignInAt: string | null;
+  lastSeenAt: string | null;
+  activeSessions: number;
+};
+
+async function loadOperatorAccountAccess(userId: number, agentId: number): Promise<OperatorAccountAccess> {
+  const iso = (d: unknown) => (d ? new Date(d as any).toISOString() : null);
+  // Each piece is best effort: the record still loads if one source is unavailable.
+  const safe = async <T,>(read: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await read();
+    } catch {
+      return fallback;
+    }
+  };
+  const [user, created, resent, firstSession, lastSession, activeSessions] = await Promise.all([
+    safe(() => prisma.user.findUnique({
+      where: { id: userId },
+      select: { passwordHash: true, resetPasswordExpires: true, createdAt: true, emailVerifiedAt: true, twoFactorEnabled: true } as any,
+    }), null),
+    safe(() => prisma.auditLog.findFirst({
+      where: { entity: `user:${userId}`, action: "ACCOUNT_PASSWORD_CREATED" },
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true },
+    }), null),
+    safe(() => prisma.auditLog.count({ where: { entity: `agent:${agentId}`, action: "OPERATOR_SETUP_LINK_RESENT" } }), 0),
+    safe(() => prisma.session.findFirst({ where: { userId }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }), null),
+    safe(() => prisma.session.findFirst({ where: { userId }, orderBy: { createdAt: "desc" }, select: { createdAt: true, lastSeenAt: true } }), null),
+    safe(() => prisma.session.count({ where: { userId, revokedAt: null, lastSeenAt: { gt: new Date(Date.now() - 30 * 86_400_000) } } }), 0),
+  ]);
+  const u = (user ?? {}) as any;
+  const passwordSet = Boolean(u.passwordHash);
+  const linkExpires = !passwordSet && u.resetPasswordExpires ? new Date(u.resetPasswordExpires) : null;
+  return {
+    passwordSet,
+    passwordSetAt: passwordSet ? iso(created?.createdAt) : null,
+    linkExpiresAt: iso(linkExpires),
+    linkActive: Boolean(linkExpires && linkExpires.getTime() > Date.now()),
+    linkSentAt: linkExpires ? new Date(linkExpires.getTime() - ONBOARDING_SETUP_HOURS * 3_600_000).toISOString() : null,
+    linkResentCount: resent,
+    accountCreatedAt: iso(u.createdAt),
+    emailVerified: Boolean(u.emailVerifiedAt),
+    twoFactorEnabled: Boolean(u.twoFactorEnabled),
+    firstSignInAt: iso(firstSession?.createdAt),
+    lastSignInAt: iso(lastSession?.createdAt),
+    lastSeenAt: iso(lastSession?.lastSeenAt),
+    activeSessions,
+  };
+}
+
 interface AgentResponse {
   id: number;
   userId: number;
+  /** Whether the operator has set a password yet, for the resend-setup-link action. */
+  accountSetup?: OperatorAccountAccess;
   status: string;
   educationLevel: string | null;
   areasOfOperation: string[];
@@ -1378,8 +1448,11 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
     const overallProgress = next ? next.progress.overall : 100;
     const eligibleForPromotion = !!next && next.met.tours && next.met.revenue && next.met.rating && next.met.reviews;
 
+    const accountSetup = await loadOperatorAccountAccess(agent.userId, agent.id);
+
     const response: AgentResponse = {
       ...formatAgentResponse(agent),
+      accountSetup,
       level: levelInfo.level,
       // Shown on the record while suspended, so admins see why without opening the audit log.
       suspendedAt: (agent as any).suspendedAt ?? null,
@@ -1538,6 +1611,15 @@ router.patch(
         });
       } catch {
         // ignore
+      }
+
+      // Tell the operator in their inbox; a rejection links straight to the upload page.
+      if ((existing as any).status !== status) {
+        const documentLabel = String((existing as any).type || "document").replace(/_/g, " ").toLowerCase();
+        await notifyUser(agent.userId, status === "APPROVED" ? "agent_document_approved" : "agent_document_rejected", {
+          documentLabel,
+          reason: sanitizedReason || null,
+        }).catch(() => undefined);
       }
 
       return sendSuccess(res, { doc }, "Document updated");
@@ -1808,6 +1890,12 @@ router.patch(
         },
       );
 
+      // In-app notice with a shortcut to the profile (approved: the public view; changes: the editor).
+      await notifyUser(agent.userId, status === "APPROVED" ? "agent_profile_approved" : "agent_profile_changes_requested", {
+        companyName: typeof currentProfile.companyName === "string" ? currentProfile.companyName : null,
+        reason: cleanReason || null,
+      }).catch(() => undefined);
+
       // Notify the operator by email — this is their only signal that the
       // review happened, and (if they never finished onboarding) the only
       // way they can get a working password-setup link.
@@ -1824,22 +1912,10 @@ router.patch(
           let setupLinkExpiresHours: number | undefined;
 
           if (!agent.user?.passwordHash) {
-            const raw = crypto.randomBytes(24).toString("hex");
-            const hashed = crypto.createHash("sha256").update(raw).digest("hex");
-            const expiresAt = Date.now() + 1000 * 60 * 60 * 72; // 72 hours
-
-            await prisma.user.update({
-              where: { id: agent.userId },
-              data: {
-                resetPasswordToken: hashed as any,
-                resetPasswordExpires: new Date(expiresAt) as any,
-              } as any,
-            });
-
-            const next = encodeURIComponent("/account/agent");
-            const usernameParam = recipientEmail ? `&username=${encodeURIComponent(recipientEmail)}` : "";
-            setupLink = `${origin}/account/reset-password?token=${raw}&id=${agent.userId}&next=${next}&reason=onboarding${usernameParam}`;
-            setupLinkExpiresHours = 72;
+            const { raw } = await issuePasswordSetupToken(agent.userId, ONBOARDING_SETUP_HOURS);
+            // Token only: no row id and no email in the address.
+            setupLink = passwordSetupLink(origin, raw, { onboarding: true, next: "/account/agent" });
+            setupLinkExpiresHours = ONBOARDING_SETUP_HOURS;
           }
 
           const { subject, html } = status === "APPROVED"
@@ -1882,6 +1958,49 @@ router.patch(
     }
   },
 );
+
+// ============================================================
+// POST /api/admin/agents/:id/resend-setup-link
+// A new one-time password setup link for an operator who never set a password
+// (the first link expired or was lost). Replaces any earlier link.
+// ============================================================
+router.post("/:id/resend-setup-link", blockImpersonated as unknown as RequestHandler, validate(getAgentParamsSchema, "params"), async (req: any, res) => {
+  try {
+    const { id } = req.validatedParams;
+    const agent = await prisma.agent.findUnique({
+      where: { id },
+      select: { id: true, userId: true, operatorProfile: true, user: { select: { email: true, fullName: true, name: true, passwordHash: true, resetPasswordExpires: true } as any } },
+    });
+    if (!agent || !(agent as any).user) return sendError(res, 404, "Operator not found");
+    const user = (agent as any).user;
+    if (user.passwordHash) {
+      return sendError(res, 409, "This operator has already set a password. They can use Forgot password on the sign-in page if they lost it.");
+    }
+    if (!user.email) return sendError(res, 409, "This operator has no email address to send the link to.");
+    // A link issued in the last 10 minutes is still fresh: do not let a double click send two.
+    const issuedAt = user.resetPasswordExpires ? new Date(user.resetPasswordExpires).getTime() - ONBOARDING_SETUP_HOURS * 3_600_000 : 0;
+    if (issuedAt && Date.now() - issuedAt < 10 * 60_000) {
+      return sendError(res, 429, "A setup link was sent less than 10 minutes ago. Ask the operator to check their inbox and spam folder first.");
+    }
+
+    const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "http://localhost:3000";
+    const { raw, expiresAt } = await issuePasswordSetupToken(agent.userId, ONBOARDING_SETUP_HOURS);
+    const { subject, html } = generateOperatorSetupLinkEmail({
+      name: user.fullName || user.name || "there",
+      setupLink: passwordSetupLink(origin, raw, { onboarding: true, next: "/account/agent" }),
+      setupLinkExpiresHours: ONBOARDING_SETUP_HOURS,
+      username: user.email,
+      loginUrl: `${origin}/account/login`,
+      portalUrl: `${origin}/account/agent`,
+    });
+    await sendMail(user.email, subject, html, undefined, { replyTo: "partners@nolsaf.com" });
+    await audit(req as AuthedRequest, "OPERATOR_SETUP_LINK_RESENT", `agent:${agent.id}`, null, { expiresAt: expiresAt.toISOString() });
+    return sendSuccess(res, { sent: true, expiresAt: expiresAt.toISOString() }, "A new setup link was sent");
+  } catch (err: any) {
+    console.error("[POST /admin/agents/:id/resend-setup-link] Error:", err);
+    return sendError(res, 500, "The setup link could not be sent. Try again.");
+  }
+});
 
 // ============================================================
 // GET /api/admin/agents/:id/bookings
@@ -2316,6 +2435,8 @@ router.post(
           details: { notes: notes || null, caseRef },
         },
       });
+
+      await notifyUser(existing.userId, "agent_account_restored", { caseRef }).catch(() => undefined);
 
       // Non-blocking notification email
       const recipientEmail = (updated as any).user?.email;

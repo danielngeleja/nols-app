@@ -1,3 +1,5 @@
+import { proDetailRows, proDivider, proEmail, proReferenceCard } from "./emailBase.js";
+import { eatDate, esc, gap, mailLink, mutedPara, para, signOff } from "./proEmailParts.js";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
 import crypto from "crypto";
@@ -119,16 +121,8 @@ function formatBookingDetails(booking: any, property: any, user: any): {
     html: string;
   };
 } {
-  const checkIn = new Date(booking.checkIn).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-  const checkOut = new Date(booking.checkOut).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const checkIn = eatDate(booking.checkIn);
+  const checkOut = eatDate(booking.checkOut);
   const nights = Math.ceil(
     (new Date(booking.checkOut).getTime() - new Date(booking.checkIn).getTime()) /
       (1000 * 60 * 60 * 24)
@@ -143,109 +137,39 @@ function formatBookingDetails(booking: any, property: any, user: any): {
   // SMS message (concise)
   const smsMessage = `NoLSAF Booking Confirmed!\n\nBooking Code: ${booking.code?.code || "N/A"}\nGuest: ${guestName}\nProperty: ${propertyTitle}\nRoom: ${roomType}\nCheck-in: ${checkIn}\nCheck-out: ${checkOut}\nNights: ${nights}\nAmount: ${amount} TZS\n\nPresent this code at check-in. Thank you!`;
 
-  // Email HTML (detailed)
-  const emailHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #02665e; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
-        .code-box { background: white; border: 3px solid #02665e; padding: 20px; text-align: center; margin: 20px 0; border-radius: 8px; }
-        .code { font-size: 32px; font-weight: bold; color: #02665e; letter-spacing: 4px; }
-        .details { background: white; padding: 20px; margin: 15px 0; border-radius: 8px; }
-        .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
-        .detail-label { font-weight: bold; color: #666; }
-        .detail-value { color: #333; }
-        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>Booking Confirmation</h1>
-          <p>NoLSAF - Your Stay, Our Promise</p>
-        </div>
-        <div class="content">
-          <p>Dear ${guestName},</p>
-          <p>Your booking has been confirmed! Please find your booking details below:</p>
-          
-          <div class="code-box">
-            <div style="font-size: 14px; color: #666; margin-bottom: 10px;">Your Booking Code</div>
-            <div class="code">${booking.code?.code || "N/A"}</div>
-            <div style="font-size: 12px; color: #666; margin-top: 10px;">Present this code at check-in</div>
-          </div>
-
-          <div class="details">
-            <h3 style="margin-top: 0;">Personal Information</h3>
-            <div class="detail-row">
-              <span class="detail-label">Full Name:</span>
-              <span class="detail-value">${guestName}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Nationality:</span>
-              <span class="detail-value">${nationality}</span>
-            </div>
-            ${booking.guestPhone ? `
-            <div class="detail-row">
-              <span class="detail-label">Phone:</span>
-              <span class="detail-value">${booking.guestPhone}</span>
-            </div>
-            ` : ""}
-          </div>
-
-          <div class="details">
-            <h3 style="margin-top: 0;">Booking Details</h3>
-            <div class="detail-row">
-              <span class="detail-label">Property:</span>
-              <span class="detail-value">${propertyTitle}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Room Type:</span>
-              <span class="detail-value">${roomType}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Check-in Date:</span>
-              <span class="detail-value">${checkIn}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Check-out Date:</span>
-              <span class="detail-value">${checkOut}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Number of Nights:</span>
-              <span class="detail-value">${nights}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Total Amount Paid:</span>
-              <span class="detail-value">${amount} TZS</span>
-            </div>
-          </div>
-
-          <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
-            <strong>Important:</strong> Please present your booking code at the property during check-in. 
-            This code is unique to your booking and will be used to verify your reservation.
-          </div>
-
-          <p>We look forward to hosting you!</p>
-          <p>Best regards,<br>The NoLSAF Team</p>
-        </div>
-        <div class="footer">
-          <p>This is an automated message. Please do not reply to this email.</p>
-          <p>For support, contact: ${process.env.SUPPORT_EMAIL || "support@nolsaf.com"}</p>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
+  // Email: pro shell. The code leads; details below; no button (nothing to click).
+  const code = booking.code?.code || "";
+  const emailHtml = proEmail(
+    "Your booking is confirmed",
+    `
+    ${para(`Dear ${esc(guestName)},`)}
+    ${para(`Your stay at <strong>${esc(propertyTitle)}</strong> is confirmed. Show this code at the property when you check in.`)}
+    ${code ? proReferenceCard("Your booking code", esc(code), "This code is unique to your booking. The property uses it to verify your reservation at check-in.") : ""}
+    ${gap()}
+    ${proDetailRows("Your stay", [
+      ["Property", esc(propertyTitle)],
+      ["Room", esc(roomType)],
+      ["Check-in", esc(checkIn)],
+      ["Check-out", esc(checkOut)],
+      ["Nights", String(nights)],
+    ], ["Total paid", `TZS ${esc(amount)}`])}
+    ${gap()}
+    ${proDetailRows("Guest", [
+      ["Name", esc(guestName)],
+      ["Nationality", esc(nationality)],
+      ...(booking.guestPhone ? ([["Phone", esc(booking.guestPhone)]] as Array<[string, string]>) : []),
+    ])}
+    ${proDivider()}
+    ${mutedPara(`Questions about your stay? Write to ${mailLink("bookings@nolsaf.com")}.`)}
+    ${signOff("The NoLSAF Team", "We look forward to hosting you")}
+  `,
+  );
 
   return {
     sms: smsMessage,
     email: {
-      subject: `Booking Confirmation - ${booking.id}`,
+      // The booking code, never the database row id.
+      subject: code ? `Booking confirmed: ${code}` : "Your NoLSAF booking is confirmed",
       html: emailHtml,
     },
   };

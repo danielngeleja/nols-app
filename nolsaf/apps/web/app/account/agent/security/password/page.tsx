@@ -1,15 +1,9 @@
 "use client"
 
-import React from "react"
-import PasswordChangeForm from "@/components/security/PasswordChangeForm"
+import SecurityPassword from "@/components/account-security/SecurityPassword"
+import { AGENT_SECURITY } from "@/components/account-security/securityData"
 
+// Same security pages as owners and travellers, scoped to the operator workspace.
 export default function AgentPasswordPage() {
-  return (
-    <PasswordChangeForm
-      apiUrl="/api/account/password/change"
-      redirectHref="/account/agent/security"
-      backHref="/account/agent/security"
-      roleLabel="AGENT"
-    />
-  )
+  return <SecurityPassword scope={AGENT_SECURITY} />
 }

@@ -442,6 +442,18 @@ export const limitPasswordResetRequest = rateLimit({
   },
 });
 
+// Submitting a new password, or checking a link before showing the form. The
+// token is 192 random bits, so this only stops a scripted flood.
+export const limitPasswordResetSubmit = rateLimit({
+  redisPrefix: "rl:pw-reset-submit:",
+  windowMs: 15 * 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many attempts. Please wait a few minutes and try again.", code: "rate_limited" },
+  keyGenerator: (req) => `pw-reset-submit:${clientIpKey(req)}`,
+});
+
 export const limitPasswordResetRequestPerIp = rateLimit({
   redisPrefix: "rl:pw-reset-ip:",
   windowMs: 15 * 60_000, // 15 minutes

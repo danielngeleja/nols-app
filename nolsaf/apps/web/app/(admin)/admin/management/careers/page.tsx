@@ -870,72 +870,72 @@ export default function CareersManagement() {
   const awaitingReview = (dist.PENDING || 0) + (dist.REVIEWING || 0);
   const approvedShare = totalApplications > 0 ? Math.round(((dist.HIRED || 0) / totalApplications) * 100) : 0;
   // Ghost buttons sitting on the dark header, as on the Sales pages.
-  const heroButton = "inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
+  const heroButton = "inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
 
   return (
     <div className="box-border w-full min-w-0 space-y-5">
-      {/* Header: dark brand band with headline numbers and the page's two views as tabs */}
-      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
-        <div className="relative px-5 pt-5 sm:px-6 sm:pt-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Tours</p>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Tour partnerships</h1>
-              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Open partnership forms, review tour company applications and approve operators into the tours workflow.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => { resetForm(); setShowForm(true); }} className={heroButton}>
-                <Plus className="h-3.5 w-3.5" /> Open partnership form
+      {/* Header: one compact dark band, with the numbers beside the title and the two views as tabs */}
+      <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative flex flex-col gap-3 px-4 py-3 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <h1 className="m-0 text-lg font-bold tracking-tight text-white">Tour partnerships</h1>
+            <p className="m-0 mt-0.5 truncate text-[12px] text-white/55">Partnership forms, applications and operator approvals.</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {/* Headline numbers */}
+            <dl className="m-0 flex flex-wrap items-center gap-x-5 gap-y-1">
+              {[
+                { value: statistics ? totalApplications.toLocaleString() : "...", label: "Applications", tone: "text-white" },
+                { value: statistics ? awaitingReview.toLocaleString() : "...", label: "Awaiting decision", tone: awaitingReview > 0 ? "text-amber-300" : "text-white" },
+                { value: `${approvedShare}%`, label: "Approved", tone: "text-emerald-300" },
+                { value: `${activeForms}/${jobs.length}`, label: "Forms open", tone: "text-white" },
+              ].map((stat) => (
+                <div key={stat.label} className="flex items-baseline gap-1.5">
+                  <dd className={`m-0 text-lg font-bold tabular-nums leading-none ${stat.tone}`}>{stat.value}</dd>
+                  <dt className="text-[11px] text-white/55">{stat.label}</dt>
+                </div>
+              ))}
+            </dl>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => { resetForm(); setShowForm(true); }}
+                className={`${heroButton} w-8 px-0`}
+                aria-label="Open partnership form"
+                title="Open partnership form"
+              >
+                <Plus className="h-4 w-4" />
               </button>
               <button
                 type="button"
-                onClick={() => { void loadJobs(); void loadStatistics(); if (activeTab === 'applications') void loadApplications(); }}
+                onClick={() => { void loadJobs(); void loadStatistics(); if (activeTab === "applications") void loadApplications(); }}
                 disabled={loading || applicationsLoading}
-                className={`${heroButton} w-9 px-0`}
+                className={`${heroButton} w-8 px-0`}
                 aria-label="Refresh"
                 title="Refresh"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${loading || applicationsLoading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${loading || applicationsLoading ? "animate-spin" : ""}`} />
               </button>
             </div>
           </div>
+        </div>
 
-          {/* Headline numbers */}
-          <div className="mt-5 flex flex-wrap items-end gap-x-8 gap-y-3">
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{statistics ? totalApplications.toLocaleString() : '...'}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">{totalApplications === 1 ? 'Application' : 'Applications'} received</p>
-            </div>
-            <div>
-              <p className={`m-0 text-3xl font-bold tabular-nums leading-none ${awaitingReview > 0 ? 'text-amber-300' : 'text-white'}`}>{statistics ? awaitingReview.toLocaleString() : '...'}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">Waiting for a decision</p>
-            </div>
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-emerald-300">{approvedShare}%</p>
-              <p className="m-0 mt-1 text-xs text-white/55">Approved as operators</p>
-            </div>
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{activeForms}<span className="text-lg text-white/40"> / {jobs.length}</span></p>
-              <p className="m-0 mt-1 text-xs text-white/55">Forms open to applications</p>
-            </div>
-          </div>
-
-          <div className="mt-5 flex gap-1" role="tablist" aria-label="Tour partnership views">
-            {([['applications', 'Applications', Users], ['jobs', 'Partnership forms', Briefcase]] as const).map(([key, label, Icon]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === key}
-                onClick={() => setActiveTab(key)}
-                className={`relative inline-flex h-11 cursor-pointer items-center gap-2 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${activeTab === key ? 'text-white' : 'text-white/50 hover:text-white/80'}`}
-              >
-                <Icon className="h-4 w-4" /> {label}
-                {activeTab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-emerald-400" aria-hidden />}
-              </button>
-            ))}
-          </div>
+        <div className="relative flex gap-1 border-0 border-t border-solid border-white/10 px-2.5 sm:px-3.5" role="tablist" aria-label="Tour partnership views">
+          {([["applications", "Applications", Users], ["jobs", "Partnership forms", Briefcase]] as const).map(([key, label, Icon]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === key}
+              onClick={() => setActiveTab(key)}
+              className={`relative inline-flex h-9 cursor-pointer items-center gap-1.5 border-0 bg-transparent px-2.5 text-[13px] font-semibold transition-colors ${activeTab === key ? "text-white" : "text-white/50 hover:text-white/80"}`}
+            >
+              <Icon className="h-3.5 w-3.5" /> {label}
+              {activeTab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-emerald-400" aria-hidden />}
+            </button>
+          ))}
         </div>
       </section>
 

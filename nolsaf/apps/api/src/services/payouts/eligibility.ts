@@ -20,6 +20,7 @@ import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
 import { isAdvanceRow, loadAdvanceTotalsFor } from "../../lib/tourPayouts.js";
 import { ADVANCE_MAX_PERCENT, balanceAfterAdvances } from "../../lib/tourPayoutPolicy.js";
+import { quoteBalanceWithRecovery } from "../../lib/tourRecoveryOffset.js";
 import { guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
 
 /**
@@ -38,6 +39,18 @@ export class PayoutIneligibleError extends Error {
   ) {
     super(`Payout source ${sourceType}:${sourceId} is not eligible: ${reason}`);
     this.name = "PayoutIneligibleError";
+  }
+}
+
+/**
+ * The operator's unpaid recoveries absorb this whole balance, so there is no
+ * money to send. Approving the balance settles it as an offset instead
+ * (settleBalanceByRecoveryOffset in lib/tourRecoveryOffset.ts).
+ */
+export class BalanceFullyOffsetError extends PayoutIneligibleError {
+  constructor(sourceId: number, readonly grossBalance: number) {
+    super("TOUR_BOOKING", sourceId, `the whole balance of ${grossBalance} settles the operator's unpaid recovery; approving it applies the offset and no money is sent`);
+    this.name = "BalanceFullyOffsetError";
   }
 }
 
@@ -302,6 +315,7 @@ async function loadTourBooking(sourceId: number): Promise<EligiblePayoutSource> 
       id: true,
       payoutStatus: true,
       operatorPayoutAmount: true,
+      operatorAgentId: true,
       currency: true,
       operator: { select: { userId: true } },
     },
@@ -342,11 +356,21 @@ async function loadTourBooking(sourceId: number): Promise<EligiblePayoutSource> 
     throw new PayoutIneligibleError("TOUR_BOOKING", sourceId, "advances already cover the full operator share, there is no balance to pay");
   }
 
+  // An unpaid recovery from an earlier cancelled trip is taken from this
+  // balance first (policy 6.4). The ledger applies it when the payout is paid.
+  const quote = await quoteBalanceWithRecovery(prisma, {
+    bookingId: sourceId,
+    operatorAgentId: booking.operatorAgentId,
+    currency: booking.currency,
+    grossBalance: balance,
+  });
+  if (quote.net <= 0.005) throw new BalanceFullyOffsetError(sourceId, balance);
+
   return {
     sourceType: "TOUR_BOOKING",
     sourceId,
     payeeUserId: booking.operator.userId,
-    amount: new Prisma.Decimal(balance),
+    amount: new Prisma.Decimal(quote.net),
     currency: booking.currency,
   };
 }

@@ -20,7 +20,15 @@ import { balanceAfterAdvances, balanceDisputeDeadline, computeAdvanceOffer, maxA
 import { loadAdvanceTotals, loadAdvanceTotalsFor, loadOperatorStanding } from "../lib/tourPayouts.js";
 import { classifyOperatorCaseResponsibility } from "../lib/tourCaseResponsibility.js";
 import { syncOperatorTourPackages } from "../lib/tourPackageSync.js";
-import { loadOperatorContractTemplate } from "../lib/operatorContract.js";
+import { OPERATOR_CONTRACT_CURRENT_VERSION, effectiveOperatorContractVersion, loadOperatorContractTemplate } from "../lib/operatorContract.js";
+import { photoLimitBreaches, photoLimitMessage } from "../lib/operatorPhotoLimits.js";
+import { customerRecordReference, isCustomerRecordReference, matchesCustomerRecordReference } from "../lib/customerBookingReference.js";
+import { previewRecoveryDeductions } from "../lib/tourRecoveryOffset.js";
+import {
+  PACKAGE_BLOCKING_BOOKING_STATUSES, REMOVED_PACKAGES_KEY, RESTORE_WINDOW_DAYS, guardPackageItems, isRestorable,
+  packageIdOf, pruneRemovedPackages, readRemovedPackages, removalNameConfirmed, withoutLivePackage,
+} from "../lib/operatorPackageRemoval.js";
+import { adminRecordReferenceOrNull } from "../lib/adminRecordReference.js";
 import {
   buildContractWorkflowSeed,
   readContractWorkflow,
@@ -31,7 +39,44 @@ import {
 
 const router = Router();
 
+// Operator pages address a tour booking by its opaque tr_ reference, never the
+// row id. Resolve it among this operator's own bookings only; numeric ids still
+// work for older links, and every route keeps its own ownership check.
+router.param("id", async (req, res, next, value) => {
+  const requested = String(value || "").trim();
+  if (!isCustomerRecordReference(requested, "tour")) return next();
+  const userId = (req as AuthedRequest).user?.id;
+  const agent = userId ? await prisma.agent.findUnique({ where: { userId }, select: { id: true } }) : null;
+  if (!agent) return res.status(404).json({ ok: false, error: "Tour booking not found" });
+  const candidates = await prisma.tourBooking.findMany({ where: { operatorAgentId: agent.id }, select: { id: true } });
+  const match = candidates.find(({ id }) => matchesCustomerRecordReference(requested, "tour", id));
+  if (!match) return res.status(404).json({ ok: false, error: "Tour booking not found" });
+  req.params.id = String(match.id);
+  return next();
+});
+
 const RATING_DECIMAL_PLACES = 1;
+
+/**
+ * Tells the NoLSAF admin inbox about something an operator did, with the
+ * operator's name and a link to their admin record. Never blocks or fails the
+ * operator's own request.
+ */
+async function alertAdminsAboutOperator(kind: string, agent: any, data: Record<string, unknown> = {}, hrefSuffix = "") {
+  try {
+    const profile = (agent?.operatorProfile && typeof agent.operatorProfile === "object" ? agent.operatorProfile : {}) as Record<string, any>;
+    const operatorName = String(profile.companyName || agent?.user?.fullName || agent?.user?.name || "An operator").trim();
+    const ref = adminRecordReferenceOrNull("agent", agent?.id);
+    await notifyAdmins(kind, {
+      ...data,
+      agentId: agent?.id ?? null,
+      operatorName,
+      ...(ref ? { href: `/admin/agents/${ref}${hrefSuffix}` } : {}),
+    });
+  } catch {
+    // Alerts are best effort; the operator's action has already been saved.
+  }
+}
 
 function formatAddress(parts: Array<unknown>): string {
   const filtered = parts.map((v) => String(v || "").trim()).filter(Boolean);
@@ -488,6 +533,8 @@ const SERVER_OWNED_OPERATOR_PROFILE_KEYS = [
   "submittedAt",
   "approvedAt",
   "approvedSnapshot",
+  // Packages removed through the remove action, kept for restore.
+  "removedPackages",
 ];
 
 function preserveServerOwnedProfileFields(value: unknown): Record<string, unknown> {
@@ -668,6 +715,7 @@ async function getActiveAgent(req: AuthedRequest): Promise<AgentGateResult> {
     where: { userId },
     select: {
       id: true,
+      publicKey: true,
       status: true,
       level: true,
       educationLevel: true,
@@ -757,19 +805,43 @@ router.get(
       });
     }
 
-    const workflow = await ensureAgentContractWorkflow(gate.agent);
-    const template = loadOperatorContractTemplate();
-    const rendered = fillContractTemplate(template, buildAgentContractPlaceholders(gate.agent, workflow));
+    const stored = await ensureAgentContractWorkflow(gate.agent);
+    // Signed agreements render from their own frozen text; unsigned ones from the current text.
+    const workflow = { ...stored, version: effectiveOperatorContractVersion(stored) };
+    const template = loadOperatorContractTemplate(workflow.version);
+    const placeholders = buildAgentContractPlaceholders(gate.agent, workflow);
+    const rendered = fillContractTemplate(template, placeholders);
+
+    // The money terms in one place for the summary card. The commission rate is
+    // the live one: each booking records the rate it was made at.
+    let commissionPercent: number | null = null;
+    try {
+      const settings = await prisma.systemSetting.findUnique({ where: { id: 1 }, select: { agentCommissionPercent: true } as any });
+      const pct = Number((settings as any)?.agentCommissionPercent ?? 15);
+      commissionPercent = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : null;
+    } catch {
+      commissionPercent = null;
+    }
 
     return res.json({
       ok: true,
       contract: {
-        title: "Partnership Contract",
+        title: "Tour Operator Partnership Agreement",
         format: "markdown",
         content: rendered,
         generatedAt: new Date().toISOString(),
       },
       workflow,
+      currentVersion: OPERATOR_CONTRACT_CURRENT_VERSION,
+      // The name the operator must type to sign (see POST /contract/sign).
+      signerName: String(gate.agent?.user?.fullName || gate.agent?.user?.name || gate.agent?.applications?.[0]?.fullName || "").trim() || null,
+      keyTerms: {
+        commissionPercent,
+        settlementMinHours: Number(placeholders.SETTLEMENT_MIN_HOURS),
+        settlementMaxDays: Number(placeholders.SETTLEMENT_MAX_DAYS),
+        payoutCurrency: placeholders.PAYOUT_CURRENCY_RULE,
+        changeNoticeDays: Number(placeholders.COMMERCIAL_CHANGE_NOTICE_DAYS),
+      },
     });
   })
 );
@@ -822,7 +894,7 @@ router.get(
     const attentionCases = visibleCases.filter((item) => requiresReconciliation(item) || item.operatorReceiptStatus === "AWAITING_RECEIPT");
     return res.json({
       ok: true,
-      cases: visibleCases,
+      cases: visibleCases.map((item) => ({ ...item, booking: { ...item.booking, ref: customerRecordReference("tour", item.booking.id) } })),
       summary: {
         total: visibleCases.length,
         submitted: submittedCases.length,
@@ -887,6 +959,13 @@ router.post(
     });
     const customerId = item.requestedByUserId || item.booking.customerId;
     if (customerId) await notifyUser(customerId, "tour_case_operator_message", { caseId: item.id, bookingCode: item.booking.bookingCode, action, message });
+    await alertAdminsAboutOperator(action === "ESCALATE" ? "tour_case_operator_escalated" : "tour_case_operator_update", gate.agent, {
+      caseId: item.id,
+      caseType: item.type,
+      action,
+      bookingCode: item.booking.bookingCode,
+      message: message.slice(0, 280),
+    });
     return res.json({ ok: true, case: updated });
   })
 );
@@ -935,6 +1014,8 @@ router.post(
 router.post(
   "/contract/sign",
   requireRole("AGENT") as RequestHandler,
+  // A support session must never sign on the operator's behalf.
+  blockImpersonated as RequestHandler,
   limitAgentProfileWrite as any,
   asyncHandler(async (req: any, res) => {
     const gate = await getActiveAgent(req as AuthedRequest);
@@ -966,14 +1047,39 @@ router.post(
     const signerName = String(
       gate.agent?.user?.fullName || gate.agent?.user?.name || gate.agent?.applications?.[0]?.fullName || `Agent ${gate.agent.id}`
     ).trim();
-    const nowIso = new Date().toISOString();
 
+    // A signature is a deliberate act: the operator ticks the consent, types
+    // their name as it appears on the account, and signs the version they read.
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const normalise = (v: unknown) => String(v ?? "").normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+    const typedName = String(body.typedName ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
+    if (body.accept !== true) {
+      return res.status(400).json({ ok: false, error: "CONSENT_REQUIRED", message: "Confirm that you have read and accept the agreement." });
+    }
+    if (!typedName || normalise(typedName) !== normalise(signerName)) {
+      return res.status(400).json({ ok: false, error: "SIGNER_NAME_MISMATCH", message: `Type your full name exactly as it is on your account: ${signerName}.` });
+    }
+    // The same version GET /contract showed them.
+    const signedVersion = effectiveOperatorContractVersion(workflow);
+    if (String(body.version ?? "") !== String(signedVersion)) {
+      return res.status(409).json({ ok: false, error: "CONTRACT_VERSION_CHANGED", message: "The agreement changed while you were reading it. Reload the page and read it again before signing.", workflow });
+    }
+
+    const nowIso = new Date().toISOString();
     const nextWorkflow: AgentContractWorkflow = {
       ...workflow,
+      version: signedVersion,
       status: "EXECUTED",
       agentSignedAt: nowIso,
       agentSignerName: signerName,
       agentSignedByUserId: Number(req.user!.id),
+      agentSignatureEvidence: {
+        typedName,
+        consent: "I have read the agreement and sign it as the authorised representative of the operator.",
+        version: signedVersion,
+        ip: typeof req.ip === "string" ? req.ip.slice(0, 64) : null,
+        userAgent: String(req.get?.("user-agent") || "").slice(0, 300) || null,
+      },
     };
 
     const nextProfile = withContractWorkflow(gate.agent?.operatorProfile, nextWorkflow);
@@ -984,6 +1090,7 @@ router.post(
     });
 
     await audit(req, "AGENT_CONTRACT_SIGNED", "AGENT", null, { workflow: nextWorkflow });
+    await alertAdminsAboutOperator("operator_contract_signed", gate.agent, { contractId: nextWorkflow.contractId, version: nextWorkflow.version });
 
     return res.json({ ok: true, workflow: nextWorkflow });
   })
@@ -1201,6 +1308,8 @@ router.get(
       ok: true,
       agent: {
         id: agent.id,
+        // The operator's own opaque public key, so the workspace can show the live public card.
+        publicKey: (agent as any).publicKey ?? null,
         status: agent.status,
         level: levelInfo.level,
         levelBenefits: levelInfo.benefits,
@@ -1248,16 +1357,160 @@ router.patch(
       });
     }
 
+    // Photo policy: a few strong photos per group, enforced here so no client can bypass it.
+    const previousPhotos = (gate.agent.operatorProfile as any)?.classifiedPhotos;
+    const breaches = photoLimitBreaches(parsed.data.classifiedPhotos, previousPhotos);
+    if (breaches.length) {
+      return res.status(400).json({
+        ok: false,
+        error: "photo_limit_exceeded",
+        message: photoLimitMessage(breaches),
+        breaches,
+      });
+    }
+
     const serverOwnedFields = preserveServerOwnedProfileFields(gate.agent.operatorProfile);
+    // A save never deletes a package (see lib/operatorPackageRemoval.ts).
+    const packageGuard = guardPackageItems(
+      (gate.agent.operatorProfile as any)?.packageItems,
+      parsed.data.packageItems,
+      readRemovedPackages(gate.agent.operatorProfile),
+    );
     const updated = await prisma.agent.update({
       where: { id: gate.agent.id },
-      data: { operatorProfile: { ...parsed.data, ...serverOwnedFields } as any },
+      data: { operatorProfile: { ...parsed.data, packageItems: packageGuard.items, ...serverOwnedFields } as any },
       select: { id: true, operatorProfile: true, updatedAt: true },
     });
 
-    await syncOperatorTourPackages(gate.agent.id, parsed.data.packageItems, "DRAFT");
+    await syncOperatorTourPackages(gate.agent.id, packageGuard.items, "DRAFT");
 
-    return res.json({ ok: true, agent: updated });
+    return res.json({
+      ok: true,
+      agent: updated,
+      ...(packageGuard.keptIds.length ? { packagesKept: packageGuard.keptIds } : {}),
+    });
+  })
+);
+
+// POST /api/agent/operator-profile/packages/:packageId/remove   { confirmName }
+// The only way a package leaves the profile. Refused while a booking still
+// depends on it; otherwise kept for RESTORE_WINDOW_DAYS so it can come back.
+router.post(
+  "/operator-profile/packages/:packageId/remove",
+  requireRole("AGENT") as RequestHandler,
+  blockImpersonated as RequestHandler,
+  limitAgentProfileWrite as any,
+  asyncHandler(async (req: any, res) => {
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error, message: gate.message });
+
+    const packageId = String(req.params.packageId || "").trim().slice(0, 120);
+    const profile = (gate.agent.operatorProfile && typeof gate.agent.operatorProfile === "object" ? gate.agent.operatorProfile : {}) as Record<string, any>;
+    const items: any[] = Array.isArray(profile.packageItems) ? profile.packageItems : [];
+    const item = items.find((p) => packageIdOf(p) === packageId);
+    if (!packageId || !item) return res.status(404).json({ ok: false, error: "PACKAGE_NOT_FOUND", message: "This package is not on your profile." });
+
+    if (!removalNameConfirmed(item, req.body?.confirmName)) {
+      return res.status(400).json({ ok: false, error: "PACKAGE_NAME_MISMATCH", message: `Type the package name exactly to remove it: ${item.name}.` });
+    }
+
+    const blocking = await prisma.tourBooking.findMany({
+      where: { operatorAgentId: gate.agent.id, packageId, status: { in: PACKAGE_BLOCKING_BOOKING_STATUSES } },
+      select: { bookingCode: true, status: true, startDate: true },
+      orderBy: { startDate: "asc" },
+      take: 5,
+    });
+    if (blocking.length) {
+      return res.status(409).json({
+        ok: false,
+        error: "PACKAGE_HAS_ACTIVE_BOOKINGS",
+        message: `Travellers are booked on this package (${blocking.map((b) => b.bookingCode).join(", ")}). It can be removed once those trips are completed or cancelled.`,
+        bookings: blocking,
+      });
+    }
+
+    const removedAt = new Date().toISOString();
+    // Travellers see the approved copy, so the package leaves that too, at once.
+    const live = withoutLivePackage(profile, packageId);
+    const removed = pruneRemovedPackages([
+      { item, removedAt, removedByUserId: Number(req.user?.id) || null, liveItem: live.liveItem },
+      ...readRemovedPackages(profile).filter((r) => packageIdOf(r.item) !== packageId),
+    ]);
+    const nextProfile = {
+      ...profile,
+      packageItems: items.filter((p) => packageIdOf(p) !== packageId),
+      ...(live.approvedSnapshot ? { approvedSnapshot: live.approvedSnapshot } : {}),
+      [REMOVED_PACKAGES_KEY]: removed,
+    };
+
+    const updated = await prisma.agent.update({
+      where: { id: gate.agent.id },
+      data: { operatorProfile: nextProfile as any },
+      select: { id: true, operatorProfile: true, updatedAt: true },
+    });
+    // Off the marketplace: no new booking can start from the catalogue copy.
+    await prisma.tourPackage.updateMany({
+      where: { operatorAgentId: gate.agent.id, legacyPackageId: packageId, status: { not: "ARCHIVED" } },
+      data: { status: "ARCHIVED", archivedAt: new Date() },
+    });
+    await audit(req, "AGENT_TOUR_PACKAGE_REMOVED", `agent:${gate.agent.id}`, null, { packageId, name: item.name || null });
+
+    return res.json({ ok: true, agent: updated, removedAt, restoreUntil: new Date(Date.parse(removedAt) + RESTORE_WINDOW_DAYS * 86_400_000).toISOString() });
+  })
+);
+
+// POST /api/agent/operator-profile/packages/:packageId/restore
+router.post(
+  "/operator-profile/packages/:packageId/restore",
+  requireRole("AGENT") as RequestHandler,
+  blockImpersonated as RequestHandler,
+  limitAgentProfileWrite as any,
+  asyncHandler(async (req: any, res) => {
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error, message: gate.message });
+
+    const packageId = String(req.params.packageId || "").trim().slice(0, 120);
+    const profile = (gate.agent.operatorProfile && typeof gate.agent.operatorProfile === "object" ? gate.agent.operatorProfile : {}) as Record<string, any>;
+    const removed = readRemovedPackages(profile);
+    const entry = removed.find((r) => packageIdOf(r.item) === packageId);
+    if (!entry || !isRestorable(entry)) {
+      return res.status(404).json({ ok: false, error: "PACKAGE_NOT_RESTORABLE", message: `Removed packages can be restored for ${RESTORE_WINDOW_DAYS} days.` });
+    }
+    const items: any[] = Array.isArray(profile.packageItems) ? profile.packageItems : [];
+    if (items.some((p) => packageIdOf(p) === packageId)) {
+      return res.status(409).json({ ok: false, error: "PACKAGE_ALREADY_ON_PROFILE", message: "This package is already on your profile." });
+    }
+    if (items.length >= 80) {
+      return res.status(409).json({ ok: false, error: "PACKAGE_LIMIT", message: "Your profile already has the most packages allowed. Remove one first." });
+    }
+
+    const nextItems = [...items, entry.item];
+    // A package that was live goes back live in its approved form; anything else waits for review.
+    const snap = profile.approvedSnapshot;
+    const restoredSnapshot = entry.liveItem && snap && typeof snap === "object"
+      ? {
+          ...snap,
+          packageItems: [
+            ...(Array.isArray(snap.packageItems) ? snap.packageItems.filter((p: unknown) => packageIdOf(p) !== packageId) : []),
+            entry.liveItem,
+          ],
+        }
+      : null;
+    const nextProfile = {
+      ...profile,
+      packageItems: nextItems,
+      ...(restoredSnapshot ? { approvedSnapshot: restoredSnapshot } : {}),
+      [REMOVED_PACKAGES_KEY]: pruneRemovedPackages(removed.filter((r) => packageIdOf(r.item) !== packageId)),
+    };
+    const updated = await prisma.agent.update({
+      where: { id: gate.agent.id },
+      data: { operatorProfile: nextProfile as any },
+      select: { id: true, operatorProfile: true, updatedAt: true },
+    });
+    await syncOperatorTourPackages(gate.agent.id, nextItems, "DRAFT");
+    await audit(req, "AGENT_TOUR_PACKAGE_RESTORED", `agent:${gate.agent.id}`, null, { packageId, name: entry.item?.name || null });
+
+    return res.json({ ok: true, agent: updated, live: Boolean(restoredSnapshot) });
   })
 );
 
@@ -1332,6 +1585,15 @@ router.post(
       changes: changeSummary,
       detailedChanges: changes,
     });
+
+    await alertAdminsAboutOperator("operator_profile_submitted", agent, {
+      changeCount: Array.isArray(changes) ? changes.length : null,
+      changeSummary: typeof changeSummary === "string" ? changeSummary.slice(0, 300) : null,
+      firstSubmission: !baselineSnapshot,
+    }, `/submitted-profile/${
+      // The review page lives at /submitted-profile/<slug>; any readable slug works.
+      String(profile.companyName || "profile").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "profile"
+    }`);
 
     return res.json({
       ok: true,
@@ -1530,6 +1792,27 @@ router.get(
     ]);
     const nowForPolicy = new Date();
 
+    // Policy 6.4: an unpaid recovery is taken from the next balances. Show each
+    // balance the deduction it carries, so the amount claimed is the amount paid.
+    const balanceClosed = (raw: any) =>
+      ["DISBURSED", "PAID", "REJECTED", "RECOVERED", "RECOVERY_PENDING", "HELD"].includes(String(raw?.payoutStatus || "").toUpperCase()) ||
+      ["CANCELED", "CANCELLED", "REFUNDED"].includes(String(raw?.status || "").toUpperCase());
+    const recoveryPreview = standing.pendingRecoveryAmount > 0
+      ? await previewRecoveryDeductions(
+          agent.id,
+          tourDerived.map((t) => {
+            const raw = (tourByReportId.get(t.id) || null) as any;
+            return {
+              bookingId: Number(raw?.id || 0),
+              currency: String(t.currency || "USD"),
+              grossBalance: balanceAfterAdvances(t.operatorPayout, advanceByBooking.get(Number(raw?.id || 0))?.paid ?? 0),
+              createdAt: t.createdAt ?? null,
+              open: Boolean(raw && t.paid && !balanceClosed(raw)),
+            };
+          })
+        )
+      : new Map<number, { deduction: number; exact: boolean }>();
+
     const tourItems = tourDerived.map((t) => {
       const rawTour = (tourByReportId.get(t.id) || null) as any;
       const advances = rawTour ? advanceByBooking.get(rawTour.id) : undefined;
@@ -1567,6 +1850,10 @@ router.get(
       openCaseCount: rawTour?._count?.cases || 0,
       // Net share minus advances already paid: what the balance claim pays.
       balanceAmount: Math.round(balanceAfterAdvances(t.operatorPayout, advancePaid)),
+      // Part of the balance that goes to an unpaid recovery, and what is left to send.
+      recoveryDeduction: Math.round(recoveryPreview.get(Number(rawTour?.id || 0))?.deduction ?? 0),
+      recoveryDeductionExact: Boolean(recoveryPreview.get(Number(rawTour?.id || 0))?.exact),
+      balanceToYou: Math.round(Math.max(0, balanceAfterAdvances(t.operatorPayout, advancePaid) - (recoveryPreview.get(Number(rawTour?.id || 0))?.deduction ?? 0))),
       advance: {
         offer: advanceOffer,
         paid: Math.round(advancePaid),
@@ -1754,6 +2041,20 @@ router.post(
       });
     }
 
+    // Policy 5.4: only a verified mobile money account can be paid today. A claim
+    // to a bank-only operator would sit approved with no way to send the money.
+    const payableDestination = await prisma.payoutAccount.findFirst({
+      where: { userId: authedId, isVerified: true, isActive: true, type: "MOBILE_MONEY" },
+      select: { id: true },
+    });
+    if (!payableDestination) {
+      return res.status(409).json({
+        ok: false,
+        error: "payout_destination_unsupported",
+        message: "Add and verify a mobile money account first. Bank accounts cannot receive payouts yet.",
+      });
+    }
+
     const now = new Date();
 
     const updated = await prisma.tourBooking.update({
@@ -1818,7 +2119,21 @@ const claimAdvanceSchema = z
           .object({
             description: z.string().trim().min(3).max(200),
             amount: z.coerce.number().positive().max(100_000_000),
-            evidenceUrl: z.string().trim().url().max(600).refine((url) => /^https:\/\//i.test(url), "Evidence must be an https link"),
+            // Policy 3.6: receipts are files uploaded through NoLSAF, never outside
+            // links, so finance only ever opens NoLSAF-hosted documents.
+            evidenceUrl: z
+              .string()
+              .trim()
+              .url()
+              .max(600)
+              .refine((value) => {
+                try {
+                  const url = new URL(value);
+                  return url.protocol === "https:" && url.hostname === "res.cloudinary.com";
+                } catch {
+                  return false;
+                }
+              }, "Upload the receipt through NoLSAF; outside links are not accepted"),
           })
           .strict()
       )
@@ -2141,6 +2456,8 @@ router.get(
 
         return {
           id: t.id,
+          // Opaque address for page links: page URLs never carry the row id.
+          ref: customerRecordReference("tour", t.id),
           bookingCode: t.bookingCode,
           airportDeparture,
           title: t.destination ? `${t.title} • ${t.destination}` : t.title,
@@ -2406,6 +2723,7 @@ router.get(
       item: {
         id: t.id,
         bookingCode: t.bookingCode,
+        ref: customerRecordReference("tour", t.id),
         packageId: t.packageId || null,
         packageSnapshot: t.packageSnapshot || null,
         operatorSnapshot: t.operatorSnapshot || null,
@@ -2575,6 +2893,10 @@ router.post(
       select: { id: true },
     });
 
+    if (shouldAdvance) {
+      await alertAdminsAboutOperator("tour_trip_started", agent, { tourBookingId: booking.id, bookingCode: booking.bookingCode });
+    }
+
     return res.json({
       ok: true,
       pickupValidation: md.pickupValidation,
@@ -2668,6 +2990,10 @@ router.post(
       },
       select: { id: true },
     });
+
+    if (!completedByStatus && completedByChecklist) {
+      await alertAdminsAboutOperator("tour_trip_completed_by_operator", agent, { tourBookingId: booking.id });
+    }
 
     return res.json({ ok: true, completionRating });
   })
@@ -2901,6 +3227,13 @@ router.post(
       concernType: bodyParsed.data.concernType,
       message: bodyParsed.data.message.trim(),
       operatorAgentId: agent.id,
+    });
+    await alertAdminsAboutOperator("tour_traveller_document_concern", agent, {
+      tourBookingId: booking.id,
+      bookingCode: booking.bookingCode || "",
+      memberName: member.fullName || "a traveller",
+      concernType: bodyParsed.data.concernType,
+      message: bodyParsed.data.message.trim().slice(0, 280),
     });
 
     return res.json({ ok: true, sent: true });
