@@ -16,6 +16,8 @@ import { consumeSupportHandoff, getActiveSupportHandoff, supportHandoffMatchesUs
 import { getWebAuthnRp } from '../lib/webauthnRp.js';
 import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js';
 import { audit } from '../lib/audit.js';
+import { generateOperatorWelcomeEmail } from '../lib/operatorWelcomeEmail.js';
+import { readContractWorkflow } from '../lib/agentContractWorkflow.js';
 import { hashCode } from '../lib/otp.js';
 import { normalizeEmailForAuth, normalizePhoneForAuth } from '../lib/authDestination.js';
 import { otpAuditDestinationFields, otpAuditEntity } from '../lib/otpAudit.js';
@@ -2686,6 +2688,25 @@ router.post('/forgot-password', limitPasswordResetRequestPerIp, limitPasswordRes
   }
 });
 
+/** The operator welcome email, or null when the account has no operator record. */
+async function buildOperatorWelcome(userId: number, user: any, origin: string) {
+  try {
+    const agent = await prisma.agent.findFirst({ where: { userId }, select: { operatorProfile: true } as any });
+    if (!agent) return null;
+    const profile = ((agent as any).operatorProfile ?? {}) as Record<string, any>;
+    const workflow = readContractWorkflow(profile);
+    return generateOperatorWelcomeEmail({
+      name: String(user.fullName || user.name || '').split(' ')[0] || 'there',
+      companyName: typeof profile.companyName === 'string' && profile.companyName.trim() ? profile.companyName.trim() : null,
+      origin,
+      createdAt: new Date(),
+      agreementToSign: workflow?.status === 'PENDING_AGENT_SIGNATURE',
+    });
+  } catch {
+    return null;
+  }
+}
+
 // POST /api/auth/reset-password/check
 // Lets the password page say up front whether a link still works, instead of
 // after the user has typed a password. Answers only about the token itself.
@@ -2826,8 +2847,16 @@ router.post('/reset-password', limitPasswordResetSubmit, async (req, res) => {
     // Send password-changed confirmation email (non-blocking)
     try {
       const recipientEmail = user.email || user.phone;
-      if (recipientEmail && recipientEmail.includes('@')) {
-        const appUrl = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || process.env.CORS_ORIGIN?.split(',')[0]?.trim() || 'https://nolsaf.com';
+      const firstPassword = !user.passwordHash;
+      const appUrl = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || process.env.CORS_ORIGIN?.split(',')[0]?.trim() || 'https://nolsaf.com';
+      // A tour operator's first password: the welcome with first steps, which
+      // also carries the security notice, instead of "password changed".
+      const operatorWelcome = firstPassword && String(user.role || '').toUpperCase() === 'AGENT' && recipientEmail && recipientEmail.includes('@')
+        ? await buildOperatorWelcome(Number(user.id), user, appUrl)
+        : null;
+      if (operatorWelcome) {
+        await sendMail(recipientEmail, operatorWelcome.subject, operatorWelcome.html, undefined, { replyTo: 'partners@nolsaf.com' });
+      } else if (recipientEmail && recipientEmail.includes('@')) {
         const { subject: cSubject, html: cHtml } = getPasswordChangedConfirmationEmail({
           name: user.name || user.email || 'User',
           email: user.email,

@@ -87,7 +87,7 @@ type OperatorAccountAccess = {
 async function loadOperatorAccountAccess(userId: number, agentId: number): Promise<OperatorAccountAccess> {
   const iso = (d: unknown) => (d ? new Date(d as any).toISOString() : null);
   // Each piece is best effort: the record still loads if one source is unavailable.
-  const safe = async <T,>(read: () => Promise<T>, fallback: T): Promise<T> => {
+  const safe = async (read: () => Promise<unknown>, fallback: unknown): Promise<any> => {
     try {
       return await read();
     } catch {
