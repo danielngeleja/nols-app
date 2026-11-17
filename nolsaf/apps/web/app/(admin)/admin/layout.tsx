@@ -84,7 +84,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           onClick={() => setSidebarOpen(false)}
         />
         <aside
-          className={`absolute left-3 top-3 bottom-3 w-[18.5rem] max-w-[85vw] bg-[#082f2a] text-white border border-emerald-950/70 rounded-2xl overflow-hidden shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-transform duration-300 ease-out ${sidebarOpen ? "translate-x-0" : "-translate-x-[110%]"}`}
+          className={`absolute left-3 top-3 bottom-3 w-[18.5rem] max-w-[85vw] bg-[#082f2a] text-white border border-emerald-950/70 rounded-lg overflow-hidden shadow-[0_14px_34px_rgba(8,47,42,0.18)] transition-transform duration-300 ease-out ${sidebarOpen ? "translate-x-0" : "-translate-x-[110%]"}`}
         >
           <div className="min-h-[5rem] flex items-center px-4 border-0 border-b border-solid border-white/10">
             <div className="text-base font-bold tracking-[-0.01em] text-white">Admin</div>
@@ -104,7 +104,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           {/* Sidebar inside the frame container on md+; collapsed shows icons only */}
           <aside
             ref={sidebarRef}
-            className={`box-border absolute left-3 top-40 text-white border border-emerald-950/70 transition-all duration-300 ease-in-out hidden md:flex md:flex-col ${sidebarOpen ? "w-56 px-2.5 py-3" : "w-20 px-2 py-3"} bg-[#082f2a] h-[calc(100vh-10rem)] overflow-hidden rounded-2xl shadow-[0_14px_34px_rgba(8,47,42,0.18)]`}
+            className={`box-border absolute left-3 top-40 text-white border border-emerald-950/70 transition-all duration-300 ease-in-out hidden md:flex md:flex-col ${sidebarOpen ? "w-56 px-2.5 py-3" : "w-20 px-2 py-3"} bg-[#082f2a] h-[calc(100vh-10rem)] overflow-hidden rounded-lg shadow-[0_14px_34px_rgba(8,47,42,0.18)]`}
           >
             <div className="flex min-h-0 flex-1 flex-col">
               <AdminNav variant="dark" collapsed={!sidebarOpen} />

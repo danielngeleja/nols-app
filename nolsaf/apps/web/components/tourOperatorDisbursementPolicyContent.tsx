@@ -6,7 +6,7 @@
 import Link from "@/components/PolicyLink";
 import { TermsSection } from "./Terms";
 
-export const TOUR_OPERATOR_DISBURSEMENT_POLICY_LAST_UPDATED = "26 September 2026";
+export const TOUR_OPERATOR_DISBURSEMENT_POLICY_LAST_UPDATED = "17 November 2026";
 
 export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
   {
@@ -26,7 +26,7 @@ export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>1.3 Protecting both sides.</strong> The advance is sized so the traveller's refund rights are always covered, and the balance waits a short dispute window so travellers can raise a problem before the money is released. Within those limits, NoLSAF releases operator money as early as it safely can.
         </p>
         <p>
-          <strong>1.4 Your operator agreement.</strong> This policy sets out how the Economic Flow and Settlement terms (section 19) of your signed NoLSAF operator agreement apply to tour packages, including releasing a payout in two stages. Where this policy and your signed agreement differ, your signed agreement prevails.
+          <strong>1.4 Your operator agreement.</strong> This policy sets out how the payout terms of your signed NoLSAF Tour Operator Partnership Agreement apply to tour packages, including releasing a payout in two stages. Where this policy and your signed agreement differ, your signed agreement prevails.
         </p>
       </div>
     ),
@@ -36,7 +36,7 @@ export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
     content: (
       <div className="space-y-4">
         <p>
-          <strong>2.1 Net share.</strong> The operator's share of a booking is the amount the traveller paid, less the NoLSAF commission shown on the booking. Every advance and balance in this policy is a portion of that net share.
+          <strong>2.1 Net share.</strong> The operator's share of a booking is the full package price the operator set, for the number of travellers booked. The NoLSAF commission is added on top of that price and paid by the traveller, so it is not taken out of the operator's share. Both amounts are shown on each booking. Every advance and balance in this policy is a portion of that net share.
         </p>
         <p>
           <strong>2.2 Payout currency.</strong> Payouts are made in TZS or USD as set out in your operator agreement, subject to what your verified payout destination supports and to applicable foreign exchange rules.
@@ -64,7 +64,7 @@ export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>3.5 One request at a time.</strong> An operator may have one advance request in progress per trip. Several advances may be taken on one trip, but together they never exceed 70% of the net share.
         </p>
         <p>
-          <strong>3.6 Receipts.</strong> Receipts must be genuine, must relate to the trip the advance is requested for, and must be supplied as a secure link NoLSAF can open. NoLSAF finance checks them before verifying the advance. Submitting a false or reused receipt is a serious breach of this policy (see section 7).
+          <strong>3.6 Receipts.</strong> Receipts must be genuine, must relate to the trip the advance is requested for, and must be uploaded through the operator workspace as a PDF, JPG or PNG file; links to files kept elsewhere are not accepted. NoLSAF finance checks them before verifying the advance. Submitting a false or reused receipt is a serious breach of this policy (see section 7).
         </p>
       </div>
     ),
@@ -99,7 +99,7 @@ export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>5.3 Verified destination only.</strong> Money is only sent to a payout destination whose account holder name has been verified with the payout provider. Changing the destination after a claim is approved stops that payment until it is checked again.
         </p>
         <p>
-          <strong>5.4 Mobile money and bank.</strong> Mobile money destinations are paid automatically. Bank destinations are verified by name and paid manually by NoLSAF finance, which can take longer.
+          <strong>5.4 Mobile money only, for now.</strong> Payouts are sent to a verified mobile money account (M-Pesa, Airtel Money, Mixx by Yas, HaloPesa or AzamPesa). Bank accounts cannot receive payouts yet; NoLSAF will give notice when they can. A claim can be submitted only once a mobile money account is verified.
         </p>
       </div>
     ),

@@ -403,6 +403,8 @@ model User {
   @@index([kycStatus])
   @@index([referredBy])
   @@index([deletedAt])
+  // Password setup and reset links are looked up by the token hash alone.
+  @@index([resetPasswordToken])
   @@map("user")
 }
 

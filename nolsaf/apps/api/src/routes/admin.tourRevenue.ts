@@ -5,6 +5,8 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { notifyUser } from "../lib/notifications.js";
 import { isAdvanceRow, loadAdvanceTotalsFor } from "../lib/tourPayouts.js";
 import { balanceAfterAdvances } from "../lib/tourPayoutPolicy.js";
+import { BalanceFullyOffsetError, loadEligiblePayoutSource } from "../services/payouts/eligibility.js";
+import { settleBalanceByRecoveryOffset } from "../lib/tourRecoveryOffset.js";
 
 const router = Router();
 const PAYMENT_ACCESS_TOKEN_HOURS = 12;
@@ -357,10 +359,27 @@ router.post("/action", async (req: any, res) => {
       revenueHistory: history,
     };
 
-    const updated = await prisma.tourBooking.update({
+    let updated = await prisma.tourBooking.update({
       where: { id: Number(revenueId) },
       data: updatedData,
     });
+
+    // When the operator's unpaid recoveries absorb the whole balance there is
+    // no money to send: approving settles it as an offset (policy 6.4).
+    let recoveryOffset: Awaited<ReturnType<typeof settleBalanceByRecoveryOffset>> = null;
+    if (action === "approve") {
+      try {
+        await loadEligiblePayoutSource("TOUR_BOOKING", Number(revenueId));
+      } catch (error) {
+        if (error instanceof BalanceFullyOffsetError) {
+          recoveryOffset = await settleBalanceByRecoveryOffset(Number(revenueId), adminId);
+          if (recoveryOffset) {
+            updated = (await prisma.tourBooking.findUnique({ where: { id: Number(revenueId) } })) ?? updated;
+          }
+        }
+        // Any other ineligibility is reported when finance requests the disbursement.
+      }
+    }
 
     // Log audit trail
     try {
@@ -400,8 +419,11 @@ router.post("/action", async (req: any, res) => {
 
     return res.json({
       ok: true,
-      message: `Revenue ${action}ed successfully`,
+      message: recoveryOffset
+        ? `Approved. The whole balance (${recoveryOffset.currency} ${recoveryOffset.grossBalance.toLocaleString("en-US")}) was applied to the operator's unpaid recovery, so no money is sent.`
+        : `Revenue ${action}ed successfully`,
       booking: updated,
+      recoveryOffset,
     });
   } catch (err: any) {
     console.error("[POST /api/admin/tour-revenue/action] Error:", err);

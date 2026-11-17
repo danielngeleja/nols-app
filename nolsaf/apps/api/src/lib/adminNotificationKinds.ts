@@ -64,6 +64,12 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   tour_cancellation_submitted: act("attention", "bookings"),
   tour_cancellation_evidence_submitted: act("attention", "bookings"),
   tour_cancellation_auto_cancelled_unpaid: info("bookings"),
+  // Tour operators at work: what they did on a trip or a case.
+  tour_case_operator_escalated: act("attention", "bookings"),
+  tour_case_operator_update: info("bookings"),
+  tour_traveller_document_concern: act("attention", "bookings"),
+  tour_trip_started: info("bookings"),
+  tour_trip_completed_by_operator: info("bookings"),
   group_stay_request_created: act("attention", "bookings"),
   group_stay_message: act("attention", "bookings"),
 
@@ -99,6 +105,9 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   // People
   partner_account_registered: act("attention", "people"),
   careers_application_submitted: act("attention", "people"),
+  // Tour operators: a profile waiting for review, and a signed agreement.
+  operator_profile_submitted: act("attention", "people"),
+  operator_contract_signed: info("people"),
 
   // Security and privacy
   security_account_locked: act("critical", "security"),

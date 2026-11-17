@@ -407,75 +407,69 @@ export default function AgentPortalHomePage() {
       {/* Greeting strip. NRMS fills its hero with a photograph; there is no
           operator equivalent asset, so the right half carries the live position
           instead of decoration, and the band earns its height either way. */}
-      <section className="relative overflow-hidden rounded-3xl bg-[#0b2b26] text-white shadow-[0_20px_45px_-34px_rgba(6,78,59,0.72)]">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.18]"
-          style={{
-            backgroundImage:
-              "linear-gradient(to right, rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.5) 1px, transparent 1px)",
-            backgroundSize: "44px 44px",
-            maskImage: "radial-gradient(120% 100% at 100% 0%, black 0%, transparent 70%)",
-            WebkitMaskImage: "radial-gradient(120% 100% at 100% 0%, black 0%, transparent 70%)",
-          }}
-          aria-hidden
-        />
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(110%_130%_at_88%_-10%,rgba(16,185,129,0.42)_0%,rgba(16,185,129,0.10)_38%,transparent_66%)]" aria-hidden />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-[linear-gradient(0deg,rgba(3,20,17,0.55)_0%,transparent_100%)]" aria-hidden />
+      <section className="relative overflow-hidden rounded-lg border border-solid border-[#123d36] bg-[#0b2b26] text-white">
+        {/* One soft light in the corner; no grid texture. */}
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_120%_at_100%_0%,rgba(16,185,129,0.22)_0%,transparent_60%)]" aria-hidden />
 
-        <div className="relative grid gap-4 p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end xl:gap-6">
+        <div className="relative grid gap-4 p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center xl:gap-8">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300/80">Operator workspace</p>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
-                <BadgeCheck className="h-3 w-3 text-emerald-300" aria-hidden />
-                {agentLevel}
+            <div className="flex flex-wrap items-center gap-2 text-[12px]">
+              <span className="font-medium text-emerald-200/90">Operator workspace</span>
+              <span className="h-3 w-px bg-white/20" aria-hidden />
+              <span className="inline-flex items-center gap-1.5 rounded border border-solid border-white/15 bg-white/[0.06] px-1.5 py-0.5 font-semibold">
+                <BadgeCheck className="h-3.5 w-3.5 text-emerald-300" aria-hidden />
+                {String(agentLevel).charAt(0).toUpperCase() + String(agentLevel).slice(1).toLowerCase()} level
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-bold">
-                <Star className="h-3 w-3 text-amber-300" aria-hidden />
-                {agentRating.rating != null ? agentRating.rating.toFixed(1) : "--"}
-                <span className="font-medium text-white/45">({agentRating.totalReviews})</span>
+              <span className="inline-flex items-center gap-1.5 rounded border border-solid border-white/15 bg-white/[0.06] px-1.5 py-0.5 font-semibold">
+                <Star className="h-3.5 w-3.5 text-amber-300" aria-hidden />
+                {agentRating.rating != null && agentRating.totalReviews > 0
+                  ? <>{agentRating.rating.toFixed(1)}<span className="font-normal text-white/55">({agentRating.totalReviews})</span></>
+                  : <span className="font-normal text-white/70">No reviews yet</span>}
               </span>
             </div>
 
-            <h1 className="m-0 mt-2 text-xl font-bold tracking-tight sm:text-2xl">
+            <h1 className="m-0 mt-2.5 text-xl font-bold tracking-tight sm:text-[26px]">
               {greeting}{displayName ? `, ${displayName}` : ""}
             </h1>
-            <p className="m-0 mt-1 text-xs text-white/55">Your bookings, workload and payout position at a glance.</p>
+            <p className="m-0 mt-1 text-[13px] text-white/60">Your bookings, workload and payout position at a glance.</p>
 
-            <div className="mt-4 max-w-full overflow-x-auto rounded-2xl border border-solid border-white/10 bg-black/25 p-1.5 backdrop-blur-md">
-              <div className="flex w-max gap-1.5">
-                <Link
-                  href="/account/agent/bookings"
-                  className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-400 px-3.5 text-xs font-bold text-emerald-950 no-underline transition hover:bg-emerald-300 hover:no-underline"
-                >
-                  <CalendarDays className="h-4 w-4" aria-hidden />
-                  My bookings
-                </Link>
-                <Link
-                  href="/account/agent/revenues"
-                  className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-white/10 hover:no-underline"
-                >
-                  <Wallet2 className="h-4 w-4" aria-hidden />
-                  My revenues
-                </Link>
-              </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link
+                href="/account/agent/bookings"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md bg-emerald-400 px-4 text-[13px] font-semibold text-emerald-950 no-underline transition hover:bg-emerald-300 hover:no-underline"
+              >
+                <CalendarDays className="h-4 w-4" aria-hidden />
+                My bookings
+              </Link>
+              <Link
+                href="/account/agent/revenues"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-solid border-white/25 px-4 text-[13px] font-semibold text-white no-underline transition hover:border-white/40 hover:bg-white/[0.06] hover:no-underline"
+              >
+                <Wallet2 className="h-4 w-4" aria-hidden />
+                My revenues
+              </Link>
             </div>
           </div>
 
           {!loading && !authRequired ? (
-            <div className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-solid border-white/10 bg-white/10 xl:w-[21rem]">
+            <dl className="m-0 grid grid-cols-3 overflow-hidden rounded-md border border-solid border-white/15 xl:w-[22rem]">
               {[
-                { label: "Active", value: stats.inProgress, helper: "in progress", accent: "text-white" },
-                { label: "Waiting", value: awaitingAction, helper: "needs action", accent: awaitingAction > 0 ? "text-amber-300" : "text-white" },
-                { label: "Done", value: `${completionPercent}%`, helper: "completed", accent: "text-emerald-300" },
-              ].map((tile) => (
-                <div key={tile.label} className="min-w-0 bg-[#0b2b26]/85 px-3 py-3">
-                  <p className="m-0 text-[9px] font-bold uppercase tracking-[0.12em] text-white/40">{tile.label}</p>
-                  <p className={`m-0 mt-1 text-xl font-bold leading-none tabular-nums ${tile.accent}`}>{tile.value}</p>
-                  <p className="m-0 mt-1 truncate text-[10px] text-white/40">{tile.helper}</p>
+                { label: "Active", value: String(stats.inProgress), helper: "In progress", accent: "text-white" },
+                { label: "Waiting", value: String(awaitingAction), helper: awaitingAction > 0 ? "Needs your action" : "Nothing waiting", accent: awaitingAction > 0 ? "text-amber-300" : "text-white" },
+                {
+                  label: "Completed",
+                  value: stats.total > 0 ? `${completionPercent}%` : "None",
+                  helper: stats.total > 0 ? "Of all bookings" : "No bookings yet",
+                  accent: stats.total > 0 ? "text-emerald-300" : "text-white/50",
+                },
+              ].map((tile, i) => (
+                <div key={tile.label} className={`min-w-0 bg-white/[0.04] px-3.5 py-3 ${i > 0 ? "border-0 border-l border-solid border-white/15" : ""}`}>
+                  <dt className="text-[11.5px] font-medium text-white/60">{tile.label}</dt>
+                  <dd className={`m-0 mt-1 text-[22px] font-bold leading-none tabular-nums ${tile.accent}`}>{tile.value}</dd>
+                  <dd className="m-0 mt-1.5 truncate text-[11px] text-white/45">{tile.helper}</dd>
                 </div>
               ))}
-            </div>
+            </dl>
           ) : null}
         </div>
       </section>
@@ -647,7 +641,7 @@ export default function AgentPortalHomePage() {
                   {recent.map((item) => (
                     <li key={String(item.id)}>
                       <Link
-                        href={`/account/agent/tour-bookings/${item.id}`}
+                        href={`/account/agent/tour-bookings/${encodeURIComponent((item as any).ref || String(item.id))}`}
                         className="flex min-w-0 items-start gap-3 rounded-xl px-2.5 py-2.5 no-underline transition hover:bg-emerald-50/50 hover:no-underline"
                       >
                         <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-neutral-50 text-neutral-400">

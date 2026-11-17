@@ -46,6 +46,10 @@ $RuntimeArtifacts = @(
         Destination = "$DocsDir\NoLSAF_Operator_Mutual_NDA.md"
     },
     [PSCustomObject]@{
+        Source = "$RepoRoot\docs\NoLSAF_Operator_Mutual_NDA.v1.0.0.md"
+        Destination = "$DocsDir\NoLSAF_Operator_Mutual_NDA.v1.0.0.md"
+    },
+    [PSCustomObject]@{
         Source = "$RepoRoot\docs\NoLSAF_Operator_Mutual_NDA.fields.json"
         Destination = "$DocsDir\NoLSAF_Operator_Mutual_NDA.fields.json"
     }

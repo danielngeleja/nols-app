@@ -231,6 +231,7 @@
     "20261111170000_add_sales_agency_desk_phase2": "0b099ed43bc17a7d2f9784476b93587bcf15cb1c7ef8ab360f5a465b7172c47c",
     "20261111190000_add_group_stay_refund_tracking": "ad15d493070a4b8f9352a99fa36811f94efcc2725d13b3f6553dba1a844ec9d2",
     "20261112090000_add_sales_agency_tour_referrals": "34cc6cdfcad246f71e0f6cf6acfb399002f80aa0b77e6a8ce9ebd99f3d4881e5",
-    "20261115100000_add_property_price_history": "5e059eb039bc283f6712879a171bab9149a809f314ab50a005298c6b160fce4e"
+    "20261115100000_add_property_price_history": "5e059eb039bc283f6712879a171bab9149a809f314ab50a005298c6b160fce4e",
+    "20261117100000_index_user_reset_password_token": "6b9315dfa59dc2fafe8610be5930dd3766f0ecca261f4d1c23cb6e1d0e479d69"
   }
 }

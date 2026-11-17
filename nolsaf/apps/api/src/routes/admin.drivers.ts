@@ -8,7 +8,7 @@ import { hashTripCode, normalizeTripCode } from "../lib/tripCode.js";
 import { referralCodeFor } from "../lib/referralCode.js";
 import { sendSms } from "../lib/sms.js";
 import { sendMail } from "../lib/mailer.js";
-import { baseEmail, infoCard, calloutBox, ctaButton, BRAND_TEAL, BRAND_DARK } from "../lib/emailBase.js";
+import { getDriverApprovedEmail, getDriverRejectedEmail, getDriverRestoredEmail, getDriverRevokedEmail } from '../lib/driverEmailTemplates.js';
 import { buildDriverCaseRef } from "../lib/driverCaseRef.js";
 import { isTrustedUserDocumentUrl, sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
 import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
@@ -7197,94 +7197,11 @@ router.patch('/:id(\\d+)/kyc', limitAdminTripsWrite, async (req, res) => {
       // ── Email ─────────────────────────────────────────────────────────────────
       if (driverEmail) {
         try {
-          const heroEmoji = '🎉';
-          const heroSubTitle = 'You are officially a NoLSAF Driver';
-          const opening = `After reviewing your application, we are delighted to confirm that your driver account has been <strong style="color:${BRAND_TEAL};">fully approved and activated</strong>. Your profile is live, your documents are verified, and you are ready to roll.`;
-          const statusLabel = '✅ Approved — Account Active';
-          const ctaLabel = 'Log In & Start Driving';
-          const stepsHtml = `<ol style="margin:8px 0 0;padding-left:20px;color:#374151;font-size:14px;line-height:1.8;">
-                <li><strong>Log in</strong> using the email and password you registered with.</li>
-                <li><strong>Complete your driver profile</strong> — add your photo and preferred zones.</li>
-                <li><strong>Go online</strong> and start accepting your first trips!</li>
-              </ol>`;
-          const html = baseEmail(
-            BRAND_TEAL,
-            BRAND_DARK,
-            'Application Approved',
-            heroEmoji,
-            `
-            <!-- ── Hero greeting ────────────────────────────────────────── -->
-            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
-              style="background:linear-gradient(135deg,${BRAND_TEAL}12 0%,#e6faf8 100%);border:1px solid ${BRAND_TEAL}22;border-radius:12px;margin:0 0 28px;">
-              <tr><td style="padding:28px 28px 24px;text-align:center;">
-                <div style="font-size:48px;line-height:1;margin-bottom:12px;">${heroEmoji}</div>
-                <h1 style="margin:0 0 8px;font-size:26px;font-weight:800;color:#0d2623;letter-spacing:-0.3px;">
-                  Congratulations, ${firstName}!
-                </h1>
-                <p style="margin:0;font-size:16px;color:${BRAND_TEAL};font-weight:600;letter-spacing:0.2px;">
-                  ${heroSubTitle}
-                </p>
-              </td></tr>
-            </table>
-
-            <!-- ── Opening ──────────────────────────────────────────────── -->
-            <p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;">
-              ${opening}
-            </p>
-
-            <!-- ── Account details card ──────────────────────────────────── -->
-            ${infoCard(BRAND_TEAL, [
-              ['Status',    statusLabel],
-              ['Login Email', driverEmail],
-              ['Platform',  'NoLSAF Driver App'],
-              ['Effective', new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })],
-            ])}
-
-            <!-- ── What's next callout ───────────────────────────────────── -->
-            ${calloutBox(BRAND_TEAL, '🚀', 'Get Started in 3 Simple Steps',
-              stepsHtml
-            )}
-
-            <!-- ── CTA ───────────────────────────────────────────────────── -->
-            ${ctaButton(loginUrl, ctaLabel, BRAND_TEAL)}
-
-            <!-- ── Mission paragraph ─────────────────────────────────────── -->
-            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
-              style="background:#fafffe;border:1px solid ${BRAND_TEAL}18;border-radius:10px;margin:8px 0 24px;">
-              <tr><td style="padding:20px 24px;">
-                <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:${BRAND_TEAL};text-transform:uppercase;letter-spacing:1.2px;">
-                  You are part of something bigger
-                </p>
-                <p style="margin:0 0 12px;font-size:14px;color:#374151;line-height:1.75;">
-                  At NoLSAF, we are building Tanzania's first truly modernised transport and
-                  logistics platform; one that puts <strong>drivers, customers, and communities
-                  first</strong>. No hidden fees. No surprises. Just fair, transparent, and
-                  reliable service that earns trust every kilometre.
-                </p>
-                <p style="margin:0;font-size:14px;color:#374151;line-height:1.75;">
-                  You are not just a driver. You are a <strong style="color:${BRAND_TEAL};">founding partner</strong>
-                  in this journey. Every trip you complete helps write a new chapter for tourism, travel, and economic opportunity
-                  in Tanzania; and we are incredibly proud to have you with us.
-                </p>
-              </td></tr>
-            </table>
-
-            <!-- ── Sign-off ──────────────────────────────────────────────── -->
-            <p style="margin:0 0 4px;font-size:15px;color:#374151;line-height:1.7;">
-              Welcome aboard, <strong>${firstName}</strong>. Let's build something great together. 🌍
-            </p>
-            <p style="margin:16px 0 0;font-size:14px;color:${BRAND_TEAL};font-weight:700;">
-              The NoLSAF Team
-            </p>
-            <p style="margin:2px 0 0;font-size:12px;color:#9ca3af;">
-              Dar es Salaam, Tanzania &bull; <a href="mailto:support@nolsaf.com" style="color:${BRAND_TEAL};text-decoration:none;">support@nolsaf.com</a>
-            </p>
-            `
-          );
+          const { subject, html } = getDriverApprovedEmail({ firstName, driverName, email: driverEmail, at: new Date(), loginUrl });
 
           await sendMail(
             driverEmail,
-            `🎉 Congratulations ${firstName} — Your NoLSAF Driver Account is Approved!`,
+            subject,
             html,
           );
         } catch (emailErr: any) {
@@ -7312,62 +7229,11 @@ router.patch('/:id(\\d+)/kyc', limitAdminTripsWrite, async (req, res) => {
 
       if (driverEmail) {
         try {
-          const REJECT_RED = '#dc2626';
-          const html = baseEmail(
-            REJECT_RED,
-            BRAND_DARK,
-            'Driver Application Not Approved',
-            '📄',
-            `
-            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
-              style="background:#fff5f5;border:1px solid #fecaca;border-radius:12px;margin:0 0 28px;">
-              <tr><td style="padding:28px 28px 24px;text-align:center;">
-                <div style="font-size:48px;line-height:1;margin-bottom:12px;">📄</div>
-                <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;color:#7f1d1d;letter-spacing:-0.3px;">
-                  Application Not Approved
-                </h1>
-                <p style="margin:0;font-size:15px;color:${REJECT_RED};font-weight:600;">
-                  Your NoLSAF driver application requires correction before it can be accepted
-                </p>
-              </td></tr>
-            </table>
-
-            <p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;">
-              Dear <strong>${firstName}</strong>,
-            </p>
-            <p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;">
-              We reviewed your driver application and it was <strong style="color:${REJECT_RED};">not approved</strong> at this time.
-              This is not a suspension of an active driver account. It means your onboarding application still needs correction or clarification.
-            </p>
-
-            ${infoCard(REJECT_RED, [
-              ['Applicant', driverName],
-              ['Email', driverEmail],
-              ['Status', '❌ Application Not Approved'],
-              ['Reason', rejectReason || 'Not specified'],
-              ['Reviewed', actionAt.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })],
-            ])}
-
-            ${calloutBox(REJECT_RED, '🛠️', 'What happens next',
-              `<ol style="margin:8px 0 0;padding-left:20px;color:#374151;font-size:14px;line-height:1.8;">
-                <li>Review the reason above carefully and correct the affected information or documents.</li>
-                <li>Contact <a href="mailto:support@nolsaf.com" style="color:${REJECT_RED};text-decoration:none;">support@nolsaf.com</a> if you need clarification.</li>
-                <li>Resubmit once your documents and details are complete and accurate.</li>
-              </ol>`
-            )}
-
-            <p style="margin:24px 0 4px;font-size:14px;color:#374151;line-height:1.7;">
-              The NoLSAF Team
-            </p>
-            <p style="margin:2px 0 0;font-size:12px;color:#9ca3af;">
-              Dar es Salaam, Tanzania &bull; <a href="mailto:support@nolsaf.com" style="color:${REJECT_RED};text-decoration:none;">support@nolsaf.com</a>
-            </p>
-            `
-          );
+          const { subject, html } = getDriverRejectedEmail({ firstName, driverName, email: driverEmail, at: actionAt, reason: rejectReason });
 
           await sendMail(
             driverEmail,
-            `Update Needed: Your NoLSAF Driver Application Was Not Approved`,
+            subject,
             html,
           );
         } catch (emailErr: any) {
@@ -7399,75 +7265,11 @@ router.patch('/:id(\\d+)/kyc', limitAdminTripsWrite, async (req, res) => {
       // ── Email ─────────────────────────────────────────────────────────────────
       if (driverEmail) {
         try {
-          const REVOKE_RED = '#dc2626';
-          const html = baseEmail(
-            REVOKE_RED,
-            BRAND_DARK,
-            'Driver Access Revoked',
-            '🔒',
-            `
-            <!-- ── Hero ───────────────────────────────────────────────────── -->
-            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
-              style="background:#fff5f5;border:1px solid #fecaca;border-radius:12px;margin:0 0 28px;">
-              <tr><td style="padding:28px 28px 24px;text-align:center;">
-                <div style="font-size:48px;line-height:1;margin-bottom:12px;">🔒</div>
-                <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;color:#7f1d1d;letter-spacing:-0.3px;">
-                  Driver Access Revoked
-                </h1>
-                <p style="margin:0;font-size:15px;color:${REVOKE_RED};font-weight:600;">
-                  Your NoLSAF driver portal access has been removed
-                </p>
-              </td></tr>
-            </table>
-
-            <!-- ── Body ───────────────────────────────────────────────────── -->
-            <p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;">
-              Dear <strong>${firstName}</strong>,
-            </p>
-            <p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;">
-              We are writing to inform you that your access to the NoLSAF driver portal has been
-              <strong style="color:${REVOKE_RED};">revoked</strong> by an administrator.
-              Your account is no longer active and you will not be able to log in to the driver app.
-            </p>
-            <p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;">
-              In line with NoLSAF policy, any <strong>active and unpaid payout</strong> already due to you at the time of revocation
-              will still be reviewed and processed through our payout procedure.
-            </p>
-
-            ${infoCard(REVOKE_RED, [
-              ['Driver',      driverName],
-              ['Email',       driverEmail],
-              ['Reference Number', caseRef],
-              ['Status',      '❌ Access Revoked'],
-              ['Reason',      sanitizedReason || 'Not specified'],
-              ['Effective',   new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })],
-            ])}
-
-            <!-- ── Next steps ───────────────────────────────────────────── -->
-            ${calloutBox(REVOKE_RED, '📞', 'What to do next',
-              `<p style="margin:0 0 10px;font-size:14px;color:#374151;line-height:1.75;">
-                If you believe this action was taken in error or you would like to appeal,
-                please contact our support team as soon as possible and include your reference number <strong>${caseRef}</strong>:
-              </p>
-              <ul style="margin:0;padding-left:20px;font-size:14px;color:#374151;line-height:1.8;">
-                <li>Email: <a href="mailto:support@nolsaf.com" style="color:${REVOKE_RED};text-decoration:none;">support@nolsaf.com</a></li>
-                <li>Include your registered email address, the reference number, and a description of your situation.</li>
-              </ul>`
-            )}
-
-            <!-- ── Sign-off ──────────────────────────────────────────────── -->
-            <p style="margin:24px 0 4px;font-size:14px;color:#374151;line-height:1.7;">
-              The NoLSAF Team
-            </p>
-            <p style="margin:2px 0 0;font-size:12px;color:#9ca3af;">
-              Dar es Salaam, Tanzania &bull; <a href="mailto:support@nolsaf.com" style="color:${REVOKE_RED};text-decoration:none;">support@nolsaf.com</a>
-            </p>
-            `
-          );
+          const { subject, html } = getDriverRevokedEmail({ firstName, driverName, email: driverEmail, at: actionAt, reason: sanitizedReason, caseRef });
 
           await sendMail(
             driverEmail,
-            `Important Notice: Your NoLSAF Driver Access Has Been Revoked`,
+            subject,
             html,
             undefined,
             { bypassEligibilityCheck: true },
@@ -7498,64 +7300,11 @@ router.patch('/:id(\\d+)/kyc', limitAdminTripsWrite, async (req, res) => {
 
       if (driverEmail) {
         try {
-          const RESTORE_TEAL = '#0f766e';
-          const html = baseEmail(
-            RESTORE_TEAL,
-            BRAND_DARK,
-            'Driver Suspension Lifted',
-            '🔓',
-            `
-            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
-              style="background:linear-gradient(135deg,${RESTORE_TEAL}12 0%,#e6faf8 100%);border:1px solid ${RESTORE_TEAL}22;border-radius:12px;margin:0 0 28px;">
-              <tr><td style="padding:28px 28px 24px;text-align:center;">
-                <div style="font-size:48px;line-height:1;margin-bottom:12px;">🔓</div>
-                <h1 style="margin:0 0 8px;font-size:24px;font-weight:800;color:#0d2623;letter-spacing:-0.3px;">
-                  Suspension Lifted
-                </h1>
-                <p style="margin:0;font-size:15px;color:${RESTORE_TEAL};font-weight:600;">
-                  Your NoLSAF driver account is active again
-                </p>
-              </td></tr>
-            </table>
-
-            <p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;">
-              Dear <strong>${firstName}</strong>,
-            </p>
-            <p style="margin:0 0 18px;font-size:15px;color:#374151;line-height:1.75;">
-              Your driver account suspension has been <strong style="color:${RESTORE_TEAL};">lifted</strong> by the NoLSAF admin team.
-              You may now sign in again and continue using your driver dashboard.
-            </p>
-
-            ${infoCard(RESTORE_TEAL, [
-              ['Driver', driverName],
-              ['Email', driverEmail],
-              ['Status', '✅ Suspension Lifted — Account Active'],
-              ['Restoration reason', restoreReason || 'Administrative review completed'],
-              ['Effective', actionAt.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })],
-            ])}
-
-            ${calloutBox(RESTORE_TEAL, '🚀', 'What to do next',
-              `<ol style="margin:8px 0 0;padding-left:20px;color:#374151;font-size:14px;line-height:1.8;">
-                <li><strong>Log in again</strong> using your registered email and password.</li>
-                <li><strong>Review any pending trips, payouts, or notices</strong> in your dashboard.</li>
-                <li><strong>Continue operating</strong> in line with NoLSAF driver policies.</li>
-              </ol>`
-            )}
-
-            ${ctaButton(loginUrl, 'Log In Again', RESTORE_TEAL)}
-
-            <p style="margin:24px 0 4px;font-size:14px;color:#374151;line-height:1.7;">
-              The NoLSAF Team
-            </p>
-            <p style="margin:2px 0 0;font-size:12px;color:#9ca3af;">
-              Dar es Salaam, Tanzania &bull; <a href="mailto:support@nolsaf.com" style="color:${RESTORE_TEAL};text-decoration:none;">support@nolsaf.com</a>
-            </p>
-            `
-          );
+          const { subject, html } = getDriverRestoredEmail({ firstName, driverName, email: driverEmail, at: actionAt, reason: restoreReason, loginUrl });
 
           await sendMail(
             driverEmail,
-            `🔓 ${firstName}, your NoLSAF driver suspension has been lifted`,
+            subject,
             html,
           );
         } catch (emailErr: any) {

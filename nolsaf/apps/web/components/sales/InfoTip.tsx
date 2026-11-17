@@ -13,7 +13,7 @@ const EDGE = 12;
 export default function InfoTip({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
   const [pos, setPos] = useState<{ top: number; left: number; above: boolean } | null>(null);
   const btn = useRef<HTMLButtonElement | null>(null);
-  const note = useRef<HTMLDivElement | null>(null);
+  const note = useRef<HTMLSpanElement | null>(null);
   const id = useId();
 
   const close = useCallback(() => setPos(null), []);
@@ -71,17 +71,19 @@ export default function InfoTip({ label, children, className = "" }: { label: st
       >
         <Info className="h-3.5 w-3.5" aria-hidden />
       </button>
+      {/* Spans (shown as blocks), not div/p: the tip is often placed inside a
+          <p> or <label>, where a div or p is invalid HTML and breaks hydration. */}
       {pos ? (
-        <div
+        <span
           ref={note}
           id={id}
           role="note"
           style={{ position: "fixed", top: pos.top, left: pos.left, width: Math.min(WIDTH, typeof window === "undefined" ? WIDTH : window.innerWidth - EDGE * 2), transform: pos.above ? "translateY(-100%)" : undefined }}
-          className="z-[80] whitespace-normal rounded-md border border-solid border-slate-300 bg-white px-3 py-2.5 text-left text-[12px] font-normal leading-relaxed text-slate-700 shadow-lg"
+          className="z-[80] block whitespace-normal rounded-md border border-solid border-slate-300 bg-white px-3 py-2.5 text-left text-[12px] font-normal leading-relaxed text-slate-700 shadow-lg"
         >
-          <p className="m-0 mb-1 text-[12px] font-semibold text-slate-900">{label}</p>
-          <div className="text-[12px] text-slate-600">{children}</div>
-        </div>
+          <span className="mb-1 block text-[12px] font-semibold text-slate-900">{label}</span>
+          <span className="block text-[12px] text-slate-600">{children}</span>
+        </span>
       ) : null}
     </span>
   );

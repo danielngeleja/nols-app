@@ -42,8 +42,9 @@ export const BALANCE_DISPUTE_WINDOW_HOURS = 48;
 /**
  * Anchoring the dispute window to the trip's end can make an operator wait
  * longer than the old "48h after the timetable is finished" rule, so under the
- * operator agreement (section 19.7.1, 30 days' written notice before a
- * material payout change) it applies only to trips finished from this date.
+ * operator agreement (30 days' written notice before a material payout change:
+ * section 19.7.1 of v1.0.0, section 12.1 of v2.0.0) it applies only to trips
+ * finished from this date.
  * Everything else in this policy pays earlier or fixes a defect.
  */
 export const DISPUTE_WINDOW_TRIP_END_ANCHOR_FROM = new Date("2026-10-26T00:00:00+03:00");

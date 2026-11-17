@@ -78,7 +78,7 @@ const GROUPS: NavGroup[] = [
         children: [
           { href: "/account/agent/bookings?stage=new", label: "New", Icon: Sparkles, signal: { group: "bookings", key: "new" } },
           { href: "/account/agent/bookings?stage=confirmed", label: "Confirmed", Icon: UserCheck, signal: { group: "bookings", key: "confirmed" } },
-          { href: "/account/agent/bookings?stage=progress", label: "In Progress", Icon: Activity, signal: { group: "bookings", key: "progress" } },
+          { href: "/account/agent/bookings?stage=progress", label: "In progress", Icon: Activity, signal: { group: "bookings", key: "progress" } },
           { href: "/account/agent/bookings?stage=completed", label: "Completed", Icon: CheckCircle2, signal: { group: "bookings", key: "completed" } },
         ],
       },
@@ -246,17 +246,17 @@ export default function AgentAccountSidebar() {
         #agent-account-rail, #agent-account-rail *, #agent-account-rail *::before, #agent-account-rail *::after { box-sizing: border-box; }
       `}</style>
 
-      <div className="flex h-full w-full flex-col overflow-hidden rounded-2xl border border-solid border-white/10 bg-[#252d2c] text-white shadow-[0_14px_34px_-18px_rgba(15,23,42,0.45)]">
-        <div className={`flex min-h-[5rem] shrink-0 items-center border-0 border-b border-solid border-white/10 ${collapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
-          <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg border border-solid border-white/15 bg-white">
+      <div className="flex h-full w-full flex-col overflow-hidden rounded-lg border border-solid border-white/10 bg-[#252d2c] text-white">
+        <div className={`flex min-h-[4.25rem] shrink-0 items-center border-0 border-b border-solid border-white/10 ${collapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
+          <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-md border border-solid border-white/15 bg-white">
             <Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={40} height={40} className="h-9 w-9 scale-[1.9] object-contain" priority />
           </span>
           {collapsed ? null : (
             <>
               <span className="h-8 w-px shrink-0 bg-white/10" aria-hidden />
               <div className="min-w-0">
-                <p className="m-0 truncate text-[12px] font-semibold tracking-[0.08em] text-white/85">AGENT WORKSPACE</p>
-                <p className="m-0 mt-1 text-[10px] text-white/40">Tour operator portal</p>
+                <p className="m-0 truncate text-[14px] font-semibold text-white">Operator workspace</p>
+                <p className="m-0 mt-0.5 text-[11.5px] text-white/50">Tour operator portal</p>
               </div>
             </>
           )}
@@ -270,7 +270,7 @@ export default function AgentAccountSidebar() {
                   <div className="mx-auto mb-3 h-px w-7 bg-white/10" aria-hidden />
                 )
               ) : (
-                <p className="m-0 px-4 pb-2 text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">
+                <p className="m-0 px-4 pb-1.5 text-[11.5px] font-medium text-white/40">
                   {group.title}
                 </p>
               )}
@@ -294,7 +294,7 @@ export default function AgentAccountSidebar() {
                           onClick={() => toggleGroup(href, active)}
                           aria-expanded={nestedOpen}
                           aria-controls={nestedId}
-                          className={`group flex min-h-9 w-full cursor-pointer appearance-none items-center gap-2.5 rounded-lg border border-solid px-2.5 text-left text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-emerald-300/40 ${
+                          className={`group flex min-h-9 w-full cursor-pointer appearance-none items-center gap-2.5 rounded-md border border-solid px-2.5 text-left text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-emerald-300/40 ${
                             parentIsActive
                               ? "border-emerald-300/70 bg-emerald-300 text-emerald-950"
                               : "border-transparent bg-transparent text-white/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"
@@ -332,9 +332,9 @@ export default function AgentAccountSidebar() {
                                   key={child.href}
                                   href={child.href}
                                   aria-current={childActive ? "page" : undefined}
-                                  className={`mb-0.5 flex min-h-8 items-center gap-2 rounded-lg border border-solid px-2 text-[12px] font-medium no-underline outline-none transition last:mb-0 focus-visible:ring-2 focus-visible:ring-emerald-300/40 ${
+                                  className={`mb-0.5 flex min-h-8 items-center gap-2 rounded-md border border-solid px-2 text-[12px] font-medium no-underline outline-none transition last:mb-0 focus-visible:ring-2 focus-visible:ring-emerald-300/40 ${
                                     childActive
-                                      ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-100"
+                                      ? "border-emerald-300/25 bg-emerald-300/[0.12] font-semibold text-emerald-100"
                                       : "border-transparent text-white/45 hover:bg-white/[0.06] hover:text-white"
                                   }`}
                                 >
@@ -372,17 +372,17 @@ export default function AgentAccountSidebar() {
                       aria-current={active ? "page" : undefined}
                       aria-label={collapsed ? label : undefined}
                       title={collapsed ? label : undefined}
-                      className={`group mb-0.5 flex min-h-9 items-center rounded-lg border border-solid text-[13px] font-semibold no-underline outline-none transition last:mb-0 hover:no-underline focus-visible:ring-2 focus-visible:ring-emerald-300/40 ${
+                      className={`group mb-0.5 flex min-h-9 items-center rounded-md border border-solid text-[13px] font-semibold no-underline outline-none transition last:mb-0 hover:no-underline focus-visible:ring-2 focus-visible:ring-emerald-300/40 ${
                         collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"
                       } ${
                         active
-                          ? "border-emerald-300/70 bg-emerald-300 text-emerald-950"
+                          ? "border-emerald-300/30 bg-emerald-300/[0.14] text-white"
                           : "border-transparent text-white/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"
                       }`}
                     >
                       <span
                         className={`grid h-6 w-6 flex-shrink-0 place-items-center rounded-md transition ${
-                          active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"
+                          active ? "bg-emerald-300 text-emerald-950" : "bg-white/[0.04] group-hover:bg-white/[0.08]"
                         }`}
                       >
                         <Icon className="h-3.5 w-3.5" aria-hidden />
@@ -404,7 +404,7 @@ export default function AgentAccountSidebar() {
             aria-controls="agent-account-rail"
             aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
             title={collapsed ? "Expand navigation" : "Collapse navigation"}
-            className={`flex min-h-9 w-full cursor-pointer appearance-none items-center rounded-lg border-0 bg-transparent text-[12px] font-semibold text-white/50 outline-none transition hover:bg-white/[0.07] hover:text-white focus-visible:ring-2 focus-visible:ring-emerald-300/40 ${
+            className={`flex min-h-9 w-full cursor-pointer appearance-none items-center rounded-md border-0 bg-transparent text-[12px] font-semibold text-white/50 outline-none transition hover:bg-white/[0.07] hover:text-white focus-visible:ring-2 focus-visible:ring-emerald-300/40 ${
               collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"
             }`}
           >

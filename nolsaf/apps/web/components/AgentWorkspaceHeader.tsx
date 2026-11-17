@@ -9,6 +9,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { fetchAccountSession } from "@/lib/accountSession";
+import { AGENT_LOGO_EVENT, nolsafImageUrl } from "@/lib/agentLogo";
 import {
   BarChart3,
   Bell,
@@ -44,6 +45,9 @@ export default function AgentWorkspaceHeader() {
   const pathname = usePathname() || "";
   const [name, setName] = useState<string>("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  // The company logo from the operator profile. It stands for the operator in
+  // this workspace, so it replaces the personal photo once there is one.
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
   const [accommodationEnabled, setAccommodationEnabled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -67,6 +71,18 @@ export default function AgentWorkspaceHeader() {
         setName(String(session?.fullName || session?.name || "").trim());
       } catch {
         // identity is decorative here; the rail and pages handle auth
+      }
+    })();
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/agent/me", { credentials: "include", cache: "no-store", signal: controller.signal });
+        if (!response.ok || !alive) return;
+        const payload = await response.json();
+        const profile = payload?.agent?.operatorProfile;
+        setLogoUrl(nolsafImageUrl(profile?.companyLogoUrl));
+      } catch {
+        /* the photo or initials still show */
       }
     })();
 
@@ -104,6 +120,16 @@ export default function AgentWorkspaceHeader() {
     };
   }, []);
 
+  // The profile page announces a saved logo, so the header changes at once.
+  useEffect(() => {
+    const onLogo = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail;
+      if (detail && "logoUrl" in detail) setLogoUrl(nolsafImageUrl(detail.logoUrl));
+    };
+    window.addEventListener(AGENT_LOGO_EVENT, onLogo as EventListener);
+    return () => window.removeEventListener(AGENT_LOGO_EVENT, onLogo as EventListener);
+  }, []);
+
   useEffect(() => {
     const onCount = (event: Event) => {
       const next = Number((event as CustomEvent)?.detail?.count);
@@ -123,12 +149,12 @@ export default function AgentWorkspaceHeader() {
   }, [menuOpen]);
 
   const controlClass =
-    "inline-flex min-h-10 shrink-0 items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 no-underline outline-none transition hover:border-emerald-200 hover:bg-emerald-50/40 hover:text-emerald-800 hover:no-underline focus-visible:ring-2 focus-visible:ring-emerald-600/25";
+    "inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-solid border-neutral-300 bg-white px-3 text-[13px] font-semibold text-neutral-700 no-underline outline-none transition hover:border-emerald-200 hover:bg-emerald-50/40 hover:text-emerald-800 hover:no-underline focus-visible:ring-2 focus-visible:ring-emerald-600/25";
 
   return (
-    <header className="relative z-40 mb-3 mt-3 shrink-0 rounded-3xl border border-solid border-neutral-200 bg-white shadow-[0_10px_30px_-26px_rgba(15,23,42,0.5)]">
-      <div className="flex min-h-[4.75rem] items-center gap-3 px-3 sm:px-5">
-        <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white lg:hidden">
+    <header className="relative z-40 mb-3 mt-3 shrink-0 rounded-lg border border-solid border-neutral-200 bg-white">
+      <div className="flex min-h-[4rem] items-center gap-3 px-3 sm:px-5">
+        <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-md border border-solid border-neutral-200 bg-white lg:hidden">
           <Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={40} height={40} className="h-9 w-9 scale-[1.9] object-contain" />
         </span>
 
@@ -136,7 +162,7 @@ export default function AgentWorkspaceHeader() {
           <p className="m-0 truncate text-[15px] font-bold leading-tight tracking-tight text-neutral-900">
             {name || "Agent portal"}
           </p>
-          <p className="m-0 mt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">
+          <p className="m-0 mt-0.5 text-[12px] text-neutral-500">
             Tour operator workspace
           </p>
         </div>
@@ -154,7 +180,7 @@ export default function AgentWorkspaceHeader() {
           href="/account/agent/notifications"
           aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
           title="Notifications"
-          className="relative grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-solid border-neutral-200 bg-white text-neutral-600 no-underline outline-none transition hover:border-emerald-200 hover:bg-emerald-50/40 hover:text-emerald-800 focus-visible:ring-2 focus-visible:ring-emerald-600/25"
+          className="relative grid h-9 w-9 shrink-0 place-items-center rounded-md border border-solid border-neutral-300 bg-white text-neutral-600 no-underline outline-none transition hover:border-emerald-200 hover:bg-emerald-50/40 hover:text-emerald-800 focus-visible:ring-2 focus-visible:ring-emerald-600/25"
         >
           <Bell className="h-4 w-4" aria-hidden />
           {unread > 0 ? (
@@ -171,9 +197,13 @@ export default function AgentWorkspaceHeader() {
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
-            className="grid h-10 w-10 cursor-pointer appearance-none place-items-center overflow-hidden rounded-full border border-solid border-neutral-200 bg-neutral-50 p-0 text-neutral-600 outline-none transition hover:border-emerald-200 focus-visible:ring-2 focus-visible:ring-emerald-600/25"
+            className={`grid h-9 w-9 cursor-pointer appearance-none place-items-center overflow-hidden border border-solid border-neutral-300 p-0 text-neutral-600 outline-none transition hover:border-emerald-200 focus-visible:ring-2 focus-visible:ring-emerald-600/25 ${logoUrl ? "rounded-md bg-white" : "rounded-full bg-neutral-50"}`}
           >
-            {avatarUrl ? (
+            {logoUrl ? (
+              <span className="relative block h-full w-full">
+                <Image src={logoUrl} alt="" fill sizes="40px" unoptimized className="object-contain p-0.5" />
+              </span>
+            ) : avatarUrl ? (
               <span className="relative block h-full w-full">
                 <Image src={avatarUrl} alt="" fill sizes="40px" unoptimized={/^https?:\/\//i.test(avatarUrl)} className="object-cover" />
               </span>
@@ -185,7 +215,7 @@ export default function AgentWorkspaceHeader() {
           {menuOpen ? (
             <div
               role="menu"
-              className="absolute right-0 z-[1000] mt-2 w-56 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white py-1 shadow-[0_18px_45px_-25px_rgba(15,23,42,0.5)]"
+              className="absolute right-0 z-[1000] mt-2 w-56 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white py-1 shadow-[0_18px_45px_-25px_rgba(15,23,42,0.5)]"
             >
               <Link role="menuitem" href="/account/agent/profile" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-neutral-600 no-underline transition hover:bg-neutral-50 hover:text-neutral-900 hover:no-underline">
                 <UserRound className="h-3.5 w-3.5 text-neutral-400" aria-hidden />
@@ -208,7 +238,7 @@ export default function AgentWorkspaceHeader() {
         </div>
       </div>
 
-      <nav className="overflow-x-auto rounded-b-3xl border-0 border-t border-solid border-neutral-100 px-3 pt-0.5 sm:px-5" aria-label="Primary agent operations">
+      <nav className="overflow-x-auto rounded-b-lg border-0 border-t border-solid border-neutral-100 px-3 pt-0.5 sm:px-5" aria-label="Primary agent operations">
         <div className="flex w-max min-w-full gap-1">
           {PRIMARY_TABS.map(({ href, label, Icon, exact }) => {
             const active = isActive(pathname, { href, label, Icon, exact });
@@ -217,7 +247,7 @@ export default function AgentWorkspaceHeader() {
                 key={href}
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={`inline-flex min-h-11 items-center gap-2 border-0 border-b-2 border-solid px-3 text-xs font-bold no-underline outline-none transition hover:no-underline focus-visible:text-emerald-800 ${
+                className={`inline-flex min-h-10 items-center gap-2 border-0 border-b-2 border-solid px-3 text-[13px] font-semibold no-underline outline-none transition hover:no-underline focus-visible:text-emerald-800 ${
                   active
                     ? "border-emerald-700 text-emerald-800"
                     : "border-transparent text-neutral-500 hover:border-neutral-200 hover:text-neutral-800"

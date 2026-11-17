@@ -4,7 +4,7 @@
 // (AzamPay resolves the account holder, the operator confirms the name, only
 // then is it saved), with its own step-by-step layout. Owner and driver
 // profiles keep using the shared SecurePayoutPreferenceCard unchanged.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import {
@@ -13,7 +13,6 @@ import {
   Building2,
   Check,
   CheckCircle2,
-  ChevronDown,
   Clock,
   LockKeyhole,
   Pencil,
@@ -48,12 +47,6 @@ const PROVIDERS = [
   { value: "yas", label: "Mixx by Yas", logo: "/assets/mix%20by%20yas.png" },
   { value: "halotel", label: "HaloPesa", logo: "/assets/halopesa.png" },
   { value: "azampesa", label: "AzamPesa", logo: "/assets/azam-pesa-logo-png.png" },
-] as const;
-
-const BANKS = [
-  { value: "CRDB", label: "CRDB Bank" },
-  { value: "NBC", label: "NBC Bank" },
-  { value: "NMB", label: "NMB Bank" },
 ] as const;
 
 const PROVIDER_LABEL: Record<string, string> = {
@@ -99,12 +92,16 @@ function mask(value: unknown): string {
   return raw ? `•••• ${raw.slice(-4)}` : "Not set";
 }
 
+/** "712345678" as "712 345 678", grouped the way people read phone numbers. */
+function groupNumber(subscriber: string): string {
+  return [subscriber.slice(0, 3), subscriber.slice(3, 6), subscriber.slice(6, 9)].filter(Boolean).join(" ");
+}
+
 /**
- * One phone field with the network picker built in: [logo ▾ | +255 | number].
- * The picker is a real listbox (arrows, Enter, Escape, outside click), each
- * option showing the network's logo and the prefixes it owns.
+ * The wallet picker: the five payout networks as logo tiles (the number picks
+ * one automatically, a tap overrides it), then one large number field.
  */
-function WalletField({
+function WalletPicker({
   provider,
   detected,
   subscriber,
@@ -121,133 +118,137 @@ function WalletField({
   onProvider: (value: string) => void;
   onNumber: (raw: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [cursor, setCursor] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const numberRef = useRef<HTMLInputElement>(null);
   const selected = PROVIDERS.find((p) => p.value === provider) || null;
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  const openMenu = () => {
-    if (disabled) return;
-    const at = PROVIDERS.findIndex((p) => p.value === provider);
-    setCursor(at >= 0 ? at : 0);
-    setOpen(true);
-  };
-
-  const pick = (value: string) => {
-    onProvider(value);
-    setOpen(false);
-    numberRef.current?.focus();
-  };
-
-  const onKey = (event: React.KeyboardEvent) => {
-    if (!open) {
-      if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        openMenu();
-      }
-      return;
-    }
-    if (event.key === "Escape") { event.preventDefault(); setOpen(false); }
-    else if (event.key === "ArrowDown") { event.preventDefault(); setCursor((c) => (c + 1) % PROVIDERS.length); }
-    else if (event.key === "ArrowUp") { event.preventDefault(); setCursor((c) => (c - 1 + PROVIDERS.length) % PROVIDERS.length); }
-    else if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pick(PROVIDERS[cursor].value); }
-    else if (event.key === "Tab") setOpen(false);
-  };
-
-  const prefixesOf = (value: string) => {
-    const list = (TZ_MOBILE_PREFIXES as Record<string, readonly string[]>)[value];
-    return list?.length ? list.map((p) => `0${p}`).join(", ") : "Any network number";
-  };
-
   return (
-    <div ref={rootRef} className="relative">
-      <div
-        className={`flex h-12 min-w-0 items-stretch overflow-hidden rounded-xl border border-solid bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)] ${
-          warn ? "border-amber-400" : open ? "border-[#02665e]" : "border-slate-300 hover:border-slate-400 focus-within:border-[#02665e]"
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => (open ? setOpen(false) : openMenu())}
-          onKeyDown={onKey}
-          disabled={disabled}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          aria-label={selected ? `Network: ${selected.label}. Change network` : "Choose network"}
-          style={{ fontFamily: "inherit" }}
-          className={`flex flex-shrink-0 cursor-pointer items-center gap-2 border-0 border-r border-solid border-slate-200 px-3 transition-colors disabled:cursor-not-allowed ${open ? "bg-[#02665e]/5" : "bg-slate-50 hover:bg-slate-100"}`}
-        >
-          <span className={`whitespace-nowrap text-[13px] font-semibold ${selected ? "text-slate-800" : "text-slate-400"}`}>
-            {selected ? selected.label : "Network"}
-          </span>
-          <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
-        </button>
-        <span className="inline-flex flex-shrink-0 items-center pl-3.5 text-[15px] font-bold text-slate-400" aria-hidden>+255</span>
-        <input
-          ref={numberRef}
-          type="tel"
-          inputMode="numeric"
-          value={subscriber}
-          onChange={(e) => onNumber(e.target.value)}
-          placeholder="7XX XXX XXX"
-          maxLength={12}
-          autoComplete="tel-national"
-          disabled={disabled}
-          aria-label="Wallet number after +255"
-          aria-describedby="operator-wallet-check"
-          className="h-full min-w-0 flex-1 border-0 bg-transparent px-2 font-mono text-[16px] font-bold tracking-[0.08em] text-slate-900 placeholder:font-sans placeholder:text-[14px] placeholder:font-medium placeholder:tracking-normal placeholder:text-slate-400 focus:outline-none focus:ring-0"
-        />
-        {subscriber.length === 9 ? (
-          <span className="inline-flex items-center pr-3.5 text-emerald-600"><CheckCircle2 className="h-4 w-4" aria-hidden /></span>
-        ) : null}
-      </div>
-
-      {open ? (
-        <ul
-          role="listbox"
+    <div className="min-w-0 space-y-4">
+      <div>
+        <p className="m-0 mb-2 flex items-center gap-2 text-[12.5px] font-medium text-slate-700">
+          <span className="grid h-5 w-5 place-items-center rounded bg-[#02665e] text-[11px] font-bold text-white">1</span>
+          Your network
+        </p>
+        {/* One slim joined bar: logo and name side by side, the chosen network
+            underlined in brand green. Scrolls sideways on narrow phones. */}
+        <div
+          role="radiogroup"
           aria-label="Mobile money network"
-          className="absolute left-0 top-[calc(100%+6px)] z-30 m-0 w-full max-w-sm list-none overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white p-1.5 shadow-[0_24px_48px_-20px_rgba(15,23,42,0.35)]"
+          className="flex min-w-0 overflow-x-auto rounded-md border border-solid border-slate-200 bg-white [scrollbar-width:none]"
         >
           {PROVIDERS.map((p, index) => {
-            const isSelected = p.value === provider;
-            const isDetected = p.value === detected;
+            const on = p.value === provider;
+            const isDetected = p.value === detected && !on;
             return (
-              <li
+              <button
                 key={p.value}
-                role="option"
-                aria-selected={isSelected}
-                onMouseEnter={() => setCursor(index)}
-                onMouseDown={(e) => { e.preventDefault(); pick(p.value); }}
-                className={`flex cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 transition-colors ${cursor === index ? "bg-slate-100" : ""}`}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                disabled={disabled}
+                onClick={() => onProvider(p.value)}
+                title={isDetected ? `${p.label} matches your number` : p.label}
+                style={{ fontFamily: "inherit" }}
+                className={`relative flex h-11 min-w-[7.5rem] flex-1 cursor-pointer items-center justify-center gap-2 border-0 px-3 transition disabled:cursor-not-allowed ${
+                  index ? "border-l border-solid border-slate-200" : ""
+                } ${on ? "bg-[#02665e]/[0.06]" : "bg-white hover:bg-slate-50"}`}
               >
-                <span className="relative grid h-9 w-12 flex-shrink-0 place-items-center rounded-lg border border-solid border-slate-200 bg-white">
-                  <span className="relative h-6 w-9">
-                    <Image src={p.logo} alt="" fill sizes="36px" className="object-contain" />
-                  </span>
+                <span className={`relative h-5 w-8 shrink-0 transition ${on ? "" : "opacity-80 grayscale-[35%]"}`}>
+                  <Image src={p.logo} alt="" fill sizes="32px" className="object-contain" />
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className={`text-[13.5px] font-bold ${isSelected ? "text-[#02665e]" : "text-slate-900"}`}>{p.label}</span>
-                    {isDetected ? <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">Matches number</span> : null}
-                  </span>
-                  <span className="block truncate text-[11.5px] text-slate-400">{prefixesOf(p.value)}</span>
-                </span>
-                {isSelected ? <Check className="h-4 w-4 flex-shrink-0 text-[#02665e]" aria-hidden /> : null}
-              </li>
+                <span className={`truncate text-[12.5px] ${on ? "font-semibold text-[#02665e]" : "font-medium text-slate-600"}`}>{p.label}</span>
+                {isDetected ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-label="Matches your number" /> : null}
+                {on ? <span className="absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-[#02665e]" aria-hidden /> : null}
+              </button>
             );
           })}
-        </ul>
-      ) : null}
+        </div>
+      </div>
+
+      <div>
+        <p className="m-0 mb-2 flex items-center gap-2 text-[12.5px] font-medium text-slate-700">
+          <span className="grid h-5 w-5 place-items-center rounded bg-[#02665e] text-[11px] font-bold text-white">2</span>
+          Wallet number
+        </p>
+        {/* Compact field: the chosen network sits beside +255, and a thin line
+            under the number fills as the nine digits go in. */}
+        <label
+          className={`relative flex h-11 w-full max-w-[22rem] min-w-0 items-center overflow-hidden rounded-md border border-solid bg-white transition-[border-color,box-shadow] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.12)] ${
+            warn ? "border-amber-400" : "border-slate-300 hover:border-slate-400 focus-within:border-[#02665e]"
+          }`}
+        >
+          <span className="flex h-full shrink-0 items-center gap-1.5 border-0 border-r border-solid border-slate-200 bg-slate-50 pl-2.5 pr-3 text-[13.5px] font-semibold text-slate-600">
+            {selected ? (
+              <span className="relative h-4 w-6 shrink-0">
+                <Image src={selected.logo} alt="" fill sizes="24px" className="object-contain" />
+              </span>
+            ) : null}
+            +255
+          </span>
+          <input
+            type="tel"
+            inputMode="numeric"
+            value={groupNumber(subscriber)}
+            onChange={(e) => onNumber(e.target.value)}
+            placeholder="712 345 678"
+            maxLength={13}
+            autoComplete="tel-national"
+            disabled={disabled}
+            aria-label="Wallet number after +255"
+            aria-describedby="operator-wallet-check"
+            className="h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-[16px] font-semibold tabular-nums tracking-[0.04em] text-slate-900 placeholder:font-normal placeholder:text-slate-300 focus:outline-none focus:ring-0"
+          />
+          {subscriber.length === 9 ? (
+            <CheckCircle2 className="mr-3 h-[18px] w-[18px] shrink-0 text-emerald-600" aria-label="Complete number" />
+          ) : null}
+          <span className="absolute inset-x-0 bottom-0 h-[2px] bg-slate-100" aria-hidden>
+            <span
+              className={`block h-full transition-[width] duration-200 ${subscriber.length === 9 ? "bg-emerald-500" : "bg-[#02665e]/60"}`}
+              style={{ width: `${(subscriber.length / 9) * 100}%` }}
+            />
+          </span>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** A live preview of the wallet being added: what AzamPay will be asked to confirm. */
+function WalletPreviewCard({ provider, subscriber }: { provider: string; subscriber: string }) {
+  const network = PROVIDERS.find((p) => p.value === provider) || null;
+  const complete = subscriber.length === 9 && Boolean(network);
+  const digits = subscriber.padEnd(9, "•");
+  return (
+    <div className="min-w-0 space-y-3">
+      <div className="relative overflow-hidden rounded-lg bg-[#023d38] p-4 text-white">
+        <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/[0.06]" aria-hidden />
+        <div className="relative flex items-start justify-between gap-3">
+          <span className="text-[11.5px] font-medium text-white/60">Payout wallet</span>
+          {network ? (
+            <span className="relative grid h-8 w-12 place-items-center rounded bg-white">
+              <span className="relative h-5 w-9">
+                <Image src={network.logo} alt={network.label} fill sizes="36px" className="object-contain" />
+              </span>
+            </span>
+          ) : (
+            <span className="grid h-8 w-12 place-items-center rounded border border-dashed border-white/25 text-[10px] text-white/40">Network</span>
+          )}
+        </div>
+        <p className="relative m-0 mt-5 font-mono text-[19px] font-semibold tracking-[0.08em]">
+          +255 {digits.slice(0, 3)} {digits.slice(3, 6)} {digits.slice(6, 9)}
+        </p>
+        <div className="relative mt-3 flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="m-0 text-[10.5px] text-white/50">Account holder</p>
+            <p className="m-0 mt-0.5 truncate text-[13px] font-medium text-white/80">{complete ? "Confirmed by AzamPay next" : "Shown after the check"}</p>
+          </div>
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10.5px] font-semibold ${complete ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-white/50"}`}>
+            {complete ? "Ready to verify" : network ? "Enter number" : "Pick network"}
+          </span>
+        </div>
+      </div>
+      <ul className="m-0 list-none space-y-1.5 p-0 text-[12px] leading-5 text-slate-600">
+        <li className="flex items-start gap-1.5"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />Paid automatically once a claim is approved</li>
+        <li className="flex items-start gap-1.5"><LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />Stored encrypted; only the last 4 digits are shown</li>
+        <li className="flex items-start gap-1.5"><Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />Bank accounts are not supported yet</li>
+      </ul>
     </div>
   );
 }
@@ -258,6 +259,15 @@ export function isPayoutDestinationComplete(value: PayoutPreferenceValue | null 
   if (preferred === "BANK") return Boolean(clean(value.bankName) && clean(value.bankAccountName) && clean(value.bankAccountNumber));
   if (preferred === "MOBILE_MONEY") return Boolean(clean(value.mobileMoneyProvider) && clean(value.mobileMoneyNumber));
   return false;
+}
+
+/**
+ * Whether NoLSAF can actually send money here today. The payout ledger only
+ * pays mobile money through AzamPay; bank payouts are not enabled yet
+ * (Disbursement Policy 5.4), so a bank destination is saved but not payable.
+ */
+export function isPayoutDestinationPayable(value: PayoutPreferenceValue | null | undefined): boolean {
+  return isPayoutDestinationComplete(value) && clean(value?.payoutPreferred).toUpperCase() === "MOBILE_MONEY";
 }
 
 export default function OperatorPayoutDestination({
@@ -271,7 +281,11 @@ export default function OperatorPayoutDestination({
 }) {
   const savedComplete = isPayoutDestinationComplete(saved);
   const [editing, setEditing] = useState(!savedComplete);
-  const [form, setForm] = useState<PayoutPreferenceValue>(saved);
+  // Payouts go to mobile money only (Disbursement Policy 5.4), so the editor
+  // always starts on a wallet; there is no method to choose.
+  const [form, setForm] = useState<PayoutPreferenceValue>(() =>
+    savedComplete ? saved : { ...saved, payoutPreferred: "MOBILE_MONEY", bankName: "", bankAccountName: "", bankAccountNumber: "", bankBranch: "" }
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -296,8 +310,8 @@ export default function OperatorPayoutDestination({
           ? { kind: "mismatch", text: `0${subscriber.slice(0, 2)} usually belongs to ${PROVIDER_LABEL[detected]}, not ${PROVIDER_LABEL[provider] || provider}. If the number was ported, AzamPay will confirm it.` }
           : { kind: "match", text: `0${subscriber.slice(0, 2)} matches ${PROVIDER_LABEL[detected]}.` };
 
-  // Step the operator is on: 1 choose method, 2 fill details, 3 verify.
-  const step = !method ? 1 : !detailsOk ? 2 : 3;
+  // Step the operator is on: 1 enter the wallet, 2 confirm the registered name.
+  const step = !detailsOk ? 1 : 2;
 
   const patch = (next: Partial<PayoutPreferenceValue>) => {
     setError(null);
@@ -305,13 +319,6 @@ export default function OperatorPayoutDestination({
     setPreview(null);
     setForm((current) => ({ ...current, ...next }));
   };
-
-  const choose = (next: "BANK" | "MOBILE_MONEY") =>
-    patch(
-      next === "BANK"
-        ? { payoutPreferred: "BANK", mobileMoneyProvider: "", mobileMoneyNumber: "" }
-        : { payoutPreferred: "MOBILE_MONEY", bankName: "", bankAccountName: "", bankAccountNumber: "", bankBranch: "" }
-    );
 
   const setWallet = (raw: string) => {
     const digits = subscriberDigits(raw);
@@ -333,7 +340,18 @@ export default function OperatorPayoutDestination({
   const beginChange = () => {
     // A saved destination identifier is never put back into an editable field:
     // changing it means re-entering it deliberately.
-    setForm({ ...saved, ...(clean(saved.payoutPreferred).toUpperCase() === "BANK" ? { bankAccountNumber: "" } : { mobileMoneyNumber: "" }) });
+    // A saved bank account cannot be paid, so changing always moves to a wallet.
+    const wasBank = clean(saved.payoutPreferred).toUpperCase() === "BANK";
+    setForm({
+      ...saved,
+      payoutPreferred: "MOBILE_MONEY",
+      mobileMoneyProvider: wasBank ? "" : saved.mobileMoneyProvider,
+      mobileMoneyNumber: "",
+      bankName: "",
+      bankAccountName: "",
+      bankAccountNumber: "",
+      bankBranch: "",
+    });
     setError(null);
     setSuccess(null);
     setEditing(true);
@@ -408,9 +426,6 @@ export default function OperatorPayoutDestination({
     }
   };
 
-  const fieldClass =
-    "block h-11 w-full min-w-0 rounded-xl border border-solid border-slate-300 bg-white px-3.5 text-[14px] text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:outline-none focus:ring-0 focus:shadow-[0_0_0_3px_rgba(2,102,94,0.14)] disabled:bg-slate-50";
-  const labelClass = "mb-1.5 block text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500";
 
   return (
     <div id="operator-payout" className="min-w-0">
@@ -418,15 +433,15 @@ export default function OperatorPayoutDestination({
 
       {!editing && isPayoutDestinationComplete(form) ? (
         /* ── Saved destination ── */
-        <div className="flex flex-col gap-4 rounded-2xl border border-solid border-emerald-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className={`flex flex-col gap-4 rounded-lg border border-solid bg-white p-4 sm:flex-row sm:items-center sm:justify-between ${method === "BANK" ? "border-amber-300" : "border-emerald-200"}`}>
           <div className="flex min-w-0 items-center gap-3">
-            <span className="grid h-12 w-12 flex-shrink-0 place-items-center rounded-2xl bg-[#02665e] text-white">
+            <span className="grid h-11 w-11 flex-shrink-0 place-items-center rounded-md bg-[#02665e] text-white">
               {method === "BANK" ? <Building2 className="h-5 w-5" aria-hidden /> : <Smartphone className="h-5 w-5" aria-hidden />}
             </span>
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700">
+              <div className={`flex items-center gap-1.5 text-[12px] font-semibold ${method === "BANK" ? "text-amber-800" : "text-emerald-700"}`}>
                 <BadgeCheck className="h-3.5 w-3.5" aria-hidden />
-                Verified payout destination
+                {method === "BANK" ? "Saved, but cannot be paid" : "Verified payout destination"}
               </div>
               <div className="mt-0.5 truncate text-[15px] font-bold text-slate-900">
                 {method === "BANK"
@@ -434,30 +449,41 @@ export default function OperatorPayoutDestination({
                   : `${PROVIDER_LABEL[canonicalProvider(form.mobileMoneyProvider)] || clean(form.mobileMoneyProvider)} · ${mask(form.mobileMoneyNumber)}`}
               </div>
               <div className="truncate text-[12px] text-slate-500">
-                {method === "BANK" ? `${clean(form.bankAccountName)} · paid manually by NoLSAF finance` : "Paid automatically to this wallet"}
+                {method === "BANK" ? `${clean(form.bankAccountName)}` : "Paid automatically to this wallet"}
               </div>
+              {method === "BANK" ? (
+                <div className="mt-1 flex items-start gap-1.5 text-[12px] font-semibold text-amber-800">
+                  <AlertTriangle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                  Bank accounts cannot receive payouts yet. Change to mobile money to be paid.
+                </div>
+              ) : null}
             </div>
           </div>
           <button
             type="button"
             onClick={beginChange}
             style={{ fontFamily: "inherit" }}
-            className="inline-flex h-9 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 transition-colors hover:border-[#02665e] hover:text-[#02665e]"
+            className={`inline-flex h-9 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-solid px-3.5 text-[13px] font-semibold transition-colors ${method === "BANK" ? "border-[#02665e] bg-[#02665e] text-white hover:bg-[#014d47]" : "border-slate-300 bg-white text-slate-700 hover:border-[#02665e] hover:text-[#02665e]"}`}
           >
             <Pencil className="h-3.5 w-3.5" aria-hidden />
-            Change
+            {method === "BANK" ? "Add mobile money" : "Change"}
           </button>
         </div>
       ) : (
         /* ── Editor ── */
-        <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
-          <div className="flex flex-col gap-3 border-0 border-b border-solid border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-            <div className="min-w-0">
-              <h3 className="m-0 text-[15px] font-bold text-slate-900">Where should NoLSAF pay you?</h3>
-              <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">AzamPay checks the registered name before anything is saved.</p>
+        <div className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+          <div className="flex flex-col gap-3 border-0 border-b border-solid border-slate-100 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700">
+                <Smartphone className="h-[18px] w-[18px]" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <h3 className="m-0 text-[15px] font-semibold text-slate-900">Where should NoLSAF pay you?</h3>
+                <p className="m-0 mt-0.5 text-[12.5px] leading-5 text-slate-500">Payouts go to a mobile money wallet. AzamPay checks the registered name before anything is saved.</p>
+              </div>
             </div>
-            <ol className="m-0 flex list-none items-center gap-1.5 p-0" aria-label={`Step ${step} of 3`}>
-              {["Method", "Details", "Verify"].map((label, index) => {
+            <ol className="m-0 flex list-none items-center gap-1.5 p-0" aria-label={`Step ${step} of 2`}>
+              {["Wallet number", "Confirm name"].map((label, index) => {
                 const n = index + 1;
                 const done = step > n;
                 const current = step === n;
@@ -465,8 +491,8 @@ export default function OperatorPayoutDestination({
                   <li key={label} className="flex items-center gap-1.5">
                     {index > 0 ? <span className={`h-px w-4 ${done || current ? "bg-[#02665e]/50" : "bg-slate-200"}`} aria-hidden /> : null}
                     <span
-                      className={`inline-flex h-6 items-center gap-1 rounded-full px-2 text-[11px] font-bold ${
-                        done ? "bg-[#02665e]/10 text-[#02665e]" : current ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-400"
+                      className={`inline-flex h-6 items-center gap-1 rounded px-2 text-[11.5px] font-semibold ${
+                        done ? "bg-emerald-50 text-emerald-800" : current ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-500"
                       }`}
                     >
                       {done ? <Check className="h-3 w-3" aria-hidden /> : <span className="tabular-nums">{n}</span>}
@@ -478,49 +504,10 @@ export default function OperatorPayoutDestination({
             </ol>
           </div>
 
-          <div className="space-y-5 p-4 sm:p-5">
-            {/* Step 1: method */}
-            <div className="grid gap-2.5 sm:grid-cols-2">
-              {[
-                { key: "MOBILE_MONEY" as const, icon: Smartphone, title: "Mobile money", text: "Paid automatically to your wallet", badge: "Recommended", badgeCls: "bg-emerald-100 text-emerald-800" },
-                { key: "BANK" as const, icon: Building2, title: "Bank account", text: "Name check only, paid manually by finance", badge: "Slower", badgeCls: "bg-slate-100 text-slate-500" },
-              ].map((option) => {
-                const on = method === option.key;
-                return (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => choose(option.key)}
-                    disabled={saving}
-                    aria-pressed={on}
-                    style={{ fontFamily: "inherit" }}
-                    className={`relative flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-2xl border-2 border-solid p-3.5 text-left transition-colors disabled:cursor-not-allowed ${
-                      on ? "border-[#02665e] bg-[#02665e]/5" : "border-slate-200 bg-white hover:border-slate-300"
-                    }`}
-                  >
-                    <span className={`grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl ${on ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-500"}`}>
-                      <option.icon className="h-5 w-5" aria-hidden />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className={`text-[14px] font-bold ${on ? "text-[#02665e]" : "text-slate-900"}`}>{option.title}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${option.badgeCls}`}>{option.badge}</span>
-                      </span>
-                      <span className="block truncate text-[12px] text-slate-500">{option.text}</span>
-                    </span>
-                    <span className={`grid h-5 w-5 flex-shrink-0 place-items-center rounded-full border-2 border-solid ${on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white text-transparent"}`} aria-hidden>
-                      <Check className="h-3 w-3" />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Step 2: details */}
-            {method === "MOBILE_MONEY" ? (
-              <div className="min-w-0 max-w-2xl">
-                <span className={labelClass}>Mobile money wallet</span>
-                <WalletField
+          <div className="space-y-4 p-4 sm:p-5">
+            <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
+              <div className="min-w-0">
+                <WalletPicker
                   provider={provider}
                   detected={detected}
                   subscriber={subscriber}
@@ -532,68 +519,24 @@ export default function OperatorPayoutDestination({
                 <p
                   id="operator-wallet-check"
                   aria-live="polite"
-                  className={`m-0 mt-1.5 flex items-start gap-1.5 text-[11.5px] leading-snug ${
+                  className={`m-0 mt-2 flex items-start gap-1.5 text-[12px] leading-snug ${
                     networkCheck?.kind === "match" ? "text-emerald-700" : networkCheck ? "text-amber-800" : "text-slate-500"
                   }`}
                 >
                   {networkCheck?.kind === "match" ? <CheckCircle2 className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden /> : networkCheck ? <AlertTriangle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden /> : null}
-                  {networkCheck?.text || "Type the number registered to your wallet. We pick the network from it."}
+                  {networkCheck?.text || "Type your number and we pick the network. Tap a network if your number was moved from another one."}
                 </p>
               </div>
-            ) : method === "BANK" ? (
-              <div className="space-y-4">
-                <p className="m-0 flex items-start gap-2 rounded-xl bg-amber-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-amber-900">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600" aria-hidden />
-                  We verify the account holder name only. Bank payouts are sent manually by NoLSAF finance, so they take longer than mobile money.
-                </p>
-                <div>
-                  <span className={labelClass}>Bank</span>
-                  <div className="grid grid-cols-3 gap-2">
-                    {BANKS.map((b) => {
-                      const on = clean(form.bankName).toUpperCase().replace(/[^A-Z]/g, "").startsWith(b.value);
-                      return (
-                        <button
-                          key={b.value}
-                          type="button"
-                          onClick={() => patch({ bankName: b.value })}
-                          disabled={saving}
-                          aria-pressed={on}
-                          style={{ fontFamily: "inherit" }}
-                          className={`flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl border-2 border-solid text-[13px] font-bold transition-colors ${
-                            on ? "border-[#02665e] bg-[#02665e]/5 text-[#02665e]" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                          }`}
-                        >
-                          {on ? <Check className="h-3.5 w-3.5" aria-hidden /> : null}
-                          {b.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="min-w-0">
-                    <span className={labelClass}>Account holder name</span>
-                    <input className={fieldClass} value={form.bankAccountName || ""} onChange={(e) => patch({ bankAccountName: e.target.value })} maxLength={160} autoComplete="name" disabled={saving} placeholder="As registered with the bank" />
-                  </label>
-                  <label className="min-w-0">
-                    <span className={labelClass}>Account number</span>
-                    <input className={`${fieldClass} font-mono tracking-[0.06em]`} value={form.bankAccountNumber || ""} onChange={(e) => patch({ bankAccountNumber: e.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 40) })} autoComplete="off" spellCheck={false} disabled={saving} />
-                  </label>
-                  <label className="min-w-0 sm:col-span-2">
-                    <span className={labelClass}>Branch <span className="normal-case tracking-normal text-slate-400">(optional)</span></span>
-                    <input className={fieldClass} value={form.bankBranch || ""} onChange={(e) => patch({ bankBranch: e.target.value })} maxLength={100} autoComplete="off" disabled={saving} />
-                  </label>
-                </div>
-              </div>
-            ) : null}
+              <WalletPreviewCard provider={provider} subscriber={subscriber} />
+            </div>
 
             {error ? (
-              <p role="alert" className="m-0 flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-rose-700">
+              <p role="alert" className="m-0 flex items-start gap-2 rounded-md border border-solid border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-rose-700">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
                 {error}
               </p>
             ) : success ? (
-              <p className="m-0 flex items-center gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-emerald-800">
+              <p className="m-0 flex items-center gap-2 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-emerald-800">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0" aria-hidden />
                 {success}
               </p>
@@ -613,7 +556,7 @@ export default function OperatorPayoutDestination({
                   onClick={cancel}
                   disabled={saving}
                   style={{ fontFamily: "inherit" }}
-                  className="inline-flex h-10 cursor-pointer items-center rounded-full border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 transition-colors hover:border-slate-400 disabled:opacity-50"
+                  className="inline-flex h-10 cursor-pointer items-center rounded-md border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 transition-colors hover:border-slate-400 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -623,10 +566,10 @@ export default function OperatorPayoutDestination({
                 onClick={requestVerify}
                 disabled={saving || !detailsOk || !changed}
                 style={{ fontFamily: "inherit" }}
-                className="inline-flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-full border-0 bg-[#02665e] px-5 text-[13px] font-bold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                className="inline-flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-md border-0 bg-[#02665e] px-5 text-[13px] font-semibold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
               >
                 {saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden /> : <ShieldCheck className="h-4 w-4" aria-hidden />}
-                {saving ? "Checking with AzamPay..." : method === "BANK" ? "Verify account name" : "Verify wallet"}
+                {saving ? "Checking with AzamPay..." : "Verify wallet"}
               </button>
             </div>
           </div>

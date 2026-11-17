@@ -16,13 +16,16 @@ import { consumeSupportHandoff, getActiveSupportHandoff, supportHandoffMatchesUs
 import { getWebAuthnRp } from '../lib/webauthnRp.js';
 import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js';
 import { audit } from '../lib/audit.js';
+import { generateOperatorWelcomeEmail } from '../lib/operatorWelcomeEmail.js';
+import { readContractWorkflow } from '../lib/agentContractWorkflow.js';
 import { hashCode } from '../lib/otp.js';
 import { normalizeEmailForAuth, normalizePhoneForAuth } from '../lib/authDestination.js';
 import { otpAuditDestinationFields, otpAuditEntity } from '../lib/otpAudit.js';
 import { OTP_MAX_ATTEMPTS, registerOtpAttempt, resetOtpAttempts } from '../lib/otpAttempts.js';
 import { maybeAuth, requireAuth, blockImpersonated } from '../middleware/auth.js';
 import { invalidateAuthSessionCacheForUser } from '../lib/authSessionCache.js';
-import { limitAccountCheck, limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts, limitPasswordResetRequest, limitPasswordResetRequestPerIp } from '../middleware/rateLimit.js';
+import { limitAccountCheck, limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts, limitPasswordResetRequest, limitPasswordResetRequestPerIp, limitPasswordResetSubmit } from '../middleware/rateLimit.js';
+import { findUserByResetToken, maskLogin, passwordSetupLink, sameTokenHash } from '../lib/passwordSetupLink.js';
 import { isEmailLocked, recordFailedAttempt, clearFailedAttempts } from '../lib/loginAttemptTracker.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { buildDriverCaseRef } from '../lib/driverCaseRef.js';
@@ -988,7 +991,7 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
         resetTokenStore[hashed] = { userId: String(user.id), expiresAt };
       }
       const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000';
-      const resetLink = `${origin}/account/reset-password?token=${raw}&id=${user.id}`;
+      const resetLink = passwordSetupLink(origin, raw);
       const out: any = { ok: true, message: 'verified', resetToken: raw, link: resetLink, user: { id: user.id, phone: user.phone, email: user.email } };
       return res.json(out);
     } catch (e) {
@@ -2660,7 +2663,7 @@ router.post('/forgot-password', limitPasswordResetRequestPerIp, limitPasswordRes
 
     // Build reset link
     const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000';
-    const resetLink = `${origin}/account/reset-password?token=${raw}&id=${user.id}`;
+    const resetLink = passwordSetupLink(origin, raw);
 
     // Send via email if available, otherwise via SMS
     if (user.email) {
@@ -2685,26 +2688,75 @@ router.post('/forgot-password', limitPasswordResetRequestPerIp, limitPasswordRes
   }
 });
 
+/** The operator welcome email, or null when the account has no operator record. */
+async function buildOperatorWelcome(userId: number, user: any, origin: string) {
+  try {
+    const agent = await prisma.agent.findFirst({ where: { userId }, select: { operatorProfile: true } as any });
+    if (!agent) return null;
+    const profile = ((agent as any).operatorProfile ?? {}) as Record<string, any>;
+    const workflow = readContractWorkflow(profile);
+    return generateOperatorWelcomeEmail({
+      name: String(user.fullName || user.name || '').split(' ')[0] || 'there',
+      companyName: typeof profile.companyName === 'string' && profile.companyName.trim() ? profile.companyName.trim() : null,
+      origin,
+      createdAt: new Date(),
+      agreementToSign: workflow?.status === 'PENDING_AGENT_SIGNATURE',
+    });
+  } catch {
+    return null;
+  }
+}
+
+// POST /api/auth/reset-password/check
+// Lets the password page say up front whether a link still works, instead of
+// after the user has typed a password. Answers only about the token itself.
+router.post('/reset-password/check', limitPasswordResetSubmit, async (req, res) => {
+  const token = String((req.body || {}).token || '').trim();
+  if (!token) return res.json({ ok: true, valid: false, reason: 'missing' });
+  try {
+    const user: any = await findUserByResetToken(token);
+    if (!user) return res.json({ ok: true, valid: false, reason: 'invalid' });
+    const expires = user.resetPasswordExpires ? new Date(user.resetPasswordExpires).getTime() : 0;
+    if (Date.now() > expires) return res.json({ ok: true, valid: false, reason: 'expired' });
+    return res.json({
+      ok: true,
+      valid: true,
+      firstPassword: !user.passwordHash,
+      // Masked: enough for the owner to recognise, not a lookup for anyone else.
+      login: maskLogin(user.email || user.phone),
+      name: String(user.fullName || user.name || '').split(' ')[0] || null,
+      expiresAt: new Date(expires).toISOString(),
+    });
+  } catch {
+    return res.json({ ok: true, valid: false, reason: 'unavailable' });
+  }
+});
+
 // POST /api/auth/reset-password
-router.post('/reset-password', async (req, res) => {
+// Accepts the token alone (current links) or token + user id (links sent before
+// ids were taken out of the address).
+router.post('/reset-password', limitPasswordResetSubmit, async (req, res) => {
   const { token, userId, id, password } = req.body || {};
   const rawUserId = typeof userId !== 'undefined' ? userId : id;
-  if (!token || !rawUserId || !password) return res.status(400).json({ message: 'token, userId and password required' });
-
-  const userIdStr = String(rawUserId);
-  const normalizedUserId: any = /^\d+$/.test(userIdStr) ? Number(userIdStr) : rawUserId;
+  if (!token || !password) return res.status(400).json({ message: 'token and password required' });
 
   const hashed = crypto.createHash('sha256').update(String(token)).digest('hex');
+  let userIdStr = rawUserId != null && String(rawUserId).trim() ? String(rawUserId) : '';
+  let normalizedUserId: any = /^\d+$/.test(userIdStr) ? Number(userIdStr) : rawUserId;
 
   try {
     // Check DB first
     let user: any = null;
     try {
-      user = await prisma.user.findUnique({ where: { id: normalizedUserId as any } });
+      user = userIdStr ? await prisma.user.findUnique({ where: { id: normalizedUserId as any } }) : await findUserByResetToken(String(token));
+      if (user && !userIdStr) {
+        userIdStr = String(user.id);
+        normalizedUserId = user.id;
+      }
       if (user && user.resetPasswordToken) {
         const dbToken = String(user.resetPasswordToken);
         const expires = user.resetPasswordExpires ? new Date(user.resetPasswordExpires).getTime() : 0;
-        if (dbToken !== hashed) return res.status(400).json({ message: 'invalid token' });
+        if (!sameTokenHash(dbToken, hashed)) return res.status(400).json({ message: 'invalid token' });
         if (Date.now() > expires) return res.status(400).json({ message: 'token expired' });
       } else if (user && !user.resetPasswordToken) {
         // Token was already consumed — password was already set
@@ -2719,6 +2771,11 @@ router.post('/reset-password', async (req, res) => {
     // If not persisted, check in-memory store
     if (!user) {
       const rec = resetTokenStore[hashed];
+      // Token-only links carry no id: the stored record says whose token it is.
+      if (rec && !userIdStr) {
+        userIdStr = String(rec.userId);
+        normalizedUserId = /^\d+$/.test(userIdStr) ? Number(userIdStr) : rec.userId;
+      }
       if (!rec || String(rec.userId) !== userIdStr) return res.status(400).json({ message: 'invalid token' });
       if (Date.now() > rec.expiresAt) { delete resetTokenStore[hashed]; return res.status(400).json({ message: 'token expired' }); }
       // fetch user record to update password
@@ -2781,6 +2838,8 @@ router.post('/reset-password', async (req, res) => {
     // Update in-memory history if applicable and start the change cooldown
     try { await addPasswordToHistory(normalizedUserId, pwHash); } catch (e) { /* ignore */ }
     recordPasswordChangeSuccess(user.id);
+    // On record, so admins can see when an invited account was actually set up.
+    await audit(req as any, user.passwordHash ? 'ACCOUNT_PASSWORD_RESET' : 'ACCOUNT_PASSWORD_CREATED', `user:${user.id}`, null, { via: 'emailed_link' }, Number(user.id));
 
     // Remove in-memory token
     if (resetTokenStore[hashed]) delete resetTokenStore[hashed];
@@ -2788,8 +2847,16 @@ router.post('/reset-password', async (req, res) => {
     // Send password-changed confirmation email (non-blocking)
     try {
       const recipientEmail = user.email || user.phone;
-      if (recipientEmail && recipientEmail.includes('@')) {
-        const appUrl = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || process.env.CORS_ORIGIN?.split(',')[0]?.trim() || 'https://nolsaf.com';
+      const firstPassword = !user.passwordHash;
+      const appUrl = process.env.WEB_ORIGIN || process.env.APP_ORIGIN || process.env.CORS_ORIGIN?.split(',')[0]?.trim() || 'https://nolsaf.com';
+      // A tour operator's first password: the welcome with first steps, which
+      // also carries the security notice, instead of "password changed".
+      const operatorWelcome = firstPassword && String(user.role || '').toUpperCase() === 'AGENT' && recipientEmail && recipientEmail.includes('@')
+        ? await buildOperatorWelcome(Number(user.id), user, appUrl)
+        : null;
+      if (operatorWelcome) {
+        await sendMail(recipientEmail, operatorWelcome.subject, operatorWelcome.html, undefined, { replyTo: 'partners@nolsaf.com' });
+      } else if (recipientEmail && recipientEmail.includes('@')) {
         const { subject: cSubject, html: cHtml } = getPasswordChangedConfirmationEmail({
           name: user.name || user.email || 'User',
           email: user.email,

@@ -5,6 +5,8 @@ import { sendSms } from "./sms.js";
 import { sendMail } from "./mailer.js";
 import { getSupportContact } from "./tripSafety.js";
 import { retentionFields } from "./auditRetention.js";
+import { proDetailRows, proDivider, proEmail } from "./emailBase.js";
+import { eatDate, esc, mutedPara, para, signOff } from "./proEmailParts.js";
 
 export const CHECKIN_ALERT_ACTION = "GUEST_CHECKIN_CONFIRMATION_ACCEPTED";
 const TITLE_MAX = 40;
@@ -69,7 +71,16 @@ export async function ensureGuestCheckInConfirmation(bookingId: number): Promise
       const result = await sendMail(
         email,
         "Your NoLSAF check-in was confirmed",
-        `<p>${message}</p>`, undefined,
+        proEmail("You are checked in", `
+          ${para(esc(message))}
+          ${proDetailRows("", [
+            ["Property", esc(booking.property?.title || "Your stay")],
+            ["Checked in", esc(eatDate(booking.code.usedAt, true))],
+          ])}
+          ${proDivider()}
+          ${mutedPara(`If this was not you, contact NoLSAF right away${support.phone ? ` on <strong>${esc(support.phone)}</strong>` : ""}.`)}
+          ${signOff()}
+        `), undefined,
         { bypassEligibilityCheck: true, sensitiveContent: true },
       );
       if (result.success && !["suppressed", "console"].includes(result.provider)) {

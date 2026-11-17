@@ -73,13 +73,21 @@ export async function loadOperatorStanding(agent: { id: number; userId: number }
     }),
     prisma.systemSetting.findUnique({ where: { id: 1 }, select: { agentTierLadder: true } as any }).catch(() => null),
     prisma.payoutAccount.findFirst({
-      where: { userId: agent.userId, isVerified: true, isActive: true },
+      // Only destinations the ledger can pay: AzamPay sends to mobile money; bank is not enabled yet.
+      where: { userId: agent.userId, isVerified: true, isActive: true, type: "MOBILE_MONEY" },
       select: { id: true },
     }),
-    prisma.tourFinancialTransaction.aggregate({
-      where: { kind: "PAYOUT_RECOVERY", status: "PENDING", booking: { operatorAgentId: agent.id } },
-      _sum: { amount: true },
-    }),
+    // Outstanding, not original: part of a recovery may already be deducted from a balance.
+    prisma.tourFinancialTransaction
+      .findMany({
+        where: { kind: "PAYOUT_RECOVERY", status: "PENDING", booking: { operatorAgentId: agent.id } },
+        select: { amount: true, metadata: true },
+      })
+      .then((rows) => ({
+        _sum: {
+          amount: rows.reduce((sum, row) => sum + Math.max(0, Number(row.amount) - (Number((row.metadata as any)?.offsetApplied) || 0)), 0),
+        },
+      })),
   ]);
 
   const avg = (reviewsAgg as any)?._avg || {};

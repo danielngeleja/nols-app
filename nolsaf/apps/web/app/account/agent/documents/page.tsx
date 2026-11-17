@@ -1,11 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import axios from "axios";
 import {
   AlertCircle,
-  ArrowLeft,
   CalendarClock,
   CheckCircle2,
   ExternalLink,
@@ -96,6 +94,8 @@ export default function AgentDocumentsPage() {
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [licenseExpiresOn, setLicenseExpiresOn] = useState("");
   const [businessExpiresOn, setBusinessExpiresOn] = useState("");
+  // Licences being renewed: their expiry picker is open for the new date.
+  const [renewing, setRenewing] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // The picked document travels in a ref, not state: the file dialog opens in
   // the same tick as the click, before React has re-rendered with new state.
@@ -151,7 +151,8 @@ export default function AgentDocumentsPage() {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-    });
+      timeZone: "Africa/Dar_es_Salaam",
+    }) + " EAT";
   }
 
   function formatDateOnly(value?: string) {
@@ -281,6 +282,7 @@ export default function AgentDocumentsPage() {
         classifiedPhotos: mergedClassified,
         documentProofs: mergedDocumentProofs,
       }));
+      setRenewing((ids) => ids.filter((id) => id !== docId));
       await fetchPhotos();
     } catch (err: any) {
       setUploadError(err?.response?.data?.message || "Upload failed. Please try again.");
@@ -328,9 +330,22 @@ export default function AgentDocumentsPage() {
     });
   }, [operatorProfile, proofPhotos]);
 
-  const approvedCount = documents.filter((doc) => doc.status === "APPROVED").length;
+  const approvedCount = documents.filter((doc) => doc.status === "APPROVED" && !doc.expired).length;
+  const reviewCount = documents.filter((doc) => doc.uploaded && doc.status !== "APPROVED" && doc.status !== "REJECTED").length;
   const actionCount = documents.filter((doc) => doc.status === "MISSING" || doc.status === "REJECTED" || doc.expired).length;
-  const progressPercent = Math.round((approvedCount / REQUIRED_DOCUMENTS.length) * 100);
+  const expiringCount = documents.filter((doc) => doc.expiringSoon && !doc.expired).length;
+  const total = REQUIRED_DOCUMENTS.length;
+  const progressPercent = Math.round((approvedCount / total) * 100);
+  const verified = approvedCount === total;
+
+  const standing = verified
+    ? expiringCount
+      ? { label: "Verified, renewal due", tone: "border-amber-200 bg-amber-50 text-amber-800", Icon: CalendarClock, line: `${expiringCount} licence${expiringCount === 1 ? "" : "s"} expire within ${EXPIRY_WARNING_DAYS} days. Upload the renewed copy before then to stay verified.` }
+      : { label: "Verified", tone: "border-emerald-200 bg-emerald-50 text-emerald-800", Icon: ShieldCheck, line: "Every required document is approved." }
+    : actionCount
+      ? { label: "Action needed", tone: "border-red-200 bg-red-50 text-red-700", Icon: AlertCircle, line: `${actionCount} document${actionCount === 1 ? " needs" : "s need"} you: upload what is missing and replace anything rejected or expired.` }
+      : { label: "In review", tone: "border-amber-200 bg-amber-50 text-amber-800", Icon: CalendarClock, line: "Everything is uploaded. NoLSAF compliance is reviewing your files." };
+  const StandingIcon = standing.Icon;
 
   if (loading) {
     return (
@@ -341,75 +356,77 @@ export default function AgentDocumentsPage() {
   }
 
   return (
-    <div className="min-w-0 max-w-full pb-10">
-      <Link
-        href="/account/agent"
-        className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 no-underline transition hover:text-emerald-700"
-        aria-label="Back to dashboard"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-        Back to dashboard
-      </Link>
+    <div id="agent-documents" className="w-full min-w-0 space-y-4 pb-10">
+      <style>{`#agent-documents, #agent-documents * { box-sizing: border-box; }`}</style>
 
-      <header className="mb-4">
-        <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Verification</p>
-        <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-900 sm:text-2xl">My documents</h1>
-        <p className="m-0 mt-1 max-w-2xl text-sm text-neutral-500">
-          Registration and licensing documents required of Tanzanian tour operators. Every file is reviewed by NoLSAF
-          before it counts toward your verification.
-        </p>
-      </header>
-
-      {/* Verification progress: the page's headline answer, which the old
-          checklist made you count by eye. */}
-      <section className="mb-4 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+      {/* Standing: the one answer this page exists for, then how each file stands. */}
+      <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+        <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#02665e] text-white">
               <ShieldCheck className="h-5 w-5" aria-hidden />
             </span>
             <div className="min-w-0">
-              <h2 className="m-0 text-sm font-bold text-neutral-900">Verification progress</h2>
-              <p className="m-0 mt-0.5 text-xs text-neutral-500">
-                {actionCount > 0
-                  ? `${actionCount} document${actionCount === 1 ? "" : "s"} need your attention`
-                  : approvedCount === REQUIRED_DOCUMENTS.length
-                    ? "Every required document is approved"
-                    : "All documents submitted and awaiting review"}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="m-0 text-lg font-semibold text-neutral-900">My documents</h1>
+                <span className={`inline-flex items-center gap-1 rounded-md border border-solid px-2 py-0.5 text-[11px] font-semibold ${standing.tone}`}>
+                  <StandingIcon className="h-3.5 w-3.5" aria-hidden />
+                  {standing.label}
+                </span>
+              </div>
+              <p className="m-0 mt-1 max-w-2xl text-[13px] leading-5 text-neutral-600">{standing.line}</p>
             </div>
           </div>
-          <p className="m-0 text-sm font-bold tabular-nums text-neutral-900">
-            {approvedCount} of {REQUIRED_DOCUMENTS.length} approved <span className="text-neutral-400">·</span> {progressPercent}%
-          </p>
+          <div className="shrink-0 sm:text-right">
+            <p className="m-0 text-2xl font-semibold tabular-nums text-neutral-900">
+              {approvedCount}<span className="text-base text-neutral-400">/{total}</span>
+            </p>
+            <p className="m-0 text-[12px] text-neutral-500">approved, {progressPercent}%</p>
+          </div>
         </div>
-        <div className="flex h-2 w-full gap-1 px-5 pb-4">
-          {documents.map((doc) => (
-            <span
-              key={doc.id}
-              title={`${doc.label}: ${doc.status.toLowerCase()}`}
-              className={`h-full flex-1 rounded-full ${
-                doc.status === "APPROVED"
-                  ? "bg-emerald-600"
-                  : doc.status === "REJECTED" || doc.expired
-                    ? "bg-red-400"
-                    : doc.uploaded
-                      ? "bg-amber-400"
-                      : "bg-neutral-200"
-              }`}
-            />
-          ))}
+
+        {/* One segment per document, named, so the bar says which file is holding things up. */}
+        <ol className="m-0 grid list-none grid-cols-2 gap-x-2 gap-y-3 border-0 border-t border-solid border-neutral-100 px-4 py-3.5 sm:grid-cols-5 sm:px-5">
+          {documents.map((doc) => {
+            const tone =
+              doc.status === "APPROVED" && !doc.expired
+                ? doc.expiringSoon ? "bg-amber-400" : "bg-emerald-600"
+                : doc.status === "REJECTED" || doc.expired
+                  ? "bg-red-500"
+                  : doc.uploaded
+                    ? "bg-amber-300"
+                    : "bg-neutral-200";
+            const caption =
+              doc.expired ? "Expired"
+                : doc.status === "APPROVED" ? (doc.expiringSoon ? `${doc.remainingDays} days left` : "Approved")
+                  : doc.status === "REJECTED" ? "Rejected"
+                    : doc.uploaded ? "In review" : "Missing";
+            return (
+              <li key={doc.id} className="min-w-0">
+                <span className={`block h-1.5 w-full rounded-full ${tone}`} aria-hidden />
+                <p className="m-0 mt-1.5 truncate text-[12px] font-semibold text-neutral-800">{doc.label}</p>
+                <p className="m-0 text-[11px] text-neutral-500">{caption}</p>
+              </li>
+            );
+          })}
+        </ol>
+
+        <div className="flex flex-wrap gap-x-5 gap-y-1 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-4 py-2.5 text-[12px] text-neutral-600 sm:px-5">
+          <span><strong className="font-semibold tabular-nums text-neutral-900">{approvedCount}</strong> approved</span>
+          <span><strong className="font-semibold tabular-nums text-neutral-900">{reviewCount}</strong> in review</span>
+          <span><strong className={`font-semibold tabular-nums ${actionCount ? "text-red-700" : "text-neutral-900"}`}>{actionCount}</strong> need you</span>
+          <span><strong className={`font-semibold tabular-nums ${expiringCount ? "text-amber-700" : "text-neutral-900"}`}>{expiringCount}</strong> expiring soon</span>
         </div>
       </section>
 
       {uploadError ? (
-        <div role="alert" className="mb-4 flex items-start gap-2.5 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>{uploadError}</span>
         </div>
       ) : null}
       {uploadSuccess ? (
-        <div role="status" className="mb-4 flex items-start gap-2.5 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div role="status" className="flex items-start gap-2.5 rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <span>{uploadSuccess}</span>
         </div>
@@ -424,73 +441,77 @@ export default function AgentDocumentsPage() {
         className="hidden"
       />
 
-      {/* A register of five records sharing the same five attributes, so it is
-          laid out as one: comparing status or expiry across documents was the
-          whole point, and stacked cards made that a scan down the page. */}
-      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
-        <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-[inset_0_-1px_0_0_#f5f5f5]">
+      {/* A register: five records with the same attributes, compared across rows. */}
+      <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-3 sm:px-5">
           <div className="min-w-0">
-            <h2 className="m-0 text-sm font-bold text-neutral-900">Document register</h2>
-            <p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">
-              Reviewed by NoLSAF compliance. PDF only, up to 5MB each.
+            <h2 className="m-0 text-sm font-semibold text-neutral-900">Document register</h2>
+            <p className="m-0 mt-0.5 text-[12px] text-neutral-500">
+              Required of every Tanzanian tour operator and checked by NoLSAF compliance. PDF only, up to 5MB each.
             </p>
           </div>
-          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">
-            {REQUIRED_DOCUMENTS.length} required
-          </span>
+          <span className="rounded-md bg-neutral-100 px-2 py-1 text-[11px] font-semibold text-neutral-600">{total} required</span>
         </header>
 
         <TableScroller label="document register">
-          <table className="w-full min-w-[58rem] border-collapse text-left">
-            <thead className="bg-neutral-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
-              <tr>
-                <th scope="col" className="px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Document</th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Status</th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Submitted</th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Validity</th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">File</th>
-                <th scope="col" className="whitespace-nowrap px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Action</th>
+          <table className="w-full min-w-[56rem] border-collapse text-left">
+            <thead className="bg-neutral-50/80">
+              <tr className="[&>th]:border-0 [&>th]:border-b [&>th]:border-solid [&>th]:border-neutral-200 [&>th]:px-4 [&>th]:py-2.5 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:text-neutral-500">
+                <th scope="col">Document</th>
+                <th scope="col" className="whitespace-nowrap">Status</th>
+                <th scope="col" className="whitespace-nowrap">Last change</th>
+                <th scope="col" className="whitespace-nowrap">Validity</th>
+                <th scope="col" className="whitespace-nowrap text-right">File</th>
               </tr>
             </thead>
-            <tbody className="[&>tr>td]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>tr:last-child>td]:shadow-none">
+            <tbody>
               {documents.map((doc) => {
                 const busy = uploadingId === doc.id;
                 const needsExpiry = EXPIRING_DOCUMENTS.includes(doc.id as (typeof EXPIRING_DOCUMENTS)[number]);
                 const expiryValue = doc.id === "license" ? licenseExpiresOn : businessExpiresOn;
                 const flagged = doc.status === "REJECTED" || doc.expired;
+                // The date picker is for a new file: shown when one is due, or when renewing.
+                const showPicker = needsExpiry && (!doc.uploaded || flagged || doc.expiringSoon || renewing.includes(doc.id));
 
                 const statusChip =
-                  doc.status === "APPROVED"
-                    ? { tone: "border-emerald-200 bg-emerald-50 text-emerald-700", label: "Approved", Icon: CheckCircle2 }
-                    : doc.status === "REJECTED"
-                      ? { tone: "border-red-200 bg-red-50 text-red-700", label: "Rejected", Icon: XCircle }
-                      : doc.uploaded
-                        ? { tone: "border-amber-200 bg-amber-50 text-amber-700", label: "In review", Icon: CalendarClock }
-                        : { tone: "border-neutral-200 bg-neutral-50 text-neutral-500", label: "Not uploaded", Icon: AlertCircle };
+                  doc.expired
+                    ? { tone: "border-red-200 bg-red-50 text-red-700", label: "Expired", Icon: XCircle }
+                    : doc.status === "APPROVED"
+                      ? { tone: "border-emerald-200 bg-emerald-50 text-emerald-700", label: "Approved", Icon: CheckCircle2 }
+                      : doc.status === "REJECTED"
+                        ? { tone: "border-red-200 bg-red-50 text-red-700", label: "Rejected", Icon: XCircle }
+                        : doc.uploaded
+                          ? { tone: "border-amber-200 bg-amber-50 text-amber-800", label: "In review", Icon: CalendarClock }
+                          : { tone: "border-neutral-200 bg-neutral-50 text-neutral-600", label: "Missing", Icon: AlertCircle };
                 const ChipIcon = statusChip.Icon;
+                const primary = !doc.uploaded || flagged;
 
                 return (
-                  <tr key={doc.id} className={`align-top transition ${flagged ? "bg-red-50/40" : "hover:bg-emerald-50/30"}`}>
-                    <td className="px-4 py-3.5">
-                      <div className="flex min-w-0 items-start gap-2.5">
+                  <tr
+                    key={doc.id}
+                    className={`align-top transition [&>td]:border-0 [&>td]:border-b [&>td]:border-solid [&>td]:border-neutral-100 [&>td]:px-4 [&>td]:py-3.5 last:[&>td]:border-b-0 ${flagged ? "bg-red-50/40" : "hover:bg-neutral-50/70"}`}
+                  >
+                    <td>
+                      <div className="flex min-w-0 items-start gap-3">
                         <span
-                          className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
-                            doc.status === "APPROVED"
-                              ? "bg-emerald-50 text-emerald-600"
+                          className={`grid h-9 w-9 shrink-0 place-items-center rounded-md ${
+                            doc.status === "APPROVED" && !doc.expired
+                              ? "bg-emerald-50 text-emerald-700"
                               : flagged
                                 ? "bg-red-50 text-red-600"
                                 : doc.uploaded
-                                  ? "bg-amber-50 text-amber-600"
+                                  ? "bg-amber-50 text-amber-700"
                                   : "bg-neutral-100 text-neutral-400"
                           }`}
                         >
-                          <FileText className="h-3.5 w-3.5" aria-hidden />
+                          <FileText className="h-4 w-4" aria-hidden />
                         </span>
                         <div className="min-w-0">
-                          <p className="m-0 text-[13px] font-bold text-neutral-900">{doc.label}</p>
-                          <p className="m-0 mt-0.5 text-[11px] leading-4 text-neutral-500">{doc.description}</p>
+                          <p className="m-0 text-[13px] font-semibold text-neutral-900">{doc.label}</p>
+                          <p className="m-0 mt-0.5 text-[12px] leading-4 text-neutral-500">{doc.description}</p>
                           {doc.status === "REJECTED" ? (
-                            <p className="m-0 mt-1.5 text-[11px] font-semibold leading-4 text-red-700">
+                            <p className="m-0 mt-2 rounded-md bg-white px-2.5 py-1.5 text-[12px] leading-4 text-red-700 ring-1 ring-red-100">
+                              <span className="font-semibold">NoLSAF: </span>
                               {doc.rejectionReason || "Not accepted. Upload a corrected copy."}
                             </p>
                           ) : null}
@@ -498,101 +519,115 @@ export default function AgentDocumentsPage() {
                       </div>
                     </td>
 
-                    <td className="whitespace-nowrap px-4 py-3.5">
-                      <span className={`inline-flex items-center gap-1 rounded-full border border-solid px-2 py-0.5 text-[10px] font-bold ${statusChip.tone}`}>
-                        <ChipIcon className="h-3 w-3" aria-hidden />
+                    <td className="whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1 rounded-md border border-solid px-2 py-0.5 text-[11px] font-semibold ${statusChip.tone}`}>
+                        <ChipIcon className="h-3.5 w-3.5" aria-hidden />
                         {statusChip.label}
                       </span>
                     </td>
 
-                    <td className="px-4 py-3.5 text-[11px] text-neutral-500">
+                    <td className="text-[12px] text-neutral-500">
                       {doc.status === "APPROVED" && doc.approvedAt ? (
                         <>
-                          <span className="block font-semibold text-neutral-700">{doc.approvedAt}</span>
-                          <span className="block text-[10px] text-neutral-400">approved</span>
+                          <span className="block font-medium text-neutral-800">{doc.approvedAt}</span>
+                          <span className="block text-[11px] text-neutral-400">Approved</span>
                         </>
                       ) : doc.uploadedAt ? (
                         <>
-                          <span className="block font-semibold text-neutral-700">{doc.uploadedAt}</span>
-                          <span className="block text-[10px] text-neutral-400">uploaded</span>
+                          <span className="block font-medium text-neutral-800">{doc.uploadedAt}</span>
+                          <span className="block text-[11px] text-neutral-400">Uploaded</span>
                         </>
                       ) : (
-                        <span className="text-neutral-300">--</span>
+                        <span className="text-neutral-400">Not uploaded</span>
                       )}
                     </td>
 
-                    <td className="px-4 py-3.5">
-                      {needsExpiry ? (
-                        <div className="w-[9.5rem] min-w-0">
-                          <DatePickerField
-                            label={doc.id === "license" ? "Tourism License expiry date" : "Business Licence expiry date"}
-                            value={expiryValue}
-                            onChangeAction={(iso) => {
-                              if (doc.id === "license") setLicenseExpiresOn(String(iso));
-                              else setBusinessExpiresOn(String(iso));
-                            }}
-                            min={todayIsoDate()}
-                            widthClassName="!w-full"
-                            size="sm"
-                            allowPast={false}
-                            twoMonths={false}
-                          />
+                    <td>
+                      {!needsExpiry ? (
+                        <span className="text-[12px] text-neutral-400">Does not expire</span>
+                      ) : (
+                        <div className="w-[10rem] min-w-0">
                           {doc.expiresOn ? (
                             <span
-                              className={`mt-1 block text-[10px] font-semibold ${
-                                doc.expired ? "text-red-600" : doc.expiringSoon ? "text-amber-600" : "text-neutral-400"
+                              className={`block text-[12px] font-medium ${
+                                doc.expired ? "text-red-700" : doc.expiringSoon ? "text-amber-700" : "text-neutral-800"
                               }`}
                             >
                               {doc.expired
                                 ? `Expired ${formatDateOnly(doc.expiresOn)}`
-                                : doc.expiringSoon
-                                  ? `${doc.remainingDays} days left`
-                                  : `Valid to ${formatDateOnly(doc.expiresOn)}`}
+                                : `Valid to ${formatDateOnly(doc.expiresOn)}`}
                             </span>
-                          ) : (
-                            <span className="mt-1 block text-[10px] font-semibold text-amber-600">Required before upload</span>
-                          )}
+                          ) : null}
+                          {doc.expiringSoon && !doc.expired ? (
+                            <span className="block text-[11px] text-amber-700">{doc.remainingDays} days left</span>
+                          ) : null}
+                          {showPicker ? (
+                            <div className="mt-1.5">
+                              <DatePickerField
+                                label={doc.uploaded ? "New expiry date" : doc.id === "license" ? "Tourism License expiry date" : "Business Licence expiry date"}
+                                value={expiryValue}
+                                onChangeAction={(iso) => {
+                                  if (doc.id === "license") setLicenseExpiresOn(String(iso));
+                                  else setBusinessExpiresOn(String(iso));
+                                }}
+                                min={todayIsoDate()}
+                                widthClassName="!w-full"
+                                size="sm"
+                                allowPast={false}
+                                twoMonths={false}
+                              />
+                              {!doc.uploaded && !expiryValue ? (
+                                <span className="mt-1 block text-[11px] text-amber-700">Set this before uploading</span>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
-                      ) : (
-                        <span className="text-[11px] text-neutral-300">No expiry</span>
                       )}
                     </td>
 
-                    <td className="whitespace-nowrap px-4 py-3.5">
-                      {doc.url ? (
-                        <a
-                          href={doc.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 no-underline transition hover:text-emerald-800 hover:no-underline"
+                    <td className="whitespace-nowrap text-right">
+                      <div className="inline-flex items-center gap-1.5">
+                        {doc.url ? (
+                          <a
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex h-8 items-center gap-1 rounded-md border border-solid border-neutral-200 bg-white px-2.5 text-[12px] font-semibold text-neutral-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e] hover:no-underline"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" aria-hidden /> View
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Renewing a licence starts with its new expiry date.
+                            if (needsExpiry && doc.uploaded && !showPicker) {
+                              setRenewing((ids) => [...ids, doc.id]);
+                              if (doc.id === "license") setLicenseExpiresOn("");
+                              else setBusinessExpiresOn("");
+                              setUploadError(null);
+                              setUploadSuccess(`Set the new expiry date for your ${doc.label}, then choose the file.`);
+                              return;
+                            }
+                            startUpload(doc.id);
+                          }}
+                          disabled={Boolean(uploadingId)}
+                          className={`inline-flex h-8 cursor-pointer appearance-none items-center gap-1.5 rounded-md border border-solid px-2.5 text-[12px] font-semibold outline-none transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                            primary
+                              ? "border-[#02665e] bg-[#02665e] text-white hover:bg-[#014e47]"
+                              : "border-neutral-200 bg-white text-neutral-700 hover:border-[#02665e]/40 hover:text-[#02665e]"
+                          }`}
                         >
-                          <ExternalLink className="h-3 w-3" aria-hidden /> View
-                        </a>
-                      ) : (
-                        <span className="text-[11px] text-neutral-300">--</span>
-                      )}
-                    </td>
-
-                    <td className="whitespace-nowrap px-4 py-3.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => startUpload(doc.id)}
-                        disabled={Boolean(uploadingId)}
-                        className={`inline-flex min-h-8 cursor-pointer appearance-none items-center gap-1.5 rounded-lg border border-solid px-2.5 text-[11px] font-bold outline-none transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                          doc.uploaded
-                            ? "border-neutral-200 bg-white text-neutral-600 hover:border-emerald-200 hover:text-emerald-700"
-                            : "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800"
-                        }`}
-                      >
-                        {busy ? (
-                          <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                        ) : doc.uploaded ? (
-                          <RefreshCw className="h-3 w-3" aria-hidden />
-                        ) : (
-                          <Upload className="h-3 w-3" aria-hidden />
-                        )}
-                        {busy ? "Uploading" : doc.uploaded ? "Replace" : "Upload"}
-                      </button>
+                          {busy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                          ) : doc.uploaded ? (
+                            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                          ) : (
+                            <Upload className="h-3.5 w-3.5" aria-hidden />
+                          )}
+                          {busy ? "Uploading" : !doc.uploaded ? "Upload" : flagged ? "Upload new copy" : needsExpiry && doc.expiringSoon ? "Renew" : "Replace"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -600,6 +635,11 @@ export default function AgentDocumentsPage() {
             </tbody>
           </table>
         </TableScroller>
+
+        <p className="m-0 flex items-start gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-4 py-2.5 text-[12px] leading-5 text-neutral-500 sm:px-5">
+          <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />
+          A new file replaces the old one and goes back into review, so upload a renewed licence only once you have it.
+        </p>
       </section>
     </div>
   );

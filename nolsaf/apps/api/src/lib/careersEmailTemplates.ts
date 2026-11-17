@@ -1,15 +1,11 @@
 /**
  * Email templates for career and partnership application status updates.
+ *
+ * Built on the pro email shell (proEmail): logo header, bold headline, quiet
+ * sections, shared footer. A button appears only where the reader must act
+ * (set a password); info-only updates carry none.
  */
-import {
-  BRAND_DARK,
-  BRAND_TEAL,
-  TEXT_MAIN,
-  TEXT_MUTED,
-  careersEmail,
-  ctaButton,
-  partnershipEmail,
-} from "./emailBase.js";
+import { BRAND_TEAL, proButton, proDetailRows, proDivider, proEmail, proNoteCard } from "./emailBase.js";
 
 export interface ApplicationEmailData {
   applicantName: string;
@@ -27,10 +23,78 @@ export interface ApplicationEmailData {
   setupLinkExpiresHours?: number;
 }
 
+const AMBER = "#b54708";
+
+/** Applicant-typed and admin-typed text is escaped before it enters the HTML. */
+function esc(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const p = (html: string, extra = "") => `<p style="margin:0 0 16px;${extra}">${html}</p>`;
+const muted = (html: string) => p(html, "color:#5f6b69;font-size:14px;");
+const heading = (text: string) =>
+  `<div style="font-size:14px;font-weight:bold;color:#1a1a1a;margin:0 0 10px;">${text}</div>`;
+const signOff = (team: string, closing = "Warm regards") =>
+  `<p style="margin:22px 0 0;color:#1a1a1a;">${closing},<br><strong>${team}</strong></p>`;
+const link = (url: string) =>
+  `<a href="${esc(url)}" style="color:${BRAND_TEAL};text-decoration:none;font-weight:bold;">${esc(url)}</a>`;
+
+function list(items: string[]): string {
+  return `
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 16px;">
+      ${items
+        .map(
+          (item) => `
+      <tr>
+        <td style="width:18px;vertical-align:top;padding:3px 0;color:${BRAND_TEAL};font-weight:bold;">&#8226;</td>
+        <td style="padding:3px 0;font-size:14px;color:#374151;line-height:1.65;">${item}</td>
+      </tr>`,
+        )
+        .join("")}
+    </table>`;
+}
+
+function notesBlock(adminNotes: string | null | undefined): string {
+  if (!adminNotes || !String(adminNotes).trim()) return "";
+  return `${proDivider()}${proNoteCard(AMBER, "A note from our team", esc(adminNotes).replace(/\n/g, "<br>"), "#fffaf3")}`;
+}
+
+/** Account access block for approval mails: what to log in with, the one button, the links. */
+function accessBlock(input: {
+  username?: string;
+  setupLink?: string;
+  setupLinkExpiresHours?: number;
+  loginUrl?: string;
+  portalUrl?: string;
+  supportEmail: string;
+  setupLabel: string;
+}): string {
+  const rows: Array<[string, string]> = [];
+  if (input.username) rows.push(["Login email", esc(input.username)]);
+  if (input.loginUrl) rows.push(["Sign in page", link(input.loginUrl)]);
+  if (input.portalUrl) rows.push(["Workspace", link(input.portalUrl)]);
+  const button = input.setupLink
+    ? proButton(input.setupLink, input.setupLabel)
+    : proButton(`mailto:${input.supportEmail}`, "Request a password setup link");
+  const expiry = input.setupLink
+    ? `<p style="margin:10px 0 0;font-size:13px;color:#5f6b69;">${input.setupLinkExpiresHours ? `This link works once and expires in ${input.setupLinkExpiresHours} hours. ` : "This link works once. "}NoLSAF will never ask you for your password by email, phone or WhatsApp. If you did not apply to NoLSAF, ignore this email; nothing happens until the link is used.</p>`
+    : "";
+  return `
+    ${rows.length ? proDetailRows("Your access", rows) : ""}
+    <div style="height:18px;font-size:0;line-height:0;">&nbsp;</div>
+    ${button}
+    ${expiry}`;
+}
+
 export function getApplicationEmailSubject(
   status: ApplicationEmailData["status"],
   jobTitle: string,
-  isPartnership = false
+  isPartnership = false,
 ): string {
   if (isPartnership) {
     switch (status) {
@@ -61,244 +125,181 @@ export function getApplicationEmailSubject(
   }
 }
 
-function adminNotesBlock(adminNotes: string | null | undefined): string {
-  if (!adminNotes) return "";
-  return `
-    <div style="margin:24px 0 0;padding:16px 18px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;">
-      <p style="margin:0 0 8px;font-size:13px;font-weight:800;color:#92400e;text-transform:uppercase;letter-spacing:0.6px;">A note from our team</p>
-      <p style="margin:0;font-size:14px;color:${TEXT_MAIN};line-height:1.75;">${adminNotes.replace(/\n/g, "<br>")}</p>
-    </div>`;
-}
-
-function partnerList(items: string[]): string {
-  return `
-    <ul style="margin:0 0 20px;padding-left:20px;font-size:14px;color:${TEXT_MAIN};line-height:1.9;">
-      ${items.map((item) => `<li>${item}</li>`).join("")}
-    </ul>`;
-}
-
 function generatePartnershipStatusEmail(data: ApplicationEmailData): string {
-  const {
-    applicantName,
-    jobTitle,
-    jobDepartment,
-    status,
-    adminNotes,
-    supportEmail = "careers@nolsaf.com",
-    portalUrl,
-    loginUrl,
-    username,
-    setupLink,
-    setupLinkExpiresHours,
-  } = data;
+  const { status, adminNotes, supportEmail = "careers@nolsaf.com" } = data;
+  const name = esc(data.applicantName);
+  const title = esc(data.jobTitle);
+  const team = "The NoLSAF Partnerships Team";
+  const applied = proDetailRows("", [
+    ["Application", title],
+    ...(data.jobDepartment ? ([["Area", esc(data.jobDepartment)]] as Array<[string, string]>) : []),
+  ]);
 
-  const contextLabel = jobDepartment ? `${jobTitle} | ${jobDepartment}` : jobTitle;
-  const setupExpiry = setupLink && setupLinkExpiresHours
-    ? `<p style="margin:10px 0 18px;font-size:13px;color:${TEXT_MUTED};text-align:center;">For security, this password setup link expires in ${setupLinkExpiresHours} hours.</p>`
-    : "";
-  const usernameNote = username
-    ? `<p style="margin:0 0 16px;font-size:14px;color:${TEXT_MAIN};">Login email: <strong>${username}</strong></p>`
-    : "";
-  const loginLine = loginUrl
-    ? `<p style="margin:0 0 10px;font-size:13px;color:${TEXT_MUTED};">Sign in page: <a href="${loginUrl}" style="color:${BRAND_TEAL};text-decoration:none;font-weight:700;">${loginUrl}</a></p>`
-    : "";
-  const portalLine = portalUrl
-    ? `<p style="margin:0 0 18px;font-size:13px;color:${TEXT_MUTED};">Partner workspace: <a href="${portalUrl}" style="color:${BRAND_TEAL};text-decoration:none;font-weight:700;">${portalUrl}</a></p>`
-    : "";
-
-  const actionCta = setupLink
-    ? ctaButton(setupLink, "Create your first password", BRAND_TEAL)
-    : ctaButton(`mailto:${supportEmail}`, "Request password setup link", BRAND_TEAL);
-
-  let badgeLabel = "Partnership application";
+  let headline = "Your partnership application";
   let body = "";
 
   if (status === "REVIEWING") {
-    badgeLabel = "Application received";
+    headline = "Application received";
     body = `
-      <p style="margin:0 0 18px;font-size:16px;font-weight:800;color:${TEXT_MAIN};">Hello ${applicantName},</p>
-      <p style="margin:0 0 16px;">Thank you for submitting your NoLSAF partnership application for <strong>${jobTitle}</strong>. Your company profile has been received and is now in partner verification.</p>
-      <p style="margin:0 0 12px;font-size:14px;font-weight:800;color:${TEXT_MAIN};">What our team reviews</p>
-      ${partnerList([
-        "Company identity, contact details, and operating coverage.",
-        "Permitted parks, tour sites, service categories, languages, and team capacity.",
-        "Tourism permits, business documents, fleet or guide details where applicable.",
-        "How your services can connect to NoLSAF bookings, timelines, support, and traveller records.",
+      ${p(`Hello ${name},`)}
+      ${p(`Thank you for applying to partner with NoLSAF. Your company profile has been received and is now in partner verification.`)}
+      ${applied}
+      ${proDivider()}
+      ${heading("What our team reviews")}
+      ${list([
+        "Company identity, contact details and operating coverage.",
+        "Permitted parks, tour sites, service categories, languages and team capacity.",
+        "Tourism permits, business documents, and fleet or guide details where they apply.",
+        "How your services connect to NoLSAF bookings, timelines, support and traveller records.",
       ])}
-      <p style="margin:0 0 16px;color:${TEXT_MUTED};font-size:14px;">No action is required right now. If we need a permit, clarification, or an updated company detail, the partnerships team will contact you directly.</p>
-      <p style="margin:24px 0 0;">Warm regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Partnerships Team</strong></p>
-    `;
+      ${muted("No action is needed right now. If we need a permit, a clarification or an updated detail, the partnerships team will contact you directly.")}
+      ${signOff(team)}`;
   }
 
   if (status === "SHORTLISTED") {
-    badgeLabel = "Verification stage";
+    headline = "Your application is in verification";
     body = `
-      <p style="margin:0 0 18px;font-size:16px;font-weight:800;color:${BRAND_TEAL};">Good news, ${applicantName}.</p>
-      <p style="margin:0 0 16px;">Your NoLSAF partnership application for <strong>${jobTitle}</strong> has moved into the verification stage. This means your profile looks relevant for the NoLSAF partner network, but final approval is still pending document and service checks.</p>
-      <p style="margin:0 0 12px;font-size:14px;font-weight:800;color:${TEXT_MAIN};">Please keep these ready</p>
-      ${partnerList([
+      ${p(`Good news, ${name}.`)}
+      ${p(`Your partnership application has moved into verification. Your profile fits the NoLSAF partner network; final approval waits on document and service checks.`)}
+      ${applied}
+      ${proDivider()}
+      ${heading("Please keep these ready")}
+      ${list([
         "Business registration, TIN, licences, and tourism or park permits.",
-        "Operating regions, permitted tour sites, and services your team can deliver.",
-        "Fleet, guide, language, or safety information where it applies to your services.",
+        "Operating regions, permitted tour sites and the services your team delivers.",
+        "Fleet, guide, language or safety information where it applies.",
       ])}
-      <p style="margin:0 0 16px;color:${TEXT_MUTED};font-size:14px;">A NoLSAF team member may contact you to confirm details before your partner workspace is activated.</p>
-      <p style="margin:24px 0 0;">Warm regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Partnerships Team</strong></p>
-    `;
+      ${muted("A NoLSAF team member may contact you to confirm details before your partner workspace is activated.")}
+      ${signOff(team)}`;
   }
 
   if (status === "REJECTED") {
-    badgeLabel = "Application update";
+    headline = "An update on your application";
     body = `
-      <p style="margin:0 0 18px;font-size:15px;">Hello <strong>${applicantName}</strong>,</p>
-      <p style="margin:0 0 16px;">Thank you for applying to join NoLSAF as a partner for <strong>${jobTitle}</strong>. We reviewed your company profile, service scope, and submitted details carefully.</p>
-      <p style="margin:0 0 16px;">At this time, we are not able to approve this partnership application. This may be due to missing documents, service coverage, permit readiness, or fit with the current NoLSAF operating requirements.</p>
-      <p style="margin:0 0 16px;color:${TEXT_MUTED};font-size:14px;">You may apply again when your company information, permits, or operating details are ready. If our team included a note below, use it as the first correction point before resubmitting.</p>
-      <p style="margin:24px 0 0;">Kind regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Partnerships Team</strong></p>
-    `;
+      ${p(`Hello ${name},`)}
+      ${p(`Thank you for applying to join NoLSAF as a partner. We reviewed your company profile, service scope and submitted details carefully.`)}
+      ${applied}
+      <div style="height:16px;font-size:0;line-height:0;">&nbsp;</div>
+      ${p(`At this time we are not able to approve this application. This can be due to missing documents, service coverage, permit readiness, or fit with current NoLSAF operating requirements.`)}
+      ${muted("You are welcome to apply again once your company information, permits or operating details are ready. If our team left a note below, start there.")}
+      ${signOff(team, "Kind regards")}`;
   }
 
   if (status === "HIRED") {
-    badgeLabel = "Partner approved";
+    headline = "Welcome to the NoLSAF partner network";
     body = `
-      <p style="margin:0 0 18px;font-size:16px;font-weight:800;color:${BRAND_TEAL};">Welcome to the NoLSAF partner network, ${applicantName}.</p>
-      <p style="margin:0 0 16px;">Your partnership application for <strong>${jobTitle}</strong> has been approved. This activates your NoLSAF partner workspace so your company can manage verified tourism services through clear booking records, traveller support, and delivery timelines.</p>
-      <p style="margin:0 0 16px;">Start by creating your first password, then sign in to complete your partner profile and onboarding checklist.</p>
-      ${usernameNote}
-      ${actionCta}
-      ${setupExpiry}
-      ${loginLine}
-      ${portalLine}
-      <p style="margin:22px 0 12px;font-size:14px;font-weight:800;color:${TEXT_MAIN};">What your workspace is used for</p>
-      ${partnerList([
-        "Maintain company details, operating regions, permits, service categories, languages, fleet, and team information.",
-        "Publish and manage tour packages, permitted parks, tour sites, inclusions, exclusions, prices, and availability.",
-        "Receive bookings, validate meetups, control tour timelines, support travellers, and track service delivery.",
-        "Review traveller ratings, improvement signals, reports, and payout records where applicable.",
+      ${p(`Congratulations, ${name}.`)}
+      ${p(`Your partnership application has been approved and your NoLSAF partner workspace is active. Create your password, then sign in to finish your profile and onboarding checklist.`)}
+      ${accessBlock({ ...data, supportEmail, setupLabel: "Create your password" })}
+      ${proDivider()}
+      ${heading("What your workspace is for")}
+      ${list([
+        "Company details, operating regions, permits, services, languages, fleet and team.",
+        "Tour packages, permitted parks and sites, inclusions, prices and availability.",
+        "Bookings, meetup checks, tour timelines, traveller support and delivery tracking.",
+        "Traveller ratings, reports and payout records where they apply.",
       ])}
-      <p style="margin:0 0 12px;font-size:14px;font-weight:800;color:${TEXT_MAIN};">Documents to prepare</p>
-      ${partnerList([
+      ${heading("Documents to prepare")}
+      ${list([
         "Business registration, TIN, business licence, and tourism or park permits.",
-        "Fleet, guide, safety, insurance, or service documents where they apply.",
-        "Signed partnership agreement or NDA if requested by the NoLSAF team.",
+        "Fleet, guide, safety, insurance or service documents where they apply.",
+        "A signed partnership agreement or NDA if the NoLSAF team asks for one.",
       ])}
-      <p style="margin:0 0 16px;font-size:14px;color:${TEXT_MUTED};">For help, reply to this email or contact <a href="mailto:${supportEmail}" style="color:${BRAND_TEAL};text-decoration:none;font-weight:700;">${supportEmail}</a>.</p>
-      <p style="margin:24px 0 0;">Warm regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Partnerships Team</strong></p>
-    `;
+      ${muted(`For help, reply to this email or write to <a href="mailto:${esc(supportEmail)}" style="color:${BRAND_TEAL};text-decoration:none;font-weight:bold;">${esc(supportEmail)}</a>.`)}
+      ${signOff(team)}`;
   }
 
-  return partnershipEmail(
-    badgeLabel,
-    contextLabel,
-    `${body}${adminNotesBlock(adminNotes)}`,
-    supportEmail
-  );
+  return proEmail(headline, `${body}${notesBlock(adminNotes)}`);
+}
+
+/** A fresh password setup link, sent when an operator's first one expired or was lost. */
+export function generateOperatorSetupLinkEmail(data: {
+  name: string;
+  setupLink: string;
+  setupLinkExpiresHours: number;
+  username?: string;
+  loginUrl?: string;
+  portalUrl?: string;
+  supportEmail?: string;
+}): { subject: string; html: string } {
+  const supportEmail = data.supportEmail || "partners@nolsaf.com";
+  const body = `
+    ${p(`Hello ${esc(data.name)},`)}
+    ${p("Here is a new link to create the password for your NoLSAF operator workspace. Any earlier link no longer works.")}
+    ${accessBlock({ ...data, supportEmail, setupLabel: "Create your password" })}
+    ${muted(`Questions? Reply to this email or write to <a href="mailto:${esc(supportEmail)}" style="color:${BRAND_TEAL};text-decoration:none;font-weight:bold;">${esc(supportEmail)}</a>.`)}
+    ${signOff("The NoLSAF Partnerships Team")}`;
+  return { subject: "Your new NoLSAF password setup link", html: proEmail("Create your password", body) };
 }
 
 export function generateApplicationStatusEmail(data: ApplicationEmailData): string {
-  if (data.isPartnership) {
-    return generatePartnershipStatusEmail(data);
-  }
+  if (data.isPartnership) return generatePartnershipStatusEmail(data);
 
-  const {
-    applicantName,
-    jobTitle,
-    jobDepartment,
-    status,
-    adminNotes,
-    supportEmail = "careers@nolsaf.com",
-    portalUrl,
-    loginUrl,
-    username,
-    setupLink,
-    setupLinkExpiresHours,
-  } = data;
+  const { status, adminNotes, supportEmail = "careers@nolsaf.com" } = data;
+  const name = esc(data.applicantName);
+  const title = esc(data.jobTitle);
+  const team = "The NoLSAF Careers Team";
+  const role = proDetailRows("", [
+    ["Role", title],
+    ...(data.jobDepartment ? ([["Department", esc(data.jobDepartment)]] as Array<[string, string]>) : []),
+  ]);
 
-  const positionLabel = jobDepartment ? `${jobTitle} | ${jobDepartment}` : jobTitle;
-  const config: Record<ApplicationEmailData["status"], { accent: string; headlineIcon: string; headlineText: string }> = {
-    REVIEWING: { accent: "#1d4ed8", headlineIcon: "Review", headlineText: "Application Received" },
-    SHORTLISTED: { accent: BRAND_TEAL, headlineIcon: "Star", headlineText: "You've Been Shortlisted" },
-    REJECTED: { accent: "#64748b", headlineIcon: "Update", headlineText: "Update on Your Application" },
-    HIRED: { accent: BRAND_TEAL, headlineIcon: "Welcome", headlineText: "Welcome to the Team" },
-  };
-  const { accent, headlineIcon, headlineText } = config[status];
-
+  let headline = "Your application";
   let body = "";
 
   if (status === "REVIEWING") {
+    headline = "Application received";
     body = `
-      <p style="margin:0 0 18px;font-size:16px;font-weight:700;color:${TEXT_MAIN};">Dear ${applicantName},</p>
-      <p style="margin:0 0 16px;">Thank you for applying for the <strong>${jobTitle}</strong> position at NoLSAF. Your application has been received and is now being reviewed by our team.</p>
-      <p style="margin:0 0 10px;font-size:14px;font-weight:700;color:${TEXT_MAIN};">What happens next?</p>
-      <p style="margin:0 0 16px;font-size:14px;color:${TEXT_MAIN};">Our team reviews every application against the role requirements. This usually takes <strong>3 to 5 business days</strong>, and we will send an update at each stage.</p>
-      <p style="margin:0 0 16px;color:${TEXT_MUTED};font-size:14px;">You do not need to take any action right now. If we need anything else, we will contact you directly.</p>
-      <p style="margin:24px 0 0;">Warm regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Careers Team</strong></p>
-    `;
+      ${p(`Dear ${name},`)}
+      ${p(`Thank you for applying to NoLSAF. Your application has been received and our team is reviewing it.`)}
+      ${role}
+      ${proDivider()}
+      ${heading("What happens next")}
+      ${p(`We review every application against the role requirements. This usually takes <strong>3 to 5 business days</strong>, and we will email you at each stage.`, "font-size:14px;")}
+      ${muted("You do not need to do anything right now. If we need more from you, we will contact you directly.")}
+      ${signOff(team)}`;
   }
 
   if (status === "SHORTLISTED") {
+    headline = "You have been shortlisted";
     body = `
-      <p style="margin:0 0 18px;font-size:16px;font-weight:700;color:${BRAND_TEAL};">Congratulations, ${applicantName}.</p>
-      <p style="margin:0 0 16px;">Your application for <strong>${jobTitle}</strong> has passed our initial review. A member of our team will contact you with the next step.</p>
-      <p style="margin:0 0 16px;font-size:14px;color:${TEXT_MAIN};">The next step may include a phone screening, interview, or short assessment. We will share the details before anything is scheduled.</p>
-      <p style="margin:24px 0 0;">Warm regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Careers Team</strong></p>
-    `;
+      ${p(`Congratulations, ${name}.`)}
+      ${p(`Your application has passed our first review. A member of our team will contact you with the next step.`)}
+      ${role}
+      <div style="height:16px;font-size:0;line-height:0;">&nbsp;</div>
+      ${muted("The next step may be a phone screening, an interview or a short assessment. We will share the details before anything is scheduled.")}
+      ${signOff(team)}`;
   }
 
   if (status === "REJECTED") {
+    headline = "An update on your application";
     body = `
-      <p style="margin:0 0 18px;font-size:15px;">Dear <strong>${applicantName}</strong>,</p>
-      <p style="margin:0 0 16px;">Thank you for your interest in the <strong>${jobTitle}</strong> role at NoLSAF and for the time you put into your application.</p>
-      <p style="margin:0 0 16px;">After reviewing all applications, we have decided to move forward with candidates whose experience more closely matched this role at this time.</p>
-      <p style="margin:0 0 16px;font-size:14px;color:${TEXT_MAIN};">We welcome you to apply again for future roles that match your profile.</p>
-      <p style="margin:24px 0 0;">Kind regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Careers Team</strong></p>
-    `;
+      ${p(`Dear ${name},`)}
+      ${p(`Thank you for your interest in NoLSAF and for the time you put into your application.`)}
+      ${role}
+      <div style="height:16px;font-size:0;line-height:0;">&nbsp;</div>
+      ${p(`After reviewing all applications, we have decided to move forward with candidates whose experience more closely matches this role at this time.`)}
+      ${muted("You are welcome to apply for future roles that match your profile.")}
+      ${signOff(team, "Kind regards")}`;
   }
 
   if (status === "HIRED") {
-    const expiryNote = setupLink && setupLinkExpiresHours
-      ? `<p style="margin:10px 0 18px;font-size:13px;color:${TEXT_MUTED};text-align:center;">This setup link expires in ${setupLinkExpiresHours} hours.</p>`
-      : "";
-    const cta = setupLink
-      ? ctaButton(setupLink, "Set your password", accent)
-      : loginUrl
-        ? ctaButton(loginUrl, "Sign in to your account", accent)
-        : portalUrl
-          ? ctaButton(portalUrl, "Open Agent Portal", accent)
-          : ctaButton(`mailto:${supportEmail}`, "Contact the HR team", accent);
-    const usernameNote = username
-      ? `<p style="margin:0 0 16px;font-size:14px;color:${TEXT_MAIN};">Your username / login email: <strong>${username}</strong></p>`
-      : "";
-    const loginLine = loginUrl
-      ? `<p style="margin:0 0 10px;font-size:14px;color:${TEXT_MAIN};">Once your password is set, sign in at: <a href="${loginUrl}" style="color:${accent};text-decoration:none;font-weight:600;">${loginUrl}</a></p>`
-      : "";
-    const portalLine = portalUrl
-      ? `<p style="margin:0 0 16px;font-size:14px;color:${TEXT_MAIN};">Your dashboard is available at: <a href="${portalUrl}" style="color:${accent};text-decoration:none;font-weight:600;">${portalUrl}</a></p>`
-      : "";
-
+    headline = "Welcome to NoLSAF";
     body = `
-      <p style="margin:0 0 18px;font-size:16px;font-weight:700;color:${BRAND_TEAL};">Welcome to NoLSAF, ${applicantName}.</p>
-      <p style="margin:0 0 16px;">We are pleased to offer you the <strong>${jobTitle}</strong> position at NoLSAF. Your account has been created so you can complete onboarding and access your dashboard.</p>
-      ${usernameNote}
-      ${cta}
-      ${expiryNote}
-      ${loginLine}
-      ${portalLine}
-      <p style="margin:20px 0 10px;font-size:14px;font-weight:700;color:${TEXT_MAIN};">Documents to upload during onboarding:</p>
-      ${partnerList([
-        "Academic certificates or professional documents requested by the team.",
-        "Signed NDA or agreement if requested.",
-        "Any additional documents noted in your onboarding communication.",
+      ${p(`Welcome, ${name}.`)}
+      ${p(`We are pleased to offer you this role at NoLSAF. Your account has been created so you can complete onboarding and reach your dashboard.`)}
+      ${role}
+      ${accessBlock({ ...data, supportEmail, setupLabel: "Set your password" })}
+      ${proDivider()}
+      ${heading("Documents to upload during onboarding")}
+      ${list([
+        "Academic certificates or professional documents the team asks for.",
+        "A signed NDA or agreement if requested.",
+        "Anything else noted in your onboarding messages.",
       ])}
-      <p style="margin:0 0 16px;font-size:14px;color:${TEXT_MUTED};">Our team is here to help. Reply to this email or reach us at <a href="mailto:${supportEmail}" style="color:${BRAND_TEAL};text-decoration:none;">${supportEmail}</a>.</p>
-      <p style="margin:24px 0 0;">Warm regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Careers Team</strong></p>
-    `;
+      ${muted(`Our team is here to help. Reply to this email or write to <a href="mailto:${esc(supportEmail)}" style="color:${BRAND_TEAL};text-decoration:none;font-weight:bold;">${esc(supportEmail)}</a>.`)}
+      ${signOff(team)}`;
   }
 
-  return careersEmail(
-    headlineIcon,
-    headlineText,
-    positionLabel,
-    `${body}${adminNotesBlock(adminNotes)}`,
-    supportEmail
-  );
+  return proEmail(headline, `${body}${notesBlock(adminNotes)}`);
 }

@@ -250,21 +250,21 @@ export default function AgentShell({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {supportSession?.impersonated && (
-          <section aria-label="Admin support session" className={`mx-3 mt-3 flex min-w-0 shrink-0 items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-sm sm:px-4 ${supportUrgent ? "border-rose-300 bg-rose-50 text-rose-950" : "border-emerald-200 bg-white text-emerald-950"}`}>
-            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${supportUrgent ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}><ShieldAlert className="h-5 w-5" aria-hidden /></span>
+          <section aria-label="Admin support session" className={`mx-3 mt-3 flex min-w-0 shrink-0 items-center gap-3 rounded-lg border border-solid px-3 py-2.5 shadow-sm sm:px-4 ${supportUrgent ? "border-rose-300 bg-rose-50 text-rose-950" : "border-emerald-200 bg-white text-emerald-950"}`}>
+            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-md ${supportUrgent ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}><ShieldAlert className="h-5 w-5" aria-hidden /></span>
             <div className="min-w-0 flex-1">
-              <p className="m-0 text-sm font-bold">Admin support session <span className="ml-1 rounded-full border border-current px-1.5 py-0.5 text-[10px] uppercase">Read only</span></p>
+              <p className="m-0 text-sm font-bold">Admin support session <span className="ml-1 rounded border border-solid border-current px-1.5 py-0.5 text-[10px] font-semibold">Read only</span></p>
               <p className="m-0 mt-1 truncate text-xs" title={supportSession.ownerEmail || undefined}>{supportSession.ownerEmail ? `Viewing ${supportSession.ownerEmail}` : "Viewing agent workspace"}</p>
               {returnError && <p role="alert" className="m-0 mt-1 text-xs text-rose-700">{returnError}</p>}
             </div>
             {supportMinutes !== null && <span className="hidden shrink-0 items-center gap-1 text-xs md:inline-flex"><Clock3 className="h-4 w-4" aria-hidden />{supportMinutes} min left</span>}
-            <button type="button" onClick={() => void returnToAdmin()} disabled={!supportSession.canReturn || returning} className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold text-white disabled:opacity-60 ${supportUrgent ? "border-rose-700 bg-rose-700" : "border-emerald-700 bg-emerald-700"}`}><ArrowLeft className="h-4 w-4" aria-hidden /><span className="hidden sm:inline">{returning ? "Returning…" : "Return to Admin"}</span><span className="sm:hidden">{returning ? "Wait…" : "Return"}</span></button>
+            <button type="button" onClick={() => void returnToAdmin()} disabled={!supportSession.canReturn || returning} className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-solid px-3 text-xs font-bold text-white disabled:opacity-60 ${supportUrgent ? "border-rose-700 bg-rose-700" : "border-emerald-700 bg-emerald-700"}`}><ArrowLeft className="h-4 w-4" aria-hidden /><span className="hidden sm:inline">{returning ? "Returning…" : "Return to Admin"}</span><span className="sm:hidden">{returning ? "Wait…" : "Return"}</span></button>
           </section>
         )}
         <header className="mx-3 mt-3 flex-shrink-0 overflow-hidden rounded-3xl border border-solid border-neutral-200 bg-white shadow-[0_10px_30px_-26px_rgba(15,23,42,0.5)]">
           <div className="flex min-h-[4.5rem] items-center gap-3 px-3 sm:px-4">
             <button type="button" onClick={() => setMobileOpen(true)} className="grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-xl border border-solid border-neutral-200 bg-white text-neutral-600 transition hover:border-emerald-200 hover:text-emerald-800 lg:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></button>
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-solid border-neutral-200 bg-neutral-50 text-[11px] font-extrabold tracking-wide text-neutral-600">{initials(agency?.legalName)}</span>
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-solid border-neutral-200 bg-neutral-50 text-[11px] font-extrabold tracking-wide text-neutral-600">{initials(agency?.legalName)}</span>
             <div className="min-w-0 flex-1">
               {loading ? (
                 <span className="inline-block h-4 w-40 animate-pulse rounded bg-neutral-100" />

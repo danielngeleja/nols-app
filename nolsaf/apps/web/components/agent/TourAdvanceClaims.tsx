@@ -7,7 +7,7 @@
 // disbursement ledger.
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarClock, Check, HandCoins, Info, Plus, Receipt, ShieldCheck, Trash2 } from "lucide-react";
+import { CalendarClock, Check, FileUp, HandCoins, Info, Plus, Receipt, ShieldCheck, Trash2 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 export type AdvanceOffer = {
@@ -35,7 +35,17 @@ export type AdvanceTrip = {
   advance?: { offer: AdvanceOffer | null; paid: number; inFlight: number; claims: AdvanceClaimRow[] } | null;
 };
 
-type Evidence = { description: string; amount: string; evidenceUrl: string };
+type Evidence = { description: string; amount: string; evidenceUrl: string; fileName?: string };
+
+/** Receipts must be files uploaded through NoLSAF (policy 3.6): finance never opens outside links. */
+const isNolsafUpload = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "res.cloudinary.com";
+  } catch {
+    return false;
+  }
+};
 
 const REASON_TEXT: Record<string, string> = {
   too_early: "Opens 7 days before departure",
@@ -70,6 +80,27 @@ export default function TourAdvanceClaims({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+
+  const uploadReceipt = async (index: number, file: File) => {
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type)) return setError("Receipts must be a PDF, JPG or PNG file.");
+    if (file.size > 5 * 1024 * 1024) return setError("Receipts must be 5MB or smaller.");
+    setUploadingIndex(index);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("folder", "agent-documents/tour-advances");
+      const response = await apiClient.post("/api/uploads/cloudinary/upload", form);
+      const url = String((response as any)?.data?.secure_url || "");
+      if (!isNolsafUpload(url)) throw new Error("The upload did not return a NoLSAF file.");
+      setEvidence((old) => old.map((x, i) => (i === index ? { ...x, evidenceUrl: url, fileName: file.name } : x)));
+    } catch (err: any) {
+      setError(String(err?.response?.data?.message || err?.response?.data?.error || err?.message || "The receipt could not be uploaded."));
+    } finally {
+      setUploadingIndex(null);
+    }
+  };
 
   const withAdvance = useMemo(() => trips.filter((t) => t.advance?.offer), [trips]);
   const ready = withAdvance.filter((t) => t.advance!.offer!.ok && !t.advance!.inFlight);
@@ -83,8 +114,8 @@ export default function TourAdvanceClaims({
   const maxNow = offer ? Math.min(offer.availableWithEvidence, offer.availableWithoutEvidence + evidenceTotal) : 0;
   const requested = Number(amount) || 0;
   const needsReceipts = offer ? requested > offer.availableWithoutEvidence + 0.01 : false;
-  const evidenceValid = evidence.every((e) => e.description.trim().length >= 3 && Number(e.amount) > 0 && /^https:\/\//i.test(e.evidenceUrl.trim()));
-  const canSend = Boolean(offer && requested > 0 && requested <= maxNow + 0.01 && agree && evidenceValid && !sending);
+  const evidenceValid = evidence.every((e) => e.description.trim().length >= 3 && Number(e.amount) > 0 && isNolsafUpload(e.evidenceUrl.trim()));
+  const canSend = Boolean(offer && requested > 0 && requested <= maxNow + 0.01 && agree && evidenceValid && !sending && uploadingIndex === null);
 
   const pick = (trip: AdvanceTrip) => {
     setSelectedId(trip.id);
@@ -264,13 +295,27 @@ export default function TourAdvanceClaims({
                       >
                         <Trash2 className="h-4 w-4" aria-hidden />
                       </button>
-                      <input
-                        value={item.evidenceUrl}
-                        onChange={(e) => setEvidence((old) => old.map((x, i) => (i === index ? { ...x, evidenceUrl: e.target.value } : x)))}
-                        placeholder="https:// link to the receipt"
-                        className="col-span-3 h-9 min-w-0 rounded-lg border border-solid border-neutral-300 px-2.5 text-[12px] focus:border-[#02665e] focus:outline-none"
-                        style={{ fontFamily: "inherit", boxSizing: "border-box" }}
-                      />
+                      <label
+                        className={`col-span-3 flex h-9 min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-dashed px-2.5 text-[12px] font-semibold transition ${
+                          item.evidenceUrl ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-neutral-300 bg-white text-neutral-600 hover:border-[#02665e] hover:text-[#02665e]"
+                        }`}
+                      >
+                        <input
+                          type="file"
+                          accept="application/pdf,image/jpeg,image/png"
+                          className="sr-only"
+                          disabled={uploadingIndex !== null}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) void uploadReceipt(index, file);
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                        {item.evidenceUrl ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <FileUp className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+                        <span className="min-w-0 truncate">
+                          {uploadingIndex === index ? "Uploading..." : item.fileName ? item.fileName : item.evidenceUrl ? "Receipt uploaded" : "Upload the receipt (PDF, JPG or PNG, up to 5MB)"}
+                        </span>
+                      </label>
                     </div>
                   ))}
                   <button

@@ -1082,7 +1082,7 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                 <span className="text-xs text-slate-500">{formData.tourismTypes.length} selected</span>
               </div>
               <p className="m-0 mt-0.5 text-xs text-slate-500">The kinds of tourism your company serves.</p>
-              <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Tourism types">
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label="Tourism types">
                 {TOURISM_TYPES.map((type) => {
                   const on = formData.tourismTypes.includes(type);
                   return (
@@ -1092,7 +1092,7 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                       role="checkbox"
                       aria-checked={on}
                       onClick={() => toggleTourismType(type)}
-                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-solid px-3 py-1.5 text-sm transition-colors ${on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white text-slate-700 hover:border-[#02665e]/60"}`}
+                      className={`flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border border-solid px-3 py-2 text-left text-sm transition-colors ${on ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-300 bg-white text-slate-700 hover:border-[#02665e]/60"}`}
                     >
                       <span className={`inline-flex h-4 w-4 items-center justify-center rounded border border-solid ${on ? "border-white bg-white text-[#02665e]" : "border-slate-300 bg-white"}`}>
                         {on ? <CheckCircle2 className="h-3 w-3" /> : null}
@@ -1134,7 +1134,7 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                         </span>
                       </div>
                       {group.options.length ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
+                        <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                           {group.options.map((service) => {
                             const on = picked.includes(service);
                             return (
@@ -1144,7 +1144,7 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                                 role="checkbox"
                                 aria-checked={on}
                                 onClick={() => toggleService(group.key, service)}
-                                className={`inline-flex cursor-pointer items-center gap-1.5 rounded border border-solid px-2.5 py-1 text-[13px] transition-colors ${on ? "border-[#02665e] bg-[#02665e]/10 font-medium text-[#02665e]" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
+                                className={`flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border border-solid px-3 py-2 text-left text-[13px] transition-colors ${on ? "border-[#02665e] bg-[#02665e]/10 font-medium text-[#02665e]" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
                               >
                                 {on ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="h-3.5 w-3.5 rounded-full border border-solid border-slate-300" />}
                                 {service}
@@ -1173,7 +1173,7 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                 <span className="text-xs text-slate-500">{formData.specializations.length} selected</span>
               </div>
               <p className="m-0 mt-0.5 text-xs text-slate-500">What your company is best known for.</p>
-              <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Specializations">
+              <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label="Specializations">
                 {AGENT_SPECIALIZATIONS.map((spec) => {
                   const on = formData.specializations.includes(spec);
                   return (
@@ -1183,7 +1183,7 @@ export default function CareersApplicationForm({ job, onCloseAction, onSuccessAc
                       role="checkbox"
                       aria-checked={on}
                       onClick={() => toggleSpecialization(spec)}
-                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded border border-solid px-2.5 py-1 text-[13px] transition-colors ${on ? "border-[#02665e] bg-[#02665e]/10 font-medium text-[#02665e]" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
+                      className={`flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border border-solid px-3 py-2 text-left text-[13px] transition-colors ${on ? "border-[#02665e] bg-[#02665e]/10 font-medium text-[#02665e]" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}
                     >
                       {on ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="h-3.5 w-3.5 rounded-full border border-solid border-slate-300" />}
                       {spec}

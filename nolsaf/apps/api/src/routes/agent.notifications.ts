@@ -3,7 +3,8 @@ import { prisma } from "@nolsaf/prisma";
 import { z } from "zod";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { limitAgentPortalRead } from "../middleware/rateLimit.js";
-import { deleteReadNotification, deleteReadNotifications, fetchNotifications, markNotificationRead } from "../services/notifications";
+import { agentNotificationAction } from "../lib/agentNotificationAction.js";
+import { deleteReadNotification,deleteReadNotifications, fetchNotifications, markNotificationRead } from "../services/notifications";
 
 const router = Router();
 router.use(requireAuth as any, requireRole("AGENT") as any);
@@ -50,7 +51,11 @@ router.get(
     const page = parsed.data.page;
     const pageSize = parsed.data.pageSize;
 
-    const result = await fetchNotifications({ tab: tab as any, page, pageSize, userId, types: AGENT_INBOX_TYPES } as any);
+    const result: any = await fetchNotifications({ tab: tab as any, page, pageSize, userId, types: AGENT_INBOX_TYPES } as any);
+    // Each notification carries its shortcut: the page to open and whether the operator must act.
+    if (Array.isArray(result?.items)) {
+      result.items = result.items.map((item: any) => ({ ...item, action: agentNotificationAction(item.meta, item.type) }));
+    }
     return res.json(result);
   }) as any
 );

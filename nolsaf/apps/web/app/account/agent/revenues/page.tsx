@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Building2, CheckCircle2, TrendingUp, DollarSign, CalendarDays, Clock, HandCoins, Info, Search, XCircle } from "lucide-react";
+import { ArrowLeft, Building2, CheckCircle2, TrendingUp, DollarSign, CalendarDays, Clock, HandCoins, Info, Search, Wallet2, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import LogoSpinner from "@/components/LogoSpinner";
 import TableScroller from "@/components/TableScroller";
 import { publishRailCounts } from "@/lib/agentRailSignals";
 import TableRow from "@/components/TableRow";
-import OperatorPayoutDestination, { isPayoutDestinationComplete } from "@/components/agent/OperatorPayoutDestination";
+import OperatorPayoutDestination, { isPayoutDestinationComplete, isPayoutDestinationPayable } from "@/components/agent/OperatorPayoutDestination";
 import TourAdvanceClaims, { type AdvanceTrip } from "@/components/agent/TourAdvanceClaims";
 
 const api = apiClient;
@@ -46,8 +46,17 @@ type RevenueItem = {
   openCaseCount?: number;
   /** Net share minus advances already paid: what the balance claim pays. */
   balanceAmount?: number;
+  /** Part of the balance that settles an unpaid recovery (policy 6.4). */
+  recoveryDeduction?: number;
+  /** True when a payout is already in progress, so the deduction is final. */
+  recoveryDeductionExact?: boolean;
+  /** Balance minus the recovery deduction: what actually reaches the operator. */
+  balanceToYou?: number;
   advance?: AdvanceTrip["advance"];
 };
+
+/** What actually reaches the operator for this trip balance. */
+const toYou = (item: RevenueItem) => Number(item.balanceToYou ?? item.balanceAmount ?? item.agentEarning ?? 0);
 
 type RevenueSummary = {
   totalTrips: number;
@@ -186,6 +195,8 @@ export default function AgentRevenuesPage() {
   const [showClaimConfirm, setShowClaimConfirm] = useState(false);
   const [showWaiting, setShowWaiting] = useState(false);
   const [trendRange, setTrendRange] = useState<TrendRange>("7D");
+  // Money still owed to NoLSAF from a cancelled trip that was already paid out.
+  const [recoveryOwed, setRecoveryOwed] = useState(0);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -218,6 +229,7 @@ export default function AgentRevenuesPage() {
         const data = (revenuesRes as any)?.data;
         setItems(Array.isArray(data?.items) ? data.items : []);
         setSummary(data?.summary ?? null);
+        setRecoveryOwed(Math.max(0, Number(data?.payoutPolicy?.standing?.pendingRecoveryAmount ?? 0) || 0));
 
         const mePayload = (meRes as any)?.data;
         const me = mePayload?.data ?? mePayload ?? null;
@@ -282,8 +294,12 @@ export default function AgentRevenuesPage() {
       setClaimLookupError(claimBlockedReason(claimLookupMatch));
       return;
     }
-    if (!isPayoutDestinationComplete(payoutProfile)) {
-      setClaimLookupError("Add a verified payout destination first. Claims are paid to the destination on your account.");
+    if (!isPayoutDestinationPayable(payoutProfile)) {
+      setClaimLookupError(
+        isPayoutDestinationComplete(payoutProfile)
+          ? "Bank accounts cannot receive payouts yet. Change your payout destination to mobile money to claim."
+          : "Add and verify a mobile money account first. Claims are paid to the destination on your account."
+      );
       document.getElementById("operator-payout")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
@@ -484,12 +500,12 @@ export default function AgentRevenuesPage() {
         }),
     [items, trackerStage]
   );
-  const claimReadyTotal = useMemo(() => claimReady.reduce((sum, item) => sum + Number(item.agentEarning || 0), 0), [claimReady]);
+  const claimReadyTotal = useMemo(() => claimReady.reduce((sum, item) => sum + toYou(item), 0), [claimReady]);
 
   // Where every operator dollar sits right now, left to right: claimable,
   // about to be claimable, with NoLSAF finance, and already paid out.
   const payoutPipeline = useMemo(() => {
-    const sum = (rows: RevenueItem[]) => rows.reduce((total, item) => total + Number(item.balanceAmount ?? item.agentEarning ?? 0), 0);
+    const sum = (rows: RevenueItem[]) => rows.reduce((total, item) => total + toYou(item), 0);
     // Advances count too: available now, with finance, or already paid out.
     const advanceReady = items.filter((item) => item.advance?.offer?.ok && !item.advance?.inFlight);
     const advanceReadyTotal = advanceReady.reduce((total, item) => total + Math.floor(item.advance!.offer!.availableWithoutEvidence), 0);
@@ -502,9 +518,14 @@ export default function AgentRevenuesPage() {
       { key: "soon", label: "Opening soon", amount: sum(claimWaiting), count: claimWaiting.length, hint: "not claimable yet", tone: "amber" as const },
       { key: "finance", label: "With NoLSAF", amount: sum(withFinance) + advanceInFlight, count: withFinance.length + items.filter((item) => (item.advance?.inFlight || 0) > 0).length, hint: "being processed", tone: "sky" as const },
       { key: "paid", label: "Paid out", amount: sum(paidOut) + advancePaid, count: paidOut.length + items.filter((item) => (item.advance?.paid || 0) > 0 && trackerStage(item) !== "DISBURSED").length, hint: "in your account", tone: "emerald" as const },
+      // Only when something is owed: a recovery from a cancelled trip that was already paid out.
+      ...(recoveryOwed > 0
+        ? [{ key: "owed", label: "Owed to NoLSAF", amount: Math.round(recoveryOwed), count: 1, hint: "taken from your next balances", tone: "rose" as const }]
+        : []),
     ];
-  }, [items, trackerStage, claimReady, claimReadyTotal, claimWaiting]);
-  const payoutReady = isPayoutDestinationComplete(payoutProfile);
+  }, [items, trackerStage, claimReady, claimReadyTotal, claimWaiting, recoveryOwed]);
+  // Only a destination NoLSAF can pay today counts (policy 5.4: mobile money only).
+  const payoutReady = isPayoutDestinationPayable(payoutProfile);
 
   const operationRows = useMemo(() => {
     const filtered = trackerFilter === "ALL" ? [...items] : items.filter((item) => trackerStage(item) === trackerFilter);
@@ -621,156 +642,144 @@ export default function AgentRevenuesPage() {
         Back to dashboard
       </Link>
 
-      <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Operator earnings</p>
-          <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-900 sm:text-2xl">My revenues</h1>
-          <p className="m-0 mt-1 text-sm text-neutral-500">
-            Earnings, payout claims and commission history from completed bookings.
-          </p>
+      {/* Header: what this page is, where every payment stands, and the rules in one line. */}
+      <header className="mb-4 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+        <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700">
+              <Wallet2 className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h1 className="m-0 text-[18px] font-bold tracking-tight text-neutral-900 sm:text-xl">My revenues</h1>
+              <p className="m-0 mt-1 text-[13px] leading-5 text-neutral-500">
+                Your share of every trip, when you can claim it, and where each payment is now.
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <span
+              className={`inline-flex h-9 items-center gap-1.5 rounded-md border border-solid px-3 text-[13px] font-semibold ${
+                payoutReady ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${payoutReady ? "bg-emerald-500" : "bg-amber-500"}`} aria-hidden />
+              {payoutReady ? "Mobile money verified" : "Add a mobile money account"}
+            </span>
+            <Link
+              href="/tour-operator-disbursement-policy"
+              target="_blank"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-solid border-neutral-300 bg-white px-3 text-[13px] font-medium text-neutral-700 no-underline transition hover:border-emerald-300 hover:text-emerald-800"
+            >
+              <Info className="h-3.5 w-3.5" aria-hidden />
+              How payouts work
+            </Link>
+          </div>
         </div>
 
-        <div className="group/tooltip relative inline-flex shrink-0">
-          <button
-            type="button"
-            aria-label="Revenue flow information"
-            className="inline-flex min-h-9 cursor-pointer appearance-none items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none transition hover:border-emerald-200 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-600/25"
-          >
-            <Info className="h-3.5 w-3.5" aria-hidden />
-            Revenue flow
-          </button>
-          <div
-            role="tooltip"
-            className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-solid border-neutral-200 bg-white p-3 text-left opacity-0 shadow-[0_18px_45px_-25px_rgba(15,23,42,0.5)] transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100"
-          >
-            <p className="m-0 text-[11px] font-bold text-neutral-800">Revenue flow</p>
-            <p className="m-0 mt-1 text-[11px] leading-relaxed text-neutral-500">
-              Track completed-trip earnings, pending payout claims and commission retained by the platform.
+        {/* Where the money is, in the order it moves. Each stop names its next step. */}
+        <ol
+          aria-label="Where your earnings are"
+          className={`m-0 grid list-none grid-cols-2 border-0 border-t border-solid border-neutral-200 p-0 ${payoutPipeline.length > 4 ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}
+        >
+          {payoutPipeline.map((stage, i) => {
+            const active = stage.count > 0;
+            const owed = stage.key === "owed";
+            const Icon = stage.key === "ready" ? HandCoins : stage.key === "soon" ? Clock : stage.key === "finance" ? Building2 : owed ? Info : CheckCircle2;
+            const tone = owed
+              ? "text-rose-700"
+              : stage.key === "ready"
+                ? "text-[#02665e]"
+                : stage.key === "soon"
+                  ? "text-amber-700"
+                  : stage.key === "finance"
+                    ? "text-sky-700"
+                    : "text-emerald-700";
+            const next =
+              stage.key === "ready"
+                ? active ? "Claim it below" : "Nothing to claim yet"
+                : stage.key === "soon"
+                  ? active ? "Opens on its own date" : "No trips waiting"
+                  : stage.key === "finance"
+                    ? active ? "Paid in 24h to 3 days" : "Nothing in review"
+                    : owed
+                      ? "Taken from your next balances"
+                      : active ? "Sent to your wallet" : "No payouts yet";
+            return (
+              <li
+                key={stage.key}
+                className={`relative min-w-0 px-4 py-3 ${owed ? "bg-rose-50/70" : ""} ${i % 2 ? "border-0 border-l border-solid border-neutral-100" : ""} ${
+                  i >= 2 ? "border-0 border-t border-solid border-neutral-100 lg:border-t-0" : ""
+                } ${i ? "lg:border-0 lg:border-l lg:border-solid lg:border-neutral-100" : ""}`}
+              >
+                <p className={`m-0 flex items-center gap-1.5 text-[12px] font-medium ${active ? "text-neutral-700" : "text-neutral-400"}`}>
+                  <Icon className={`h-3.5 w-3.5 ${active ? tone : "text-neutral-300"}`} aria-hidden />
+                  {stage.label}
+                  {active && !owed ? <span className="rounded bg-neutral-100 px-1.5 text-[11px] font-semibold tabular-nums text-neutral-600">{stage.count}</span> : null}
+                </p>
+                <p className={`m-0 mt-1 text-[20px] font-bold leading-tight tabular-nums ${active ? tone : "text-neutral-300"}`}>
+                  <span className="mr-1 text-[12px] font-semibold">{displayCurrency}</span>
+                  {stage.amount.toLocaleString("en-US")}
+                </p>
+                <p className={`m-0 mt-0.5 truncate text-[11.5px] ${owed ? "font-medium text-rose-700" : "text-neutral-400"}`}>{next}</p>
+              </li>
+            );
+          })}
+        </ol>
+
+        {/* The two payments, so the rail is never a mystery. */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-0 border-t border-solid border-neutral-100 bg-neutral-50 px-5 py-2.5 text-[12px] text-neutral-600">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="grid h-4 w-4 place-items-center rounded bg-white text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-neutral-200">1</span>
+            Advance before the trip, up to 70%
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="grid h-4 w-4 place-items-center rounded bg-white text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-neutral-200">2</span>
+            Balance after the trip
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="grid h-4 w-4 place-items-center rounded bg-white text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-neutral-200">3</span>
+            Paid to your mobile money
+          </span>
+          <span className="text-neutral-400">The NoLSAF commission is paid by the traveller, on top of your price.</span>
+        </div>
+      </header>
+
+      {recoveryOwed > 0 ? (
+        <div role="status" className="mb-4 flex items-start gap-3 rounded-lg border border-solid border-amber-300 bg-amber-50 px-4 py-3">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+          <div className="min-w-0 text-[13px] leading-5 text-amber-950">
+            <p className="m-0 font-semibold">
+              You owe NoLSAF {summary?.currency || ""} {Math.round(recoveryOwed).toLocaleString("en-US")} from a cancelled trip that was already paid out.
+            </p>
+            <p className="m-0 mt-0.5 text-amber-900">
+              It is taken from your next balance payouts before anything is sent to you, and advances are paused until it is settled. You can also repay it directly; ask NoLSAF support. Each case shows how much has been deducted so far.
             </p>
           </div>
         </div>
-      </header>
+      ) : null}
 
       {/* Claim a payout. The page's primary action, so it leads: it lists what is
           claimable now, what will be and why, and fixes the payout destination
           in place instead of sending the operator away. */}
-      <section id="claim-payout" className="mb-4 overflow-hidden rounded-3xl border border-solid border-neutral-200 bg-white">
+      <section id="claim-payout" className="mb-4 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
         <style>{"#claim-payout, #claim-payout * { box-sizing: border-box; }"}</style>
 
-        {/* Header: title, then where the money sits as a left-to-right flow */}
-        <div className="border-0 border-b border-solid border-neutral-100 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#02665e]/10 text-[#02665e]">
-              <HandCoins className="h-5 w-5" aria-hidden />
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700">
+              <HandCoins className="h-[18px] w-[18px]" aria-hidden />
             </span>
             <div className="min-w-0">
-              <h2 className="m-0 text-[16px] font-bold text-neutral-900">Claim a payout</h2>
+              <h2 className="m-0 text-[15px] font-semibold text-neutral-900">Claim a payout</h2>
               <p className="m-0 mt-0.5 text-[12.5px] text-neutral-500">
                 {claimReady.length
-                  ? `${claimReady.length} ${claimReady.length === 1 ? "trip is" : "trips are"} ready. Pick one below and send the claim.`
+                  ? `${claimReady.length} ${claimReady.length === 1 ? "balance is" : "balances are"} ready. Pick one below and send the claim.`
                   : claimWaiting.length
-                    ? `Nothing to claim today. ${claimWaiting.length} ${claimWaiting.length === 1 ? "trip opens" : "trips open"} for claims soon.`
-                    : "Your earnings move through these stages. Completed trips become claimable here."}
+                    ? `Nothing to claim today. ${claimWaiting.length} ${claimWaiting.length === 1 ? "balance opens" : "balances open"} soon.`
+                    : "Advances open 7 days before a trip; the balance opens after it."}
               </p>
             </div>
           </div>
-
-          {/* Money rail: four stops joined by one line. Dashes run into any stop
-              that holds money, so the page reads as a flow, not a table. */}
-          <style>{`
-            @keyframes payout-flow { to { background-position: 28px 0; } }
-            @keyframes payout-dash { to { stroke-dashoffset: -28; } }
-            .payout-flow-x { background-image: repeating-linear-gradient(90deg, currentColor 0 10px, transparent 10px 14px); background-size: 28px 100%; animation: payout-flow 1.1s linear infinite; }
-            .payout-dash { stroke-dasharray: 10 4; animation: payout-dash 1.1s linear infinite; }
-            @media (prefers-reduced-motion: reduce) { .payout-flow-x, .payout-dash { animation: none; } }
-          `}</style>
-          {(() => {
-            const stops = payoutPipeline.map((stage, index) => {
-              const next = payoutPipeline[index + 1];
-              const tone = {
-                brand: { node: "bg-[#02665e] text-white shadow-[0_0_0_5px_rgba(2,102,94,0.12)]", amount: "text-[#02665e]", line: "text-[#02665e]" },
-                amber: { node: "bg-amber-500 text-white shadow-[0_0_0_5px_rgba(245,158,11,0.14)]", amount: "text-amber-700", line: "text-amber-400" },
-                sky: { node: "bg-sky-600 text-white shadow-[0_0_0_5px_rgba(2,132,199,0.12)]", amount: "text-sky-700", line: "text-sky-400" },
-                emerald: { node: "bg-emerald-600 text-white shadow-[0_0_0_5px_rgba(5,150,105,0.12)]", amount: "text-emerald-700", line: "text-emerald-400" },
-              };
-              return {
-                ...stage,
-                active: stage.count > 0,
-                last: index === payoutPipeline.length - 1,
-                tone: tone[stage.tone],
-                Icon: stage.key === "ready" ? HandCoins : stage.key === "soon" ? Clock : stage.key === "finance" ? Building2 : CheckCircle2,
-                // The segment leading out of a stop animates when the next stop holds money.
-                flowing: Boolean(next && next.count > 0),
-                nextLine: next ? tone[next.tone].line : "",
-              };
-            });
-            const node = (s: (typeof stops)[number]) => (
-              <span className={`relative z-10 grid h-10 w-10 flex-shrink-0 place-items-center rounded-full transition-colors ${s.active ? s.tone.node : "border-2 border-solid border-neutral-200 bg-white text-neutral-300"}`}>
-                <s.Icon className="h-[18px] w-[18px]" aria-hidden />
-              </span>
-            );
-            const text = (s: (typeof stops)[number], align: "left" | "right" | "center") => (
-              <div className={`min-w-0 ${align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"}`}>
-                <div className={`text-[12.5px] font-semibold ${s.active ? "text-neutral-800" : "text-neutral-400"}`}>{s.label}</div>
-                <div className={`mt-0.5 text-[18px] font-extrabold leading-tight tabular-nums ${s.active ? s.tone.amount : "text-neutral-300"}`}>
-                  {s.active ? `${displayCurrency} ${s.amount.toLocaleString("en-US")}` : `${displayCurrency} 0`}
-                </div>
-                <div className="mt-0.5 text-[11.5px] leading-snug text-neutral-400">
-                  {s.active ? `${s.count} ${s.count === 1 ? "trip" : "trips"} · ${s.hint}` : s.hint}
-                </div>
-              </div>
-            );
-            return (
-              <>
-                {/* Phones: a zigzag. Stops alternate left and right, joined by
-                    diagonals that run node centre to node centre. */}
-                <ol className="m-0 mt-5 list-none p-0 sm:hidden" aria-label="Where your earnings are">
-                  {stops.map((s, index) => {
-                    const onLeft = index % 2 === 0;
-                    return (
-                      <li key={s.key} className="min-w-0">
-                        <div className={`flex items-center gap-3 ${onLeft ? "" : "flex-row-reverse"}`}>
-                          {node(s)}
-                          {text(s, onLeft ? "left" : "right")}
-                        </div>
-                        {!s.last ? (
-                          <div className="relative -my-1 h-9" aria-hidden>
-                            {/* spans from one node centre (20px in) to the other side's */}
-                            <svg className="absolute inset-y-0 left-5 right-5 h-full w-[calc(100%-2.5rem)] overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
-                              <line
-                                x1={onLeft ? 0 : 100}
-                                y1={0}
-                                x2={onLeft ? 100 : 0}
-                                y2={100}
-                                vectorEffect="non-scaling-stroke"
-                                strokeWidth={2}
-                                strokeLinecap="round"
-                                className={s.flowing ? `payout-dash ${s.nextLine}` : "text-neutral-200"}
-                                stroke="currentColor"
-                              />
-                            </svg>
-                          </div>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ol>
-
-                {/* Tablet up: one horizontal rail */}
-                <ol className="m-0 mt-5 hidden list-none p-0 sm:flex sm:flex-row" aria-label="Where your earnings are">
-                  {stops.map((s) => (
-                    <li key={s.key} className="relative flex min-w-0 flex-1 flex-col items-center gap-2.5">
-                      {!s.last ? (
-                        <span aria-hidden className={`absolute left-[calc(50%+26px)] right-[calc(-50%+26px)] top-[19px] h-0.5 rounded-full ${s.flowing ? `payout-flow-x ${s.nextLine}` : "bg-neutral-200"}`} />
-                      ) : null}
-                      {node(s)}
-                      <div className="px-2">{text(s, "center")}</div>
-                    </li>
-                  ))}
-                </ol>
-              </>
-            );
-          })()}
         </div>
 
         <div className="space-y-4 p-4 sm:p-5">
@@ -853,8 +862,11 @@ export default function AgentRevenuesPage() {
                         <span className="block truncate font-mono text-[11px] text-neutral-400">{item.bookingCode}</span>
                       </span>
                       <span className="flex-shrink-0 text-right">
-                        <span className="block text-[14px] font-extrabold tabular-nums text-neutral-900">{Number(item.balanceAmount ?? item.agentEarning ?? 0).toLocaleString("en-US")}</span>
+                        <span className="block text-[14px] font-extrabold tabular-nums text-neutral-900">{toYou(item).toLocaleString("en-US")}</span>
                         <span className="block text-[10.5px] font-semibold text-neutral-400">{item.currency} to you</span>
+                        {Number(item.recoveryDeduction || 0) > 0 ? (
+                          <span className="block text-[10.5px] font-semibold text-rose-700">after {Number(item.recoveryDeduction).toLocaleString("en-US")} owed</span>
+                        ) : null}
                       </span>
                     </button>
                   );
@@ -884,7 +896,7 @@ export default function AgentRevenuesPage() {
                           <span className="block truncate font-mono text-[11px] text-neutral-400">{item.bookingCode}</span>
                         </span>
                         <span className="flex items-center gap-3">
-                          <span className="text-[12.5px] font-bold tabular-nums text-neutral-500">{item.currency} {Number(item.agentEarning || 0).toLocaleString("en-US")}</span>
+                          <span className="text-[12.5px] font-bold tabular-nums text-neutral-500">{item.currency} {toYou(item).toLocaleString("en-US")}</span>
                           <span
                             className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${item.claimEligibility?.reason === "open_case" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"}`}
                             title={claimBlockedReason(item)}
@@ -914,7 +926,8 @@ export default function AgentRevenuesPage() {
             const commission = Number(m.commissionAmount || 0);
             // The balance: net share minus any advance already paid.
             const advancedAlready = Number(m.advance?.paid || 0);
-            const net = Number(m.balanceAmount ?? m.agentEarning ?? 0);
+            const recoveryCut = Number(m.recoveryDeduction || 0);
+            const net = toYou(m);
             const commissionShare = gross > 0 ? Math.min(100, Math.max(0, (commission / gross) * 100)) : 0;
             const advanceShare = gross > 0 ? Math.min(100 - commissionShare, Math.max(0, (advancedAlready / gross) * 100)) : 0;
             const eligible = !m.claimEligibility || m.claimEligibility.ok;
@@ -958,8 +971,14 @@ export default function AgentRevenuesPage() {
                           <dd className="m-0 font-semibold tabular-nums text-neutral-800">- {m.currency} {advancedAlready.toLocaleString("en-US")}</dd>
                         </div>
                       ) : null}
+                      {recoveryCut > 0 ? (
+                        <div className="flex items-center justify-between gap-3">
+                          <dt className="inline-flex items-center gap-1.5 text-rose-700"><span className="h-2 w-2 rounded-full bg-rose-500" aria-hidden />Owed to NoLSAF from a cancelled trip</dt>
+                          <dd className="m-0 font-semibold tabular-nums text-rose-700">- {m.currency} {recoveryCut.toLocaleString("en-US")}</dd>
+                        </div>
+                      ) : null}
                       <div className="flex items-center justify-between gap-3 border-0 border-t border-dashed border-neutral-200 pt-1.5">
-                        <dt className="inline-flex items-center gap-1.5 font-bold text-neutral-900"><span className="h-2 w-2 rounded-full bg-[#02665e]" aria-hidden />{advancedAlready > 0 ? "Balance to you" : "Your payout"}</dt>
+                        <dt className="inline-flex items-center gap-1.5 font-bold text-neutral-900"><span className="h-2 w-2 rounded-full bg-[#02665e]" aria-hidden />{advancedAlready > 0 || recoveryCut > 0 ? "Balance to you" : "Your payout"}</dt>
                         <dd className="m-0 font-extrabold tabular-nums text-neutral-900">{m.currency} {net.toLocaleString("en-US")}</dd>
                       </div>
                     </dl>

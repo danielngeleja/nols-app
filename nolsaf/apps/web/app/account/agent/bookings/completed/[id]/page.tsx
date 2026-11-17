@@ -114,6 +114,10 @@ export default function CompletedBookingDetailPage() {
         const res = await api.get(`/api/agent/tour-bookings/${encodeURIComponent(targetId)}`);
         const data = (res as any)?.data?.item ?? null;
         if (!data) return null;
+        // Older links carried the row id: show the opaque tr_ address instead.
+        if (typeof data.ref === "string" && data.ref && /^\d+$/.test(targetId) && typeof window !== "undefined") {
+          window.history.replaceState(window.history.state, "", `/account/agent/bookings/completed/${encodeURIComponent(data.ref)}${window.location.search}${window.location.hash}`);
+        }
         return { ...data, source: "tour" as const };
       } catch (e: any) {
         const status = Number(e?.response?.status || 0);

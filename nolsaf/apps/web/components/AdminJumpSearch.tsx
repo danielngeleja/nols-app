@@ -138,12 +138,12 @@ export default function AdminJumpSearch() {
         onKeyDown={onKeyDown}
         placeholder="Search people, listings, bookings or pages"
         aria-label="Search the admin console"
-        className="h-10 w-full rounded-xl border border-solid border-white/10 bg-white/[0.06] pl-9 pr-12 text-[13px] text-white outline-none transition placeholder:text-emerald-100/40 hover:border-white/15 focus:border-emerald-300/40 focus:bg-white/[0.1]"
+        className="h-10 w-full rounded-md border border-solid border-white/10 bg-white/[0.06] pl-9 pr-12 text-[13px] text-white outline-none transition placeholder:text-emerald-100/40 hover:border-white/15 focus:border-emerald-300/40 focus:bg-white/[0.1]"
       />
       <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-solid border-white/15 bg-white/[0.06] px-1.5 py-0.5 font-sans text-[10px] font-semibold text-emerald-100/55">/</kbd>
 
       {open && q.trim() ? (
-        <div className="admin-fade-in-up absolute left-0 right-0 top-full z-[96] mt-2 overflow-hidden rounded-2xl border border-solid border-white/10 bg-[#0b2420] p-1.5 shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
+        <div className="admin-fade-in-up absolute left-0 right-0 top-full z-[96] mt-2 overflow-hidden rounded-lg border border-solid border-white/10 bg-[#0b2420] p-1.5 shadow-[0_24px_60px_rgba(0,0,0,0.45)]">
           {pages.length ? (
             <>
               <p className="m-0 px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100/40">Pages</p>

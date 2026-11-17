@@ -1,20 +1,9 @@
 "use client"
 
-import React from "react"
-import TwoFactorSettings from "@/components/security/TwoFactorSettings"
+import SecurityTwoStep from "@/components/account-security/SecurityTwoStep"
+import { AGENT_SECURITY } from "@/components/account-security/securityData"
 
-export default function AgentTwoFactorPage() {
-  return (
-    <TwoFactorSettings
-      statusUrl="/api/account/security/2fa"
-      provisionTotpUrl="/api/account/security/2fa/provision?type=totp"
-      postUrl="/api/account/security/2fa"
-      smsSendUrl="/api/account/2fa/sms/send"
-      smsVerifyUrl="/api/account/2fa/sms/verify"
-      smsDisableUrl="/api/account/2fa/sms/disable"
-      backHref="/account/agent/security"
-      regenerateCodesUrl="/api/account/2fa/codes/regenerate"
-      containerClassName="public-container w-full"
-    />
-  )
+// Same security pages as owners and travellers, scoped to the operator workspace.
+export default function AgentTwoStepPage() {
+  return <SecurityTwoStep scope={AGENT_SECURITY} />
 }

@@ -6,7 +6,7 @@
  *   - Password reset
  *   - Welcome (new account)
  */
-import { BRAND_TEAL, BRAND_DARK, TEXT_MAIN, TEXT_MUTED, baseEmail, calloutBox, ctaButton, careersEmail, infoCard, proEmail, proDivider, proButton, proReferenceCard, proDetailRows, proNoteCard } from "./emailBase.js";
+import { BRAND_TEAL, TEXT_MAIN, TEXT_MUTED, proEmail, proDivider, proButton, proReferenceCard, proDetailRows, proNoteCard } from "./emailBase.js";
 
 // ─── 1. Email verification ────────────────────────────────────────────────────
 export function getEmailVerificationEmail(
@@ -209,39 +209,39 @@ export function getPasswordChangedConfirmationEmail(
   };
 }
 
+const escWelcome = (value: unknown) => String(value ?? "")
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
 // ─── 4. Welcome — new account ─────────────────────────────────────────────────
 export function getWelcomeEmail(
   name: string,
   portalUrl: string,
   role: "CUSTOMER" | "OWNER" | "AGENT" | "DRIVER" = "CUSTOMER"
 ): { subject: string; html: string } {
-  const roleConfig = {
-    CUSTOMER: { accent: BRAND_TEAL,  to: BRAND_DARK, cta: "Explore NoLSAF",     ctaLabel: "Explore the Platform" },
-    OWNER:    { accent: "#0369a1",   to: "#075985",  cta: portalUrl,             ctaLabel: "Go to Owner Dashboard" },
-    AGENT:    { accent: "#7c3aed",   to: "#6d28d9",  cta: portalUrl,             ctaLabel: "Open Agent Portal" },
-    DRIVER:   { accent: "#ea580c",   to: "#c2410c",  cta: portalUrl,             ctaLabel: "Open Driver Portal" },
+  // One brand colour for every role; the role only changes the words and the button.
+  const roleConfig: Record<typeof role, { url: string; label: string; message: string }> = {
+    CUSTOMER: { url: portalUrl, label: "Start exploring", message: "You can now find stays, tours and transport across Tanzania, and book them in one place." },
+    OWNER:    { url: portalUrl, label: "Open your owner dashboard", message: "Your owner account is ready. List your property, manage bookings and follow your earnings from your dashboard." },
+    AGENT:    { url: portalUrl, label: "Open your operator portal", message: "Your operator account is active. Publish tour packages, receive bookings and run your trips from the portal." },
+    DRIVER:   { url: portalUrl, label: "Open your driver portal", message: "Your driver account is live. Accept transport requests and manage your schedule from the portal." },
   };
-  const { accent, to, cta, ctaLabel } = roleConfig[role];
-
-  const roleMessage: Record<typeof role, string> = {
-    CUSTOMER: "You can now browse properties, plan events, and book experiences — all in one place.",
-    OWNER:    "Your property owner account is ready. You can now list properties, manage bookings, and track performance from your dashboard.",
-    AGENT:    "Your agent account has been activated. You can now receive assignments, communicate with clients, and manage travel plans.",
-    DRIVER:   "Your driver account is live. You can accept transport requests and manage your schedule from the portal.",
-  };
+  const { url, label, message } = roleConfig[role];
+  const safeName = escWelcome(name);
 
   const body = `
-    <p style="margin:0 0 16px;font-size:16px;font-weight:600;color:${accent};">Welcome to NoLSAF, ${name}! 🌍</p>
-    <p style="margin:0 0 16px;">Your account has been created successfully. ${roleMessage[role]}</p>
-    ${calloutBox(accent, "✅", "You're all set:", `Your account is active and ready to use. Click the button below to get started.`)}
-    ${ctaButton(cta, ctaLabel, accent)}
-    <p style="margin:24px 0 0;font-size:13px;color:${TEXT_MUTED};">Need help getting started? Contact us at <a href="mailto:support@nolsaf.com" style="color:${BRAND_TEAL};text-decoration:none;">support@nolsaf.com</a>.</p>
-    <p style="margin:20px 0 0;">Warm regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Team</strong></p>
+    <p style="margin:0 0 16px;">Hello ${safeName},</p>
+    <p style="margin:0 0 16px;">Your NoLSAF account is created and ready to use. ${message}</p>
+    <div style="height:6px;font-size:0;line-height:0;">&nbsp;</div>
+    ${/^https?:\/\//.test(url) ? proButton(url, label) : ""}
+    ${proDivider()}
+    <p style="margin:0 0 16px;color:#5f6b69;font-size:14px;">Need help getting started? Write to <a href="mailto:support@nolsaf.com" style="color:${BRAND_TEAL};text-decoration:none;font-weight:bold;">support@nolsaf.com</a>.</p>
+    <p style="margin:22px 0 0;color:#1a1a1a;">Karibu,<br><strong>The NoLSAF Team</strong></p>
   `;
 
   return {
-    subject: `Welcome to NoLSAF, ${name}! 🌍`,
-    html: baseEmail(accent, to, "Welcome to NoLSAF", "🎉", body),
+    subject: `Welcome to NoLSAF, ${name}`,
+    html: proEmail("Welcome to NoLSAF", body),
   };
 }
 
@@ -300,6 +300,32 @@ export function getLoginAlertEmail(data: LoginAlertEmailData): { subject: string
   };
 }
 
+// ─── Operator and agent lifecycle (pro shell) ─────────────────────────────────
+const escOperatorText = (value: unknown) => String(value ?? "")
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+const OP_AMBER = "#b54708";
+const OP_RED = "#b42318";
+const opP = (html: string, extra = "") => `<p style="margin:0 0 16px;${extra}">${html}</p>`;
+const opMuted = (html: string) => opP(html, "color:#5f6b69;font-size:14px;");
+const opMail = (email: string) =>
+  `<a href="mailto:${escOperatorText(email)}" style="color:${BRAND_TEAL};text-decoration:none;font-weight:bold;">${escOperatorText(email)}</a>`;
+const opSignOff = (team: string, closing = "Warm regards") =>
+  `<p style="margin:22px 0 0;color:#1a1a1a;">${closing},<br><strong>${team}</strong></p>`;
+const opGap = `<div style="height:18px;font-size:0;line-height:0;">&nbsp;</div>`;
+
+/** The one access action on an operator mail: set a password, or open the portal. */
+function operatorAccess(data: { setupLink?: string; setupLinkExpiresHours?: number; portalUrl: string; loginUrl: string }, accent: string): string {
+  if (data.setupLink) {
+    const expiry = data.setupLinkExpiresHours
+      ? `<p style="margin:10px 0 0;font-size:13px;color:#5f6b69;">For security, this link expires in ${data.setupLinkExpiresHours} hours.</p>`
+      : "";
+    return `${proButton(data.setupLink, "Set your password", accent)}${expiry}`;
+  }
+  return `${proButton(data.portalUrl, "Open your operator portal", accent)}
+    <p style="margin:10px 0 0;font-size:13px;color:#5f6b69;">Or sign in at <a href="${escOperatorText(data.loginUrl)}" style="color:${BRAND_TEAL};text-decoration:none;">${escOperatorText(data.loginUrl)}</a></p>`;
+}
+
 // ─── 6. Agent account suspension ──────
 export function getAgentSuspensionEmail(data: {
   name: string;
@@ -308,64 +334,29 @@ export function getAgentSuspensionEmail(data: {
   suspendedAt: string;
   contactEmail?: string;
 }): { subject: string; html: string } {
-  const AMBER  = "#b45309";
-  const AMBER_BG = "#fffbeb";
-
-  const detailRows: Array<[string, string]> = [
-    ["Agent name",   data.name],
-    ["Case ref",     data.caseRef],
-    ["Suspended on", data.suspendedAt],
-    ["Contact",      data.contactEmail || "hr@nolsaf.com"],
-  ];
-
+  const contact = data.contactEmail || "hr@nolsaf.com";
   const body = `
-    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:#7c2d12;">Dear ${data.name},</p>
-
-    <p style="margin:0 0 14px;color:#374151;line-height:1.75;">
-      We are writing to inform you that your NoLSAF Agent account has been
-      <strong style="color:#b91c1c;">temporarily suspended</strong> pending an internal review.
-      During this period you will not be able to access the Agent Portal.
-    </p>
-
-    <p style="margin:0 0 14px;color:#374151;line-height:1.75;">
-      This suspension has been applied in accordance with NoLSAF&apos;s agent conduct and compliance
-      policy. Our team will conduct a fair and thorough review of the matter. You will be notified
-      by email once a decision has been reached.
-    </p>
-
-    ${infoCard("#b45309", detailRows)}
-
-    <!-- What to expect -->
-    <table width="100%" cellpadding="0" cellspacing="0"
-      style="margin:16px 0;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;">
-      <tr>
-        <td style="padding:16px 18px;">
-          <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#111827;">What happens next</p>
-          <ul style="margin:0;padding-left:18px;font-size:13px;color:#374151;line-height:1.85;">
-            <li>NoLSAF will conduct a thorough and fair investigation.</li>
-            <li>You may be contacted for your account of events — please cooperate fully.</li>
-            <li>If the investigation concludes that no policy was violated, your access will be reinstated and you will be notified by email.</li>
-            <li>If a violation is confirmed, further disciplinary measures may follow in accordance with your employment terms.</li>
-          </ul>
-        </td>
-      </tr>
-    </table>
-
-    <p style="margin:14px 0;font-size:13px;color:#374151;line-height:1.75;">
-      If you have questions or wish to submit a written response, please contact our HR team:
-      <a href="mailto:${data.contactEmail || "hr@nolsaf.com"}" style="color:${BRAND_TEAL};font-weight:600;">${data.contactEmail || "hr@nolsaf.com"}</a>.
-      Please quote your case reference <strong>${data.caseRef}</strong> in all correspondence.
-    </p>
-
-    <p style="margin:20px 0 0;font-size:13px;color:#374151;">
-      Regards,<br>
-      <strong style="color:#7c2d12;">NoLSAF Human Resources &amp; Compliance</strong>
-    </p>
-  `;
+    ${opP(`Dear ${escOperatorText(data.name)},`)}
+    ${opP(`Your NoLSAF operator account has been <strong style="color:${OP_RED};">temporarily suspended</strong> while we carry out an internal review. During this time you cannot sign in to the operator portal.`)}
+    ${proReferenceCard("Case reference", escOperatorText(data.caseRef), "Quote this reference in every message about this review.", OP_AMBER, "#fffaf3")}
+    ${opGap}
+    ${proDetailRows("", [
+      ["Account", escOperatorText(data.name)],
+      ["Suspended on", escOperatorText(data.suspendedAt)],
+      ["Contact", opMail(contact)],
+    ])}
+    ${proDivider()}
+    ${proNoteCard(OP_AMBER, "What happens next", `
+      NoLSAF will review the matter fairly and may contact you for your account of events.<br>
+      If no policy was broken, your access is restored and we will email you.<br>
+      If a breach is confirmed, further steps may follow under your partner agreement.`, "#fffaf3")}
+    ${opGap}
+    ${opMuted(`To ask a question or send a written response, write to ${opMail(contact)}.`)}
+    ${opSignOff("NoLSAF Compliance", "Regards")}`;
 
   return {
-    subject: `[Important] Your NoLSAF Agent account has been temporarily suspended (Ref: ${data.caseRef})`,
-    html: careersEmail("⚠️", "Account Suspended", "Temporary Suspension Notice", body, data.contactEmail || "hr@nolsaf.com"),
+    subject: `Your NoLSAF operator account is temporarily suspended (Ref: ${data.caseRef})`,
+    html: proEmail("Your account is temporarily suspended", body),
   };
 }
 
@@ -377,65 +368,26 @@ export function getAgentRestorationEmail(data: {
   notes?: string;
   contactEmail?: string;
 }): { subject: string; html: string } {
-  const GREEN    = "#059669";
-  const GREEN_BG = "#ecfdf5";
-
-  const detailRows: Array<[string, string]> = [
-    ["Agent name",  data.name],
-    ["Case ref",    data.caseRef],
-    ["Restored on", data.restoredAt],
-    ["Contact",     data.contactEmail || "hr@nolsaf.com"],
-  ];
-
-  const notesBlock = data.notes
-    ? `
-    <table width="100%" cellpadding="0" cellspacing="0"
-      style="margin:16px 0;background:#f0fdf4;border-left:4px solid ${GREEN};border-radius:4px;">
-      <tr><td style="padding:14px 18px;">
-        <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:${GREEN};">Note from NoLSAF</p>
-        <p style="margin:0;font-size:13px;color:#064e3b;line-height:1.7;">${data.notes}</p>
-      </td></tr>
-    </table>`
+  const contact = data.contactEmail || "hr@nolsaf.com";
+  const notes = data.notes && data.notes.trim()
+    ? `${opGap}${proNoteCard(BRAND_TEAL, "Note from NoLSAF", escOperatorText(data.notes).replace(/\n/g, "<br>"))}`
     : "";
-
   const body = `
-    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:#064e3b;">Dear ${data.name},</p>
-
-    <p style="margin:0 0 14px;color:#374151;line-height:1.75;">
-      We are pleased to inform you that following the conclusion of our investigation
-      (case reference <strong>${data.caseRef}</strong>),
-      your NoLSAF Agent account has been <strong style="color:${GREEN};">fully reinstated</strong>.
-      You may now log in to the Agent Portal as normal.
-    </p>
-
-    <!-- Green success highlight -->
-    <table width="100%" cellpadding="0" cellspacing="0"
-      style="margin:16px 0;background:${GREEN_BG};border-left:4px solid ${GREEN};border-radius:4px;">
-      <tr><td style="padding:14px 18px;">
-        <p style="margin:0;font-size:13px;font-weight:700;color:${GREEN};">
-          ✔ Access fully restored — no violations were established
-        </p>
-      </td></tr>
-    </table>
-
-    ${notesBlock}
-    ${infoCard(GREEN, detailRows)}
-
-    <p style="margin:14px 0;font-size:13px;color:#374151;line-height:1.75;">
-      We appreciate your patience during this process. Should you need any
-      support or have further questions, please reach out to
-      <a href="mailto:${data.contactEmail || "hr@nolsaf.com"}" style="color:${BRAND_TEAL};font-weight:600;">${data.contactEmail || "hr@nolsaf.com"}</a>.
-    </p>
-
-    <p style="margin:20px 0 0;font-size:13px;color:#374151;">
-      Welcome back,<br>
-      <strong style="color:#064e3b;">NoLSAF Human Resources &amp; Compliance</strong>
-    </p>
-  `;
+    ${opP(`Dear ${escOperatorText(data.name)},`)}
+    ${opP(`Our review is complete and your NoLSAF operator account has been <strong style="color:${BRAND_TEAL};">fully restored</strong>. No violation was established, and you can sign in to the operator portal as normal.`)}
+    ${proDetailRows("", [
+      ["Case reference", escOperatorText(data.caseRef)],
+      ["Restored on", escOperatorText(data.restoredAt)],
+      ["Contact", opMail(contact)],
+    ])}
+    ${notes}
+    ${opGap}
+    ${opMuted(`Thank you for your patience. For any question, write to ${opMail(contact)}.`)}
+    ${opSignOff("NoLSAF Compliance", "Welcome back")}`;
 
   return {
-    subject: `[Update] Your NoLSAF Agent account has been reinstated (Ref: ${data.caseRef})`,
-    html: careersEmail("✅", "Access Reinstated", "Account Restoration Notice", body, data.contactEmail || "hr@nolsaf.com"),
+    subject: `Your NoLSAF operator account is restored (Ref: ${data.caseRef})`,
+    html: proEmail("Your account is restored", body),
   };
 }
 
@@ -449,51 +401,22 @@ export function getOperatorProfileApprovedEmail(data: {
   setupLinkExpiresHours?: number;
   contactEmail?: string;
 }): { subject: string; html: string } {
-  const GREEN = "#059669";
-  const greeting = data.companyName ? `${data.name} (${data.companyName})` : data.name;
-
-  const cta = data.setupLink
-    ? ctaButton(data.setupLink, "Set your password", GREEN)
-    : ctaButton(data.portalUrl, "Open Agent Portal", GREEN);
-
-  const setupNote = data.setupLink && data.setupLinkExpiresHours
-    ? `<p style="margin:10px 0 18px;font-size:13px;color:${TEXT_MUTED};text-align:center;">This password setup link expires in ${data.setupLinkExpiresHours} hours.</p>`
-    : "";
-
-  const loginLine = !data.setupLink
-    ? `<p style="margin:0 0 10px;font-size:14px;color:${TEXT_MAIN};">Sign in at: <a href="${data.loginUrl}" style="color:${GREEN};text-decoration:none;font-weight:600;">${data.loginUrl}</a></p>`
-    : "";
-
+  const who = escOperatorText(data.name);
+  const company = data.companyName ? escOperatorText(data.companyName) : "";
   const body = `
-    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:${GREEN};">Congratulations, ${greeting}!</p>
-
-    <table width="100%" cellpadding="0" cellspacing="0"
-      style="margin:0 0 16px;background:#ecfdf5;border-left:4px solid ${GREEN};border-radius:4px;">
-      <tr><td style="padding:14px 18px;">
-        <p style="margin:0;font-size:13px;font-weight:700;color:${GREEN};">
-          ✔ Your operator profile has been approved
-        </p>
-      </td></tr>
-    </table>
-
-    <p style="margin:0 0 14px;color:${TEXT_MAIN};line-height:1.75;">
-      Your tour packages and operator details are now live and bookable on the NoLSAF marketplace.
-    </p>
-
-    ${data.setupLink
-      ? `<p style="margin:0 0 14px;color:${TEXT_MAIN};line-height:1.75;">Before you continue, finish setting up your Agent Portal access by creating a password using the button below.</p>`
-      : `<p style="margin:0 0 14px;color:${TEXT_MAIN};line-height:1.75;">You can manage your packages and bookings anytime from your Agent Portal.</p>`}
-
-    ${cta}
-    ${setupNote}
-    ${loginLine}
-
-    <p style="margin:24px 0 0;">Warm regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Team</strong></p>
-  `;
+    ${opP(`Congratulations, ${who}.`)}
+    ${opP(`${company ? `<strong>${company}</strong> is` : "Your operator profile is"} approved. Your tour packages and operator details are now live and bookable on the NoLSAF marketplace.`)}
+    ${opP(data.setupLink
+      ? "To start, create your password for the operator portal."
+      : "Manage your packages and bookings any time from your operator portal.")}
+    ${operatorAccess(data, BRAND_TEAL)}
+    ${proDivider()}
+    ${opMuted(`Questions? Write to ${opMail(data.contactEmail || "partners@nolsaf.com")}.`)}
+    ${opSignOff("The NoLSAF Partnerships Team")}`;
 
   return {
-    subject: "Your operator profile has been approved — NoLSAF",
-    html: careersEmail("✅", "Profile Approved", "Operator Profile Review", body, data.contactEmail || "partners@nolsaf.com"),
+    subject: "Your operator profile is approved on NoLSAF",
+    html: proEmail("Your operator profile is approved", body),
   };
 }
 
@@ -508,56 +431,23 @@ export function getOperatorProfileRejectedEmail(data: {
   setupLinkExpiresHours?: number;
   contactEmail?: string;
 }): { subject: string; html: string } {
-  const AMBER = "#b45309";
-  const greeting = data.companyName ? `${data.name} (${data.companyName})` : data.name;
-
-  const reasonBlock = data.reason
-    ? `<table width="100%" cellpadding="0" cellspacing="0"
-        style="margin:16px 0;background:#fffbeb;border-left:4px solid ${AMBER};border-radius:4px;">
-        <tr><td style="padding:14px 18px;">
-          <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:${AMBER};">Feedback from our review team</p>
-          <p style="margin:0;font-size:13px;color:#78350f;line-height:1.7;">${data.reason}</p>
-        </td></tr>
-      </table>`
+  const who = escOperatorText(data.name);
+  const reason = data.reason && data.reason.trim()
+    ? `${proNoteCard(OP_AMBER, "What to change", escOperatorText(data.reason).replace(/\n/g, "<br>"), "#fffaf3")}${opGap}`
     : "";
-
-  const cta = data.setupLink
-    ? ctaButton(data.setupLink, "Set your password", AMBER)
-    : ctaButton(data.portalUrl, "Open Agent Portal", AMBER);
-
-  const setupNote = data.setupLink && data.setupLinkExpiresHours
-    ? `<p style="margin:10px 0 18px;font-size:13px;color:${TEXT_MUTED};text-align:center;">This password setup link expires in ${data.setupLinkExpiresHours} hours.</p>`
-    : "";
-
-  const loginLine = !data.setupLink
-    ? `<p style="margin:0 0 10px;font-size:14px;color:${TEXT_MAIN};">Sign in at: <a href="${data.loginUrl}" style="color:${AMBER};text-decoration:none;font-weight:600;">${data.loginUrl}</a></p>`
-    : "";
-
   const body = `
-    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:${AMBER};">Hello ${greeting},</p>
-
-    <p style="margin:0 0 14px;color:${TEXT_MAIN};line-height:1.75;">
-      Thanks for submitting your operator profile for review. It needs a few changes before it can go
-      live on the NoLSAF marketplace.
-    </p>
-
-    ${reasonBlock}
-
-    <p style="margin:0 0 14px;color:${TEXT_MAIN};line-height:1.75;">
-      Please log in to your Agent Portal, update your profile based on the feedback above, and submit it
-      again for review.
-    </p>
-
-    ${cta}
-    ${setupNote}
-    ${loginLine}
-
-    <p style="margin:24px 0 0;">Warm regards,<br><strong style="color:${BRAND_DARK};">The NoLSAF Team</strong></p>
-  `;
+    ${opP(`Hello ${who},`)}
+    ${opP(`Thank you for submitting your operator profile${data.companyName ? ` for <strong>${escOperatorText(data.companyName)}</strong>` : ""}. It needs a few changes before it can go live on the NoLSAF marketplace.`)}
+    ${reason}
+    ${opP("Sign in, update your profile using the feedback above, and send it for review again.")}
+    ${operatorAccess(data, OP_AMBER)}
+    ${proDivider()}
+    ${opMuted(`Need help with a change? Write to ${opMail(data.contactEmail || "partners@nolsaf.com")}.`)}
+    ${opSignOff("The NoLSAF Partnerships Team")}`;
 
   return {
-    subject: "Action needed: updates required for your operator profile — NoLSAF",
-    html: careersEmail("📝", "Profile Needs Updates", "Operator Profile Review", body, data.contactEmail || "partners@nolsaf.com"),
+    subject: "Action needed: your operator profile needs updates",
+    html: proEmail("Your operator profile needs updates", body),
   };
 }
 

@@ -60,15 +60,15 @@ export default function TourSupportBanner() {
   }
 
   return (
-    <section aria-label="Tour operator support session" className={`mt-2 box-border w-full min-w-0 rounded-2xl border px-3 py-2.5 shadow-sm sm:px-4 ${urgent ? "border-rose-300 bg-rose-50" : "border-emerald-200 bg-white"}`}>
+    <section aria-label="Tour operator support session" className={`mt-2 box-border w-full min-w-0 rounded-lg border border-solid px-3 py-2.5 shadow-sm sm:px-4 ${urgent ? "border-rose-300 bg-rose-50" : "border-emerald-200 bg-white"}`}>
       <div className="flex min-w-0 items-center gap-3">
-        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${urgent ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700"}`} aria-hidden="true"><ShieldCheck className="h-5 w-5" /></span>
+        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-md ${urgent ? "bg-rose-100 text-rose-700" : "bg-emerald-50 text-emerald-700"}`} aria-hidden="true"><ShieldCheck className="h-5 w-5" /></span>
         <div className="min-w-0 flex-1">
-          <p className={`m-0 text-sm font-bold ${urgent ? "text-rose-950" : "text-emerald-950"}`}>Support session <span className="ml-1 rounded-full border border-current px-1.5 py-0.5 text-[10px] uppercase">Read only</span></p>
+          <p className={`m-0 text-sm font-bold ${urgent ? "text-rose-950" : "text-emerald-950"}`}>Support session <span className="ml-1 rounded border border-solid border-current px-1.5 py-0.5 text-[10px] font-semibold">Read only</span></p>
           <p className={`m-0 mt-1 truncate text-xs ${urgent ? "text-rose-800" : "text-slate-600"}`} title={status.ownerEmail || undefined}>{status.ownerEmail ? `Viewing ${status.ownerEmail}` : "Viewing tour operator workspace"}</p>
         </div>
         {minutes !== null && <span className={`hidden shrink-0 items-center gap-1 text-xs md:inline-flex ${urgent ? "text-rose-800" : "text-slate-600"}`}><Clock3 className="h-4 w-4" aria-hidden="true" />{minutes} min left</span>}
-        <button type="button" onClick={() => void returnToAdmin()} disabled={returning} className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold text-white disabled:opacity-60 ${urgent ? "border-rose-700 bg-rose-700" : "border-emerald-700 bg-emerald-700"}`}><ArrowLeft className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">{returning ? "Returning…" : status.canReturn ? "Return to Admin" : "Sign out"}</span><span className="sm:hidden">{returning ? "Wait…" : status.canReturn ? "Return" : "Sign out"}</span></button>
+        <button type="button" onClick={() => void returnToAdmin()} disabled={returning} className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-solid px-3 text-xs font-bold text-white disabled:opacity-60 ${urgent ? "border-rose-700 bg-rose-700" : "border-emerald-700 bg-emerald-700"}`}><ArrowLeft className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">{returning ? "Returning…" : status.canReturn ? "Return to Admin" : "Sign out"}</span><span className="sm:hidden">{returning ? "Wait…" : status.canReturn ? "Return" : "Sign out"}</span></button>
       </div>
       {error && <p role="alert" className="m-0 mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-medium text-rose-800">{error}</p>}
     </section>

@@ -15,17 +15,25 @@ const mocks = vi.hoisted(() => ({
   findCase: vi.fn(),
   findTx: vi.fn(),
   listTx: vi.fn(),
+  listRecoveries: vi.fn(),
+  listDisbursements: vi.fn(),
+  listBookings: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
   prisma: {
-    tourBooking: { findUnique: mocks.findBooking },
+    tourBooking: { findUnique: mocks.findBooking, findMany: mocks.listBookings },
     tourCase: { findFirst: mocks.findCase },
-    tourFinancialTransaction: { findUnique: mocks.findTx, findMany: mocks.listTx },
+    // Recovery lookups (kind PAYOUT_RECOVERY) are answered separately from advance rows.
+    tourFinancialTransaction: {
+      findUnique: mocks.findTx,
+      findMany: (args: any) => (args?.where?.kind === "PAYOUT_RECOVERY" ? mocks.listRecoveries(args) : mocks.listTx(args)),
+    },
+    disbursement: { findMany: mocks.listDisbursements },
   },
 }));
 
-import { loadEligiblePayoutSource } from "../services/payouts/eligibility";
+import { BalanceFullyOffsetError, loadEligiblePayoutSource } from "../services/payouts/eligibility";
 
 const dec = (value: string | number) => new Prisma.Decimal(value);
 const advanceRow = (id: number, status: string, amount: number) => ({
@@ -41,10 +49,21 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.findCase.mockResolvedValue(null);
   mocks.listTx.mockResolvedValue([]);
+  mocks.listRecoveries.mockResolvedValue([]);
+  mocks.listDisbursements.mockResolvedValue([]);
+  mocks.listBookings.mockResolvedValue([]);
+});
+
+const recoveryRow = (id: number, amount: number, offsetApplied = 0) => ({
+  id,
+  tourBookingId: 40 + id,
+  amount: dec(amount),
+  metadata: offsetApplied ? { offsetApplied } : {},
+  createdAt: new Date(`2026-10-0${id}T00:00:00Z`),
 });
 
 describe("tour balance", () => {
-  const booking = { id: 9, payoutStatus: "APPROVED", operatorPayoutAmount: dec("13000.00"), currency: "USD", operator: { userId: 5 } };
+  const booking = { id: 9, payoutStatus: "APPROVED", operatorPayoutAmount: dec("13000.00"), operatorAgentId: 7, currency: "USD", operator: { userId: 5 } };
 
   it("pays the net share minus advances already paid", async () => {
     mocks.findBooking.mockResolvedValue(booking);
@@ -63,6 +82,32 @@ describe("tour balance", () => {
     mocks.findBooking.mockResolvedValue(booking);
     mocks.listTx.mockResolvedValue([advanceRow(1, "DISBURSED", 13000)]);
     await expect(loadEligiblePayoutSource("TOUR_BOOKING", 9)).rejects.toThrow(/no balance to pay/);
+  });
+
+  it("takes an unpaid recovery from the balance before paying (policy 6.4)", async () => {
+    mocks.findBooking.mockResolvedValue(booking);
+    mocks.listTx.mockResolvedValue([advanceRow(1, "DISBURSED", 9100)]);
+    mocks.listRecoveries.mockResolvedValue([recoveryRow(1, 1000, 400)]);
+    const source = await loadEligiblePayoutSource("TOUR_BOOKING", 9);
+    // 3900 balance, 600 still owed.
+    expect(source.amount.toString()).toBe("3300");
+  });
+
+  it("does not take a debt another balance payout in flight already reserved", async () => {
+    mocks.findBooking.mockResolvedValue(booking);
+    mocks.listRecoveries.mockResolvedValue([recoveryRow(1, 1000)]);
+    // Booking 22 owes nothing in advances, balance 5000, paying 4400: 600 reserved.
+    mocks.listDisbursements.mockResolvedValue([{ sourceId: 22, amount: dec(4400) }]);
+    mocks.listBookings.mockResolvedValue([{ id: 22, operatorPayoutAmount: dec(5000) }]);
+    const source = await loadEligiblePayoutSource("TOUR_BOOKING", 9);
+    expect(source.amount.toString()).toBe("12600");
+  });
+
+  it("reports a balance the debt absorbs entirely, so approval settles it as an offset", async () => {
+    mocks.findBooking.mockResolvedValue(booking);
+    mocks.listTx.mockResolvedValue([advanceRow(1, "DISBURSED", 9100)]);
+    mocks.listRecoveries.mockResolvedValue([recoveryRow(1, 5000)]);
+    await expect(loadEligiblePayoutSource("TOUR_BOOKING", 9)).rejects.toBeInstanceOf(BalanceFullyOffsetError);
   });
 });
 

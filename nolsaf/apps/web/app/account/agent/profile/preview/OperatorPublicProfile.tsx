@@ -881,10 +881,10 @@ export default function OperatorPublicProfile({
 
           <div className="hidden rounded-lg border border-solid border-slate-200 bg-white p-5 lg:block">
             <div className="flex items-center gap-2">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-[#02665e]/10 text-[#02665e]">
-                <CreditCard className="h-6 w-6" aria-hidden />
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-[#02665e]/10 text-[#02665e]">
+                <CreditCard className="h-5 w-5" aria-hidden />
               </span>
-              <h2 className="m-0 text-2xl font-semibold text-slate-900">Payment Methods</h2>
+              <h2 className="m-0 text-lg font-semibold text-slate-900">Payment methods</h2>
             </div>
             {/* Same rows as the stay page: method name left, the real brand marks right */}
             <div className="mt-4 grid grid-cols-1 gap-3">
@@ -900,7 +900,7 @@ export default function OperatorPublicProfile({
               </PaymentRow>
               <PaymentRow label="Bank transfer">
                 <span className="inline-flex items-center justify-center rounded-md bg-white/90 p-1.5 shadow-sm ring-1 ring-black/5">
-                  <Building2 className="h-[28px] w-[28px] flex-shrink-0 text-blue-600" aria-hidden />
+                  <Building2 className="h-6 w-6 flex-shrink-0 text-blue-600" aria-hidden />
                 </span>
               </PaymentRow>
             </div>
@@ -914,8 +914,8 @@ export default function OperatorPublicProfile({
                   <Package className="h-5 w-5" aria-hidden />
                 </span>
                 <div className="min-w-0 leading-tight">
-                  <h2 className="m-0 text-lg font-semibold text-slate-900">{tours.length > 1 ? "Choose your tour" : "Your tour"}</h2>
-                  {tours.length > 1 ? <p className="m-0 mt-0.5 text-[12px] text-slate-500">{tours.length} options from this operator</p> : null}
+                  <h2 className="m-0 text-[15px] font-semibold text-slate-900">{tours.length > 1 ? "Choose your tour" : "Your tour"}</h2>
+                  {tours.length > 1 ? <p className="m-0 mt-0.5 text-[11.5px] text-slate-500">{tours.length} options from this operator</p> : null}
                 </div>
               </div>
 
@@ -934,34 +934,32 @@ export default function OperatorPublicProfile({
                         role="radio"
                         aria-checked={active}
                         onClick={() => pickTour(idx)}
+                        title={pkg.name || undefined}
                         className={[
-                          // One joined list with a clear rule between packages. The chosen one
-                          // is told by a filled check and brand-coloured name and price, not a box.
-                          "flex w-full cursor-pointer items-center gap-3 border-0 border-solid border-slate-200 px-3.5 py-3 text-left transition-colors",
+                          // Two tidy lines per package: name and price, then days, place and
+                          // a lowest-price tag. The chosen one gets a brand edge and tint.
+                          "relative grid w-full cursor-pointer grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.5 border-0 border-solid border-slate-200 py-2.5 pl-3 pr-3 text-left transition-colors",
                           idx > 0 ? "border-t" : "",
                           active ? "bg-[#02665e]/[0.05]" : "bg-white hover:bg-slate-50",
                         ].join(" ")}
                       >
+                        {active ? <span className="absolute inset-y-0 left-0 w-[3px] bg-[#02665e]" aria-hidden /> : null}
                         <span
-                          className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-solid transition-colors ${active ? "border-0 bg-[#02665e] text-white" : "border-[1.5px] border-slate-300 bg-white"}`}
+                          className={`row-span-2 flex h-4 w-4 items-center justify-center rounded-full border-solid transition-colors ${active ? "border-0 bg-[#02665e] text-white" : "border-[1.5px] border-slate-300 bg-white"}`}
                           aria-hidden
                         >
-                          {active ? <Check className="h-3 w-3" strokeWidth={3.2} /> : null}
+                          {active ? <Check className="h-2.5 w-2.5" strokeWidth={3.4} /> : null}
                         </span>
-                        <span className="min-w-0 flex-1 leading-tight">
-                          <span className={`block truncate text-[14px] font-semibold ${active ? "text-[#02665e]" : "text-slate-800"}`}>{pkg.name || `Tour ${idx + 1}`}</span>
-                          <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[12px] text-slate-500">
-                            <span className="truncate">{meta || "Guided tour"}</span>
-                            {cheapest && cheapest.index === idx && priced.length > 1 ? (
-                              <span className="inline-flex flex-shrink-0 items-center gap-1 font-semibold text-emerald-700">
-                                <span className="h-1 w-1 rounded-full bg-emerald-600" aria-hidden />Lowest price
-                              </span>
-                            ) : null}
-                          </span>
+                        <span className={`min-w-0 truncate text-[13px] font-semibold leading-tight ${active ? "text-[#02665e]" : "text-slate-800"}`}>{pkg.name || `Tour ${idx + 1}`}</span>
+                        <span className={`whitespace-nowrap text-right text-[13px] font-bold leading-tight tabular-nums ${active ? "text-[#02665e]" : "text-slate-900"}`}>
+                          {hasPrice ? money(price, String(pkg.currency || "USD").toUpperCase()) : "On request"}
+                          {hasPrice ? <span className="ml-0.5 text-[10.5px] font-medium text-slate-500">/pp</span> : null}
                         </span>
-                        <span className="flex flex-shrink-0 flex-col items-end leading-tight">
-                          <span className={`text-[15px] font-bold tabular-nums ${active ? "text-[#02665e]" : "text-slate-900"}`}>{hasPrice ? money(price, String(pkg.currency || "USD").toUpperCase()) : "On request"}</span>
-                          {hasPrice ? <span className="mt-0.5 text-[11px] text-slate-500">per person</span> : null}
+                        <span className="min-w-0 truncate text-[11.5px] leading-tight text-slate-500">{meta || "Guided tour"}</span>
+                        <span className="justify-self-end">
+                          {cheapest && cheapest.index === idx && priced.length > 1 ? (
+                            <span className="rounded bg-emerald-50 px-1.5 py-px text-[10.5px] font-semibold text-emerald-700">Lowest price</span>
+                          ) : null}
                         </span>
                       </button>
                     );
@@ -993,12 +991,12 @@ export default function OperatorPublicProfile({
                       {facts.map(({ Icon, label, text }, i) => (
                         <div
                           key={label}
-                          className={`flex min-w-0 items-start gap-2 bg-white px-3 py-2.5 ${facts.length % 2 === 1 && i === facts.length - 1 ? "col-span-2" : ""}`}
+                          className={`flex min-w-0 items-start gap-2 bg-white px-2.5 py-2 ${facts.length % 2 === 1 && i === facts.length - 1 ? "col-span-2" : ""}`}
                         >
-                          <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#02665e]" aria-hidden />
+                          <Icon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
                           <div className="min-w-0 leading-tight">
-                            <dt className="text-[11px] text-slate-500">{label}</dt>
-                            <dd className="m-0 mt-0.5 truncate text-[13px] font-semibold text-slate-900" title={text}>{text}</dd>
+                            <dt className="text-[10.5px] text-slate-500">{label}</dt>
+                            <dd className="m-0 mt-0.5 truncate text-[12.5px] font-semibold text-slate-900" title={text}>{text}</dd>
                           </div>
                         </div>
                       ))}
@@ -1006,12 +1004,12 @@ export default function OperatorPublicProfile({
                   );
                 })()}
                 {selected.included?.length ? (
-                  <div className="mt-3.5 text-[12px] font-semibold text-slate-500">Included</div>
+                  <div className="mt-3 text-[11.5px] font-semibold text-slate-500">Included</div>
                 ) : null}
                 {selected.included?.length ? (
                   <ul className="m-0 mt-2 grid list-none grid-cols-2 gap-x-3 gap-y-2 p-0">
                     {selected.included.slice(0, 4).map((item) => (
-                      <li key={item} className="flex min-w-0 items-center gap-2 text-[13px] text-slate-700">
+                      <li key={item} className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-slate-700">
                         <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e]/10">
                           <Check className="h-2.5 w-2.5 text-[#02665e]" strokeWidth={3.2} aria-hidden />
                         </span>
@@ -1023,13 +1021,13 @@ export default function OperatorPublicProfile({
                 <button
                   type="button"
                   onClick={() => setDetailsFor(selectedIdx)}
-                  className="group mt-3.5 flex w-full cursor-pointer items-center gap-3 rounded-lg border border-solid border-[#02665e]/25 bg-[#02665e]/[0.04] px-3 py-2.5 text-left transition-colors hover:border-[#02665e]/45 hover:bg-[#02665e]/[0.07]"
+                  className="group mt-3 flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-solid border-[#02665e]/25 bg-[#02665e]/[0.04] px-2.5 py-2 text-left transition-colors hover:border-[#02665e]/45 hover:bg-[#02665e]/[0.07]"
                 >
-                  <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e] text-white">
-                    <Route className="h-4 w-4" aria-hidden />
+                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e] text-white">
+                    <Route className="h-3.5 w-3.5" aria-hidden />
                   </span>
                   <span className="min-w-0 flex-1 leading-tight">
-                    <span className="block text-[13.5px] font-semibold text-slate-900">{selected.itinerary?.length ? "See the day-by-day plan" : "Full tour details"}</span>
+                    <span className="block text-[12.5px] font-semibold text-slate-900">{selected.itinerary?.length ? "See the day-by-day plan" : "Full tour details"}</span>
                     {selected.itinerary?.length ? (() => {
                       const dayCount = selected.itinerary.length;
                       const perDay = selected.itinerary.map((d) => d.events?.length || 0);
@@ -1043,7 +1041,7 @@ export default function OperatorPublicProfile({
                               <span key={i} className="w-1.5 rounded-sm bg-[#02665e]/60" style={{ height: `${Math.max(25, (count / peak) * 100)}%` }} />
                             ))}
                           </span>
-                          <span className="truncate text-[11.5px] text-slate-500">
+                          <span className="truncate text-[11px] text-slate-500">
                             {dayCount} day{dayCount === 1 ? "" : "s"}{total ? ` · ${total} timed activit${total === 1 ? "y" : "ies"}` : ""}
                           </span>
                         </span>
@@ -1066,7 +1064,7 @@ export default function OperatorPublicProfile({
               <div className="mt-4 bg-slate-50/70 px-5 py-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="leading-tight">
-                    <div className="text-[14px] font-semibold text-slate-900">Travellers</div>
+                    <div className="text-[13px] font-semibold text-slate-900">Travellers</div>
                     <div className="mt-0.5 text-[11.5px] text-slate-500">{selected.maxPax ? `Group of ${selMin} to ${selMax}` : `Minimum ${selMin}`}</div>
                   </div>
                   <div className="inline-flex items-center rounded-md border border-solid border-slate-300 bg-white">
@@ -1340,9 +1338,9 @@ export default function OperatorPublicProfile({
 /** Payment rows copied from the stay page (PaymentModePill / PaymentLogo). */
 function PaymentLogo({ src, alt }: { src: string; alt: string }) {
   return (
-    <span className="inline-flex items-center justify-center rounded-md bg-white/90 p-1.5 shadow-sm ring-1 ring-black/5">
-      <span className="relative block h-[28px] w-[28px]">
-        <Image src={src} alt={alt} fill sizes="28px" className="object-contain" />
+    <span className="inline-flex items-center justify-center rounded-md bg-white p-1 ring-1 ring-black/5">
+      <span className="relative block h-6 w-6">
+        <Image src={src} alt={alt} fill sizes="24px" className="object-contain" />
       </span>
     </span>
   );
@@ -1352,10 +1350,10 @@ function PaymentRow({ label, children }: { label: string; children: ReactNode })
   return (
     <div
       title={label}
-      className="group box-border inline-flex w-full select-none items-center justify-between gap-2 whitespace-nowrap rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2 text-slate-800 shadow-sm shadow-transparent hover:border-slate-300 hover:bg-white active:scale-[0.98] motion-safe:transition-all motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-sm"
+      className="group box-border flex w-full min-w-0 select-none flex-wrap items-center justify-between gap-2 rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2 text-slate-800 shadow-sm shadow-transparent hover:border-slate-300 hover:bg-white active:scale-[0.98] motion-safe:transition-all motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-sm"
     >
-      <span className="text-sm font-semibold text-slate-700">{label}</span>
-      <span className="inline-flex items-center gap-2">{children}</span>
+      <span className="whitespace-nowrap text-sm font-semibold text-slate-700">{label}</span>
+      <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">{children}</span>
     </div>
   );
 }

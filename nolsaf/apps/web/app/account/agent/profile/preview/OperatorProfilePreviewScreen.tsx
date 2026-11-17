@@ -717,15 +717,15 @@ export function OperatorProfilePreviewScreen({
       <div className={isAdminPreview ? "mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-6" : "public-container py-6 sm:py-8"}>
         {/* Admin review bar: the decision, above the exact page travellers will see */}
         {isAdminPreview ? (
-          <section className="mb-5 overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+          <section className="mb-5 overflow-hidden rounded-lg bg-[#0b2420] text-white">
             <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="m-0 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300/80">
+                <p className="m-0 flex flex-wrap items-center gap-2 text-[12px] font-medium text-emerald-300/80">
                   Profile review
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal ${reviewStatus === "APPROVED" ? "bg-emerald-400/20 text-emerald-200" : reviewStatus === "REJECTED" ? "bg-rose-400/20 text-rose-200" : "bg-amber-300/20 text-amber-200"}`}>
+                  <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${reviewStatus === "APPROVED" ? "bg-emerald-400/20 text-emerald-200" : reviewStatus === "REJECTED" ? "bg-rose-400/20 text-rose-200" : "bg-amber-300/20 text-amber-200"}`}>
                     {reviewStatus === "APPROVED" ? "Approved" : reviewStatus === "REJECTED" ? "Returned to operator" : "Waiting for your decision"}
                   </span>
-                  {agentStatus === "SUSPENDED" ? <span className="rounded-full bg-rose-400/20 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-rose-200">Account suspended</span> : null}
+                  {agentStatus === "SUSPENDED" ? <span className="rounded bg-rose-400/20 px-1.5 py-0.5 text-[11px] font-semibold text-rose-200">Account suspended</span> : null}
                 </p>
                 <h1 className="m-0 mt-1 truncate text-lg font-bold text-white">{p?.companyName || "Submitted operator profile"}</h1>
                 <p className="m-0 mt-0.5 text-xs text-white/55">Below is exactly what travellers will see, with prices at {commissionPercent}% NoLSAF commission.</p>
@@ -738,7 +738,7 @@ export function OperatorProfilePreviewScreen({
                     setUseSystemCommission(Math.abs(Number(commissionPercent) - Number(systemCommission)) < 0.0001);
                     setCommissionModalOpen(true);
                   }}
-                  className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 hover:bg-white/[0.12]"
+                  className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 hover:bg-white/[0.12]"
                   title="Try another commission rate on this preview. It does not change the operator's commission."
                 >
                   <Percent className="h-3.5 w-3.5" aria-hidden /> Preview prices
@@ -748,7 +748,7 @@ export function OperatorProfilePreviewScreen({
                     type="button"
                     onClick={() => setSuspendConfirmOpen(true)}
                     aria-disabled={suspendLoading || agentStatus === "SUSPENDED"}
-                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-rose-300/40 bg-rose-400/10 px-3 text-xs font-semibold text-rose-100 hover:bg-rose-400/20 aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                    className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-solid border-rose-300/40 bg-rose-400/10 px-3 text-xs font-semibold text-rose-100 hover:bg-rose-400/20 aria-disabled:pointer-events-none aria-disabled:opacity-50"
                   >
                     <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {agentStatus === "SUSPENDED" ? "Suspended" : "Suspend"}
                   </button>
@@ -758,7 +758,7 @@ export function OperatorProfilePreviewScreen({
                       type="button"
                       onClick={() => { setDecision(decision === "REJECT" ? null : "REJECT"); setRejectReason(""); }}
                       aria-pressed={decision === "REJECT"}
-                      className={`inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-solid px-3 text-xs font-semibold ${decision === "REJECT" ? "border-rose-300 bg-rose-500 text-white" : "border-rose-300/40 bg-rose-400/10 text-rose-100 hover:bg-rose-400/20"}`}
+                      className={`inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-solid px-3 text-xs font-semibold ${decision === "REJECT" ? "border-rose-300 bg-rose-500 text-white" : "border-rose-300/40 bg-rose-400/10 text-rose-100 hover:bg-rose-400/20"}`}
                     >
                       <XCircle className="h-3.5 w-3.5" aria-hidden /> Return
                     </button>
@@ -766,7 +766,7 @@ export function OperatorProfilePreviewScreen({
                       type="button"
                       onClick={() => setDecision(decision === "APPROVE" ? null : "APPROVE")}
                       aria-pressed={decision === "APPROVE"}
-                      className={`inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3.5 text-xs font-semibold ${decision === "APPROVE" ? "bg-white text-[#0b2420]" : "bg-emerald-400 text-[#0b2420] hover:bg-emerald-300"}`}
+                      className={`inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border-0 px-3.5 text-xs font-semibold ${decision === "APPROVE" ? "bg-white text-[#0b2420]" : "bg-emerald-400 text-[#0b2420] hover:bg-emerald-300"}`}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Approve
                     </button>
@@ -784,12 +784,12 @@ export function OperatorProfilePreviewScreen({
                       Approve and publish this profile? It goes live for travellers at once and the operator is notified.
                     </p>
                     <div className="flex shrink-0 gap-2">
-                      <button type="button" onClick={() => setDecision(null)} className="h-9 cursor-pointer rounded-lg border border-solid border-white/15 bg-transparent px-3 text-xs font-semibold text-white/80 hover:bg-white/10">Cancel</button>
+                      <button type="button" onClick={() => setDecision(null)} className="h-9 cursor-pointer rounded-md border border-solid border-white/15 bg-transparent px-3 text-xs font-semibold text-white/80 hover:bg-white/10">Cancel</button>
                       <button
                         type="button"
                         onClick={() => { void reviewFromPreview("APPROVED").then(() => setDecision(null)); }}
                         aria-disabled={reviewLoading}
-                        className="h-9 cursor-pointer rounded-lg border-0 bg-emerald-400 px-3.5 text-xs font-semibold text-[#0b2420] hover:bg-emerald-300 aria-disabled:pointer-events-none aria-disabled:opacity-60"
+                        className="h-9 cursor-pointer rounded-md border-0 bg-emerald-400 px-3.5 text-xs font-semibold text-[#0b2420] hover:bg-emerald-300 aria-disabled:pointer-events-none aria-disabled:opacity-60"
                       >
                         {reviewLoading ? "Approving" : "Yes, approve and publish"}
                       </button>
@@ -803,17 +803,17 @@ export function OperatorProfilePreviewScreen({
                       value={rejectReason}
                       onChange={(e) => setRejectReason(e.target.value.slice(0, 1000))}
                       placeholder="For example: package photos are missing and the Serengeti price looks too low."
-                      className="mt-2 block min-h-[80px] w-full resize-y rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 focus:border-rose-300"
+                      className="mt-2 block min-h-[80px] w-full resize-y rounded-md border border-solid border-white/15 bg-white/[0.06] px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 focus:border-rose-300"
                     />
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <span className="text-[11px] text-white/45">The operator reads this in their notification and email.</span>
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => setDecision(null)} className="h-9 cursor-pointer rounded-lg border border-solid border-white/15 bg-transparent px-3 text-xs font-semibold text-white/80 hover:bg-white/10">Cancel</button>
+                        <button type="button" onClick={() => setDecision(null)} className="h-9 cursor-pointer rounded-md border border-solid border-white/15 bg-transparent px-3 text-xs font-semibold text-white/80 hover:bg-white/10">Cancel</button>
                         <button
                           type="button"
                           onClick={() => { void reviewFromPreview("REJECTED", { reason: rejectReason }).then(() => setDecision(null)); }}
                           aria-disabled={reviewLoading || rejectReason.trim().length < 5}
-                          className="h-9 cursor-pointer rounded-lg border-0 bg-rose-500 px-3.5 text-xs font-semibold text-white hover:bg-rose-600 aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                          className="h-9 cursor-pointer rounded-md border-0 bg-rose-500 px-3.5 text-xs font-semibold text-white hover:bg-rose-600 aria-disabled:pointer-events-none aria-disabled:opacity-50"
                         >
                           {reviewLoading ? "Sending" : "Return to operator"}
                         </button>
@@ -1055,6 +1055,49 @@ export function OperatorProfilePreviewScreen({
             </div>
           </div>
         ) : null}
+        {/* Admins only: the preview hides every section with no content, so a thin
+            profile looks broken. Say plainly what travellers would not see. */}
+        {isAdminPreview && p ? (() => {
+          const anyP = p as any;
+          const photoCount =
+            Object.values((anyP.classifiedPhotos ?? {}) as Record<string, unknown>).reduce((n: number, v) => n + (Array.isArray(v) ? v.length : 0), 0) +
+            (Array.isArray(anyP.gallery) ? anyP.gallery.length : 0);
+          const packages: any[] = Array.isArray(anyP.packageItems) ? anyP.packageItems : [];
+          const checks: Array<{ label: string; ok: boolean; detail: string }> = [
+            { label: "Company name", ok: Boolean(String(anyP.companyName || "").trim()), detail: "Shown as the page title and on the card" },
+            { label: "About the company", ok: String(anyP.description || "").trim().length >= 40, detail: "The overview travellers read first" },
+            { label: "Tour packages", ok: packages.length > 0, detail: packages.length ? `${packages.length} submitted` : "Without one, the operator is not listed" },
+            { label: "Photos", ok: photoCount > 0, detail: photoCount ? `${photoCount} uploaded` : "The gallery and card photo stay empty" },
+            { label: "Where they operate", ok: Boolean((anyP.operatingRegions || []).length || String(anyP.physicalLocation || "").trim()), detail: "Shown under the name and on the card" },
+            { label: "Tour styles", ok: Boolean((anyP.tourismTypes || []).length), detail: "Used by search and filters" },
+          ];
+          const missing = checks.filter((c) => !c.ok);
+          return (
+            <section className={`mx-auto mb-4 w-full max-w-7xl rounded-lg border border-solid px-4 py-3.5 ${missing.length ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+              <p className={`m-0 flex items-center gap-2 text-[13.5px] font-semibold ${missing.length ? "text-amber-950" : "text-emerald-900"}`}>
+                {missing.length ? <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden /> : <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />}
+                {missing.length
+                  ? `${missing.length} of ${checks.length} things travellers need are missing. Empty parts are hidden below, so the page looks thin.`
+                  : "Everything travellers need is filled in."}
+              </p>
+              <ul className="m-0 mt-2.5 grid list-none gap-x-6 gap-y-1.5 p-0 sm:grid-cols-2 lg:grid-cols-3">
+                {checks.map((c) => (
+                  <li key={c.label} className="flex min-w-0 items-start gap-2 text-[12.5px]">
+                    {c.ok ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden /> : <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />}
+                    <span className="min-w-0">
+                      <span className={`font-medium ${c.ok ? "text-neutral-800" : "text-amber-950"}`}>{c.label}</span>
+                      <span className="text-neutral-500"> · {c.detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {missing.length ? (
+                <p className="m-0 mt-2.5 text-[12px] text-amber-900">Use Return to send it back with what to add, rather than approving an empty listing.</p>
+              ) : null}
+            </section>
+          );
+        })() : null}
+
         {/* Everyone sees the same booking-first page: travellers, the operator previewing
             it, and the admin reviewing it (under the review bar above). */}
         {p ? (

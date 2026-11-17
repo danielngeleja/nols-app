@@ -57,7 +57,7 @@ describe("admin owner payout reminder", () => {
     expect(state.sendMail).toHaveBeenCalledWith(
       "owner@example.test",
       expect.stringContaining("payout details"),
-      expect.stringContaining("Owner Profile"),
+      expect.stringContaining("owner profile"),
     );
     expect(state.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
