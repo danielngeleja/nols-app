@@ -3,7 +3,8 @@ import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { notifyUser } from "../lib/notifications.js";
-import { isAdvanceRow, loadAdvanceTotalsFor } from "../lib/tourPayouts.js";
+import { isAdvanceRow, loadAdvanceTotalsFor, loadOperatorStanding } from "../lib/tourPayouts.js";
+import { checkAdvanceExposure, loadTourPayoutControls } from "../lib/tourPayoutControls.js";
 import { balanceAfterAdvances } from "../lib/tourPayoutPolicy.js";
 import { BalanceFullyOffsetError, loadEligiblePayoutSource } from "../services/payouts/eligibility.js";
 import { settleBalanceByRecoveryOffset } from "../lib/tourRecoveryOffset.js";
@@ -302,6 +303,16 @@ router.post("/action", async (req: any, res) => {
     if (action === "approve" && !actionReason) {
       return res.status(400).json({ ok: false, error: "Approval reason is required" });
     }
+    if (action === "approve") {
+      const verifierId = Number(toRevenueMetadata((booking as any)?.metadata).revenueHistory?.verified?.actor?.id);
+      if (verifierId === adminId && (await loadTourPayoutControls()).separateApprover) {
+        return res.status(409).json({
+          ok: false,
+          error: "You verified this payout, so another admin must approve it.",
+          code: "SEPARATE_APPROVER_REQUIRED",
+        });
+      }
+    }
 
     if (action === "reject") {
       if (currentStatus === "DISBURSED" || currentStatus === "REJECTED") {
@@ -451,7 +462,7 @@ router.post("/advances/:advanceId/action", async (req: any, res) => {
 
     const row = await prisma.tourFinancialTransaction.findUnique({
       where: { id: advanceId },
-      select: { id: true, kind: true, status: true, amount: true, metadata: true, booking: { select: { id: true, bookingCode: true, status: true, operatorAgentId: true } } },
+      select: { id: true, kind: true, status: true, amount: true, currency: true, metadata: true, booking: { select: { id: true, bookingCode: true, status: true, operatorAgentId: true } } },
     });
     if (!row || row.kind !== "PAYOUT" || !isAdvanceRow(row.metadata)) {
       return res.status(404).json({ ok: false, error: "Advance not found" });
@@ -465,6 +476,34 @@ router.post("/advances/:advanceId/action", async (req: any, res) => {
     }
     if (action === "approve" && ["CANCELED", "CANCELLED", "REFUNDED"].includes(String(row.booking.status || "").toUpperCase())) {
       return res.status(409).json({ ok: false, error: "The booking is cancelled; reject this advance instead" });
+    }
+    if (action === "approve") {
+      const controls = await loadTourPayoutControls();
+      const priorHistory = Array.isArray((row.metadata as any)?.history) ? (row.metadata as any).history : [];
+      const verifiedBy = [...priorHistory].reverse().find((h: any) => h?.action === "VERIFIED")?.actor?.id;
+      if (controls.separateApprover && Number(verifiedBy) === adminId) {
+        return res.status(409).json({
+          ok: false,
+          error: "You verified this advance, so another admin must approve it.",
+          code: "SEPARATE_APPROVER_REQUIRED",
+        });
+      }
+      // Show the operator-wide limit at approval, not only when the money moves.
+      const operator = await prisma.agent.findUnique({ where: { id: row.booking.operatorAgentId }, select: { id: true, userId: true } });
+      if (operator) {
+        const standing = await loadOperatorStanding(operator);
+        const exposure = await checkAdvanceExposure({
+          operatorAgentId: operator.id,
+          tier: standing.tier,
+          addAmount: Number(row.amount),
+          currency: row.currency,
+          alreadyCounted: true,
+          controls,
+        });
+        if (!exposure.ok) {
+          return res.status(409).json({ ok: false, error: `${exposure.message} Reject this advance or wait for an earlier trip to finish.`, code: "ADVANCE_EXPOSURE_LIMIT" });
+        }
+      }
     }
 
     const adminUser = await prisma.user.findUnique({ where: { id: adminId }, select: { fullName: true, name: true } });

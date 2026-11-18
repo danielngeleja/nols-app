@@ -94,7 +94,7 @@ export default function AgentShell({ children }: { children: ReactNode }) {
     setReturnError("");
     try {
       const { data } = await apiClient.post<{ ok: boolean; redirectTo: string }>("/api/auth/impersonation/end");
-      if (!data.ok || data.redirectTo !== "/admin/agents") throw new Error("Could not restore administrator session");
+      if (!data.ok || !/^\/admin\/agents(?:\/[A-Za-z0-9_-]+)?$/.test(data.redirectTo)) throw new Error("Could not restore administrator session");
       clearAuthToken();
       window.location.replace(data.redirectTo);
     } catch {

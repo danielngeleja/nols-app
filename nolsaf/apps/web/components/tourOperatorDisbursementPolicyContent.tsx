@@ -6,7 +6,7 @@
 import Link from "@/components/PolicyLink";
 import { TermsSection } from "./Terms";
 
-export const TOUR_OPERATOR_DISBURSEMENT_POLICY_LAST_UPDATED = "17 November 2026";
+export const TOUR_OPERATOR_DISBURSEMENT_POLICY_LAST_UPDATED = "19 November 2026";
 
 export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
   {
@@ -66,6 +66,9 @@ export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
         <p>
           <strong>3.6 Receipts.</strong> Receipts must be genuine, must relate to the trip the advance is requested for, and must be uploaded through the operator workspace as a PDF, JPG or PNG file; links to files kept elsewhere are not accepted. NoLSAF finance checks them before verifying the advance. Submitting a false or reused receipt is a serious breach of this policy (see section 7).
         </p>
+        <p>
+          <strong>3.7 Open advance limit.</strong> From <strong>19 December 2026</strong>, each operator level has a limit on the total of advances an operator can hold at one time across trips that have not finished yet. An advance counts towards the limit from the moment it is requested until its trip is completed, and stops counting if the request is declined or the trip is cancelled. Advances in USD are counted in TZS at NoLSAF&apos;s current exchange rate. A request that would pass the limit is not accepted, and you are told your limit and how much is already open, so you can request a smaller amount or wait for an earlier trip to finish. The limit for each level is set by NoLSAF, and a limit is only lowered after the notice in section 8.2.
+        </p>
       </div>
     ),
   },
@@ -90,7 +93,7 @@ export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
     content: (
       <div className="space-y-4">
         <p>
-          <strong>5.1 Stages.</strong> Every advance and balance moves through the same stages: <strong>Claimed</strong> by the operator, <strong>Verified</strong> by NoLSAF finance, <strong>Approved</strong> for release, and <strong>Disbursed</strong> to the operator's verified payout destination. The operator can follow each stage on the revenues page.
+          <strong>5.1 Stages.</strong> Every advance and balance moves through the same stages: <strong>Claimed</strong> by the operator, <strong>Verified</strong> by NoLSAF finance, <strong>Approved</strong> for release, and <strong>Disbursed</strong> to the operator's verified payout destination. Verification and approval are done by two different members of NoLSAF finance. The operator can follow each stage on the revenues page.
         </p>
         <p>
           <strong>5.2 Settlement cycle.</strong> A claim is processed within the Settlement Cycle in your operator agreement: <strong>24 hours to 3 days</strong> from the claim, subject to verification, fraud review and the checks in this policy. A claim that needs clarification is paused until the missing information is provided; NoLSAF will say what is needed.
@@ -144,7 +147,7 @@ export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
     content: (
       <div className="space-y-4">
         <p>
-          <strong>8.1 Version.</strong> This is version 2026-09-26. A claim is handled under the version in force when it was made.
+          <strong>8.1 Version.</strong> This is version 2026-12-19, published on 19 November 2026 and in force from 19 December 2026. Until then version 2026-09-26 applies, which is the same except that it has no open advance limit (section 3.7). A claim is handled under the version in force when it was made.
         </p>
         <p>
           <strong>8.2 Notice.</strong> As your operator agreement requires, NoLSAF gives at least <strong>30 days&apos; written notice</strong> before a change to payout rules takes effect, and you may object within that period.

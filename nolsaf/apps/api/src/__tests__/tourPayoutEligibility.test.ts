@@ -18,7 +18,15 @@ const mocks = vi.hoisted(() => ({
   listRecoveries: vi.fn(),
   listDisbursements: vi.fn(),
   listBookings: vi.fn(),
+  standing: vi.fn(),
+  exposure: vi.fn(),
 }));
+
+vi.mock("../lib/tourPayouts.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/tourPayouts.js")>()),
+  loadOperatorStanding: mocks.standing,
+}));
+vi.mock("../lib/tourPayoutControls.js", () => ({ checkAdvanceExposure: mocks.exposure }));
 
 vi.mock("@nolsaf/prisma", () => ({
   prisma: {
@@ -52,6 +60,8 @@ beforeEach(() => {
   mocks.listRecoveries.mockResolvedValue([]);
   mocks.listDisbursements.mockResolvedValue([]);
   mocks.listBookings.mockResolvedValue([]);
+  mocks.standing.mockResolvedValue({ tier: "SILVER", hasVerifiedPayoutDestination: true, pendingRecoveryAmount: 0 });
+  mocks.exposure.mockResolvedValue({ ok: true, limitTzs: 25_000_000, exposureTzs: 0, afterTzs: 0 });
 });
 
 const recoveryRow = (id: number, amount: number, offsetApplied = 0) => ({
@@ -119,7 +129,7 @@ describe("tour advance", () => {
     amount: dec("3900.00"),
     currency: "USD",
     metadata: { tranche: "ADVANCE" },
-    booking: { id: 9, status: "CONFIRMED", operatorPayoutAmount: dec("13000.00"), operator: { userId: 5 } },
+    booking: { id: 9, status: "CONFIRMED", operatorPayoutAmount: dec("13000.00"), operatorAgentId: 7, operator: { userId: 5 } },
     ...overrides,
   });
 
@@ -128,6 +138,20 @@ describe("tour advance", () => {
     const source = await loadEligiblePayoutSource("TOUR_ADVANCE", 3);
     expect(source).toMatchObject({ sourceType: "TOUR_ADVANCE", payeeUserId: 5, currency: "USD" });
     expect(source.amount.toString()).toBe("3900");
+    // The approved row is already part of the operator's exposure.
+    expect(mocks.exposure).toHaveBeenCalledWith(expect.objectContaining({ operatorAgentId: 7, tier: "SILVER", alreadyCounted: true }));
+  });
+
+  it("refuses an advance once the operator's open advances pass their tier limit", async () => {
+    mocks.findTx.mockResolvedValue(tx());
+    mocks.exposure.mockResolvedValue({ ok: false, reason: "over_limit", limitTzs: 25_000_000, exposureTzs: 30_000_000, afterTzs: 30_000_000, message: "Open advances would reach TZS 30,000,000, above the SILVER limit" });
+    await expect(loadEligiblePayoutSource("TOUR_ADVANCE", 3)).rejects.toThrow(/above the SILVER limit/);
+  });
+
+  it("refuses when an exchange rate is missing, so the limit cannot be proven", async () => {
+    mocks.findTx.mockResolvedValue(tx());
+    mocks.exposure.mockResolvedValue({ ok: false, reason: "fx_unavailable", limitTzs: 25_000_000, exposureTzs: null, afterTzs: null, message: "An exchange rate is missing" });
+    await expect(loadEligiblePayoutSource("TOUR_ADVANCE", 3)).rejects.toThrow(/exchange rate is missing/);
   });
 
   it("refuses an advance that would pass 70% of the net share", async () => {
@@ -140,7 +164,7 @@ describe("tour advance", () => {
     mocks.findTx.mockResolvedValue(tx({ status: "VERIFIED" }));
     await expect(loadEligiblePayoutSource("TOUR_ADVANCE", 3)).rejects.toThrow(/expected APPROVED/);
 
-    mocks.findTx.mockResolvedValue(tx({ booking: { id: 9, status: "CANCELED", operatorPayoutAmount: dec("13000.00"), operator: { userId: 5 } } }));
+    mocks.findTx.mockResolvedValue(tx({ booking: { id: 9, status: "CANCELED", operatorPayoutAmount: dec("13000.00"), operatorAgentId: 7, operator: { userId: 5 } } }));
     await expect(loadEligiblePayoutSource("TOUR_ADVANCE", 3)).rejects.toThrow(/can no longer be paid/);
 
     mocks.findTx.mockResolvedValue(tx());

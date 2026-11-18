@@ -6,6 +6,7 @@ import { decrypt, verifyCode } from "../lib/crypto.js";
 import { getRedis } from "../lib/redis.js";
 import { audit } from "../lib/audit.js";
 import { signUserJwt, setAuthCookie } from "../lib/sessionManager.js";
+import { recordSuccessfulSignIn } from "../lib/newSignInAlert.js";
 import { accountMfaBinding, requiresAccountTotp } from "../lib/accountMfaPolicy.js";
 import { limitOtpVerify } from "../middleware/rateLimit.js";
 
@@ -159,8 +160,7 @@ accountMfaRouter.post("/mfa/verify", limitOtpVerify, async (req, res) => {
     const token = await signUserJwt({ id: fresh.id, role: fresh.role, email: fresh.email },
       { accountMfa: { method, binding: accountMfaBinding(fresh) } });
     await setAuthCookie(res, token, fresh.role);
-    (req as any).user = fresh;
-    await audit(req, "USER_LOGIN", `user:${fresh.id}`, null, { success: true, mfa: true, loginMethod: method });
+    await recordSuccessfulSignIn(req, res, fresh, { method, token, mfa: true });
     return res.json({ ok: true, token, user: { id: fresh.id, role: fresh.role, email: fresh.email } });
   } catch {
     return res.status(503).json({ code: "MFA_UNAVAILABLE", message: "Verification is temporarily unavailable. Please sign in again." });

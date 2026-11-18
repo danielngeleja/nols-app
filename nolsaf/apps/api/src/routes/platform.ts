@@ -16,7 +16,6 @@ import geocodingRouter from "./geocoding";
 import groupBookingsRouter from "./groupBookings.js";
 import propertyReviewsRouter from "./property.reviews";
 import reportSealRouter from "./reports.seal";
-import { handoffRouter as agentReportHandoffRouter } from "./agent.reports";
 import { router as upCld } from "./uploads.cloudinary";
 import { router as upS3 } from "./uploads.s3";
 import paymentWebhooksRouter from "./webhooks.payments";
@@ -37,7 +36,6 @@ export function registerAccountAuthRoutes(app: Express): void {
   app.use("/api/account", account as RequestHandler);
   app.use("/api/auth", adminMfaRouter);
   app.use("/api/auth", authRoutes);
-  app.use("/api/auth", agentReportHandoffRouter);
 }
 
 export function registerConversationBookingRoutes(app: Express): void {

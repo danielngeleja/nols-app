@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { publicOperatorProfile } from "../lib/operatorPackages.js";
 
 const router = Router();
 
@@ -71,10 +72,10 @@ function profileReadiness(profile: OperatorProfile) {
 }
 
 // Same rule public.agents.ts applies before listing an operator: an ACTIVE account
-// with an APPROVED profile. Anything looser over-reports who travellers can see.
+// whose profile passes the shared public rule. Anything looser over-reports who
+// travellers can see.
 function isPublicVisible(agentStatus: unknown, profile: OperatorProfile) {
-  const reviewStatus = String(profile.reviewStatus || profile.review?.status || "").toUpperCase();
-  return String(agentStatus || "").toUpperCase() === "ACTIVE" && reviewStatus === "APPROVED";
+  return String(agentStatus || "").toUpperCase() === "ACTIVE" && publicOperatorProfile(profile) !== null;
 }
 
 function clampPercent(value: unknown, fallback = 0): number {

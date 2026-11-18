@@ -12,9 +12,11 @@ import { addPasswordToHistory, getPasswordChangeCooldownRemaining, isPasswordReu
 import { getPublicPasswordPolicy, validatePasswordWithSettings } from '../lib/securitySettings.js';
 import { getRoleSessionMaxMinutes } from '../lib/securitySettings.js';
 import { signUserJwt, setAuthCookie, clearAuthCookie, clearImpersonationHandoffCookie } from '../lib/sessionManager.js';
-import { consumeSupportHandoff, getActiveSupportHandoff, supportHandoffMatchesUser } from '../lib/supportImpersonation.js';
+import { consumeSupportHandoff, getActiveSupportHandoff, supportHandoffMatchesUser, supportReturnPath } from '../lib/supportImpersonation.js';
 import { getWebAuthnRp } from '../lib/webauthnRp.js';
-import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js';
+import { recordSuccessfulSignIn } from '../lib/newSignInAlert.js';
+import { OWNER_MFA_SETUP_PATH, OWNER_MFA_SETUP_SESSION_SECONDS, ownerMfaState, ownerWeakSignInOutcome } from '../lib/ownerMfaPolicy.js';
+import { verifySignOutDeviceToken, userAgentsForDevice, LOGIN_DEVICE_FORGOTTEN } from '../lib/loginDevice.js';
 import { audit } from '../lib/audit.js';
 import { generateOperatorWelcomeEmail } from '../lib/operatorWelcomeEmail.js';
 import { readContractWorkflow } from '../lib/agentContractWorkflow.js';
@@ -946,8 +948,10 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
       }
 
       if (requiresAccountTotp(existing)) return await beginAccountMfaChallenge(req, res, existing.id);
+      if (await ownerWeakSignInGate(req, res, existing, channel === 'PHONE' ? 'sms_otp' : 'email_otp')) return;
       const token = await signUserJwt({ id: existing.id, role: existing.role as any, email: existing.email });
       await setAuthCookie(res, token, existing.role as any);
+      await recordSuccessfulSignIn(req, res, existing, { method: channel === 'PHONE' ? 'sms_otp' : 'email_otp', token });
       return res.json({
         ok: true,
         message: 'verified',
@@ -1112,37 +1116,6 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
 router.post('/login', (req, res) => {
   return res.status(400).json({ error: "Use POST /api/auth/login-password for email/password login." });
 });
-
-// ─── Known-device fingerprint store ──────────────────────────────────────────
-// Tracks SHA-256 fingerprints (UA + IP prefix) per userId so login-alert emails
-// are only sent when a truly new device/browser is seen.
-// Resets on server restart — first login after a deploy will alert once per user.
-const knownDeviceStore = new Map<number, Set<string>>();
-const MAX_KNOWN_DEVICES = 20; // cap per user to avoid unbounded growth
-
-function getDeviceFingerprint(ua: string, ip: string): string {
-  // Use first two octets of IPv4 / first segment of IPv6 so minor IP changes
-  // on the same network don't trigger spurious alerts.
-  const ipPrefix = ip.split('.').slice(0, 2).join('.') || ip.split(':')[0] || ip;
-  return crypto.createHash('sha256').update(`${ua}::${ipPrefix}`).digest('hex').slice(0, 16);
-}
-
-function isNewDevice(userId: number, fingerprint: string): boolean {
-  const known = knownDeviceStore.get(userId);
-  if (!known) return true; // first-ever login for this user in this server process
-  return !known.has(fingerprint);
-}
-
-function recordDevice(userId: number, fingerprint: string): void {
-  let known = knownDeviceStore.get(userId);
-  if (!known) { known = new Set(); knownDeviceStore.set(userId, known); }
-  if (known.size >= MAX_KNOWN_DEVICES) {
-    // Evict oldest entry to stay bounded
-    const oldest = known.values().next().value;
-    if (oldest) known.delete(oldest);
-  }
-  known.add(fingerprint);
-}
 
 // POST /api/auth/login-password
 // Body: { email, password }
@@ -1376,6 +1349,7 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
       return await beginAdminMfaChallenge(req, res, user as any);
     }
     if (requiresAccountTotp(user)) return await beginAccountMfaChallenge(req, res, user.id);
+    if (await ownerWeakSignInGate(req, res, user, 'password')) return;
 
     // Generate JWT token with error handling
     let token: string;
@@ -1395,69 +1369,8 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
       // The token is in the response body
     }
 
-    // Audit successful login
-    try {
-      // `audit()` derives actorId/actorRole from `req.user`. During login, middleware
-      // has not attached a user yet, so explicitly attach for attribution.
-      ;(req as any).user = user
-      await audit(req, "USER_LOGIN", `user:${user.id}`, null, { 
-        role: user.role,
-        email: user.email,
-        loginMethod: 'password',
-        event: 'login',
-        success: true,
-      });
-    } catch (auditError) {
-      // Don't block login if audit fails
-      console.warn("Failed to audit login:", auditError);
-    }
-
-    // Send new sign-in alert email — only when the device/browser is new
-    if (user.email) {
-      try {
-        const ua = String(req.headers['user-agent'] || '');
-        const device = (() => {
-          if (/mobile|android|iphone|ipad/i.test(ua)) {
-            if (/iphone/i.test(ua)) return 'iPhone (Mobile)';
-            if (/ipad/i.test(ua)) return 'iPad (Tablet)';
-            if (/android/i.test(ua)) return 'Android (Mobile)';
-            return 'Mobile Device';
-          }
-          if (/windows/i.test(ua)) return 'Windows (Desktop)';
-          if (/macintosh|mac os/i.test(ua)) return 'Mac (Desktop)';
-          if (/linux/i.test(ua)) return 'Linux (Desktop)';
-          return ua.slice(0, 80) || 'Unknown';
-        })();
-        // Country from Cloudflare header (when behind CF CDN) or fallback headers
-        const country = String(
-          req.headers['cf-ipcountry'] ||
-          req.headers['x-country-code'] ||
-          req.headers['x-vercel-ip-country'] ||
-          ''
-        ) || undefined;
-        const appUrl = process.env.APP_URL || process.env.WEB_ORIGIN || 'http://localhost:3000';
-
-        // Fingerprint: hash of UA + IP prefix
-        const fingerprint = getDeviceFingerprint(ua, clientIp);
-        const newDevice = isNewDevice(user.id, fingerprint);
-        // Always record so subsequent logins from same device are silent
-        recordDevice(user.id, fingerprint);
-
-        if (newDevice) {
-          const { subject, html } = getLoginAlertEmail({
-            name: user.email,
-            loginAt: new Date(),
-            ipAddress: clientIp !== 'unknown' ? clientIp : undefined,
-            device,
-            country,
-            resetPasswordUrl: `${appUrl}/account/forgot-password`,
-          });
-          await sendMail(user.email, subject, html, undefined, { from: SECURITY_EMAIL_FROM, replyTo: "support@nolsaf.com" });
-        }
-      } catch (e) {
-        console.warn('[LOGIN] Sign-in alert email failed:', e);
-      }
-    }
+    // Audit the sign-in and alert on a device this account has not used.
+    await recordSuccessfulSignIn(req, res, user, { method: 'password', token });
 
     return res.status(200).json({ ok: true, token, user: { id: user.id, role: user.role, email: user.email } });
   } catch (e: any) {
@@ -1565,14 +1478,111 @@ router.post("/impersonation/end", maybeAuth, async (req, res) => {
     where: { id: handoff.adminSessionId, userId: handoff.adminId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+  // Restore the admin's original login, not a new one: keep its sign-in time
+  // and expiry so a support round trip never extends the admin session.
   const adminToken = await signUserJwt(
     { id: handoff.adminId, role: "ADMIN" },
-    { adminMfa: handoff.adminMfa as "passkey" | "totp" },
+    {
+      adminMfa: handoff.adminMfa as "passkey" | "totp",
+      issuedAtSeconds: handoff.adminIssuedAt,
+      expiresInSeconds: Math.max(1, handoff.adminExpiresAt - handoff.adminIssuedAt),
+    },
   );
   await setAuthCookie(res, adminToken, "ADMIN");
   res.setHeader("Cache-Control", "private, no-store");
-  const redirectTo = handoff.supportRole === "OWNER" ? `/admin/owners/${current.id}` : "/admin/agents";
+  const redirectTo = await supportReturnPath(handoff.supportRole, current.id);
   return res.json({ ok: true, redirectTo });
+});
+
+/**
+ * Owner MFA policy at sign-in (lib/ownerMfaPolicy.ts). Called for SMS-code and
+ * password sign-ins only, after the authenticator challenge check. Returns
+ * true when it has already answered the request.
+ */
+async function ownerWeakSignInGate(
+  req: any,
+  res: any,
+  user: { id: number; role?: string | null; email?: string | null },
+  method: string,
+): Promise<boolean> {
+  if (String(user.role || '').toUpperCase() !== 'OWNER') return false;
+  const outcome = await ownerWeakSignInOutcome(user);
+  if (outcome === 'FULL') return false;
+  if (outcome === 'PASSKEY_REQUIRED') {
+    res.status(403).json({
+      error: 'passkey_required',
+      code: 'OWNER_PASSKEY_SIGNIN_REQUIRED',
+      message: 'Your account is protected by a passkey. Sign in with your passkey instead.',
+    });
+    return true;
+  }
+  const token = await signUserJwt(
+    { id: user.id, role: user.role, email: user.email },
+    { scope: 'owner_mfa_setup', expiresInSeconds: OWNER_MFA_SETUP_SESSION_SECONDS },
+  );
+  await setAuthCookie(res, token, user.role);
+  await recordSuccessfulSignIn(req, res, user, { method: `${method}_setup_only`, token });
+  res.status(200).json({
+    ok: true,
+    token,
+    user: { id: user.id, role: user.role, email: user.email },
+    mfaSetupRequired: true,
+    redirectTo: OWNER_MFA_SETUP_PATH,
+  });
+  return true;
+}
+
+// GET /api/auth/owner-mfa/status
+// What the owner MFA policy means for the signed-in owner right now. Drives
+// the grace banner and the setup screen. Non-owners always get applies:false.
+router.get("/owner-mfa/status", maybeAuth, async (req, res) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  const current = (req as any).user as { id: number; role?: string; strongAuth?: boolean; setupOnly?: boolean } | undefined;
+  if (!current) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const state = await ownerMfaState(current);
+    return res.json({
+      applies: state.required,
+      satisfied: state.satisfied,
+      hasPasskey: state.hasPasskey,
+      hasAuthenticator: state.hasAuthenticator,
+      graceEndsAt: state.graceEndsAt ? state.graceEndsAt.toISOString() : null,
+      signInEnforced: state.signInEnforced,
+      sessionStrong: Boolean(current.strongAuth),
+      setupOnly: Boolean(current.setupOnly),
+    });
+  } catch {
+    return res.status(503).json({ error: "Your account security could not be checked right now." });
+  }
+});
+
+// POST /api/auth/sign-in-alert/sign-out { token }
+// The "Sign out that device" button in the new sign-in email. The signed link
+// names exactly one session of one account; opening it in a browser only shows
+// a confirm page (mail scanners prefetch links), and this POST does the work.
+// The device also stops being recognised, so its next sign-in alerts again.
+router.post("/sign-in-alert/sign-out", limitAccountCheck, async (req, res) => {
+  const target = verifySignOutDeviceToken(String(req.body?.token || ""));
+  if (!target) {
+    return res.status(400).json({ error: "link_invalid", message: "This link has expired. Sign in and review your devices instead." });
+  }
+  try {
+    const result = await prisma.session.updateMany({
+      where: { id: target.sessionId, userId: target.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await invalidateAuthSessionCacheForUser(target.userId).catch(() => {});
+    (req as any).user = { id: target.userId };
+    if (target.deviceTag) {
+      const userAgents = await userAgentsForDevice(target.userId, target.deviceTag).catch(() => [] as string[]);
+      await audit(req, LOGIN_DEVICE_FORGOTTEN, `user:${target.userId}`, null, { deviceTag: target.deviceTag, userAgents, via: "sign_in_alert" });
+    }
+    await audit(req, "SIGN_IN_ALERT_SESSION_REVOKED", `session:${target.sessionId}`, null, { revoked: result.count === 1 });
+    return res.json({ ok: true, alreadySignedOut: result.count === 0 });
+  } catch (e) {
+    console.error("[AUTH] sign-in alert sign-out failed", e);
+    return res.status(503).json({ error: "unavailable", message: "We could not sign that device out right now. Please try again." });
+  }
 });
 
 function safeNextPath(raw: any): string {
@@ -1583,33 +1593,6 @@ function safeNextPath(raw: any): string {
   return v;
 }
 
-function safeOwnerReportPrintNext(raw: any): string {
-  const fallback = "/owner/reports/stays";
-  const v = typeof raw === "string" ? raw.trim() : "";
-  if (!v || !v.startsWith("/") || v.startsWith("//")) return fallback;
-  if (!v.startsWith("/owner/reports/stays")) return fallback;
-  return v;
-}
-
-router.get("/owner-report-print-handoff", maybeAuth, blockImpersonated, asyncHandler(async (req, res) => {
-  const rawToken = String((req as any).query?.token || "").trim();
-  if (!rawToken) return res.status(400).send("Missing print handoff token.");
-
-  const handoff = verifyOwnerReportPrintHandoff(rawToken);
-  if (!handoff) return res.status(401).send("Invalid or expired print handoff token.");
-
-  const user = await prisma.user.findUnique({
-    where: { id: handoff.userId },
-    select: { id: true, role: true, email: true, suspendedAt: true },
-  });
-  if (!user || user.suspendedAt || String(user.role || "").toUpperCase() !== "OWNER") {
-    return res.status(403).send("Owner account is not allowed to print this report.");
-  }
-
-  const sessionToken = await signUserJwt({ id: user.id, role: user.role, email: user.email });
-  await setAuthCookie(res, sessionToken, user.role);
-  return res.redirect(302, safeOwnerReportPrintNext((req as any).query?.next));
-}));
 
 // GET /api/auth/logout?next=/account/login
 // Useful for reliable cookie clearing via top-level navigation.
@@ -2604,9 +2587,10 @@ router.post('/passkeys/verify', async (req, res) => {
     if (requiresAccountTotp(user)) return await beginAccountMfaChallenge(req, res, (user as any).id);
     const token = await signUserJwt(
       { id: (user as any).id, role: (user as any).role, email: (user as any).email },
-      isAdmin ? { adminMfa: 'passkey' } : undefined,
+      isAdmin ? { adminMfa: 'passkey' } : { passkey: true },
     );
     await setAuthCookie(res, token, (user as any).role);
+    await recordSuccessfulSignIn(req, res, user as any, { method: 'passkey', token, mfa: isAdmin });
 
     // Native apps cannot read the httpOnly cookie; they consume the token from
     // the body (same contract as the OTP login response).

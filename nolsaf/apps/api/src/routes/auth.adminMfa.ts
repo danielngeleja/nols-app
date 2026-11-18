@@ -16,6 +16,7 @@ import { hashCode } from "../lib/otp.js";
 import { getRedis } from "../lib/redis.js";
 import { sendSms } from "../lib/sms.js";
 import { signUserJwt, setAuthCookie } from "../lib/sessionManager.js";
+import { recordSuccessfulSignIn } from "../lib/newSignInAlert.js";
 import { getWebAuthnRp } from "../lib/webauthnRp.js";
 import { limitOtpSend, limitOtpVerify } from "../middleware/rateLimit.js";
 
@@ -238,17 +239,10 @@ async function completeAdminLogin(
   try {
     (req as any).user = user;
     await audit(req as any, "ADMIN_MFA_VERIFIED", `user:${user.id}`, null, { method });
-    await audit(req as any, "USER_LOGIN", `user:${user.id}`, null, {
-      role: user.role,
-      email: user.email,
-      loginMethod: method,
-      event: "login",
-      success: true,
-      mfa: true,
-    });
   } catch {
     // Audit delivery never turns a verified login into an outage.
   }
+  await recordSuccessfulSignIn(req, res, user, { method, token, mfa: true });
 
   res.json({ ok: true, token, user: { id: user.id, role: user.role, email: user.email }, adminMfa: method });
 }

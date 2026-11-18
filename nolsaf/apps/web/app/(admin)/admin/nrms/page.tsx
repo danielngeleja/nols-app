@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, Building2, ChevronLeft, ChevronRight, Coins, Handshake, Hotel, Loader2, MessageCircle, Search, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
-import { CountPill, EmptyState, SectionHeader, SummaryCard } from "./_components/CommercialUi";
+import { AlertTriangle, Building2, ChevronLeft, ChevronRight, Coins, Eye, Handshake, Hotel, Loader2, MessageCircle, Search, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
+import { CountPill, EmptyState, SectionHeader } from "./_components/CommercialUi";
 import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type Enrollment = {
@@ -153,48 +153,122 @@ export default function AdminNrmsDirectoryPage() {
     owed: properties.reduce((sum, p) => sum + p.unpaidBalance, 0),
   }), [properties]);
 
+  /** Account mix for the band's portfolio bar; every status lands in exactly one group. */
+  const portfolio = useMemo(() => {
+    const count = (statuses: string[]) => properties.filter((p) => statuses.includes(p.accountStatus)).length;
+    const attention = ["WARNING", "PAYMENT_REQUIRED", "PAYMENT_PENDING"];
+    const known = ["ACTIVE", "TRIAL", ...attention];
+    return [
+      { key: "active", label: "Active", count: count(["ACTIVE"]), bar: "bg-emerald-400" },
+      { key: "trial", label: "Trial", count: count(["TRIAL"]), bar: "bg-sky-400" },
+      { key: "attention", label: "Payment due", count: count(attention), bar: "bg-amber-400" },
+      { key: "other", label: "Frozen, closed", count: properties.filter((p) => !known.includes(p.accountStatus)).length, bar: "bg-white/35" },
+    ];
+  }, [properties]);
+
   if (loading) {
     return <div className="flex min-h-[40vh] items-center justify-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   }
 
   return (
-    <div id="nrms-directory" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
+    <div id="nrms-directory" className="w-full min-w-0 max-w-none space-y-4">
       {/* Preflight is disabled in this project; without border-box, w-full controls (e.g. the property search box) overflow their container */}
       <style>{`#nrms-directory, #nrms-directory * { box-sizing: border-box; }`}</style>
-      <section className="directory-workspace-header relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="relative flex min-w-0 flex-col gap-4">
-          <div className="flex min-w-0 items-center gap-3 text-left">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Hotel className="h-5 w-5" /></span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS commercial</p>
-                <span className="inline-flex rounded-full border border-emerald-100 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 shadow-sm">Read-only</span>
-              </div>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">NRMS Directory</h1>
-              <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500 sm:text-sm">Every enrolled owner and activated property.</p>
+
+      {/* Identity band with the live portfolio mix, in the operator-record language */}
+      <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_100%_0%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden="true" />
+        <div className="relative grid min-w-0 gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-center">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300/80">NRMS commercial</p>
+              <span className="inline-flex items-center gap-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-bold text-white/70"><Eye className="h-3 w-3" aria-hidden /> Read-only</span>
+            </div>
+            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">NRMS Directory</h1>
+            <p className="m-0 mt-1 text-[12px] text-white/60">Every enrolled owner and activated property.</p>
+            <div className="mt-4">
+              {stats.owing > 0 ? (
+                <span className="inline-flex items-center gap-2 rounded-md bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-bold text-amber-200">
+                  <span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" /></span>
+                  {stats.owing} {stats.owing === 1 ? "property owes" : "properties owe"} {money(stats.owed)}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-md bg-emerald-400/10 px-2.5 py-1.5 text-[11px] font-bold text-emerald-200"><ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Every account is paid up</span>
+              )}
             </div>
           </div>
-          <nav aria-label="NRMS workspaces" className="grid min-w-0 grid-cols-2 gap-2 border-t border-white/15 pt-4 sm:grid-cols-3 xl:grid-cols-6">
-            <Link href="/admin/nrms/messaging" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><MessageCircle className="h-4 w-4" /> Meta messaging</Link>
-            <Link href="/admin/nrms/agents" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><ShieldCheck className="h-4 w-4" /> Verify agencies</Link>
-            <Link href="/admin/nrms/partnerships" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Handshake className="h-4 w-4" /> Partnerships</Link>
-            <Link href="/admin/nrms/billing" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Wallet className="h-4 w-4" /> PAYG billing board</Link>
-            <Link href="/admin/nrms/pricing" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Coins className="h-4 w-4" /> Pricing &amp; levers</Link>
-            <Link href="/admin/nrms/health" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><ShieldAlert className="h-4 w-4" /> System health</Link>
-          </nav>
+
+          {/* Portfolio mix: where every NRMS property's account stands */}
+          <div className="min-w-0 rounded-md bg-white/[0.04] p-4 ring-1 ring-white/10">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Portfolio</p>
+              <p className="m-0 text-[11px] text-white/55">
+                {stats.properties ? <><span className="font-bold tabular-nums text-emerald-300">{Math.round((stats.active / stats.properties) * 100)}%</span> billing in force</> : "No properties yet"}
+              </p>
+            </div>
+            <p className="m-0 mt-2 text-2xl font-black tabular-nums tracking-tight text-white">
+              {stats.properties} <span className="text-sm font-semibold text-white/50">{stats.properties === 1 ? "property" : "properties"}</span>
+            </p>
+            <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-white/10" role="img" aria-label={portfolio.map((p) => `${p.label} ${p.count}`).join(", ")}>
+              {portfolio.map((p) => (
+                <span key={p.key} className={`h-full transition-all duration-700 ${p.bar}`} style={{ width: `${stats.properties ? (p.count / stats.properties) * 100 : 0}%` }} />
+              ))}
+            </div>
+            <dl className="m-0 mt-3 grid grid-cols-4 gap-2">
+              {portfolio.map((p) => (
+                <div key={p.key} className="min-w-0">
+                  <dt className="flex items-center gap-1.5 truncate text-[10px] font-semibold text-white/50"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${p.bar}`} aria-hidden /> {p.label}</dt>
+                  <dd className="m-0 mt-0.5 text-[12px] font-bold tabular-nums text-white/90">{p.count}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
+
+        {/* Workspaces, as a quiet strip inside the band */}
+        <nav aria-label="NRMS workspaces" className="relative flex min-w-0 gap-1 overflow-x-auto border-0 border-t border-solid border-white/10 px-3 py-2 sm:px-5">
+          {[
+            { href: "/admin/nrms/messaging", label: "Meta messaging", Icon: MessageCircle },
+            { href: "/admin/nrms/agents", label: "Verify agencies", Icon: ShieldCheck },
+            { href: "/admin/nrms/partnerships", label: "Partnerships", Icon: Handshake },
+            { href: "/admin/nrms/billing", label: "PAYG billing board", Icon: Wallet },
+            { href: "/admin/nrms/pricing", label: "Pricing & levers", Icon: Coins },
+            { href: "/admin/nrms/health", label: "System health", Icon: ShieldAlert },
+          ].map(({ href, label, Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className="group inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-[12px] font-semibold text-white/70 no-underline transition hover:bg-white/[0.08] hover:text-white"
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0 text-emerald-300/70 group-hover:text-emerald-300" aria-hidden />
+              {label}
+              <ChevronRight className="h-3 w-3 shrink-0 text-white/25 transition group-hover:translate-x-0.5 group-hover:text-white/60" aria-hidden />
+            </Link>
+          ))}
+        </nav>
       </section>
 
-      {error && <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
+      {error && <div className="flex items-start gap-2.5 rounded-md border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
 
-      <div className="directory-metrics grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <SummaryCard icon={Building2} label="Properties" value={String(stats.properties)} detail={`${stats.active} active`} tone="emerald" />
-        <SummaryCard icon={ShieldCheck} label="Active" value={String(stats.active)} detail="Billing in force" tone="emerald" />
-        <SummaryCard icon={Hotel} label="On trial" value={String(stats.trial)} detail="Free usage window" tone="blue" />
-        <SummaryCard icon={AlertTriangle} label="Owing" value={String(stats.owing)} detail="Properties with a balance" tone={stats.owing > 0 ? "amber" : "slate"} />
-        <SummaryCard icon={Wallet} label="Total owed" value={money(stats.owed)} detail="Across all accounts" tone={stats.owed > 0 ? "amber" : "slate"} />
-      </div>
+      {/* Summary, joined cells like the operator statement's money strip */}
+      <section aria-label="Directory summary" className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-3 lg:grid-cols-5">
+        {[
+          { Icon: Building2, label: "Properties", value: String(stats.properties), detail: `${stats.active} active`, ink: "text-neutral-950", iconTone: "text-neutral-300" },
+          { Icon: ShieldCheck, label: "Active", value: String(stats.active), detail: "Billing in force", ink: stats.active ? "text-emerald-700" : "text-neutral-400", iconTone: "text-neutral-300" },
+          { Icon: Hotel, label: "On trial", value: String(stats.trial), detail: "Free usage window", ink: stats.trial ? "text-sky-700" : "text-neutral-400", iconTone: "text-neutral-300" },
+          { Icon: AlertTriangle, label: "Owing", value: String(stats.owing), detail: "Properties with a balance", ink: stats.owing ? "text-amber-600" : "text-neutral-400", iconTone: stats.owing ? "text-amber-500" : "text-neutral-300" },
+          { Icon: Wallet, label: "Total owed", value: money(stats.owed), detail: "Across all accounts", ink: stats.owed ? "text-amber-600" : "text-neutral-400", iconTone: stats.owed ? "text-amber-500" : "text-neutral-300" },
+        ].map(({ Icon, label, value, detail, ink, iconTone }) => (
+          <div key={label} className="min-w-0 bg-white px-4 py-3 last:col-span-2 sm:last:col-span-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="m-0 text-[11px] font-semibold text-neutral-500">{label}</p>
+              <Icon className={`h-4 w-4 shrink-0 ${iconTone}`} aria-hidden />
+            </div>
+            <p className={`m-0 mt-1 break-words text-lg font-black tabular-nums tracking-tight ${ink}`}>{value}</p>
+            <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400">{detail}</p>
+          </div>
+        ))}
+      </section>
 
       {reviewIntent && (reviewIntent.YES || reviewIntent.MAYBE || reviewIntent.NO) ? (() => {
         const total = (reviewIntent.YES || 0) + (reviewIntent.MAYBE || 0) + (reviewIntent.NO || 0);

@@ -2351,6 +2351,16 @@ model SystemSetting {
   /// Largest single sales withdrawal (net, TZS) the system may approve itself.
   salesAutoPayoutMaxTzs Int @default(500000)
 
+  /// Tour operator advances (lib/tourPayoutControls.ts): the most advance
+  /// money (TZS) one operator may hold across trips that have not finished,
+  /// per tier { SILVER, GOLD, PLATINUM }. A tier set to null has no limit.
+  /// Null column uses the code defaults.
+  tourAdvanceExposureLimits Json?
+
+  /// The admin who approves a tour payout (advance or balance) must not be
+  /// the admin who verified it. On by default.
+  tourPayoutSeparateApprover Boolean @default(true)
+
   // ==================== Platform Margin ====================
   /// Payment gateway fee as a percent of guest money collected, used to
   /// ESTIMATE gateway costs for a period that has no GATEWAY_FEE entries from

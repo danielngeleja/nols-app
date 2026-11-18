@@ -30,6 +30,7 @@ import { loadTourReceiptDocument, loadTourVoucherDocument } from "../lib/tourDoc
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
 import { recordAgencyTourAttribution } from "../lib/salesAgencyTours.js";
+import { publicOperatorProfile } from "../lib/operatorPackages.js";
 
 const router = Router();
 
@@ -252,13 +253,10 @@ function asProfile(value: unknown): OperatorProfile {
   return value && typeof value === "object" ? (value as OperatorProfile) : {};
 }
 
+/** What travellers can book: the shared public rule (lib/operatorPackages.ts). */
 function approvedProfile(value: unknown): OperatorProfile | null {
-  if (!value || typeof value !== "object") return null;
-  const profile = value as Record<string, any>;
-  const status = String(profile.reviewStatus || profile.review?.status || "").toUpperCase();
-  if (status !== "APPROVED") return null;
-  const approved = profile.approvedSnapshot && typeof profile.approvedSnapshot === "object" ? profile.approvedSnapshot : profile;
-  return asProfile(approved);
+  const approved = publicOperatorProfile(value);
+  return approved ? asProfile(approved) : null;
 }
 
 function asArray<T = unknown>(value: unknown): T[] {

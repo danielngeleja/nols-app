@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import api from "@/lib/apiClient";
 import TablePagination from "@/components/TablePagination";
+import { useFinanceGrant } from "@/lib/useFinanceGrant";
 
 type Settings = { enabled: boolean; budgetPercent: number; contributionFloor: number; perStayCap: number; monthlyCap: number; propertyMonthlyCap: number; holdoutPercent: number };
 type GiftRow = {
@@ -460,6 +461,8 @@ export default function KaribuAdminPage() {
     }, "Pilot controls could not be saved.");
   };
 
+  const finance = useFinanceGrant();
+
   if (booting) {
     return <div className="flex min-h-[50vh] items-center justify-center gap-3 text-sm font-semibold text-neutral-600"><Loader2 className="h-5 w-5 animate-spin text-emerald-700" /> Loading Karibu</div>;
   }
@@ -483,57 +486,113 @@ export default function KaribuAdminPage() {
 
   return (
     <div className="w-full min-w-0 space-y-5">
-      {/* Header band */}
-      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
-        <div className="relative px-5 pt-5 sm:px-6 sm:pt-6">
+      {/* Header band: the welcome flow, left to right, with the month's budget beside it */}
+      <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.20)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative px-4 pt-5 sm:px-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <Link href="/admin/nrms" className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80 no-underline hover:text-emerald-200">
                 <ArrowLeft className="h-3 w-3" /> NRMS · Guest experience
               </Link>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Karibu NoLSAF</h1>
+              <h1 className="m-0 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl font-bold tracking-tight text-white sm:text-2xl">
+                Karibu NoLSAF
+                <button
+                  type="button"
+                  onClick={() => changeTab("controls")}
+                  className={`inline-flex h-6 cursor-pointer items-center gap-1.5 rounded-md border-0 px-2 text-[11px] font-semibold tracking-normal transition ${overview.settings.enabled ? "bg-emerald-400/15 text-emerald-200 hover:bg-emerald-400/25" : "bg-white/[0.08] text-white/70 hover:bg-white/[0.14]"}`}
+                  title="Open pilot controls"
+                >
+                  <span className="relative flex h-1.5 w-1.5" aria-hidden>
+                    {overview.settings.enabled && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />}
+                    <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${overview.settings.enabled ? "bg-emerald-400" : "bg-white/40"}`} />
+                  </span>
+                  {overview.settings.enabled ? "Pilot live" : "Pilot off"}
+                </button>
+              </h1>
               <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">A first-stay welcome, served by the property and paid for by NoLSAF.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold ${overview.settings.enabled ? "bg-emerald-400/15 text-emerald-200" : "bg-white/[0.06] text-white/70"}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${overview.settings.enabled ? "bg-emerald-400" : "bg-white/40"}`} aria-hidden />
-                {overview.settings.enabled ? "Pilot live" : "Pilot off"}
-              </span>
-              <button type="button" className={heroButton} onClick={() => window.dispatchEvent(new CustomEvent("finance-grant-required"))}><ShieldCheck className="h-3.5 w-3.5" /> Finance access</button>
+              {!setupDone && (() => {
+                const next = setup.find((s) => !s.done)!;
+                return (
+                  <button type="button" onClick={next.go} className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-amber-400/15 px-3 text-xs font-semibold text-amber-200 transition hover:bg-amber-400/25" title={next.hint}>
+                    Setup {setup.filter((s) => s.done).length} of {setup.length}
+                    <span className="font-normal text-amber-200/70">· {next.hint}</span>
+                    <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                );
+              })()}
+              {finance.unlocked ? (
+                <span className="inline-flex h-9 items-center gap-1.5 rounded-md bg-emerald-400/15 px-3 text-xs font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-400/25">
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Unlocked until {finance.untilLabel} EAT
+                </span>
+              ) : (
+                <button type="button" className={heroButton} onClick={finance.request}><ShieldCheck className="h-3.5 w-3.5" /> Unlock finance</button>
+              )}
               <button type="button" onClick={() => void refreshAll()} disabled={busy === "refresh"} className={`${heroButton} w-9 px-0`} aria-label="Refresh" title="Refresh">
                 <RefreshCw className={`h-3.5 w-3.5 ${busy === "refresh" ? "animate-spin" : ""}`} />
               </button>
             </div>
           </div>
 
-          {/* Headline numbers */}
-          <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-4 sm:flex sm:flex-wrap sm:items-end">
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{m.served.toLocaleString()}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">Welcomes served · {m.ordered} awaiting</p>
-            </div>
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-amber-300">{money(overview.payable.amount)}</p>
-              <p className="m-0 mt-1 text-xs text-white/55">Due to properties · {overview.payable.count} {overview.payable.count === 1 ? "gift" : "gifts"}</p>
-            </div>
-            <div>
-              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-emerald-300">{m.ready}<span className="text-lg text-white/40"> / {m.totalProperties}</span></p>
-              <p className="m-0 mt-1 text-xs text-white/55">NRMS properties ready</p>
-            </div>
-            <div className="min-w-[180px]">
-              <p className="m-0 text-xs text-white/55">This month · {m.monthGifts} {m.monthGifts === 1 ? "gift" : "gifts"}</p>
-              <p className="m-0 mt-1 text-sm font-semibold tabular-nums text-white">{money(m.monthCommitted)} <span className="font-normal text-white/45">of {money(settings.monthlyCap)}</span></p>
-              <span className="mt-2 block h-1 w-full overflow-hidden rounded-full bg-white/10"><span className={`block h-full rounded-full ${usedPercent >= 90 ? "bg-amber-400" : "bg-emerald-400"}`} style={{ width: `${usedPercent}%` }} /></span>
+          <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
+            {/* The welcome flow: ready, ordered, served, repaid */}
+            <ol className="m-0 grid list-none grid-cols-2 gap-px overflow-hidden rounded-md bg-white/10 p-0 ring-1 ring-white/10 sm:grid-cols-4" aria-label="Welcome flow">
+              {([
+                { step: "01", label: "Ready", Icon: Building2, value: <>{m.ready}<span className="text-base font-semibold text-white/35"> / {m.totalProperties}</span></>, tone: "text-emerald-300", note: `${m.participating} enrolled`, go: () => changeTab("properties") },
+                { step: "02", label: "Ordered", Icon: Coffee, value: m.ordered.toLocaleString(), tone: m.ordered > 0 ? "text-sky-300" : "text-white", note: m.ordered > 0 ? "Waiting to be served" : "Nothing waiting", go: () => changeTab("gifts") },
+                { step: "03", label: "Served", Icon: Sparkles, value: m.served.toLocaleString(), tone: "text-white", note: "Welcomes served", go: () => changeTab("gifts") },
+                { step: "04", label: "Repay", Icon: HandCoins, value: money(overview.payable.amount), tone: overview.payable.amount > 0 ? "text-amber-300" : "text-white", note: `${overview.payable.count} ${overview.payable.count === 1 ? "gift" : "gifts"} due to properties`, go: () => changeTab("gifts") },
+              ]).map(({ step, label, Icon, value, tone, note, go }, i, all) => (
+                <li key={step} className="min-w-0">
+                  <button type="button" onClick={go} className="group flex h-full w-full cursor-pointer flex-col items-start border-0 bg-[#0d2a25] p-3 text-left transition hover:bg-[#113430] sm:p-4">
+                    <span className="flex w-full items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
+                      <span className="font-mono text-white/30">{step}</span> {label}
+                      <Icon className="ml-auto h-3.5 w-3.5 text-white/30 transition group-hover:text-emerald-300" aria-hidden />
+                    </span>
+                    <span className={`mt-2 block truncate text-2xl font-bold tabular-nums leading-none sm:text-[26px] ${tone}`}>{value}</span>
+                    <span className="mt-1.5 flex w-full items-center gap-1 text-[11px] text-white/50">
+                      <span className="min-w-0 truncate">{note}</span>
+                      {i < all.length - 1 && <ChevronRight className="ml-auto hidden h-3 w-3 shrink-0 text-white/20 sm:block" aria-hidden />}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+
+            {/* Month budget: segmented meter */}
+            <div className="rounded-md bg-white/[0.04] p-3 ring-1 ring-white/10 sm:p-4">
+              <p className="m-0 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
+                <Wallet className="h-3.5 w-3.5" aria-hidden /> This month
+                <span className={`ml-auto font-mono tracking-normal ${usedPercent >= 90 ? "text-amber-300" : "text-white/60"}`}>{usedPercent}%</span>
+              </p>
+              <p className="m-0 mt-2 text-xl font-bold tabular-nums leading-none text-white">
+                {money(Math.max(0, settings.monthlyCap - m.monthCommitted))}
+                <span className="ml-1 text-xs font-medium text-white/45">left</span>
+              </p>
+              <span className="mt-3 flex gap-[3px]" aria-hidden>
+                {Array.from({ length: 20 }, (_, i) => (
+                  <span key={i} className={`h-2 flex-1 rounded-[1px] ${i < Math.round(usedPercent / 5) ? (usedPercent >= 90 ? "bg-amber-400" : "bg-emerald-400") : "bg-white/10"}`} />
+                ))}
+              </span>
+              <p className="m-0 mt-2 text-[11px] text-white/50">
+                {money(m.monthCommitted)} of {money(settings.monthlyCap)} · {m.monthGifts} {m.monthGifts === 1 ? "gift" : "gifts"}
+              </p>
+              {overview.refundRisk.count > 0 && (
+                <p className="m-0 mt-1 text-[11px] font-semibold text-rose-300">
+                  {money(overview.refundRisk.amount)} at refund risk · {overview.refundRisk.count} {overview.refundRisk.count === 1 ? "gift" : "gifts"}
+                </p>
+              )}
             </div>
           </div>
 
-          <div className="mt-5 flex gap-1 overflow-x-auto" role="tablist" aria-label="Karibu workspace">
+          <div className="mt-4 flex gap-1 overflow-x-auto border-0 border-t border-solid border-white/10" role="tablist" aria-label="Karibu workspace">
             {([["welcome", "Welcome guests", Sparkles], ["gifts", "Gifts & repayments", ReceiptText], ["properties", "Properties", Building2], ["controls", "Pilot controls", Settings2]] as const).map(([key, label, Icon]) => (
-              <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => changeTab(key)} className={`relative inline-flex h-11 shrink-0 items-center gap-2 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${tab === key ? "text-white" : "text-white/50 hover:text-white/80"}`}>
+              <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => changeTab(key)} className={`relative inline-flex h-11 shrink-0 cursor-pointer items-center gap-2 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${tab === key ? "text-white" : "text-white/50 hover:text-white/80"}`}>
                 <Icon className="h-4 w-4" /> {label}
-                {key === "gifts" && overview.payable.count > 0 && <span className="rounded-full bg-amber-400/20 px-1.5 text-[10px] font-bold tabular-nums text-amber-200">{overview.payable.count}</span>}
-                {tab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-emerald-400" aria-hidden />}
+                {key === "gifts" && overview.payable.count > 0 && <span className="rounded-sm bg-amber-400/20 px-1.5 text-[10px] font-bold tabular-nums text-amber-200">{overview.payable.count}</span>}
+                {tab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 bg-emerald-400" aria-hidden />}
               </button>
             ))}
           </div>

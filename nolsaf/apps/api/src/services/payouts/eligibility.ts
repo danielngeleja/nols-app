@@ -18,8 +18,9 @@ import { prisma } from "@nolsaf/prisma";
 // Value import, not `import type`: confirmedCustomerPayment constructs a
 // Prisma.Decimal at runtime when an invoice has no settled payment events.
 import { Prisma } from "@prisma/client";
-import { isAdvanceRow, loadAdvanceTotalsFor } from "../../lib/tourPayouts.js";
-import { ADVANCE_MAX_PERCENT, balanceAfterAdvances } from "../../lib/tourPayoutPolicy.js";
+import { isAdvanceRow, loadAdvanceTotalsFor, loadOperatorStanding } from "../../lib/tourPayouts.js";
+import { checkAdvanceExposure } from "../../lib/tourPayoutControls.js";
+import { balanceAfterAdvances, tourPayoutPolicyAt } from "../../lib/tourPayoutPolicy.js";
 import { quoteBalanceWithRecovery } from "../../lib/tourRecoveryOffset.js";
 import { guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
 
@@ -395,6 +396,7 @@ async function loadTourAdvance(sourceId: number): Promise<EligiblePayoutSource> 
           id: true,
           status: true,
           operatorPayoutAmount: true,
+          operatorAgentId: true,
           operator: { select: { userId: true } },
         },
       },
@@ -425,13 +427,31 @@ async function loadTourAdvance(sourceId: number): Promise<EligiblePayoutSource> 
     );
   }
   const advances = await loadAdvanceTotalsFor(row.booking.id);
-  const cap = (Number(row.booking.operatorPayoutAmount) * ADVANCE_MAX_PERCENT) / 100;
+  const maxPercent = tourPayoutPolicyAt(new Date()).terms.advanceMaxPercent;
+  const cap = (Number(row.booking.operatorPayoutAmount) * maxPercent) / 100;
   if (advances.paid + Number(row.amount) > cap + AMOUNT_TOLERANCE) {
     throw new PayoutIneligibleError(
       "TOUR_ADVANCE",
       sourceId,
-      `advances would reach ${advances.paid + Number(row.amount)}, above the ${ADVANCE_MAX_PERCENT}% cap of ${cap}`
+      `advances would reach ${advances.paid + Number(row.amount)}, above the ${maxPercent}% cap of ${cap}`
     );
+  }
+
+  // The operator's open advances across all unfinished trips must stay inside
+  // their tier limit. Re-checked here, at payment time, because claims on
+  // different trips can pass their own checks at the same moment and a limit
+  // can be lowered after approval. This row is APPROVED, so it is already
+  // counted in the exposure.
+  const standing = await loadOperatorStanding({ id: row.booking.operatorAgentId, userId: row.booking.operator.userId });
+  const exposure = await checkAdvanceExposure({
+    operatorAgentId: row.booking.operatorAgentId,
+    tier: standing.tier,
+    addAmount: Number(row.amount),
+    currency: row.currency,
+    alreadyCounted: true,
+  });
+  if (!exposure.ok) {
+    throw new PayoutIneligibleError("TOUR_ADVANCE", sourceId, exposure.message);
   }
 
   return {

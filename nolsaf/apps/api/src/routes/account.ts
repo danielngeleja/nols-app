@@ -5,6 +5,8 @@ import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
+import { currentLoginDeviceTag, listRecognisedDevices, LOGIN_DEVICE_FORGOTTEN, userAgentsForDevice } from "../lib/loginDevice.js";
+import { requireOwnerStrongSession } from "../lib/ownerMfaPolicy.js";
 import { customerBookingReference, customerRecordReference } from "../lib/customerBookingReference.js";
 import { mergeNotificationPrefs } from "../lib/notificationPrefs.js";
 import { referralCodeFor, referralKindForRole } from "../lib/referralCode.js";
@@ -1766,6 +1768,7 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
 router.post(
   "/payouts/verify",
   blockImpersonated as unknown as RequestHandler,
+  requireOwnerStrongSession,
   payoutLookupLimit,
   verifyPayoutDestination as unknown as RequestHandler
 );
@@ -1919,7 +1922,7 @@ const updatePayouts: RequestHandler = async (req, res) => {
     sendError(res, 500, "Failed to update payout information");
   }
 };
-router.put("/payouts", blockImpersonated as unknown as RequestHandler, payoutUpdateLimit, updatePayouts as unknown as RequestHandler);
+router.put("/payouts", blockImpersonated as unknown as RequestHandler, requireOwnerStrongSession, payoutUpdateLimit, updatePayouts as unknown as RequestHandler);
 
 /** POST /account/password/change */
 const changePassword: RequestHandler = async (req, res) => {
@@ -3622,6 +3625,43 @@ const revokeSession: RequestHandler = async (req, res) => {
   }
 };
 router.post("/sessions/revoke", sensitive as unknown as RequestHandler, revokeSession as unknown as RequestHandler);
+
+/**
+ * GET /account/security/recognised-devices
+ * Devices that sign in without a new sign-in alert (lib/loginDevice.ts).
+ * Under /security/ so admin support sessions cannot read it.
+ */
+router.get("/security/recognised-devices", (async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    const devices = await listRecognisedDevices(userId, currentLoginDeviceTag(req.headers.cookie));
+    sendSuccess(res, { devices });
+  } catch (error: any) {
+    console.error("account.recognised-devices.list failed", error);
+    sendError(res, 500, "Your devices could not be loaded");
+  }
+}) as RequestHandler);
+
+/**
+ * POST /account/security/recognised-devices/forget { id }
+ * Stop recognising a device: its next sign-in alerts again. Existing sessions
+ * are untouched; signing a device out is the Active Sessions list's job.
+ */
+router.post("/security/recognised-devices/forget", sensitive as unknown as RequestHandler, (async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    const id = String(req.body?.id || "");
+    if (!/^[a-f0-9]{24}$/.test(id)) return sendError(res, 400, "Invalid device");
+    const known = await listRecognisedDevices(userId, null);
+    if (!known.some((device) => device.id === id)) return sendError(res, 404, "Device not found");
+    const userAgents = await userAgentsForDevice(userId, id);
+    await audit(req as AuthedRequest, LOGIN_DEVICE_FORGOTTEN, `user:${userId}`, null, { deviceTag: id, userAgents, via: "account" });
+    sendSuccess(res, null, "Device removed");
+  } catch (error: any) {
+    console.error("account.recognised-devices.forget failed", error);
+    sendError(res, 500, "The device could not be removed");
+  }
+}) as RequestHandler);
 
 /** POST /account/sessions/revoke-others - revoke all other sessions */
 const revokeOtherSessions: RequestHandler = async (req, res) => {

@@ -50,7 +50,7 @@ export default function TourSupportBanner() {
     setError("");
     try {
       const { data } = await apiClient.post<{ ok: boolean; redirectTo: string }>("/api/auth/impersonation/end");
-      if (!data.ok || data.redirectTo !== "/admin/agents") throw new Error("Administrator session could not be restored");
+      if (!data.ok || !/^\/admin\/agents(?:\/[A-Za-z0-9_-]+)?$/.test(data.redirectTo)) throw new Error("Administrator session could not be restored");
       clearAuthToken();
       window.location.replace(data.redirectTo);
     } catch {

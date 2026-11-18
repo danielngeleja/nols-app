@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, ArrowLeft, ArrowRight, Building2, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, CircleDollarSign, Coins, Gauge, History, Layers, Loader2, Save, Search, SlidersHorizontal } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
-import { CountPill, EmptyState, SectionHeader, SummaryCard } from "../_components/CommercialUi";
+import { CountPill, EmptyState, SectionHeader } from "../_components/CommercialUi";
 import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type Policy = { id: number; version: string; effectiveFrom: string; effectiveTo: string | null; roomNightPrice: number; trialDays: number; reminderAmount: number; warningAmount: number; unpaidLimit: number; graceDays: number; accountCount: number };
@@ -134,6 +134,10 @@ export default function NrmsPricingPage() {
     return startsAt <= now && now < endsAt;
   }) ?? null;
   const watchedAccounts = useMemo(() => accounts.filter((a) => a.dunning.stage !== "CURRENT").length, [accounts]);
+  /** The next version already published but not yet in force, if any. */
+  const scheduledPolicy = policies
+    .filter((policy) => new Date(policy.effectiveFrom).getTime() > now)
+    .sort((a, b) => new Date(a.effectiveFrom).getTime() - new Date(b.effectiveFrom).getTime())[0] ?? null;
 
   const filteredAccounts = useMemo(() => {
     const query = leverQuery.trim().toLowerCase();
@@ -166,37 +170,119 @@ export default function NrmsPricingPage() {
   );
 
   return (
-    <div id="nrms-pricing" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
+    <div id="nrms-pricing" className="w-full min-w-0 max-w-none space-y-4">
       {/* Preflight is disabled in this project; without border-box, w-full inputs overflow their grid columns */}
       <style>{`#nrms-pricing, #nrms-pricing * { box-sizing: border-box; }`}</style>
-      <Link href="/admin/nrms/billing" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline transition hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> PAYG billing board</Link>
 
-      <section className="pricing-workspace-header relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3.5">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Coins className="h-5 w-5" /></span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS commercial</p>
-                <span className="inline-flex rounded-full border border-emerald-100 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 shadow-sm">Forward-only</span>
-              </div>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">Pricing and levers</h1>
-              <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500 sm:text-sm">Publish forward-only pricing and manage reasoned property exceptions.</p>
+      {/* Identity band with the live policy and its dunning ladder, in the operator-record language */}
+      <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_100%_0%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden="true" />
+        <div className="relative grid min-w-0 gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,30rem)] lg:items-center">
+          <div className="min-w-0">
+            <Link href="/admin/nrms/billing" className="inline-flex items-center gap-1 text-[11px] font-semibold text-white/45 no-underline transition hover:text-emerald-300">
+              <ArrowLeft className="h-3 w-3" aria-hidden /> PAYG billing board
+            </Link>
+            <p className="m-0 mt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300/80">NRMS commercial</p>
+            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Pricing and levers</h1>
+            <p className="m-0 mt-1 text-[12px] text-white/60">Publish forward-only pricing and manage reasoned property exceptions.</p>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {scheduledPolicy ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-400/15 px-2.5 py-1.5 text-[11px] font-bold text-sky-200">
+                  <CalendarClock className="h-3.5 w-3.5" aria-hidden /> New price from {shortDate(scheduledPolicy.effectiveFrom)}: {money(scheduledPolicy.roomNightPrice)}
+                </span>
+              ) : null}
+              {watchedAccounts > 0 ? (
+                <span className="inline-flex items-center gap-2 rounded-md bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-bold text-amber-200">
+                  <span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" /></span>
+                  {watchedAccounts} account{watchedAccounts === 1 ? "" : "s"} in dunning
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-md bg-emerald-400/10 px-2.5 py-1.5 text-[11px] font-bold text-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Every account is current</span>
+              )}
             </div>
           </div>
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))} className="rounded-lg border border-white/25 bg-white/10 px-3 py-2.5 text-xs font-bold text-white hover:bg-white/20">Verify finance access</button>
+
+          {/* Live policy: the rate, and where each dunning step starts on the way to the freeze */}
+          <div className="min-w-0 rounded-md bg-white/[0.04] p-4 ring-1 ring-white/10">
+            {livePolicy ? (
+              <>
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Live policy</p>
+                  <p className="m-0 truncate font-mono text-[10px] text-white/45">{livePolicy.version}</p>
+                </div>
+                <p className="m-0 mt-2 text-2xl font-black tabular-nums tracking-tight text-white">
+                  {money(livePolicy.roomNightPrice)} <span className="text-sm font-semibold text-white/50">per room-night</span>
+                </p>
+                <div className="relative mt-5 h-1.5 rounded-full" aria-hidden>
+                  {/* Solid zones, no gradient: current, reminder, warning up to the freeze */}
+                  <div className="absolute inset-0 flex overflow-hidden rounded-full">
+                    <span className="h-full bg-emerald-400/70" style={{ width: `${clampPercent(livePolicy.reminderAmount, livePolicy.unpaidLimit)}%` }} />
+                    <span className="h-full bg-yellow-300/80" style={{ width: `${Math.max(0, clampPercent(livePolicy.warningAmount, livePolicy.unpaidLimit) - clampPercent(livePolicy.reminderAmount, livePolicy.unpaidLimit))}%` }} />
+                    <span className="h-full flex-1 bg-amber-400/80" />
+                  </div>
+                  {[
+                    { key: "reminder", at: clampPercent(livePolicy.reminderAmount, livePolicy.unpaidLimit), ring: "bg-yellow-300" },
+                    { key: "warning", at: clampPercent(livePolicy.warningAmount, livePolicy.unpaidLimit), ring: "bg-amber-400" },
+                    { key: "limit", at: 100, ring: "bg-rose-400" },
+                  ].map((mark) => (
+                    <span key={mark.key} className={`absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-[#0b2420] ${mark.ring}`} style={{ left: `${mark.at}%` }} />
+                  ))}
+                </div>
+                <dl className="m-0 mt-3 grid grid-cols-3 gap-2">
+                  {[
+                    { label: "Reminder", value: livePolicy.reminderAmount },
+                    { label: "Warning", value: livePolicy.warningAmount },
+                    { label: "Freeze at", value: livePolicy.unpaidLimit },
+                  ].map((step) => (
+                    <div key={step.label} className="min-w-0">
+                      <dt className="text-[10px] font-semibold text-white/50">{step.label}</dt>
+                      <dd className="m-0 mt-0.5 truncate text-[12px] font-bold tabular-nums text-white/90">{step.value.toLocaleString()}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="m-0 mt-3 border-0 border-t border-solid border-white/10 pt-3 text-[11px] text-white/55">
+                  {livePolicy.trialDays}-day free trial · {livePolicy.graceDays}-day grace after the limit · {livePolicy.accountCount} account{livePolicy.accountCount === 1 ? "" : "s"} on this policy
+                </p>
+              </>
+            ) : (
+              <p className="m-0 text-[12px] text-white/55">No policy is live yet. Publish the first version below.</p>
+            )}
+          </div>
+        </div>
+
+        {/* The forward-only promise and the finance gate */}
+        <div className="relative flex min-w-0 flex-wrap items-center gap-2 border-0 border-t border-solid border-white/10 px-4 py-3 sm:px-6">
+          <span className="inline-flex w-full items-center gap-1.5 text-[11px] text-white/45 sm:w-auto"><History className="h-3.5 w-3.5" aria-hidden /> Forward-only: a new version never changes charges already made</span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))}
+            className="inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-md border-0 bg-white/[0.08] px-4 text-xs font-bold text-white transition hover:bg-white/15 sm:ml-auto sm:w-auto"
+          >
+            Verify finance access
+          </button>
         </div>
       </section>
 
-      {error && <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
-      {notice && <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800" role="status"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{notice}</span></div>}
+      {error && <div className="flex items-start gap-2.5 rounded-md border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
+      {notice && <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800" role="status"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{notice}</span></div>}
 
-      <div className="pricing-summary grid min-w-0 gap-3 sm:grid-cols-3">
-        <SummaryCard icon={CircleDollarSign} label="Live room-night rate" value={livePolicy ? money(livePolicy.roomNightPrice) : "n/a"} detail={livePolicy ? `Policy ${livePolicy.version}` : "Publish the first version"} tone="emerald" />
-        <SummaryCard icon={Layers} label="Policy versions" value={String(policies.length)} detail={livePolicy ? `${livePolicy.accountCount} accounts on the live policy` : "No versions yet"} tone="blue" />
-        <SummaryCard icon={Gauge} label="Accounts in dunning" value={String(watchedAccounts)} detail={`of ${accounts.length} PAYG accounts`} tone={watchedAccounts > 0 ? "amber" : "slate"} />
-      </div>
+      {/* Summary, joined cells like the operator statement's money strip */}
+      <section aria-label="Pricing summary" className="grid min-w-0 grid-cols-1 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+        {[
+          { Icon: CircleDollarSign, label: "Live room-night rate", value: livePolicy ? money(livePolicy.roomNightPrice) : "Not set", detail: livePolicy ? `Policy ${livePolicy.version}` : "Publish the first version", ink: livePolicy ? "text-emerald-700" : "text-neutral-400", iconTone: "text-neutral-300" },
+          { Icon: Layers, label: "Policy versions", value: String(policies.length), detail: livePolicy ? `${livePolicy.accountCount} accounts on the live policy` : "No versions yet", ink: "text-neutral-950", iconTone: "text-neutral-300" },
+          { Icon: Gauge, label: "Accounts in dunning", value: String(watchedAccounts), detail: `of ${accounts.length} PAYG accounts`, ink: watchedAccounts > 0 ? "text-amber-600" : "text-neutral-400", iconTone: watchedAccounts > 0 ? "text-amber-500" : "text-neutral-300" },
+        ].map(({ Icon, label, value, detail, ink, iconTone }) => (
+          <div key={label} className="min-w-0 bg-white px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="m-0 text-[11px] font-semibold text-neutral-500">{label}</p>
+              <Icon className={`h-4 w-4 shrink-0 ${iconTone}`} aria-hidden />
+            </div>
+            <p className={`m-0 mt-1 break-words text-lg font-black tabular-nums tracking-tight ${ink}`}>{value}</p>
+            <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400">{detail}</p>
+          </div>
+        ))}
+      </section>
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader icon={Save} title="Publish policy version" subtitle="The prior version closes at the effective time. Finance OTP required." right={<span className="rounded-full border border-emerald-100 bg-white px-2.5 py-1 text-[10px] font-bold text-emerald-700 shadow-sm">Historical usage unchanged</span>} />

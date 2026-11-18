@@ -8,7 +8,6 @@ import { addDays, eachDay, fmtKey, GroupBy, startOfDayTZ } from "../lib/reportin
 import { withCache, makeKey } from "../lib/cache";
 import { getEffectiveCommissionPercent, extractOwnerPayoutFromAccommodationGross } from "../lib/accommodationPayout.js";
 import { customerBookingReference } from "../lib/customerBookingReference.js";
-import { signOwnerReportPrintHandoff } from "../lib/ownerReportPrintHandoff.js";
 
 // If you have generated Prisma types, replace these any aliases.
 type Invoice = any;
@@ -31,16 +30,6 @@ function ownerRevenueVisibilityClause() {
     ],
   };
 }
-
-router.get(
-  "/print-token",
-  blockImpersonated,
-  asyncHandler(async (req, res) => {
-    const r = req as AuthedRequest;
-    const token = signOwnerReportPrintHandoff(r.user!.id);
-    return res.json({ ok: true, token, expiresInSeconds: 5 * 60 });
-  })
-);
 
 /** Parse common query params */
 function parseQuery(q: any) {
