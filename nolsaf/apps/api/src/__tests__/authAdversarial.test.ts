@@ -340,7 +340,12 @@ describe("authentication attack simulations", () => {
     if (reason === "revoked") state.sessions[0].revokedAt = new Date();
     if (reason === "suspended") state.users[0].suspendedAt = new Date();
     if (reason === "disabled") state.users[0].isDisabled = true;
-    if (reason === "impersonated") credential = jwt.sign({ ...(jwt.decode(token) as jwt.JwtPayload), imp: true }, SECRET);
+    if (reason === "impersonated") {
+      // A support session issued by a real, active admin: writes are still refused.
+      const admin = { id: state.nextUserId++, role: "ADMIN", suspendedAt: null, isDisabled: false, tokensValidAfter: null };
+      state.users.push(admin);
+      credential = jwt.sign({ ...(jwt.decode(token) as jwt.JwtPayload), imp: true, act: admin.id }, SECRET);
+    }
     const response = await post("profile", { role: "OWNER", name: "Unauthorized change" })
       .set("Authorization", `Bearer ${credential}`);
     expect(response.status).toBe(reason === "revoked" ? 401 : 403);

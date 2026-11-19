@@ -40,9 +40,11 @@ import {
   ArrowRight,
   Lock,
   KeyRound,
+  Printer,
 } from "lucide-react";
 import apiClient, { clearAuthToken } from "@/lib/apiClient";
 import { useAdminHref } from "@/lib/adminRecordRefs";
+import OperatorBehaviourPanel from "@/components/admin/OperatorBehaviourPanel";
 
 const api = apiClient;
 
@@ -716,8 +718,8 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   }, [notificationSent]);
   const [auditHistory, setAuditHistory] = useState<any[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
-  const [tab, setTab] = useState<"overview" | "documents" | "notes" | "bookings" | "profile">(
-    searchParams.get("tab") === "profile" ? "profile" : "overview",
+  const [tab, setTab] = useState<"overview" | "documents" | "notes" | "bookings" | "profile" | "behaviour">(
+    searchParams.get("tab") === "profile" ? "profile" : searchParams.get("tab") === "behaviour" ? "behaviour" : "overview",
   );
   const [documents, setDocuments] = useState<AgentDocument[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
@@ -1690,6 +1692,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
               { key: "notes", label: "Notes" },
               { key: "profile", label: "Submitted profile", dot: submittedProfileReviewStatus !== "APPROVED" },
               { key: "bookings", label: "Bookings" },
+              { key: "behaviour", label: "Behaviour" },
             ].map((item: { key: string; label: string; badge?: string; dot?: boolean }) => {
               const active = tab === (item.key as typeof tab);
               return (
@@ -1971,6 +1974,19 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
                       ) : null}
                     </div>
                   )}
+
+                  {/* Printable, sealed record of everything this operator did */}
+                  <Link
+                    href={recordHref("agent", agent.id, { suffix: "/statement" })}
+                    className="group flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left no-underline transition hover:bg-neutral-50"
+                  >
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#02665e]/[0.08] text-[#02665e]"><Printer className="h-4 w-4" aria-hidden /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-semibold text-neutral-900">Operator statement</span>
+                      <span className="block text-[11px] text-neutral-500">Sales, payouts, cases and behaviour, ready to print</span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300" aria-hidden />
+                  </Link>
 
                   {/* Read-only support session */}
                   <div>
@@ -2418,6 +2434,8 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
               </div>
             </div>
           ) : null}
+
+          {tab === "behaviour" && agent?.id ? <OperatorBehaviourPanel agentId={agent.id} /> : null}
 
           {tab === "bookings" ? (
             <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">

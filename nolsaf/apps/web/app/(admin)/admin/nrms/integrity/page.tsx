@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import { Activity, AlertTriangle, ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Loader2, RefreshCw, Search, ShieldAlert } from "lucide-react";
-import { CountPill, SectionHeader, SummaryCard } from "../_components/CommercialUi";
+import { CountPill, SectionHeader } from "../_components/CommercialUi";
 import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type Signal = { id: number; propertyId: number; kind: string; severity: string; status: string; metricValue: number | null; baseline: number | null; details: any; detectedAt: string; property: { id: number; title: string } };
@@ -79,46 +79,155 @@ export default function IntegrityPage() {
   const pagedSignals = filteredSignals.slice((currentPage - 1) * SIGNAL_PAGE_SIZE, currentPage * SIGNAL_PAGE_SIZE);
 
   const highCount = signals.filter((s) => s.severity === "HIGH").length;
+  const openSignals = useMemo(() => signals.filter((s) => s.status === "OPEN"), [signals]);
+  const highOpen = openSignals.filter((s) => s.severity === "HIGH").length;
+  /** Signal kinds firing most in the loaded view, for the watch panel. */
+  const topKinds = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of signals) counts.set(s.kind, (counts.get(s.kind) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4);
+  }, [signals]);
+  const busiest = useMemo(() => {
+    const counts = new Map<number, { title: string; count: number }>();
+    for (const s of signals) {
+      const row = counts.get(s.propertyId) ?? { title: s.property.title, count: 0 };
+      row.count += 1;
+      counts.set(s.propertyId, row);
+    }
+    return [...counts.values()].sort((a, b) => b.count - a.count)[0] ?? null;
+  }, [signals]);
+  const oldestWaiting = useMemo(() => {
+    if (!openSignals.length) return "None";
+    const oldest = Math.min(...openSignals.map((s) => new Date(s.detectedAt).getTime()));
+    const hours = Math.floor((Date.now() - oldest) / 3_600_000);
+    if (hours < 1) return "Under an hour";
+    if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"}`;
+    const days = Math.floor(hours / 24);
+    return `${days} days`;
+  }, [openSignals]);
 
   if (loading) return <div className="flex min-h-[40vh] items-center justify-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
   return (
-    <div id="nrms-integrity" className="min-w-0 w-full space-y-4 py-4">
+    <div id="nrms-integrity" className="min-w-0 w-full space-y-4">
       {/* Preflight is disabled in this project; without border-box, w-full controls overflow their container */}
       <style>{`
         #nrms-integrity, #nrms-integrity * { box-sizing: border-box; }
         #nrms-integrity [class~="border"] { border-style: solid; }
         #nrms-integrity .grid > * { min-width: 0; }
         #nrms-integrity .text-neutral-400 { color: #64748b; }
-        #nrms-integrity .integrity-metrics > div { padding: 12px 16px; background: #f8fafc; border-radius: 12px; }
-        #nrms-integrity .integrity-metrics > div > span { width: 36px; height: 36px; }
         #nrms-integrity h2 + p { white-space: normal; }
       `}</style>
 
-      <Link href="/admin/nrms" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline"><ArrowLeft className="h-3.5 w-3.5" />NRMS directory</Link>
-      <section className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-        <div className="flex min-w-0 items-center gap-3.5">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/10 text-emerald-200"><Activity className="h-5 w-5" /></span>
+      {/* Identity band with the watch panel, in the operator-record language */}
+      <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_100%_0%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden="true" />
+        <div className="relative grid min-w-0 gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:items-center">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200">NRMS integrity workspace</p>
-              <span className="inline-flex rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-emerald-100">Detection only</span>
-            </div>
+            <Link href="/admin/nrms" className="inline-flex items-center gap-1 text-[11px] font-semibold text-white/45 no-underline transition hover:text-emerald-300">
+              <ArrowLeft className="h-3 w-3" aria-hidden /> NRMS directory
+            </Link>
+            <p className="m-0 mt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300/80">NRMS integrity workspace</p>
             <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Integrity signals</h1>
-            <p className="mb-0 mt-1 text-xs leading-5 text-emerald-100">Review anomalies and record context before any enforcement action.</p>
+            <p className="m-0 mt-1 text-[12px] text-white/60">Review anomalies and record context before any enforcement action.</p>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {highOpen > 0 ? (
+                <span className="inline-flex items-center gap-2 rounded-md bg-rose-500/15 px-2.5 py-1.5 text-[11px] font-bold text-rose-200">
+                  <span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400" /></span>
+                  {highOpen} high-severity signal{highOpen === 1 ? "" : "s"} need priority review
+                </span>
+              ) : openSignals.length > 0 ? (
+                <span className="inline-flex items-center gap-2 rounded-md bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-bold text-amber-200">
+                  <span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" /></span>
+                  {openSignals.length} signal{openSignals.length === 1 ? "" : "s"} awaiting review
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-md bg-emerald-400/10 px-2.5 py-1.5 text-[11px] font-bold text-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> No anomaly awaiting review</span>
+              )}
+            </div>
+          </div>
+
+          {/* Watch panel: what is firing, where, and for how long */}
+          <div className="min-w-0 rounded-md bg-white/[0.04] p-4 ring-1 ring-white/10">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Watch</p>
+              <p className="m-0 text-[11px] text-white/55">{statusFilter === "OPEN" ? "Open signals" : `${STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label} signals`}</p>
+            </div>
+            {signals.length === 0 ? (
+              <div className="mt-3 flex items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-400/10 ring-1 ring-emerald-400/30"><ShieldAlert className="h-4 w-4 text-emerald-300" aria-hidden /></span>
+                <p className="m-0 text-[12px] text-white/60">Detection runs continuously. Anything unusual shows up here for a person to review first.</p>
+              </div>
+            ) : (
+              <>
+                <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-white/10" role="img" aria-label={`${highCount} high severity, ${signals.length - highCount} attention`}>
+                  <span className="h-full bg-rose-400" style={{ width: `${(highCount / signals.length) * 100}%` }} />
+                  <span className="h-full bg-amber-400" style={{ width: `${((signals.length - highCount) / signals.length) * 100}%` }} />
+                </div>
+                <div className="mt-2 flex justify-between text-[10px] font-semibold text-white/50">
+                  <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-rose-400" aria-hidden /> High {highCount}</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden /> Attention {signals.length - highCount}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {topKinds.map(([kind, count]) => (
+                    <span key={kind} className="inline-flex items-center gap-1.5 rounded bg-white/[0.06] px-2 py-1 text-[10px] font-semibold text-white/75">
+                      {kind.replaceAll("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}
+                      <span className="tabular-nums text-white/45">{count}</span>
+                    </span>
+                  ))}
+                </div>
+                <dl className="m-0 mt-3 grid grid-cols-2 gap-2 border-0 border-t border-solid border-white/10 pt-3">
+                  <div className="min-w-0">
+                    <dt className="text-[10px] font-semibold text-white/50">Most signals</dt>
+                    <dd className="m-0 mt-0.5 truncate text-[12px] font-bold text-white/90">{busiest ? `${busiest.title} (${busiest.count})` : "-"}</dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="text-[10px] font-semibold text-white/50">Oldest waiting</dt>
+                    <dd className="m-0 mt-0.5 truncate text-[12px] font-bold text-white/90">{oldestWaiting}</dd>
+                  </div>
+                </dl>
+              </>
+            )}
           </div>
         </div>
-        <button type="button" onClick={() => void load()} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 text-xs font-bold text-white hover:bg-white/20"><RefreshCw className="h-4 w-4" />Refresh signals</button>
+
+        {/* The detection-only promise and refresh */}
+        <div className="relative flex min-w-0 flex-wrap items-center gap-2 border-0 border-t border-solid border-white/10 px-4 py-3 sm:px-6">
+          <span className="inline-flex w-full items-center gap-1.5 text-[11px] text-white/45 sm:w-auto"><Activity className="h-3.5 w-3.5" aria-hidden /> Detection only: nothing is enforced without a person reviewing it first</span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-white/[0.08] px-4 text-xs font-bold text-white transition hover:bg-white/15 sm:ml-auto sm:w-auto"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden /> Refresh signals
+          </button>
+        </div>
       </section>
 
-      {error && <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
-      {notice && <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800" role="status"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{notice}</span></div>}
+      {error && <div className="flex items-start gap-2.5 rounded-md border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
+      {notice && <div className="flex items-start gap-2.5 rounded-md border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800" role="status"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{notice}</span></div>}
 
-      <div className="integrity-metrics grid gap-3 sm:grid-cols-3">
-        <SummaryCard icon={ShieldAlert} label={statusFilter === "OPEN" ? "Open signals" : "Signals loaded"} value={String(signals.length)} detail={statusFilter === "OPEN" ? "Awaiting review" : `Filtered: ${STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label}`} tone={signals.length > 0 && statusFilter !== "ACKNOWLEDGED" ? "amber" : "slate"} />
-        <SummaryCard icon={AlertTriangle} label="High severity" value={String(highCount)} detail="Needs priority review" tone={highCount > 0 ? "amber" : "emerald"} />
-        <SummaryCard icon={Clock3} label="Detection window" value="Automated" detail="Runs continuously in the background" tone="blue" />
-      </div>
+      {/* Summary, joined cells like the operator statement's money strip */}
+      <section aria-label="Signal summary" className="grid min-w-0 grid-cols-1 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+        {[
+          {
+            Icon: ShieldAlert, label: statusFilter === "OPEN" ? "Open signals" : "Signals loaded", value: String(signals.length),
+            detail: statusFilter === "OPEN" ? "Awaiting review" : `Filtered: ${STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label}`,
+            ink: signals.length > 0 && statusFilter !== "ACKNOWLEDGED" ? "text-amber-600" : "text-neutral-400", iconTone: signals.length > 0 && statusFilter !== "ACKNOWLEDGED" ? "text-amber-500" : "text-neutral-300",
+          },
+          { Icon: AlertTriangle, label: "High severity", value: String(highCount), detail: "Needs priority review", ink: highCount > 0 ? "text-rose-600" : "text-neutral-400", iconTone: highCount > 0 ? "text-rose-500" : "text-neutral-300" },
+          { Icon: Clock3, label: "Oldest waiting", value: oldestWaiting, detail: openSignals.length ? "Longest an open signal has waited" : "Nothing waiting", ink: openSignals.length ? "text-neutral-950" : "text-neutral-400", iconTone: "text-neutral-300" },
+        ].map(({ Icon, label, value, detail, ink, iconTone }) => (
+          <div key={label} className="min-w-0 bg-white px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="m-0 text-[11px] font-semibold text-neutral-500">{label}</p>
+              <Icon className={`h-4 w-4 shrink-0 ${iconTone}`} aria-hidden />
+            </div>
+            <p className={`m-0 mt-1 break-words text-lg font-black tabular-nums tracking-tight ${ink}`}>{value}</p>
+            <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400">{detail}</p>
+          </div>
+        ))}
+      </section>
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader icon={Activity} title="Signals" subtitle="Anomalies detected across properties" right={<CountPill count={filteredSignals.length} singular="signal" plural="signals" />} />

@@ -24,6 +24,29 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
   const [returning, setReturning] = useState(false);
   const [returnError, setReturnError] = useState("");
   const [now, setNow] = useState(() => Date.now());
+  const [ownerMfa, setOwnerMfa] = useState<{
+    applies: boolean;
+    satisfied: boolean;
+    graceEndsAt: string | null;
+    signInEnforced: boolean;
+    setupOnly: boolean;
+  } | null>(null);
+
+  // Owner MFA policy: paid owners need a passkey or authenticator app.
+  useEffect(() => {
+    let mounted = true;
+    apiClient.get("/api/auth/owner-mfa/status")
+      .then(({ data }) => {
+        if (!mounted) return;
+        if (data?.setupOnly) {
+          window.location.replace("/account/secure-your-account");
+          return;
+        }
+        setOwnerMfa(data);
+      })
+      .catch(() => { if (mounted) setOwnerMfa(null); });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -63,7 +86,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
     setReturnError("");
     try {
       const { data } = await apiClient.post<{ ok: boolean; redirectTo: string }>("/api/auth/impersonation/end");
-      if (!data.ok || !data.redirectTo.startsWith("/admin/owners")) throw new Error("Could not restore administrator session");
+      if (!data.ok || !/^\/admin\/owners(?:\/[A-Za-z0-9_-]+)?$/.test(data.redirectTo)) throw new Error("Could not restore administrator session");
       clearAuthToken();
       window.location.replace(data.redirectTo);
     } catch (error: any) {
@@ -122,6 +145,29 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
     </section>
   ) : null;
 
+  const mfaDeadline = ownerMfa?.graceEndsAt
+    ? new Date(ownerMfa.graceEndsAt).toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "numeric", month: "long", year: "numeric" })
+    : null;
+  const mfaBanner = ownerMfa?.applies && !ownerMfa.satisfied && !supportSession?.impersonated
+    && !pathname.startsWith("/owner/settings/passkeys") && !pathname.startsWith("/owner/settings/2fa") ? (
+    <section aria-label="Protect your payouts" className="box-border flex w-full min-w-0 flex-wrap items-center gap-3 rounded-lg border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 sm:px-4">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-amber-100 text-amber-800" aria-hidden="true">
+        <ShieldCheck className="h-5 w-5" strokeWidth={2.2} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <strong className="block text-sm font-bold text-amber-950">Protect your payouts with a passkey</strong>
+        <p className="m-0 mt-0.5 text-xs text-amber-900 sm:text-sm">
+          {ownerMfa.signInEnforced
+            ? "Add a passkey or an authenticator app now. A text code alone no longer opens your account."
+            : `Add a passkey or an authenticator app${mfaDeadline ? ` before ${mfaDeadline}` : ""}. After that, a text code alone will not open your account, and withdrawals already need one.`}
+        </p>
+      </div>
+      <a href="/owner/settings/passkeys" className="inline-flex h-10 shrink-0 items-center justify-center rounded-md bg-amber-900 px-4 text-xs font-semibold text-white no-underline hover:bg-amber-950 sm:text-sm">
+        Add a passkey
+      </a>
+    </section>
+  ) : null;
+
   useEffect(() => {
     let mounted = true;
     const refreshUnread = async () => {
@@ -164,7 +210,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
 
   // NRMS remains a self-contained operational workspace with its own shell.
   if (isNrmsPage) {
-    return <div className="min-h-screen min-w-0 bg-neutral-100">{supportBanner && <div className="box-border w-full px-3 pb-2 pt-3">{supportBanner}</div>}{children}</div>;
+    return <div className="min-h-screen min-w-0 bg-neutral-100">{supportBanner && <div className="box-border w-full px-3 pb-2 pt-3">{supportBanner}</div>}{mfaBanner && <div className="box-border w-full px-3 pb-2 pt-3">{mfaBanner}</div>}{children}</div>;
   }
 
   return (
@@ -172,6 +218,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
       <OwnerSiteHeader unreadMessages={unreadCount} />
       <div className="box-border w-full shrink-0 px-3 pt-16">
         {supportBanner && <div className="pb-2 pt-2">{supportBanner}</div>}
+        {mfaBanner && <div className="pb-2 pt-2">{mfaBanner}</div>}
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">

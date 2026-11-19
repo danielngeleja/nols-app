@@ -30,15 +30,98 @@
 
 import type { AgentTier } from "./agentLevel.js";
 
-export const TOUR_PAYOUT_POLICY_VERSION = "2026-09-26";
+/** The numbers operators were told. Every version ever published is kept below. */
+export type TourPayoutTerms = {
+  advanceOpensDaysBefore: number;
+  advanceFullWindowHours: number;
+  advanceBasePercent: number;
+  advanceMaxPercent: number;
+  advanceCoolingOffHours: number;
+  advanceMinTier: AgentTier;
+  balanceDisputeWindowHours: number;
+  /** Per-tier limit on advances one operator holds across unfinished trips (lib/tourPayoutControls.ts). */
+  openAdvanceLimit: boolean;
+};
 
-export const ADVANCE_OPENS_DAYS_BEFORE = 7;
-export const ADVANCE_FULL_WINDOW_HOURS = 96;
-export const ADVANCE_BASE_PERCENT = 30;
-export const ADVANCE_MAX_PERCENT = 70;
-export const ADVANCE_COOLING_OFF_HOURS = 24;
-export const ADVANCE_MIN_TIER: AgentTier = "SILVER";
-export const BALANCE_DISPUTE_WINDOW_HOURS = 48;
+export type TourPayoutPolicyVersion = {
+  version: string;
+  /** When operators were told (policy page published, emails sent). */
+  announcedAt: string;
+  /** When the server starts applying these terms. */
+  effectiveFrom: string;
+  terms: TourPayoutTerms;
+};
+
+/**
+ * NOTICE RULE (operator agreement: 30 days' written notice before a material
+ * payout change). To change a number: append a new entry, never edit an old
+ * one. Any change that is worse for operators must have effectiveFrom at
+ * least TOUR_PAYOUT_NOTICE_DAYS after announcedAt; tourPayoutPolicy.test.ts
+ * fails otherwise. The server applies whichever entry is in force on the date
+ * in question, so an announced change can ship early and switches on by itself.
+ * The public page (tourOperatorDisbursementPolicyContent.tsx) is checked
+ * against the current entry by the same test.
+ */
+export const TOUR_PAYOUT_NOTICE_DAYS = 30;
+export const TOUR_PAYOUT_POLICY_HISTORY: readonly TourPayoutPolicyVersion[] = [
+  {
+    version: "2026-09-26",
+    announcedAt: "2026-09-26T00:00:00+03:00",
+    effectiveFrom: "2026-09-26T00:00:00+03:00",
+    terms: {
+      advanceOpensDaysBefore: 7,
+      advanceFullWindowHours: 96,
+      advanceBasePercent: 30,
+      advanceMaxPercent: 70,
+      advanceCoolingOffHours: 24,
+      advanceMinTier: "SILVER",
+      balanceDisputeWindowHours: 48,
+      openAdvanceLimit: false,
+    },
+  },
+  {
+    // Adds section 3.7 (open advance limit per operator level). It can refuse
+    // an advance, so it waits out the 30-day notice. If publication slips,
+    // move announcedAt to the real publication date and effectiveFrom with it.
+    version: "2026-12-19",
+    announcedAt: "2026-11-19T00:00:00+03:00",
+    effectiveFrom: "2026-12-19T00:00:00+03:00",
+    terms: {
+      advanceOpensDaysBefore: 7,
+      advanceFullWindowHours: 96,
+      advanceBasePercent: 30,
+      advanceMaxPercent: 70,
+      advanceCoolingOffHours: 24,
+      advanceMinTier: "SILVER",
+      balanceDisputeWindowHours: 48,
+      openAdvanceLimit: true,
+    },
+  },
+];
+
+/** The terms in force at a moment: the latest entry whose effectiveFrom has passed. */
+export function tourPayoutPolicyAt(at: Date = new Date()): TourPayoutPolicyVersion {
+  let current = TOUR_PAYOUT_POLICY_HISTORY[0];
+  for (const entry of TOUR_PAYOUT_POLICY_HISTORY) {
+    if (new Date(entry.effectiveFrom).getTime() <= at.getTime()) current = entry;
+  }
+  return current;
+}
+
+/** The latest published entry (may not be in force yet). */
+export const LATEST_TOUR_PAYOUT_POLICY = TOUR_PAYOUT_POLICY_HISTORY[TOUR_PAYOUT_POLICY_HISTORY.length - 1];
+
+export const TOUR_PAYOUT_POLICY_VERSION = LATEST_TOUR_PAYOUT_POLICY.version;
+
+// Current values, kept as named exports for readers and display. Rules that
+// decide money use tourPayoutPolicyAt(date) so a scheduled change applies on time.
+export const ADVANCE_OPENS_DAYS_BEFORE = LATEST_TOUR_PAYOUT_POLICY.terms.advanceOpensDaysBefore;
+export const ADVANCE_FULL_WINDOW_HOURS = LATEST_TOUR_PAYOUT_POLICY.terms.advanceFullWindowHours;
+export const ADVANCE_BASE_PERCENT = LATEST_TOUR_PAYOUT_POLICY.terms.advanceBasePercent;
+export const ADVANCE_MAX_PERCENT = LATEST_TOUR_PAYOUT_POLICY.terms.advanceMaxPercent;
+export const ADVANCE_COOLING_OFF_HOURS = LATEST_TOUR_PAYOUT_POLICY.terms.advanceCoolingOffHours;
+export const ADVANCE_MIN_TIER: AgentTier = LATEST_TOUR_PAYOUT_POLICY.terms.advanceMinTier;
+export const BALANCE_DISPUTE_WINDOW_HOURS = LATEST_TOUR_PAYOUT_POLICY.terms.balanceDisputeWindowHours;
 /**
  * Anchoring the dispute window to the trip's end can make an operator wait
  * longer than the old "48h after the timetable is finished" rule, so under the
@@ -145,25 +228,26 @@ export function computeAdvanceOffer(
   const start = toTime(booking.startDate);
   if (!Number.isFinite(start)) return empty("no_start_date", already);
 
-  const fullWindowAt = new Date(start - ADVANCE_FULL_WINDOW_HOURS * HOUR);
-  const opensByDate = start - ADVANCE_OPENS_DAYS_BEFORE * 24 * HOUR;
+  const terms = tourPayoutPolicyAt(now).terms;
+  const fullWindowAt = new Date(start - terms.advanceFullWindowHours * HOUR);
+  const opensByDate = start - terms.advanceOpensDaysBefore * 24 * HOUR;
   const paidAtMs = toTime(booking.paidAt);
-  const opensByCoolingOff = Number.isFinite(paidAtMs) ? paidAtMs + ADVANCE_COOLING_OFF_HOURS * HOUR : -Infinity;
+  const opensByCoolingOff = Number.isFinite(paidAtMs) ? paidAtMs + terms.advanceCoolingOffHours * HOUR : -Infinity;
   const opensAt = Math.max(opensByDate, opensByCoolingOff);
   const timing = { fullWindowAt: fullWindowAt.toISOString() };
 
   if (now.getTime() < opensByCoolingOff) return empty("cooling_off", already, { ...timing, opensAt: new Date(opensAt).toISOString() });
   if (now.getTime() < opensByDate) return empty("too_early", already, { ...timing, opensAt: new Date(opensAt).toISOString() });
   if ((booking.openCaseCount || 0) > 0) return empty("open_case", already, timing);
-  if (TIER_RANK[standing.tier] < TIER_RANK[ADVANCE_MIN_TIER]) return empty("tier_too_low", already, timing);
+  if (TIER_RANK[standing.tier] < TIER_RANK[terms.advanceMinTier]) return empty("tier_too_low", already, timing);
   if (!standing.hasVerifiedPayoutDestination) return empty("no_payout_destination", already, timing);
   if ((standing.pendingRecoveryAmount || 0) > 0) return empty("recovery_debt", already, timing);
 
   const net = Math.max(0, Number(booking.operatorNet) || 0);
   const inFullWindow = now.getTime() >= fullWindowAt.getTime();
-  const percentWithoutEvidence = inFullWindow ? ADVANCE_MAX_PERCENT : ADVANCE_BASE_PERCENT;
+  const percentWithoutEvidence = inFullWindow ? terms.advanceMaxPercent : terms.advanceBasePercent;
   const availableWithoutEvidence = money((net * percentWithoutEvidence) / 100 - already);
-  const availableWithEvidence = money((net * ADVANCE_MAX_PERCENT) / 100 - already);
+  const availableWithEvidence = money((net * terms.advanceMaxPercent) / 100 - already);
 
   if (availableWithEvidence <= 0) {
     return empty("fully_advanced", already, { ...timing, inFullWindow, percentWithoutEvidence });
@@ -206,7 +290,7 @@ export function balanceAfterAdvances(operatorNet: number, advancesPaid: number):
 export function balanceDisputeDeadline(
   operatorCompletedAt: Date,
   endDate?: Date | string | null,
-  hours = BALANCE_DISPUTE_WINDOW_HOURS
+  hours = tourPayoutPolicyAt(operatorCompletedAt).terms.balanceDisputeWindowHours
 ): Date {
   if (operatorCompletedAt.getTime() < DISPUTE_WINDOW_TRIP_END_ANCHOR_FROM.getTime()) {
     return new Date(operatorCompletedAt.getTime() + hours * HOUR);

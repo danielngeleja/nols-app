@@ -1413,6 +1413,10 @@ export default function RegisterPage() {
                             return;
                           }
                           saveAuthToken(data.token);
+                          if ((data as any)?.mfaSetupRequired) {
+                            window.location.replace('/account/secure-your-account');
+                            return;
+                          }
                           await redirectAfterAuth((data as any)?.user?.role);
                         } catch (e: any) {
                           setError(e?.message || 'Failed to sign in');
@@ -1501,6 +1505,10 @@ export default function RegisterPage() {
                           }
                           if (response.status === 200) {
                             saveAuthToken(response.data?.token);
+                            if (response.data?.mfaSetupRequired) {
+                              window.location.replace('/account/secure-your-account');
+                              return;
+                            }
                             // Auth cookie is set httpOnly by the API; redirect to authenticated area.
                             await redirectAfterAuth(response.data?.user?.role);
                           }
@@ -1510,7 +1518,7 @@ export default function RegisterPage() {
                             setBlockedAccount(data.blockedAccount);
                             setError(null);
                           } else {
-                            setError(data?.error || 'That code did not work. Check it and try again.');
+                            setError(data?.code === 'OWNER_PASSKEY_SIGNIN_REQUIRED' ? data.message : (data?.error || 'That code did not work. Check it and try again.'));
                             setTimeout(() => loginOtpInputRef.current?.select(), 50);
                           }
                       } finally {

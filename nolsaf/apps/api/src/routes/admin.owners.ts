@@ -10,6 +10,22 @@ import { toCsv } from "../lib/csv.js";
 import { sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
 import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
 import { deliverOwnerNotice, findReachableOwner } from "../lib/ownerNotice.js";
+import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
+import { sanitizeText } from "../lib/sanitize.js";
+import { audit } from "../lib/audit.js";
+
+// Support sessions per admin, matching the tour operator limit (10 an hour).
+const limitOwnerSupportSession = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many support sessions. Please wait before starting another." },
+  keyGenerator: (req) => {
+    const adminId = (req as any).user?.id;
+    return adminId ? `admin-owners-support:${adminId}` : req.ip || req.socket.remoteAddress || "unknown";
+  },
+});
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -1356,13 +1372,14 @@ router.post("/:id/documents/:docId/reject", async (req, res) => {
 });
 
 /** POST /admin/owners/:id/impersonate {reason} -> short-lived owner support session. */
-router.post("/:id/impersonate", async (req, res) => {
+router.post("/:id/impersonate", limitOwnerSupportSession as unknown as RequestHandler, async (req, res) => {
   const id = Number(req.params.id);
-  const reason = String(req.body?.reason ?? "").trim();
-  
-  if (reason.length < 10 || reason.length > 1000) {
+  const rawReason = String(req.body?.reason ?? "").trim();
+
+  if (rawReason.length < 10 || rawReason.length > 1000) {
     return res.status(400).json({ error: "Provide a reason between 10 and 1000 characters" });
   }
+  const reason = sanitizeText(rawReason);
   const adminToken = getTokenFromRequest(req);
   if (!adminToken) return res.status(401).json({ error: "Administrator session required" });
 
@@ -1380,7 +1397,8 @@ router.post("/:id/impersonate", async (req, res) => {
     { impersonated: true, impersonatorId: (req.user as any).id, expiresInSeconds: ttlSec },
   );
   const handoffHandle = await createSupportHandoff(adminToken, req.user as AuthedUser, token, "OWNER");
-  
+
+  await audit(req as any, "OWNER_IMPERSONATE_ISSUE", `owner:${id}`, { reason }, { ttlSec });
   await prisma.adminAudit.create({
     data: { 
       adminId: (req.user as any).id, 

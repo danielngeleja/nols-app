@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ChevronDown, ChevronsUpDown, ChevronUp, Eye, Filter, Inbox, Loader2, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, ChevronsUpDown, ChevronUp, Eye, Filter, Inbox, Loader2, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useAdminHref } from "@/lib/adminRecordRefs";
 
@@ -113,17 +113,82 @@ export default function AdminMerchantOnboardingPage() {
   const sortIcon = (field: QueueSortKey) => sortBy !== field ? <ChevronsUpDown className="h-3.5 w-3.5 text-slate-400" /> : sortDirection === "asc" ? <ChevronUp className="h-3.5 w-3.5 text-[#02665e]" /> : <ChevronDown className="h-3.5 w-3.5 text-[#02665e]" />;
 
   return (
-    <div className="mx-auto min-w-0 max-w-7xl space-y-4 px-3 py-4 sm:space-y-6 sm:px-4 sm:py-6 lg:px-6 xl:px-8 2xl:max-w-[1720px]">
-      <header className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0e2a7a] via-[#0a5c82] to-[#02665e] shadow-2xl">
-        <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" preserveAspectRatio="xMidYMid slice" viewBox="0 0 900 220"><circle cx="860" cy="45" r="200" stroke="white" strokeOpacity="0.06" fill="none" /><circle cx="28" cy="208" r="130" stroke="white" strokeOpacity="0.04" fill="none" /><polyline points="0,188 80,165 160,178 240,145 320,160 400,125 480,142 560,108 640,124 720,90 800,106 880,78" fill="none" stroke="white" strokeOpacity="0.16" strokeWidth="2" /></svg>
-        <div className="relative z-10 flex flex-col items-center px-6 py-10 text-center sm:py-14"><span className="mb-5 inline-flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-white/10 shadow-[0_0_0_8px_rgba(255,255,255,0.05)]"><ShieldCheck className="h-7 w-7 text-white/90" /></span><h1 className="m-0 text-2xl font-bold tracking-tight text-white sm:text-3xl">Merchant Onboarding Review</h1><p className="mb-0 mt-2 text-sm text-white/60 sm:text-base">Review owner verification packages and manage provider submission readiness</p></div>
+    <div className="w-full min-w-0 space-y-4">
+      {/* Onboarding band: the route every merchant takes, with live counts at each stage */}
+      <header className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.20)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative p-4 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <Link href="/admin/nrms" className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80 no-underline hover:text-emerald-200">
+                <ArrowLeft className="h-3 w-3" aria-hidden /> NRMS · Payments
+              </Link>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Merchant onboarding</h1>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Check each owner&apos;s verification package, then follow it through the payment provider to a live merchant account.</p>
+            </div>
+            {(() => {
+              const waiting = (queue?.counts?.READY_FOR_ADMIN_REVIEW ?? 0) + (queue?.counts?.PROVIDER_ACTION_REQUIRED ?? 0);
+              return waiting > 0 ? (
+                <button type="button" onClick={() => selectStatus((queue?.counts?.READY_FOR_ADMIN_REVIEW ?? 0) > 0 ? "READY_FOR_ADMIN_REVIEW" : "PROVIDER_ACTION_REQUIRED")} className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-2 self-start rounded-md border-0 bg-amber-400/15 px-3 text-xs font-semibold text-amber-200 ring-1 ring-inset ring-amber-400/25 transition hover:bg-amber-400/25">
+                  <span className="relative flex h-2 w-2" aria-hidden>
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-70" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" />
+                  </span>
+                  {waiting} need{waiting === 1 ? "s" : ""} you
+                </button>
+              ) : (
+                <span className="inline-flex h-8 shrink-0 items-center gap-1.5 self-start rounded-md bg-white/[0.06] px-3 text-xs font-semibold text-white/70 ring-1 ring-inset ring-white/10">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-300" aria-hidden /> Nothing waiting on NoLSAF
+                </span>
+              );
+            })()}
+          </div>
+
+          {/* Route map: three stages, each one opens its first queue */}
+          <ol className="m-0 mt-5 grid list-none grid-cols-1 gap-px overflow-hidden rounded-md bg-white/10 p-0 ring-1 ring-white/10 sm:grid-cols-3" aria-label="Onboarding stages">
+            {QUEUE_GROUPS.map((group, index) => {
+              const total = group.queues.reduce((sum: number, q) => sum + (queue?.counts?.[q.key] ?? 0), 0);
+              const here = group.queues.some((q) => q.key === status);
+              return (
+                <li key={group.caption} className="min-w-0">
+                  <div className={`flex h-full flex-col p-3 sm:p-4 ${here ? "bg-[#113430]" : "bg-[#0d2a25]"}`}>
+                    <p className="m-0 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
+                      <span className="font-mono text-white/30">0{index + 1}</span> {group.caption}
+                      {index < QUEUE_GROUPS.length - 1 && <ChevronRight className="ml-auto hidden h-3.5 w-3.5 text-white/20 sm:block" aria-hidden />}
+                    </p>
+                    <p className="m-0 mt-2 text-2xl font-bold tabular-nums leading-none text-white">{loading && !queue ? "..." : total}</p>
+                    <span className="mt-2.5 flex flex-wrap gap-1">
+                      {group.queues.map((q) => {
+                        const n = queue?.counts?.[q.key] ?? 0;
+                        const on = status === q.key;
+                        return (
+                          <button
+                            key={q.key}
+                            type="button"
+                            onClick={() => selectStatus(q.key)}
+                            aria-pressed={on}
+                            className={`inline-flex h-6 cursor-pointer items-center gap-1 rounded-sm border-0 px-1.5 text-[11px] font-semibold transition ${on ? "bg-white text-neutral-900" : n > 0 ? "bg-white/[0.08] text-white/80 hover:bg-white/[0.14]" : "bg-transparent text-white/35 hover:text-white/60"}`}
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full ${FILTER_TONES[q.tone].dot}`} aria-hidden />
+                            {q.label}
+                            <span className={`tabular-nums ${on ? "text-[#02665e]" : ""}`}>{n}</span>
+                          </button>
+                        );
+                      })}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
       </header>
       {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
 
       <section className="overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-[#0a1a19] via-[#0d2320] to-[#0a1f2e] shadow-[0_8px_32px_rgba(0,0,0,0.35)]"><div className="flex flex-col gap-3 px-4 py-4 sm:gap-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6">
         <div className="relative min-w-0"><Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-white/40" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search application ID, company, owner or provider" className="box-border h-11 w-full rounded-lg border border-white/15 bg-white/[0.07] pl-10 pr-10 text-sm font-medium text-white outline-none placeholder:text-white/35 focus:border-emerald-400/70 focus:ring-2 focus:ring-emerald-400/10" />{search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border-0 bg-white/10 text-white/60"><X className="h-3.5 w-3.5" /></button>}</div>
-        <div className="flex min-w-0 flex-nowrap items-center gap-2"><div className="scrollbar-hide flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-0.5">{QUEUE_GROUPS.flatMap((group) => group.queues).map((entry) => { const tone = FILTER_TONES[entry.tone]; return <button key={entry.key} type="button" onClick={() => selectStatus(entry.key)} className={`inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-[11px] font-semibold transition sm:text-xs ${status === entry.key ? tone.active : tone.idle}`}>{entry.label}<span className={`inline-flex min-w-5 items-center justify-center rounded-md px-1.5 py-0.5 text-[10px] tabular-nums ${tone.badge}`}>{queue?.counts?.[entry.key] ?? 0}</span></button>; })}</div><div className="flex shrink-0 items-center gap-1.5 border-l border-white/10 pl-2"><button type="button" onClick={() => void loadQueue(status)} aria-label="Refresh applications" className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/[0.07] text-white/75"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button><button type="button" onClick={() => setShowFilters((value) => !value)} className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold ${showFilters ? "border-emerald-400/70 bg-emerald-400/20 text-emerald-200" : "border-white/15 bg-white/[0.07] text-white/75"}`}><Filter className="h-4 w-4" />Filters{activeFilterCount > 0 && <span className="rounded-md bg-emerald-300/20 px-1.5 py-0.5 text-[10px]">{activeFilterCount}</span>}</button></div></div>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/40 sm:text-xs"><span>Select the eye icon to open the complete application review.</span><span className="inline-flex items-center gap-2 whitespace-nowrap font-semibold text-white/55"><span className={`h-1.5 w-1.5 rounded-full ${FILTER_TONES[QUEUE_TONE_BY_KEY[status] ?? "blue"].dot}`} />{visibleRows.length} of {queue?.total ?? 0} shown</span></div>
+        <div className="flex min-w-0 flex-nowrap items-center gap-2"><p className="m-0 flex min-w-0 flex-1 items-center gap-2 truncate text-xs font-semibold text-white/80"><span className={`h-2 w-2 shrink-0 rounded-full ${FILTER_TONES[QUEUE_TONE_BY_KEY[status] ?? "blue"].dot}`} aria-hidden /><span className="truncate">{QUEUE_GROUPS.flatMap((group) => group.queues).find((entry) => entry.key === status)?.label ?? titleCase(status)}</span><span className="shrink-0 font-normal text-white/40">{QUEUE_GROUPS.find((group) => group.queues.some((entry) => entry.key === status))?.caption}</span></p><div className="flex shrink-0 items-center gap-1.5 border-l border-white/10 pl-2"><button type="button" onClick={() => void loadQueue(status)} aria-label="Refresh applications" className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/[0.07] text-white/75"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button><button type="button" onClick={() => setShowFilters((value) => !value)} className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold ${showFilters ? "border-emerald-400/70 bg-emerald-400/20 text-emerald-200" : "border-white/15 bg-white/[0.07] text-white/75"}`}><Filter className="h-4 w-4" />Filters{activeFilterCount > 0 && <span className="rounded-md bg-emerald-300/20 px-1.5 py-0.5 text-[10px]">{activeFilterCount}</span>}</button></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/40 sm:text-xs"><span>Pick a queue in the stages above. Open a row to review the full application.</span><span className="inline-flex items-center gap-2 whitespace-nowrap font-semibold text-white/55"><span className={`h-1.5 w-1.5 rounded-full ${FILTER_TONES[QUEUE_TONE_BY_KEY[status] ?? "blue"].dot}`} />{visibleRows.length} of {queue?.total ?? 0} shown</span></div>
         {showFilters && <div className="space-y-3 border-t border-white/10 pt-4"><div className="flex items-center justify-between"><h2 className="m-0 text-sm font-semibold text-white/85">Advanced filters</h2><button type="button" onClick={() => { setProviderFilter(""); setEnvironmentFilter(""); setMinimumProperties(""); }} className="inline-flex items-center gap-1 rounded-md border-0 bg-white/[0.06] px-2 py-1 text-xs text-white/50"><X className="h-3 w-3" />Clear</button></div><div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
           <label className="min-w-0 text-xs font-medium text-white/55"><span className="mb-1.5 block">Payment provider</span><span className="relative block"><select value={providerFilter} onChange={(event) => setProviderFilter(event.target.value)} className={`${FILTER_CONTROL_CLASS} appearance-none pr-10`}><option value="" className="bg-[#0d2320]">All providers</option>{providers.map((provider) => <option key={provider} value={provider} className="bg-[#0d2320]">{titleCase(provider)}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" /></span></label>
           <label className="min-w-0 text-xs font-medium text-white/55"><span className="mb-1.5 block">Environment</span><span className="relative block"><select value={environmentFilter} onChange={(event) => setEnvironmentFilter(event.target.value)} className={`${FILTER_CONTROL_CLASS} appearance-none pr-10`}><option value="" className="bg-[#0d2320]">All environments</option>{environments.map((environment) => <option key={environment} value={environment} className="bg-[#0d2320]">{titleCase(environment)}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" /></span></label>

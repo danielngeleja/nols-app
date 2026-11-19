@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { ChevronLeft, ChevronRight, CircleAlert, History, KeyRound, LogIn, LogOut, RefreshCw, XCircle } from "lucide-react"
 import { eatDateTime, parseLogin, type LoginRecord, type SecurityScope } from "./securityData"
+import RecognisedDevices from "./RecognisedDevices"
 
 type Filter = "all" | "ok" | "failed"
 
@@ -90,6 +91,8 @@ export default function SecurityLoginHistory({ scope }: { scope: SecurityScope }
           </div>
         ))}
       </section>
+
+      <RecognisedDevices />
 
       {failed.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl bg-rose-50 px-5 py-4 ring-1 ring-inset ring-rose-200">

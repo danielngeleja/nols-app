@@ -8,8 +8,12 @@ import Link from "next/link";
 import {
   BadgeCheck,
   Building2,
+  Bus,
   CalendarClock,
   Car,
+  CarFront,
+  Ship,
+  Truck,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -352,14 +356,28 @@ export default function OperatorPublicProfile({
     .split(/\s*(?:,|\/|&|\band\b)\s*/i)
     .map((l) => l.trim())
     .filter(Boolean)
-    .map((l) => l.charAt(0).toUpperCase() + l.slice(1));
+    .map((l) => languageLook(l).name)
+    .filter((l, i, all) => all.indexOf(l) === i);
+  // Each figure carries one line of proof from the profile, and the tours
+  // figure jumps to the booking panel.
+  const guides = Number(p.guidesAvailable) || 0;
   const keyFacts = [
-    typeof p.yearsInOperation === "number" ? { Icon: CalendarClock, value: `${p.yearsInOperation}+`, label: "years operating", hex: "#02665e" } : null,
-    typeof p.teamSize === "number" ? { Icon: Users, value: String(p.teamSize), label: p.teamSize === 1 ? "team member" : "team members", hex: "#02665e" } : null,
-    languages.length ? { Icon: Languages, value: String(languages.length), label: languages.length === 1 ? "language" : "languages", hex: "#02665e" } : null,
-    tours.length ? { Icon: Package, value: String(tours.length), label: tours.length === 1 ? "tour" : "tours", hex: "#02665e" } : null,
-    p.vehicles?.length ? { Icon: Car, value: String(fleet.units), label: fleet.units === 1 ? "vehicle" : "vehicles", hex: "#02665e" } : null,
-  ].filter((f): f is { Icon: typeof Users; value: string; label: string; hex: string } => Boolean(f));
+    typeof p.yearsInOperation === "number"
+      ? { Icon: CalendarClock, value: `${p.yearsInOperation}+`, label: "years operating", detail: p.yearsInOperation > 0 ? `Since ${new Date().getFullYear() - p.yearsInOperation} or earlier` : "" }
+      : null,
+    typeof p.teamSize === "number"
+      ? { Icon: Users, value: String(p.teamSize), label: p.teamSize === 1 ? "team member" : "team members", detail: guides ? `${guides} guide${guides === 1 ? "" : "s"}` : "" }
+      : null,
+    languages.length
+      ? { Icon: Languages, value: String(languages.length), label: languages.length === 1 ? "language" : "languages", detail: languages.join(", ") }
+      : null,
+    tours.length
+      ? { Icon: Package, value: String(tours.length), label: tours.length === 1 ? "tour" : "tours", detail: cheapest ? `From ${money(cheapest.price, cheapest.currency)}` : "", href: "#toursSection" }
+      : null,
+    p.vehicles?.length
+      ? { Icon: Car, value: String(fleet.units), label: fleet.units === 1 ? "vehicle" : "vehicles", detail: fleet.seats ? `${fleet.seats} seats in total` : "" }
+      : null,
+  ].filter((f): f is { Icon: typeof Users; value: string; label: string; detail: string; href?: string } => Boolean(f));
 
   const share = async () => {
     const url = typeof window !== "undefined" ? window.location.href : "";
@@ -564,20 +582,43 @@ export default function OperatorPublicProfile({
         {/* ── Main ── */}
         <div className="space-y-6 lg:col-span-2">
           {keyFacts.length ? (
-            // One even row of figures: the number leads, the label sits under it,
-            // a thin rule between cells. Never wraps into a ragged second line.
-            <dl className="m-0 flex overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
-              {keyFacts.map(({ Icon, value, label }, i) => (
-                <div
-                  key={`fact-${label}`}
-                  className={`flex min-w-0 flex-1 flex-col items-center px-1.5 py-3 text-center sm:px-3 sm:py-3.5 ${i > 0 ? "border-0 border-l border-solid border-slate-200" : ""}`}
-                >
-                  <Icon className="h-4 w-4 flex-none text-[#02665e]" strokeWidth={1.9} aria-hidden />
-                  {/* dt before dd for valid markup; flex order shows the number first */}
-                  <dt className="order-3 mt-1 text-[11px] leading-tight text-slate-500 sm:text-[12px]">{label.charAt(0).toUpperCase() + label.slice(1)}</dt>
-                  <dd className="order-2 m-0 mt-1.5 text-[18px] font-bold leading-none tabular-nums text-slate-900 sm:text-[22px]">{value}</dd>
-                </div>
-              ))}
+            // Figures as small cards: icon, number, label, and one line of proof.
+            // Hairline gaps form the grid; it reflows to 2 or 3 columns on small screens.
+            <dl
+              className={`m-0 grid gap-px overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-200 ${keyFacts.length === 1 ? "grid-cols-1" : "grid-cols-2"} ${keyFacts.length >= 5 ? "md:grid-cols-5" : keyFacts.length === 4 ? "md:grid-cols-4" : keyFacts.length === 3 ? "md:grid-cols-3" : ""}`}
+            >
+              {keyFacts.map(({ Icon, value, label, detail, href }, i) => {
+                const lastAlone = keyFacts.length % 2 === 1 && i === keyFacts.length - 1;
+                const body = (
+                  <>
+                    <span className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-md bg-[#02665e]/[0.08] text-[#02665e] transition-colors group-hover:bg-[#02665e] group-hover:text-white">
+                      <Icon className="h-4 w-4" strokeWidth={1.9} aria-hidden />
+                    </span>
+                    {/* dt before dd for valid markup; flex order shows the number first */}
+                    <span className="flex min-w-0 flex-col">
+                      <dt className="order-2 mt-1 truncate text-[11.5px] font-medium leading-tight text-slate-600">{label.charAt(0).toUpperCase() + label.slice(1)}</dt>
+                      <dd className="order-1 m-0 text-[20px] font-bold leading-none tabular-nums text-slate-900">{value}</dd>
+                      {detail ? <dd className="order-3 m-0 mt-0.5 truncate text-[11px] leading-tight text-slate-400" title={detail}>{detail}</dd> : null}
+                    </span>
+                  </>
+                );
+                return (
+                  <div
+                    key={`fact-${label}`}
+                    className={`nols-entrance min-w-0 bg-white ${lastAlone && keyFacts.length > 1 ? "col-span-2 md:col-span-1" : ""}`}
+                    style={{ animationDelay: `${i * 40}ms` }}
+                  >
+                    {href ? (
+                      <a href={href} className="group flex h-full min-w-0 items-start gap-2.5 px-3 py-3 text-inherit no-underline transition-colors hover:bg-[#02665e]/[0.03]">
+                        {body}
+                        <ChevronRight className="ml-auto mt-1 h-3.5 w-3.5 flex-none text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-[#02665e]" aria-hidden />
+                      </a>
+                    ) : (
+                      <div className="flex h-full min-w-0 items-start gap-2.5 px-3 py-3">{body}</div>
+                    )}
+                  </div>
+                );
+              })}
             </dl>
           ) : null}
 
@@ -599,39 +640,49 @@ export default function OperatorPublicProfile({
 
               {/* Who you travel with: the languages they guide in and the kinds of trips they run */}
               {languages.length || p.tourismTypes?.length ? (
-                <dl className="m-0 mt-4 grid grid-cols-1 gap-3 border-0 border-t border-solid border-slate-100 pt-4 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-x-4">
+                <div className={`mt-5 grid grid-cols-1 gap-3 ${languages.length && p.tourismTypes?.length ? "md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" : ""}`}>
                   {languages.length ? (
-                    <>
-                      <dt className="pt-1 text-[12px] font-semibold text-slate-500">Speaks</dt>
-                      <dd className="m-0 flex flex-wrap gap-1.5">
+                    <section aria-label="Languages" className="min-w-0 rounded-xl border border-solid border-slate-200 bg-slate-50/60 p-3.5">
+                      <div className="mb-2.5 flex items-baseline justify-between gap-2">
+                        <h3 className="m-0 flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-800">
+                          <Languages className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /> Guides in
+                        </h3>
+                        <span className="text-[11.5px] tabular-nums text-slate-400">{languages.length} {languages.length === 1 ? "language" : "languages"}</span>
+                      </div>
+                      <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
                         {languages.map((lang) => (
-                          <span key={lang} className="inline-flex items-center gap-1.5 rounded-md bg-white py-0.5 pl-0.5 pr-2.5 text-[12.5px] font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-rose-50 text-[9.5px] font-black uppercase tracking-wide text-rose-700">{lang.slice(0, 2)}</span>
+                          <li key={lang} className="inline-flex min-w-0 items-center gap-2 rounded-lg bg-white py-1 pl-1 pr-2.5 text-[13px] font-medium text-slate-800 shadow-[0_1px_0_rgba(15,23,42,0.04)] ring-1 ring-inset ring-slate-200">
+                            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md bg-[#02665e]/[0.08] px-1 text-[10px] font-bold tracking-wide text-[#02665e]">{languageLook(lang).code}</span>
                             {lang}
-                          </span>
+                          </li>
                         ))}
-                      </dd>
-                    </>
+                      </ul>
+                    </section>
                   ) : null}
                   {p.tourismTypes?.length ? (
-                    <>
-                      <dt className="pt-1 text-[12px] font-semibold text-slate-500">Tour styles</dt>
-                      <dd className="m-0 flex flex-wrap gap-1.5">
+                    <section aria-label="Tour styles" className="min-w-0 rounded-xl border border-solid border-slate-200 bg-slate-50/60 p-3.5">
+                      <div className="mb-2.5 flex items-baseline justify-between gap-2">
+                        <h3 className="m-0 flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-800">
+                          <Compass className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /> Tour styles
+                        </h3>
+                        <span className="text-[11.5px] tabular-nums text-slate-400">{p.tourismTypes.length} {p.tourismTypes.length === 1 ? "style" : "styles"}</span>
+                      </div>
+                      <ul className="m-0 grid list-none grid-cols-1 gap-1.5 p-0 sm:grid-cols-2">
                         {p.tourismTypes.map((t) => {
                           const { Icon, hex } = experienceLook(t);
                           return (
-                            <span key={t} className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-0.5 pr-2.5 text-[12.5px] font-semibold" style={{ backgroundColor: `${hex}12`, color: hex }}>
-                              <span className="inline-flex h-6 w-6 items-center justify-center rounded text-white" style={{ backgroundColor: hex }}>
-                                <Icon className="h-3.5 w-3.5" aria-hidden />
+                            <li key={t} className="flex min-w-0 items-center gap-2.5 rounded-lg bg-white px-2 py-1.5 ring-1 ring-inset ring-slate-200 transition-colors hover:ring-slate-300">
+                              <span className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: `${hex}14`, color: hex }}>
+                                <Icon className="h-4 w-4" aria-hidden />
                               </span>
-                              {t}
-                            </span>
+                              <span className="min-w-0 truncate text-[13px] font-semibold text-slate-800" title={t}>{t}</span>
+                            </li>
                           );
                         })}
-                      </dd>
-                    </>
+                      </ul>
+                    </section>
                   ) : null}
-                </dl>
+                </div>
               ) : null}
             </SectionCard>
           ) : null}
@@ -648,24 +699,61 @@ export default function OperatorPublicProfile({
 
           {sites.length ? (
             <SectionCard icon={<Mountain className="h-5 w-5" aria-hidden />} eyebrow="Where they guide" title="Parks and places covered">
-              {/* Each place as a typed stop: what kind of place it is, at a glance */}
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                {sites.map((site, i) => {
-                  const { Icon, kind, hex } = placeLook(site);
-                  return (
-                    <div key={site} className="flex min-w-0 items-center gap-3 rounded-lg border border-solid border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-slate-300">
-                      <span className="relative inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md" style={{ backgroundColor: `${hex}14`, color: hex }}>
-                        <Icon className="h-5 w-5" aria-hidden />
-                        <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded bg-white px-1 text-[9.5px] font-bold tabular-nums text-slate-600 shadow ring-1 ring-slate-200">{i + 1}</span>
-                      </span>
-                      <div className="min-w-0 leading-tight">
-                        <div className="truncate text-[14px] font-semibold text-slate-900" title={site}>{site === site.toUpperCase() ? tidyPlace(site) : site}</div>
-                        <div className="mt-0.5 text-[11.5px] font-medium" style={{ color: hex }}>{kind}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              {/* Places grouped by kind, in the same strip style as the services */}
+              {(() => {
+                const byKind = new Map<string, { look: ReturnType<typeof placeLook>; places: string[] }>();
+                for (const site of sites) {
+                  const look = placeLook(site);
+                  const entry = byKind.get(look.kind) ?? { look, places: [] };
+                  entry.places.push(site === site.toUpperCase() ? tidyPlace(site) : site);
+                  byKind.set(look.kind, entry);
+                }
+                const kinds = [...byKind.values()].sort((a, b) => b.places.length - a.places.length);
+                const plural = (kind: string, n: number) => {
+                  const k = kind.toLowerCase();
+                  if (n === 1) return `1 ${k}`;
+                  if (k === "national park") return `${n} national parks`;
+                  if (k === "reserve") return `${n} reserves`;
+                  if (k === "mountain") return `${n} mountains`;
+                  if (k === "destination") return `${n} destinations`;
+                  if (k === "lake and water") return `${n} lakes and rivers`;
+                  if (k === "island and coast") return `${n} islands and coast`;
+                  return `${n} ${k}`;
+                };
+                return (
+                  <>
+                    <p className="m-0 mb-3.5 text-[14px] text-slate-600">
+                      <span className="font-semibold text-slate-900">{sites.length} place{sites.length === 1 ? "" : "s"}</span>
+                      {kinds.length > 1 ? `: ${kinds.map((k) => plural(k.look.kind, k.places.length)).join(", ")}.` : "."}
+                    </p>
+                    <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 md:grid-cols-2">
+                      {kinds.map(({ look: { Icon, kind, hex }, places }, i) => (
+                        <li
+                          key={kind}
+                          className="nols-entrance min-w-0 rounded-lg border border-solid border-slate-200 bg-white px-3.5 py-3 transition-colors hover:border-slate-300"
+                          style={{ animationDelay: `${Math.min(i, 6) * 50}ms` }}
+                        >
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] font-semibold text-slate-900">
+                              <Icon className="h-3.5 w-3.5 flex-shrink-0" style={{ color: hex }} aria-hidden />
+                              <span className="truncate">{places.length === 1 ? kind : plural(kind, places.length).replace(/^\d+\s/, "").replace(/^./, (c) => c.toUpperCase())}</span>
+                            </span>
+                            <span className="flex-shrink-0 text-[11px] tabular-nums text-slate-400">{places.length}</span>
+                          </div>
+                          <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+                            {places.map((place) => (
+                              <li key={place} className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] font-medium text-slate-800" style={{ backgroundColor: `${hex}12` }}>
+                                <MapPin className="h-3 w-3 flex-shrink-0" style={{ color: hex }} aria-hidden />
+                                <span className="min-w-0">{place}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                );
+              })()}
             </SectionCard>
           ) : null}
 
@@ -683,41 +771,7 @@ export default function OperatorPublicProfile({
             >
               {p.vehicles?.length ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {p.vehicles.map((v) => {
-                    const seats = Math.max(0, Math.min(14, Number(v.seatsPerVehicle) || 0));
-                    const modes = String(v.serviceMode || "").split(/\s*(?:,|\/|\band\b|&)\s*/i).map((m) => m.trim()).filter(Boolean);
-                    return (
-                      <div key={v.id} className="rounded-lg border border-solid border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
-                        <div className="flex items-start gap-3">
-                          <span className="relative inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e] text-white shadow-sm">
-                            <Car className="h-6 w-6" aria-hidden />
-                            <span className="absolute -bottom-1.5 -right-1.5 inline-flex h-6 min-w-6 items-center justify-center rounded bg-white px-1.5 text-[11px] font-black tabular-nums text-[#02665e] shadow ring-1 ring-slate-200">×{v.quantity || 1}</span>
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[15px] font-bold leading-snug text-slate-900">{v.type || "Tour vehicle"}</div>
-                            {modes.length ? (
-                              <div className="mt-1 flex flex-wrap gap-1">
-                                {modes.map((m) => (
-                                  <span key={m} className="rounded-md bg-[#02665e]/[0.08] px-1.5 py-0.5 text-[11px] font-semibold capitalize text-[#024d47]">{m}</span>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                        {seats ? (
-                          <div className="mt-3.5 flex items-center justify-between gap-3 border-0 border-t border-dashed border-slate-200 pt-3">
-                            {/* One mark per seat, so capacity is seen, not read */}
-                            <div className="flex flex-wrap gap-1" aria-hidden>
-                              {Array.from({ length: seats }).map((_, s) => (
-                                <span key={s} className="h-3.5 w-3 rounded-t-md rounded-b-sm bg-[#02665e]/70" />
-                              ))}
-                            </div>
-                            <span className="flex-shrink-0 text-[12.5px] font-semibold tabular-nums text-slate-700">{v.seatsPerVehicle} seats each</span>
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                  {p.vehicles.map((v) => <VehicleCard key={v.id} vehicle={v} />)}
                 </div>
               ) : null}
               {p.tools?.length ? (
@@ -920,60 +974,108 @@ export default function OperatorPublicProfile({
               </div>
 
               {/* Options: one decision, compared on duration and price */}
-              {tours.length > 1 ? (
-                <div role="radiogroup" aria-label="Tour packages" className="mx-5 mt-4 overflow-hidden rounded-lg border border-solid border-slate-300">
-                  {tours.map((pkg, idx) => {
-                    const active = idx === selectedIdx;
-                    const price = displayPrice(pkg.pricePerPerson);
-                    const hasPrice = Number.isFinite(price) && price > 0;
-                    const meta = [durationText(pkg.duration), pkg.destination].filter(Boolean).join(" · ");
-                    return (
-                      <button
-                        key={pkg.id || idx}
-                        type="button"
-                        role="radio"
-                        aria-checked={active}
-                        onClick={() => pickTour(idx)}
-                        title={pkg.name || undefined}
-                        className={[
-                          // Two tidy lines per package: name and price, then days, place and
-                          // a lowest-price tag. The chosen one gets a brand edge and tint.
-                          "relative grid w-full cursor-pointer grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.5 border-0 border-solid border-slate-200 py-2.5 pl-3 pr-3 text-left transition-colors",
-                          idx > 0 ? "border-t" : "",
-                          active ? "bg-[#02665e]/[0.05]" : "bg-white hover:bg-slate-50",
-                        ].join(" ")}
-                      >
-                        {active ? <span className="absolute inset-y-0 left-0 w-[3px] bg-[#02665e]" aria-hidden /> : null}
-                        <span
-                          className={`row-span-2 flex h-4 w-4 items-center justify-center rounded-full border-solid transition-colors ${active ? "border-0 bg-[#02665e] text-white" : "border-[1.5px] border-slate-300 bg-white"}`}
-                          aria-hidden
+              {tours.length > 1 ? (() => {
+                // Compare like with like: price per day only when every priced tour uses one currency.
+                const daysOf = (pkg: PublicPackage) => Number(String(pkg.duration || "").match(/\d+/)?.[0]) || 0;
+                const oneCurrency = new Set(priced.map((r) => r.currency)).size === 1;
+                const perDay = priced
+                  .filter((r) => daysOf(r.pkg) > 0)
+                  .map((r) => ({ index: r.index, value: r.price / daysOf(r.pkg) }));
+                const bestPerDay = oneCurrency && perDay.length > 1
+                  ? perDay.reduce((low, r) => (r.value < low.value ? r : low))
+                  : null;
+                const longest = Math.max(1, ...tours.map(daysOf));
+                return (
+                  <div role="radiogroup" aria-label="Tour packages" className="mx-5 mt-4 flex flex-col gap-2">
+                    {tours.map((pkg, idx) => {
+                      const active = idx === selectedIdx;
+                      const price = displayPrice(pkg.pricePerPerson);
+                      const hasPrice = Number.isFinite(price) && price > 0;
+                      const currency = String(pkg.currency || "USD").toUpperCase();
+                      const days = daysOf(pkg);
+                      const isCheapest = Boolean(cheapest && cheapest.index === idx && priced.length > 1);
+                      const isBestPerDay = Boolean(bestPerDay && bestPerDay.index === idx && !isCheapest);
+                      return (
+                        <button
+                          key={pkg.id || idx}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => pickTour(idx)}
+                          title={pkg.name || undefined}
+                          className={[
+                            "group box-border w-full cursor-pointer rounded-md border-0 px-3 py-2.5 text-left transition-all duration-200",
+                            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#02665e]",
+                            active
+                              ? "bg-[#02665e]/[0.045] shadow-[0_6px_18px_-12px_rgba(2,102,94,0.7)] ring-2 ring-inset ring-[#02665e]"
+                              : "bg-white ring-1 ring-inset ring-slate-200 hover:ring-slate-300",
+                          ].join(" ")}
                         >
-                          {active ? <Check className="h-2.5 w-2.5" strokeWidth={3.4} /> : null}
-                        </span>
-                        <span className={`min-w-0 truncate text-[13px] font-semibold leading-tight ${active ? "text-[#02665e]" : "text-slate-800"}`}>{pkg.name || `Tour ${idx + 1}`}</span>
-                        <span className={`whitespace-nowrap text-right text-[13px] font-bold leading-tight tabular-nums ${active ? "text-[#02665e]" : "text-slate-900"}`}>
-                          {hasPrice ? money(price, String(pkg.currency || "USD").toUpperCase()) : "On request"}
-                          {hasPrice ? <span className="ml-0.5 text-[10.5px] font-medium text-slate-500">/pp</span> : null}
-                        </span>
-                        <span className="min-w-0 truncate text-[11.5px] leading-tight text-slate-500">{meta || "Guided tour"}</span>
-                        <span className="justify-self-end">
-                          {cheapest && cheapest.index === idx && priced.length > 1 ? (
-                            <span className="rounded bg-emerald-50 px-1.5 py-px text-[10.5px] font-semibold text-emerald-700">Lowest price</span>
-                          ) : null}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
+                          <span className="flex items-start gap-2.5">
+                            <span
+                              className={`mt-0.5 flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-full transition-colors ${active ? "bg-[#02665e] text-white" : "bg-white ring-[1.5px] ring-inset ring-slate-300 group-hover:ring-slate-400"}`}
+                              aria-hidden
+                            >
+                              {active ? <Check className="h-3 w-3" strokeWidth={3.2} /> : null}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-baseline justify-between gap-3">
+                                <span className={`min-w-0 truncate text-[13.5px] font-semibold leading-tight ${active ? "text-[#024d47]" : "text-slate-900"}`}>{pkg.name || `Tour ${idx + 1}`}</span>
+                                <span className="flex-shrink-0 whitespace-nowrap text-[14px] font-bold leading-tight tabular-nums text-slate-900">
+                                  {hasPrice ? money(price, currency) : "On request"}
+                                  {hasPrice ? <span className="ml-0.5 text-[10.5px] font-medium text-slate-500">/pp</span> : null}
+                                </span>
+                              </span>
+
+                              <span className="mt-1.5 flex items-center justify-between gap-3">
+                                <span className="flex min-w-0 items-center gap-2">
+                                  {/* Trip length as day blocks, on one scale across the options */}
+                                  {days ? (
+                                    <span className="flex flex-shrink-0 items-center gap-[2px]" aria-hidden>
+                                      {Array.from({ length: Math.min(longest, 10) }).map((_, d) => (
+                                        <span
+                                          key={d}
+                                          className={`h-2 w-2 rounded-[2px] transition-colors ${d < days ? (active ? "bg-[#02665e]" : "bg-[#02665e]/40") : "bg-slate-100"}`}
+                                        />
+                                      ))}
+                                    </span>
+                                  ) : null}
+                                  <span className="min-w-0 truncate text-[11.5px] text-slate-500">
+                                    {[durationText(pkg.duration), pkg.destination].filter(Boolean).join(" · ") || "Guided tour"}
+                                  </span>
+                                </span>
+                                {hasPrice && days && oneCurrency ? (
+                                  <span className="flex-shrink-0 text-[11px] tabular-nums text-slate-400">{money(price / days, currency)}/day</span>
+                                ) : null}
+                              </span>
+
+                              {isCheapest || isBestPerDay ? (
+                                <span className="mt-1.5 flex flex-wrap gap-1">
+                                  {isCheapest ? <span className="rounded bg-emerald-50 px-1.5 py-px text-[10.5px] font-semibold text-emerald-700">Lowest price</span> : null}
+                                  {isBestPerDay ? <span className="rounded bg-sky-50 px-1.5 py-px text-[10.5px] font-semibold text-sky-700">Best value per day</span> : null}
+                                </span>
+                              ) : null}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })() : null}
 
               {/* The selected tour at a glance */}
               <div className="mt-4 border-0 border-t border-solid border-slate-100 px-5 pt-4">
                 {tours.length === 1 ? (
-                  <h3 className="m-0 text-[16px] font-bold text-slate-900">{selected.name || "Tour"}</h3>
-                ) : (
-                  <div className="mb-2.5 text-[12px] font-semibold text-slate-500">In this tour</div>
-                )}
+                  <h3 className="m-0 mb-3 text-[16px] font-bold text-slate-900">{selected.name || "Tour"}</h3>
+                ) : null}
+                {/* The plan comes first: what you will actually do is the deciding detail. */}
+                {selected.itinerary?.length ? (
+                  <ItineraryPreview key={selected.id || selectedIdx} pkg={selected} onOpen={() => setDetailsFor(selectedIdx)} />
+                ) : null}
+                {tours.length > 1 ? (
+                  <div className={`mb-2.5 text-[12px] font-semibold text-slate-500 ${selected.itinerary?.length ? "mt-4" : ""}`}>In this tour</div>
+                ) : null}
                 {(() => {
                   // Fixed cells, label over value: they line up in two even
                   // columns however long a value is, instead of wrapping chips.
@@ -1018,40 +1120,23 @@ export default function OperatorPublicProfile({
                     ))}
                   </ul>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => setDetailsFor(selectedIdx)}
-                  className="group mt-3 flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-solid border-[#02665e]/25 bg-[#02665e]/[0.04] px-2.5 py-2 text-left transition-colors hover:border-[#02665e]/45 hover:bg-[#02665e]/[0.07]"
-                >
-                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e] text-white">
-                    <Route className="h-3.5 w-3.5" aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1 leading-tight">
-                    <span className="block text-[12.5px] font-semibold text-slate-900">{selected.itinerary?.length ? "See the day-by-day plan" : "Full tour details"}</span>
-                    {selected.itinerary?.length ? (() => {
-                      const dayCount = selected.itinerary.length;
-                      const perDay = selected.itinerary.map((d) => d.events?.length || 0);
-                      const total = perDay.reduce((a, b) => a + b, 0);
-                      const peak = Math.max(1, ...perDay);
-                      return (
-                        <span className="mt-1 flex items-center gap-2">
-                          {/* A tiny preview of how full each day is */}
-                          <span className="flex h-3.5 items-end gap-[3px]" aria-hidden>
-                            {perDay.slice(0, 10).map((count, i) => (
-                              <span key={i} className="w-1.5 rounded-sm bg-[#02665e]/60" style={{ height: `${Math.max(25, (count / peak) * 100)}%` }} />
-                            ))}
-                          </span>
-                          <span className="truncate text-[11px] text-slate-500">
-                            {dayCount} day{dayCount === 1 ? "" : "s"}{total ? ` · ${total} timed activit${total === 1 ? "y" : "ies"}` : ""}
-                          </span>
-                        </span>
-                      );
-                    })() : (
+                {/* With a plan, the timeline above already opens the details; without one, offer them here. */}
+                {!selected.itinerary?.length ? (
+                  <button
+                    type="button"
+                    onClick={() => setDetailsFor(selectedIdx)}
+                    className="group mt-3 flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-solid border-[#02665e]/25 bg-[#02665e]/[0.04] px-2.5 py-2 text-left transition-colors hover:border-[#02665e]/45 hover:bg-[#02665e]/[0.07]"
+                  >
+                    <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e] text-white">
+                      <FileText className="h-3.5 w-3.5" aria-hidden />
+                    </span>
+                    <span className="min-w-0 flex-1 leading-tight">
+                      <span className="block text-[12.5px] font-semibold text-slate-900">Full tour details</span>
                       <span className="mt-0.5 block text-[11.5px] text-slate-500">Inclusions, meeting point and more</span>
-                    )}
-                  </span>
-                  <ChevronRight className="h-4 w-4 flex-shrink-0 text-[#02665e] transition-transform group-hover:translate-x-0.5" aria-hidden />
-                </button>
+                    </span>
+                    <ChevronRight className="h-4 w-4 flex-shrink-0 text-[#02665e] transition-transform group-hover:translate-x-0.5" aria-hidden />
+                  </button>
+                ) : null}
                 {discountText(selected) ? (
                   <div className="mt-3 flex items-center gap-1.5 rounded-md bg-[#02665e]/[0.07] px-2.5 py-1.5 text-[12px] font-semibold text-[#02665e]">
                     <BadgeCheck className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
@@ -1384,6 +1469,311 @@ function monthIndex(value: string): number | null {
   return i >= 0 ? i : null;
 }
 
+/** "07:30" to minutes after midnight; null when there is no usable time. */
+function clockMinutes(value: string): number | null {
+  const m = String(value || "").match(/^(\d{1,2})[:.](\d{2})/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  return h < 24 && min < 60 ? h * 60 + min : null;
+}
+
+/**
+ * The day-by-day plan as a compact, interactive strip in the booking panel:
+ * one segment per day of the trip (planned days filled, unplanned ones
+ * dashed), and the chosen day's activities placed on a time rail. Tap a day to
+ * see its rhythm; the full plan is one click away.
+ */
+function ItineraryPreview({ pkg, onOpen }: { pkg: PublicPackage; onOpen: () => void }) {
+  const byDay = new Map<number, ItineraryDay>();
+  [...(pkg.itinerary || [])]
+    .sort((a, b) => (Number(a.day) || 0) - (Number(b.day) || 0))
+    .forEach((d, i) => byDay.set(Number(d.day) || i + 1, d));
+  const planned = byDay.size;
+  const tripDays = Math.max(planned, Math.max(0, ...byDay.keys()), Number(String(pkg.duration || "").match(/\d+/)?.[0]) || 0);
+  const dayNumbers = Array.from({ length: tripDays }, (_, i) => i + 1);
+  const [active, setActive] = useState<number>(() => dayNumbers.find((n) => byDay.has(n)) ?? 1);
+
+  const day = byDay.get(active);
+  const events = [...(day?.events || [])]
+    .map((e) => ({ ...e, at: clockMinutes(e.startTime) }))
+    .sort((a, b) => (a.at ?? 9999) - (b.at ?? 9999));
+  const timed = events.filter((e) => e.at !== null) as Array<(typeof events)[number] & { at: number }>;
+  // A daytime rail, widened only when the plan starts earlier or ends later.
+  const railStart = Math.min(6 * 60, ...timed.map((e) => e.at));
+  const railEnd = Math.max(20 * 60, ...timed.map((e) => e.at));
+  const pos = (at: number) => ((at - railStart) / Math.max(1, railEnd - railStart)) * 100;
+  const hourLabel = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:00`;
+
+  return (
+    <section aria-label="Day by day plan" className="rounded-lg border border-solid border-slate-200 bg-white px-3 pb-3 pt-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] font-semibold text-slate-900">
+          <Route className="h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
+          Day by day
+          <span className="truncate font-normal text-slate-400">
+            · {planned < tripDays ? `${planned} of ${tripDays} days planned` : `${tripDays} day${tripDays === 1 ? "" : "s"}`}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="group inline-flex flex-shrink-0 cursor-pointer items-center gap-0.5 rounded border-0 bg-transparent p-0 text-[12px] font-semibold text-[#02665e] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#02665e]"
+        >
+          Full plan
+          <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />
+        </button>
+      </div>
+
+      {/* One segment per day of the trip */}
+      <div role="tablist" aria-label="Choose a day" className="mt-2 flex gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+        {dayNumbers.map((n) => {
+          const has = byDay.has(n);
+          const on = n === active;
+          const count = byDay.get(n)?.events?.length || 0;
+          return (
+            <button
+              key={n}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              aria-label={`Day ${n}${has ? `, ${count} activit${count === 1 ? "y" : "ies"}` : ", not planned yet"}`}
+              onClick={() => setActive(n)}
+              className={[
+                "relative box-border h-8 min-w-[34px] flex-1 cursor-pointer rounded-md p-0 text-[11.5px] font-bold tabular-nums transition-all duration-200",
+                on
+                  ? "border-0 bg-[#02665e] text-white shadow-[0_4px_12px_-6px_rgba(2,102,94,0.8)]"
+                  : has
+                    ? "border-0 bg-[#02665e]/[0.09] text-[#024d47] hover:bg-[#02665e]/[0.16]"
+                    : "border border-dashed border-slate-300 bg-transparent text-slate-400 hover:border-slate-400",
+              ].join(" ")}
+            >
+              {n}
+              {/* How full the day is, as small ticks */}
+              {has && count ? (
+                <span className="absolute bottom-1 left-1/2 flex -translate-x-1/2 gap-[2px]" aria-hidden>
+                  {Array.from({ length: Math.min(count, 4) }).map((_, i) => (
+                    <span key={i} className={`h-[3px] w-[3px] rounded-full ${on ? "bg-white/80" : "bg-[#02665e]/50"}`} />
+                  ))}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* The chosen day: title, then its activities on a time rail */}
+      <div key={active} role="tabpanel" className="nols-entrance mt-2.5 min-w-0">
+        {day ? (
+          <>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="min-w-0 truncate text-[13px] font-semibold text-slate-900" title={day.title || undefined}>{day.title || `Day ${active}`}</span>
+              {events.length ? <span className="flex-shrink-0 text-[11px] tabular-nums text-slate-400">{events.length} activit{events.length === 1 ? "y" : "ies"}</span> : null}
+            </div>
+            {timed.length ? (
+              <div className="mt-2.5">
+                <div className="relative h-4">
+                  <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-slate-100" aria-hidden />
+                  <span
+                    className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-[#02665e]/25"
+                    style={{ left: `${pos(timed[0].at)}%`, width: `${Math.max(0, pos(timed[timed.length - 1].at) - pos(timed[0].at))}%` }}
+                    aria-hidden
+                  />
+                  {timed.map((e) => (
+                    <span
+                      key={e.id || `${e.startTime}-${e.activity}`}
+                      title={`${e.startTime} ${e.activity}`}
+                      className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#02665e] ring-2 ring-white"
+                      style={{ left: `${pos(e.at)}%` }}
+                    />
+                  ))}
+                </div>
+                <div className="mt-0.5 flex justify-between text-[10px] tabular-nums text-slate-400" aria-hidden>
+                  <span>{hourLabel(railStart)}</span>
+                  <span>{hourLabel(Math.round((railStart + railEnd) / 120) * 60)}</span>
+                  <span>{hourLabel(Math.ceil(railEnd / 60) * 60)}</span>
+                </div>
+              </div>
+            ) : null}
+            {events.length ? (
+              <p className="m-0 mt-1.5 truncate text-[11.5px] text-slate-600">
+                {events.slice(0, 3).map((e, i) => (
+                  <span key={e.id || i}>
+                    {i ? <span className="text-slate-300"> · </span> : null}
+                    {e.startTime ? <span className="font-medium tabular-nums text-slate-500">{e.startTime} </span> : null}
+                    {e.activity}
+                  </span>
+                ))}
+                {events.length > 3 ? <span className="text-slate-400"> · +{events.length - 3}</span> : null}
+              </p>
+            ) : day.description ? (
+              <p className="m-0 mt-1 line-clamp-2 text-[11.5px] text-slate-500">{day.description}</p>
+            ) : null}
+          </>
+        ) : (
+          <p className="m-0 text-[12px] text-slate-500">Day {active} is not planned yet. Ask the operator when you book.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Languages are typed freely by operators. Show the proper name and its
+ * ISO 639-1 code (so Portuguese reads PT, not PO), fixing common spellings.
+ */
+const LANGUAGE_CODES: Array<[RegExp, string, string]> = [
+  [/^english$/i, "English", "EN"],
+  [/^(ki)?swahili$/i, "Swahili", "SW"],
+  [/^fran(c|ç)ais$|^french$/i, "French", "FR"],
+  [/^german$|^deutsch$/i, "German", "DE"],
+  [/^spanish$|^espa(n|ñ)ol$/i, "Spanish", "ES"],
+  [/^italian(o)?$/i, "Italian", "IT"],
+  [/^portugu(e|ê)s(e)?$/i, "Portuguese", "PT"],
+  [/^dutch$/i, "Dutch", "NL"],
+  [/^russian$/i, "Russian", "RU"],
+  [/^(mandarin|chinese)$/i, "Chinese", "ZH"],
+  [/^japanese$/i, "Japanese", "JA"],
+  [/^korean$/i, "Korean", "KO"],
+  [/^arabic$/i, "Arabic", "AR"],
+  [/^hindi$/i, "Hindi", "HI"],
+  [/^hebrew$/i, "Hebrew", "HE"],
+  [/^polish$/i, "Polish", "PL"],
+  [/^swedish$/i, "Swedish", "SV"],
+  [/^turkish$/i, "Turkish", "TR"],
+];
+
+function languageLook(raw: string): { name: string; code: string } {
+  const value = raw.trim();
+  for (const [pattern, name, code] of LANGUAGE_CODES) {
+    if (pattern.test(value)) return { name, code };
+  }
+  const name = value.charAt(0).toUpperCase() + value.slice(1);
+  return { name, code: name.slice(0, 2).toUpperCase() };
+}
+
+type PublicVehicle = PublicOperatorProfileData["vehicles"][number];
+
+/** The right silhouette for the vehicle type. */
+function vehicleIcon(type: string): typeof Check {
+  const t = type.toLowerCase();
+  if (/boat|ferry|dhow|ship/.test(t)) return Ship;
+  if (/bus|coaster|minibus|van/.test(t)) return Bus;
+  if (/truck|overland/.test(t)) return Truck;
+  if (/suv|saloon|sedan|private car/.test(t)) return CarFront;
+  return Car;
+}
+
+/** What each service mode means for the traveller, in plain words. */
+function vehicleModeLook(mode: string): { label: string; hint: string; Icon: typeof Check } {
+  const m = mode.toLowerCase();
+  if (/private/.test(m)) return { label: "Private", hint: "Only your group", Icon: Lock };
+  if (/shared|group/.test(m)) return { label: "Shared", hint: "Ride with other travellers", Icon: Users };
+  if (/schedul/.test(m)) return { label: "Scheduled", hint: "Set departure times", Icon: CalendarClock };
+  if (/demand|request/.test(m)) return { label: "On request", hint: "Arranged when you book", Icon: Clock3 };
+  if (/corporate|contract/.test(m)) return { label: "Corporate", hint: "Company and contract trips", Icon: Building2 };
+  return { label: mode, hint: "", Icon: Route };
+}
+
+/** Ownership as a traveller would read it; unknown values are not shown. */
+function vehicleOwnership(ownedBy: string): { label: string; strong: boolean } | null {
+  const o = ownedBy.toLowerCase();
+  if (/company|own fleet|self/.test(o)) return { label: "Operator's own vehicle", strong: true };
+  if (/partner/.test(o)) return { label: "Partner vehicle", strong: false };
+  if (/rent|hire/.test(o)) return { label: "Hired for your trip", strong: false };
+  return null;
+}
+
+/**
+ * Top-down seat plan: the cabin seen from above, front to the right, with the
+ * driver's seat apart. Capacity is seen at a glance instead of read.
+ */
+function SeatPlan({ seats }: { seats: number }) {
+  const perRow = seats <= 6 ? 2 : seats <= 12 ? 3 : 4;
+  const rows: number[] = [];
+  for (let left = seats; left > 0; left -= perRow) rows.push(Math.min(perRow, left));
+  const seat = "h-3.5 w-3.5 rounded-[4px]";
+  return (
+    <div className="relative inline-flex min-w-0 items-center rounded-l-[10px] rounded-r-[20px] border-2 border-solid border-slate-300 bg-white py-1.5 pl-2 pr-3.5" aria-hidden>
+      <div className="flex items-center gap-1.5">
+        {rows.map((n, r) => (
+          <div key={r} className="flex flex-col gap-1">
+            {Array.from({ length: perRow }).map((_, s) => (
+              <span key={s} className={`${seat} ${s < n ? "bg-[#02665e] transition-transform duration-200 group-hover:scale-105" : "bg-transparent"}`} />
+            ))}
+          </div>
+        ))}
+        <span className="mx-0.5 w-px self-stretch bg-slate-200" />
+        <div className="flex flex-col gap-1">
+          {Array.from({ length: perRow }).map((_, s) => (
+            <span key={s} className={`${seat} ${s === 0 ? "bg-slate-300" : "bg-transparent"}`} />
+          ))}
+        </div>
+      </div>
+      {/* Windscreen */}
+      <span className="absolute bottom-2 right-1 top-2 w-[3px] rounded-full bg-sky-200" />
+    </div>
+  );
+}
+
+function VehicleCard({ vehicle: v }: { vehicle: PublicVehicle }) {
+  const quantity = Math.max(1, Number(v.quantity) || 1);
+  const seats = Math.max(0, Math.min(14, Number(v.seatsPerVehicle) || 0));
+  const Icon = vehicleIcon(v.type || "");
+  const modes = String(v.serviceMode || "")
+    .split(/\s*(?:,|\/|\band\b|&)\s*/i)
+    .map((m) => m.trim())
+    .filter(Boolean)
+    .map(vehicleModeLook);
+  const ownership = vehicleOwnership(String(v.ownedBy || ""));
+  return (
+    <article className="group flex min-w-0 flex-col rounded-xl border border-solid border-slate-200 bg-white p-4 transition-[border-color,box-shadow] duration-200 hover:border-slate-300 hover:shadow-[0_6px_20px_-12px_rgba(15,23,42,0.35)]">
+      <div className="flex items-start gap-3">
+        <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/[0.08] text-[#02665e]">
+          <Icon className="h-5 w-5" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="m-0 text-[15px] font-bold leading-snug text-slate-900">{v.type || "Tour vehicle"}</h3>
+          <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">
+            <span className="font-semibold tabular-nums text-slate-700">{quantity}</span> {quantity === 1 ? "vehicle" : "vehicles"}
+            {seats ? <> · <span className="font-semibold tabular-nums text-slate-700">{seats}</span> seats each</> : null}
+          </p>
+        </div>
+      </div>
+
+      {seats ? (
+        <div className="mt-3.5 flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2.5">
+          <SeatPlan seats={seats} />
+          <div className="flex-shrink-0 text-right leading-tight">
+            <div className="text-[20px] font-black tabular-nums text-slate-900">{seats * quantity}</div>
+            <div className="text-[11px] text-slate-500">seats in total</div>
+          </div>
+          <span className="sr-only">{`${seats} passenger seats in each vehicle, ${seats * quantity} in total.`}</span>
+        </div>
+      ) : null}
+
+      {modes.length ? (
+        <ul className="m-0 mt-3 flex list-none flex-wrap gap-1.5 p-0">
+          {modes.map(({ label, hint, Icon: ModeIcon }) => (
+            <li key={label} className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-[#02665e]/[0.06] px-2 py-1 text-[11.5px] text-[#024d47]">
+              <ModeIcon className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+              <span className="font-semibold">{label}</span>
+              {hint ? <span className="text-[#024d47]/70">{hint}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {ownership ? (
+        <p className={`m-0 mt-auto flex items-center gap-1.5 pt-3 text-[11.5px] font-medium ${ownership.strong ? "text-emerald-700" : "text-slate-500"}`}>
+          {ownership.strong ? <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> : <Car className="h-3.5 w-3.5" aria-hidden />}
+          {ownership.label}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
 /** An icon that says what each piece of equipment is. */
 function toolIcon(name: string): typeof Check {
   const n = name.toLowerCase();
@@ -1422,123 +1812,101 @@ function OfferOverview({ groups, specialities, extras }: { groups: Array<[string
     serviceCount ? `${serviceCount} service${serviceCount === 1 ? "" : "s"}` : null,
     groups.length > 1 ? `across ${groups.length} areas` : null,
   ].filter(Boolean).join(" ");
-  // Two cards by default; everything else waits behind "View more"
+  // Every area is a compact card in the same style as "Known for"; only very long lists fold.
+  const AREA_LIMIT = 6;
   const [showAll, setShowAll] = useState(false);
-  const cards = [
-    ...groups.map(([group, items]) => ({ kind: "group" as const, key: group, group, items })),
-    ...(specialities.length ? [{ kind: "known" as const, key: "__known" }] : []),
-    ...(extras.length ? [{ kind: "extras" as const, key: "__extras" }] : []),
-  ];
-  const visible = new Set((showAll ? cards : cards.slice(0, 2)).map((c) => c.key));
-  const hiddenCount = cards.length - 2;
-  const shownGroups = groups.filter(([group]) => visible.has(group));
-  const showKnown = visible.has("__known");
-  const showExtras = visible.has("__extras");
+  const shownGroups = showAll ? groups : groups.slice(0, AREA_LIMIT);
+  const hiddenAreas = groups.length - shownGroups.length;
   return (
     <div>
       {summary ? (
-        <p className="m-0 mb-4 text-[14px] text-slate-600">
+        <p className="m-0 mb-3.5 text-[14px] text-slate-600">
           <span className="font-semibold text-slate-900">{summary}</span>
           {extras.length ? `, plus ${extras.length} optional extra${extras.length === 1 ? "" : "s"}.` : "."}
         </p>
       ) : null}
 
-      {shownGroups.length ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {shownGroups.map(([group, items]) => {
-            const { Icon, hex } = experienceLook(group);
-            return (
-              <div
-                key={group}
-                className="group relative overflow-hidden rounded-lg border border-solid bg-white p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-18px_rgba(15,23,42,0.35)]"
-                style={{ borderColor: `${hex}33`, backgroundImage: `linear-gradient(160deg, ${hex}14 0%, #ffffff 55%)` }}
-              >
-                {/* Large faint mark: each area is recognisable before it is read */}
-                <Icon aria-hidden className="pointer-events-none absolute -right-4 -top-4 h-28 w-28 opacity-[0.07] transition-transform duration-300 group-hover:rotate-6" style={{ color: hex }} strokeWidth={1.4} />
-                <div className="relative flex items-center gap-3">
-                  <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md text-white shadow-sm" style={{ backgroundColor: hex }}>
-                    <Icon className="h-5 w-5" aria-hidden />
-                  </span>
-                  <div className="min-w-0 flex-1 leading-tight">
-                    <div className="truncate text-[15.5px] font-bold text-slate-900">{group}</div>
-                    <div className="mt-0.5 text-[12px] font-medium" style={{ color: hex }}>{items.length} service{items.length === 1 ? "" : "s"}</div>
+      {groups.length ? (
+        <>
+          <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 md:grid-cols-2">
+            {shownGroups.map(([group, items], i) => {
+              const { Icon, hex } = experienceLook(group);
+              return (
+                <li
+                  key={group}
+                  className="nols-entrance min-w-0 rounded-lg border border-solid border-slate-200 bg-white px-3.5 py-3 transition-colors hover:border-slate-300"
+                  style={{ animationDelay: `${Math.min(i, 6) * 50}ms` }}
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] font-semibold text-slate-900">
+                      <Icon className="h-3.5 w-3.5 flex-shrink-0" style={{ color: hex }} aria-hidden />
+                      <span className="truncate" title={group}>{group}</span>
+                    </span>
+                    <span className="flex-shrink-0 text-[11px] tabular-nums text-slate-400">{items.length} service{items.length === 1 ? "" : "s"}</span>
                   </div>
-                </div>
-                <ul className="relative m-0 mt-3.5 list-none space-y-1.5 p-0">
-                  {items.map((item) => (
-                    <li key={item} className="flex items-center gap-2.5 rounded-lg bg-white/80 px-2.5 py-1.5 text-[13.5px] leading-snug text-slate-800 ring-1 ring-slate-200/70">
-                      <span className="inline-flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: `${hex}1f` }}>
-                        <Check className="h-3 w-3" style={{ color: hex }} strokeWidth={3} aria-hidden />
-                      </span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
-        </div>
+                  <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+                    {items.map((item) => (
+                      <li key={item} className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] font-medium text-slate-800" style={{ backgroundColor: `${hex}12` }}>
+                        <Check className="h-3 w-3 flex-shrink-0" style={{ color: hex }} strokeWidth={3} aria-hidden />
+                        <span className="min-w-0">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              );
+            })}
+          </ul>
+          {hiddenAreas > 0 || (showAll && groups.length > AREA_LIMIT) ? (
+            <div className="mt-2.5 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setShowAll((v) => !v)}
+                aria-expanded={showAll}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-2 py-1 text-[12.5px] font-semibold text-slate-600 transition-colors hover:text-[#02665e]"
+              >
+                {showAll ? "Show fewer areas" : `Show ${hiddenAreas} more area${hiddenAreas === 1 ? "" : "s"}`}
+                {showAll ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />}
+              </button>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
-      {showKnown || showExtras ? (
-        <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${shownGroups.length ? "mt-3" : ""}`}>
-          {showKnown ? (
-            <div className="min-w-0 rounded-lg border border-solid border-amber-200/70 bg-amber-50/40 p-4">
-              <div className="flex items-center gap-3">
-                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700">
-                  <Award className="h-5 w-5" aria-hidden />
-                </span>
-                <div className="min-w-0 leading-tight">
-                  <div className="text-[15px] font-semibold text-slate-900">Known for</div>
-                  <div className="mt-0.5 text-[12px] text-slate-500">What they do best</div>
-                </div>
+      {specialities.length || extras.length ? (
+        <div className={`grid grid-cols-1 gap-2.5 ${specialities.length && extras.length ? "md:grid-cols-2" : ""} ${groups.length ? "mt-3" : ""}`}>
+          {specialities.length ? (
+            <div className="nols-entrance nols-delay-2 min-w-0 rounded-lg border border-solid border-slate-200 bg-white px-3.5 py-3">
+              <div className="mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-900">
+                <Award className="h-3.5 w-3.5 text-amber-600" aria-hidden /> Known for
               </div>
-              <ul className="m-0 mt-3 grid list-none grid-cols-2 gap-x-3 gap-y-2 border-0 border-t border-solid border-amber-200/60 p-0 pt-3">
+              <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
                 {specialities.map((item) => (
-                  <li key={item} className="flex min-w-0 items-start gap-2 text-[13.5px] leading-snug text-slate-700">
-                    <Star className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 fill-amber-400 text-amber-400" aria-hidden />
+                  <li key={item} className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-[12.5px] font-medium text-amber-900">
+                    <Star className="h-3 w-3 flex-shrink-0 fill-amber-400 text-amber-400" aria-hidden />
                     <span className="min-w-0">{item}</span>
                   </li>
                 ))}
               </ul>
             </div>
           ) : null}
-          {showExtras ? (
-            <div className="min-w-0 rounded-lg border border-solid border-violet-200/70 bg-violet-50/40 p-4">
-              <div className="flex items-center gap-3">
-                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-700">
-                  <PlusCircle className="h-5 w-5" aria-hidden />
+          {extras.length ? (
+            <div className="nols-entrance nols-delay-3 min-w-0 rounded-lg border border-solid border-slate-200 bg-white px-3.5 py-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-900">
+                  <PlusCircle className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /> Add to your trip
                 </span>
-                <div className="min-w-0 leading-tight">
-                  <div className="text-[15px] font-semibold text-slate-900">Add to your trip</div>
-                  <div className="mt-0.5 text-[12px] text-slate-500">{extras.length} extra{extras.length === 1 ? "" : "s"} · on request</div>
-                </div>
+                <span className="text-[11px] text-slate-400">Priced separately, ask when you book</span>
               </div>
-              <ul className="m-0 mt-3 grid list-none grid-cols-2 gap-x-3 gap-y-2 border-0 border-t border-solid border-violet-200/60 p-0 pt-3">
+              <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
                 {extras.map((item) => (
-                  <li key={item} className="flex min-w-0 items-start gap-2 text-[13.5px] leading-snug text-slate-700">
-                    <Plus className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-violet-600" strokeWidth={2.6} aria-hidden />
+                  <li key={item} className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-dashed border-[#02665e]/30 bg-white px-2 py-1 text-[12.5px] text-slate-700">
+                    <Plus className="h-3 w-3 flex-shrink-0 text-[#02665e]" strokeWidth={2.6} aria-hidden />
                     <span className="min-w-0">{item}</span>
                   </li>
                 ))}
               </ul>
-              <p className="m-0 mt-3 text-[11.5px] text-slate-500">Priced separately. Ask when you book.</p>
             </div>
           ) : null}
-        </div>
-      ) : null}
-
-      {hiddenCount > 0 ? (
-        <div className="mt-4 flex justify-center">
-          <button
-            type="button"
-            onClick={() => setShowAll((v) => !v)}
-            aria-expanded={showAll}
-            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-solid border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-800 shadow-sm transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
-          >
-            {showAll ? "Show less" : `View ${hiddenCount} more`}
-            {showAll ? <ChevronUp className="h-4 w-4" aria-hidden /> : <ChevronDown className="h-4 w-4" aria-hidden />}
-          </button>
         </div>
       ) : null}
     </div>

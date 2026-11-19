@@ -27,6 +27,7 @@ import { OwnerWithdrawalLimitError, ownerWithdrawalAllowance } from "../services
 import { openRecoveryTotal } from "../services/payouts/recovery.js";
 import { loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
 import { customerBookingReference, ownerInvoiceReference } from "../lib/customerBookingReference.js";
+import { requireOwnerStrongSession } from "../lib/ownerMfaPolicy.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, blockImpersonated as RequestHandler);
@@ -106,6 +107,7 @@ function sendWithdrawalError(res: Response, err: unknown): boolean {
  */
 router.post(
   "/withdraw/challenge",
+  requireOwnerStrongSession,
   limitOwnerPayoutRead,
   asyncHandler(async (req: AuthedRequest, res: Response) => {
     const body = startWithdrawalSchema.safeParse(req.body);
@@ -124,6 +126,7 @@ router.post(
 /** POST /owner/payouts/withdraw/confirm — the owner entered the code. */
 router.post(
   "/withdraw/confirm",
+  requireOwnerStrongSession,
   limitOwnerPayoutRead,
   asyncHandler(async (req: AuthedRequest, res: Response) => {
     const body = confirmWithdrawalSchema.safeParse(req.body);
@@ -261,6 +264,7 @@ router.get(
  */
 router.post(
   "/request",
+  requireOwnerStrongSession,
   limitOwnerPayoutRead,
   asyncHandler(async (req: AuthedRequest, res: Response) => {
     if (payoutReleaseEnabled()) {

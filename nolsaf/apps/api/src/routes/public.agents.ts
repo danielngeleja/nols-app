@@ -15,6 +15,7 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 import { publicCacheKey, withCache } from "../lib/performance.js";
 import { signOperatorVerificationToken, verifyOperatorVerificationToken } from "../lib/operatorVerificationToken.js";
 import { operatorCertificateChecks, operatorCertificateReference } from "../lib/propertyCertificate.js";
+import { publicOperatorProfile } from "../lib/operatorPackages.js";
 
 const router = Router();
 
@@ -36,12 +37,9 @@ const FALLBACK_TOURISM_CATEGORIES = [
 const TRIP_CONFIDENCE_WINDOW_DAYS = 365;
 const OPERATOR_PUBLIC_KEY = /^[a-z0-9]{20,40}$/;
 
+/** What travellers see: the shared public rule (lib/operatorPackages.ts). */
 function approvedProfile(value: unknown): any | null {
-  if (!value || typeof value !== "object") return null;
-  const profile = value as Record<string, any>;
-  const status = String(profile.reviewStatus || profile.review?.status || "").toUpperCase();
-  if (status !== "APPROVED") return null;
-  return profile.approvedSnapshot && typeof profile.approvedSnapshot === "object" ? profile.approvedSnapshot : profile;
+  return publicOperatorProfile(value);
 }
 
 /**
@@ -52,8 +50,9 @@ function approvedProfile(value: unknown): any | null {
  */
 function buildPublicOperatorVerification(agent: { id: number; operatorProfile: unknown }) {
   const source = safeObject(agent.operatorProfile);
-  const status = String(source.reviewStatus || safeObject(source.review).status || "").toUpperCase();
-  if (status !== "APPROVED") return null;
+  // Still verified while submitted changes are under review: the approval that
+  // issued the certificate stands until an admin decides.
+  if (!publicOperatorProfile(source)) return null;
 
   const approvedAt = String(source.approvedAt || source.reviewedAt || safeObject(source.review).reviewedAt || "").trim();
   return {
@@ -382,10 +381,10 @@ router.get(
     });
     const profile = approvedProfile(agent?.operatorProfile);
     const source = safeObject(agent?.operatorProfile);
-    const reviewStatus = String(source.reviewStatus || safeObject(source.review).status || "").toUpperCase();
     const approvedAt = String(source.approvedAt || source.reviewedAt || safeObject(source.review).reviewedAt || "").trim();
 
-    if (!agent || !profile || reviewStatus !== "APPROVED" || !approvedAt || approvedAt !== payload.approvedAt) {
+    // `profile` is null unless the shared public rule says the operator is on sale.
+    if (!agent || !profile || !approvedAt || approvedAt !== payload.approvedAt) {
       return res.json({ ok: true, valid: false });
     }
 

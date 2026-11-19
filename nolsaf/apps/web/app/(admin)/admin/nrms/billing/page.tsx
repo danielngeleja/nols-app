@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
-import { Activity, AlertTriangle, ArrowLeft, Building2, Clock3, Coins, FileText, Loader2, RefreshCw, Search, Wallet } from "lucide-react";
-import { CountPill, EmptyState, SectionHeader, SummaryCard } from "../_components/CommercialUi";
+import { Activity, AlertTriangle, ArrowLeft, Building2, CheckCircle2, ChevronRight, Clock3, Coins, Eye, FileText, Loader2, RefreshCw, Search, Wallet } from "lucide-react";
+import { CountPill, EmptyState, SectionHeader } from "../_components/CommercialUi";
 import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type Account = {
@@ -82,44 +82,130 @@ export default function AdminNrmsBillingPage() {
     payable: openStatements.reduce((sum, s) => sum + s.amount, 0),
     stuck: processingTokens.filter((t) => hoursSince(t.createdAt) >= 6).length,
   }), [accounts, openStatements, processingTokens]);
+  const inFlightAmount = useMemo(() => processingTokens.reduce((sum, t) => sum + t.amount, 0), [processingTokens]);
+  const paymentRequired = useMemo(() => accounts.filter((a) => a.status === "PAYMENT_REQUIRED").length, [accounts]);
 
   if (loading) return <div role="status" className="w-full px-5 py-6"><div className="flex items-center gap-2 text-sm text-slate-600"><Loader2 className="h-4 w-4 animate-spin" />Loading PAYG balances and payment activity…</div><div className="mt-4 h-24 animate-pulse rounded-xl bg-slate-100" /><div className="mt-4 h-48 animate-pulse rounded-xl bg-slate-50" /></div>;
 
   return (
-    <div id="nrms-billing-board" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
-      <Link href="/admin/nrms" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline transition hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> NRMS directory</Link>
-
-      <section className="billing-board-header relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 text-white shadow-sm sm:p-5">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-center gap-3.5">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Wallet className="h-5 w-5" /></span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS commercial</p>
-                <span className="inline-flex rounded-full border border-emerald-100 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 shadow-sm">Read-only</span>
-              </div>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">PAYG billing board</h1>
-              <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500 sm:text-sm">NoLSAF NRMS revenue: balances, open statements and in-flight payments.</p>
+    <div id="nrms-billing-board" className="w-full min-w-0 max-w-none space-y-4">
+      {/* Identity band with money in motion, in the operator-record language */}
+      <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_100%_0%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden="true" />
+        <div className="relative grid min-w-0 gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,32rem)] lg:items-center">
+          <div className="min-w-0">
+            <Link href="/admin/nrms" className="inline-flex items-center gap-1 text-[11px] font-semibold text-white/45 no-underline transition hover:text-emerald-300">
+              <ArrowLeft className="h-3 w-3" aria-hidden /> NRMS directory
+            </Link>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300/80">NRMS commercial</p>
+              <span className="inline-flex items-center gap-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-bold text-white/70"><Eye className="h-3 w-3" aria-hidden /> Read-only</span>
+            </div>
+            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">PAYG billing board</h1>
+            <p className="m-0 mt-1 text-[12px] text-white/60">NoLSAF NRMS revenue: balances, open statements and in-flight payments.</p>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {error ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-500/15 px-2.5 py-1.5 text-[11px] font-bold text-rose-200"><AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Figures unavailable</span>
+              ) : (
+                <>
+                  {totals.stuck > 0 ? (
+                    <span className="inline-flex items-center gap-2 rounded-md bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-bold text-amber-200">
+                      <span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" /></span>
+                      {totals.stuck} payment{totals.stuck === 1 ? "" : "s"} stuck over 6 hours
+                    </span>
+                  ) : null}
+                  {paymentRequired > 0 ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-500/15 px-2.5 py-1.5 text-[11px] font-bold text-rose-200"><AlertTriangle className="h-3.5 w-3.5" aria-hidden /> {paymentRequired} account{paymentRequired === 1 ? "" : "s"} at payment required</span>
+                  ) : null}
+                  {!totals.stuck && !paymentRequired ? (
+                    <span className="inline-flex items-center gap-2 rounded-md bg-emerald-400/10 px-2.5 py-1.5 text-[11px] font-bold text-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Payments moving, no account blocked</span>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))} className="rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold text-white hover:bg-white/20">Verify finance access</button>
-            <button type="button" onClick={() => void load()} aria-label="Refresh billing board" className="rounded-lg border border-white/25 bg-white/10 p-2 text-white hover:bg-white/20"><RefreshCw className="h-4 w-4" /></button>
-            <Link href="/admin/nrms/pricing" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Coins className="h-4 w-4" /> Pricing &amp; levers</Link>
-            <Link href="/admin/nrms/reconciliation" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><RefreshCw className="h-4 w-4" /> Reconciliation</Link>
-            <Link href="/admin/nrms/integrity" className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white/85 px-3 py-2 text-xs font-bold text-neutral-700 no-underline shadow-sm transition hover:bg-white"><Activity className="h-4 w-4" /> Signals</Link>
+
+          {/* Money in motion: where NRMS revenue sits right now */}
+          <div className="min-w-0 rounded-md bg-white/[0.04] p-4 ring-1 ring-white/10">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Money in motion</p>
+              <p className="m-0 text-[11px] text-white/55">TZS</p>
+            </div>
+            <ol className="m-0 mt-3 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-stretch sm:gap-1.5">
+              {[
+                { key: "accruing", label: "Accruing", value: totals.owed, sub: `${accounts.filter((a) => a.unpaidBalance > 0).length} of ${accounts.length} accounts`, dot: "bg-amber-400" },
+                { key: "billed", label: "Billed", value: totals.payable, sub: `${openStatements.length} statement${openStatements.length === 1 ? "" : "s"} unpaid`, dot: "bg-sky-400" },
+                { key: "flight", label: "In flight", value: inFlightAmount, sub: totals.stuck ? `${totals.stuck} stuck 6h+` : `${processingTokens.length} processing`, dot: totals.stuck ? "bg-rose-400" : "bg-emerald-400" },
+              ].flatMap((stage, index, all) => {
+                const tile = (
+                  <li key={stage.key} className="min-w-0 rounded bg-white/[0.04] px-3 py-2.5 ring-1 ring-white/10">
+                    <p className="m-0 flex items-center gap-1.5 text-[10px] font-semibold text-white/55"><span className={`h-1.5 w-1.5 rounded-full ${stage.dot}`} aria-hidden /> {stage.label}</p>
+                    <p className={`m-0 mt-1 truncate text-lg font-black tabular-nums tracking-tight ${stage.value ? "text-white" : "text-white/35"}`}>{error ? "-" : stage.value.toLocaleString()}</p>
+                    <p className="m-0 truncate text-[10px] text-white/40">{stage.sub}</p>
+                  </li>
+                );
+                return index < all.length - 1
+                  ? [tile, <li key={`${stage.key}-arrow`} aria-hidden className="hidden items-center justify-center text-white/25 sm:flex"><ChevronRight className="h-4 w-4" /></li>]
+                  : [tile];
+              })}
+            </ol>
+          </div>
+        </div>
+
+        {/* Related workspaces and actions */}
+        <div className="relative flex min-w-0 flex-wrap items-center gap-2 border-0 border-t border-solid border-white/10 px-3 py-2 sm:px-5">
+          <nav aria-label="Billing workspaces" className="flex min-w-0 gap-1 overflow-x-auto">
+            {[
+              { href: "/admin/nrms/pricing", label: "Pricing & levers", Icon: Coins },
+              { href: "/admin/nrms/reconciliation", label: "Reconciliation", Icon: RefreshCw },
+              { href: "/admin/nrms/integrity", label: "Signals", Icon: Activity },
+            ].map(({ href, label, Icon }) => (
+              <Link key={href} href={href} className="group inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-[12px] font-semibold text-white/70 no-underline transition hover:bg-white/[0.08] hover:text-white">
+                <Icon className="h-3.5 w-3.5 shrink-0 text-emerald-300/70 group-hover:text-emerald-300" aria-hidden />
+                {label}
+                <ChevronRight className="h-3 w-3 shrink-0 text-white/25 transition group-hover:translate-x-0.5 group-hover:text-white/60" aria-hidden />
+              </Link>
+            ))}
+          </nav>
+          <div className="flex w-full gap-2 sm:ml-auto sm:w-auto">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))}
+              className="inline-flex h-9 flex-1 cursor-pointer items-center justify-center rounded-md border-0 bg-white/[0.08] px-4 text-xs font-bold text-white transition hover:bg-white/15 sm:flex-none"
+            >
+              Verify finance access
+            </button>
+            <button
+              type="button"
+              onClick={() => void load()}
+              aria-label="Refresh billing board"
+              className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-white/[0.08] text-white transition hover:bg-white/15"
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden />
+            </button>
           </div>
         </div>
       </section>
 
-      {error && <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
+      {error && <div className="flex items-start gap-2.5 rounded-md border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
 
-      <div className="billing-board-metrics grid min-w-0 gap-3 sm:grid-cols-3">
-        <SummaryCard icon={Wallet} label="Total outstanding" value={error ? 'Unavailable' : `TZS ${totals.owed.toLocaleString()}`} detail={`Across ${accounts.length} PAYG accounts`} tone={totals.owed > 0 ? "amber" : "emerald"} />
-        <SummaryCard icon={FileText} label="Open statements" value={error ? 'Unavailable' : `TZS ${totals.payable.toLocaleString()}`} detail={`${openStatements.length} awaiting payment`} tone="blue" />
-        <SummaryCard icon={Clock3} label="Stuck payments (6h+)" value={error ? 'Unavailable' : String(totals.stuck)} detail={`${processingTokens.length} payments in flight`} tone={totals.stuck > 0 ? "amber" : "slate"} />
-      </div>
+      {/* Summary, joined cells like the operator statement's money strip */}
+      <section aria-label="Billing summary" className="grid min-w-0 grid-cols-1 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+        {[
+          { Icon: Wallet, label: "Total outstanding", value: error ? "Unavailable" : `TZS ${totals.owed.toLocaleString()}`, detail: `Across ${accounts.length} PAYG accounts`, ink: totals.owed > 0 ? "text-amber-600" : "text-emerald-700", iconTone: totals.owed > 0 ? "text-amber-500" : "text-neutral-300" },
+          { Icon: FileText, label: "Open statements", value: error ? "Unavailable" : `TZS ${totals.payable.toLocaleString()}`, detail: `${openStatements.length} awaiting payment`, ink: totals.payable > 0 ? "text-sky-700" : "text-neutral-400", iconTone: "text-neutral-300" },
+          { Icon: Clock3, label: "Stuck payments (6h+)", value: error ? "Unavailable" : String(totals.stuck), detail: `${processingTokens.length} payments in flight`, ink: totals.stuck > 0 ? "text-rose-600" : "text-neutral-400", iconTone: totals.stuck > 0 ? "text-rose-500" : "text-neutral-300" },
+        ].map(({ Icon, label, value, detail, ink, iconTone }) => (
+          <div key={label} className="min-w-0 bg-white px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="m-0 text-[11px] font-semibold text-neutral-500">{label}</p>
+              <Icon className={`h-4 w-4 shrink-0 ${iconTone}`} aria-hidden />
+            </div>
+            <p className={`m-0 mt-1 break-words text-lg font-black tabular-nums tracking-tight ${error ? "text-neutral-300" : ink}`}>{value}</p>
+            <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400">{detail}</p>
+          </div>
+        ))}
+      </section>
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader icon={Building2} title="Accounts" subtitle="Sorted by urgency, then unpaid balance" right={<CountPill count={accounts.length} singular="account" plural="accounts" />} />

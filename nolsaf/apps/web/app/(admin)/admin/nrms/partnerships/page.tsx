@@ -136,22 +136,100 @@ export default function AdminNrmsPartnershipsPage() {
   const pendingCount = (summary.REQUESTED ?? 0) + (summary.INVITED ?? 0) + (summary.AGENT_ACCEPTED ?? 0);
 
   return (
-    <main id="nrms-partnership-portfolio" className="w-full min-w-0 max-w-none px-3 pb-5 pt-4 sm:px-5 sm:pt-5 lg:px-6">
+    <main id="nrms-partnership-portfolio" className="w-full min-w-0 max-w-none">
       <style>{`#nrms-partnership-portfolio, #nrms-partnership-portfolio * { box-sizing: border-box; }`}</style>
-      <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-      <header className="partnership-workspace-header relative overflow-hidden bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 sm:p-5">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-44 w-44 rounded-full border border-emerald-700/[.06]" />
-        <div className="relative flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-emerald-900/[.06] pb-3"><Link href="/admin/nrms" className="inline-flex min-h-8 items-center gap-2 text-[11px] font-bold text-emerald-700 no-underline hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> NRMS directory</Link><span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-neutral-400"><ShieldCheck className="h-3.5 w-3.5" /> Every control is audited</span></div>
-        <div className="relative mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-3.5"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-800 text-white shadow-sm"><Handshake className="h-5 w-5" /></span><div><p className="m-0 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-700">NRMS commercial trust</p><h1 className="m-0 mt-1 text-xl font-extrabold tracking-tight text-neutral-950 sm:text-2xl">Accommodation partnerships</h1><p className="m-0 mt-1 max-w-2xl text-xs leading-5 text-neutral-500">Review consent, compliance and property capacity without leaving the portfolio.</p></div></div><button type="button" onClick={() => void load()} disabled={loading} className="inline-flex min-h-10 w-fit items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700 shadow-sm hover:border-emerald-200 hover:text-emerald-800 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh</button></div>
+      <section className="min-w-0 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+      {/* Identity band with the consent pipeline, in the operator-record language */}
+      <header className="relative overflow-hidden bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_100%_0%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden="true" />
+        <div className="relative grid min-w-0 gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:items-center">
+          <div className="min-w-0">
+            <Link href="/admin/nrms" className="inline-flex items-center gap-1 text-[11px] font-semibold text-white/45 no-underline transition hover:text-emerald-300">
+              <ArrowLeft className="h-3 w-3" aria-hidden /> NRMS directory
+            </Link>
+            <p className="m-0 mt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300/80">NRMS commercial trust</p>
+            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Accommodation partnerships</h1>
+            <p className="m-0 mt-1 max-w-2xl text-[12px] text-white/60">Review consent, compliance and property capacity without leaving the portfolio.</p>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {loading ? (
+                <span className="inline-flex items-center gap-2 rounded-md bg-white/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-white/60"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Reading the portfolio</span>
+              ) : (
+                <>
+                  {pendingCount > 0 ? (
+                    <span className="inline-flex items-center gap-2 rounded-md bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-bold text-amber-200">
+                      <span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" /></span>
+                      {pendingCount} waiting for consent
+                    </span>
+                  ) : null}
+                  {(summary.SUSPENDED ?? 0) > 0 ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-500/15 px-2.5 py-1.5 text-[11px] font-bold text-rose-200"><Ban className="h-3.5 w-3.5" aria-hidden /> {summary.SUSPENDED} suspended</span>
+                  ) : null}
+                  {pendingCount === 0 && !(summary.SUSPENDED ?? 0) ? (
+                    <span className="inline-flex items-center gap-2 rounded-md bg-emerald-400/10 px-2.5 py-1.5 text-[11px] font-bold text-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Nothing waiting, nothing blocked</span>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Consent pipeline: from first contact to bookable */}
+          <div className="min-w-0 rounded-md bg-white/[0.04] p-4 ring-1 ring-white/10">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Consent pipeline</p>
+              <p className="m-0 text-[11px] text-white/55"><span className="font-bold tabular-nums text-emerald-300">{activeCount}</span> bookable</p>
+            </div>
+            <ol className="relative m-0 mt-4 grid list-none grid-cols-3 p-0">
+              <span className="absolute left-[16.66%] right-[16.66%] top-[15px] h-px bg-white/15" aria-hidden />
+              {[
+                { label: "Asked", sub: "Requested or invited", count: (summary.REQUESTED ?? 0) + (summary.INVITED ?? 0), ring: "ring-amber-400/60", ink: "text-amber-200" },
+                { label: "Operator agreed", sub: "Hotel to confirm", count: summary.AGENT_ACCEPTED ?? 0, ring: "ring-cyan-400/60", ink: "text-cyan-200" },
+                { label: "Active", sub: "Booking eligible", count: activeCount, ring: "ring-emerald-400/70", ink: "text-emerald-200" },
+              ].map((stage) => (
+                <li key={stage.label} className="relative flex min-w-0 flex-col items-center px-1 text-center">
+                  <span className={`relative grid h-[30px] min-w-[30px] place-items-center rounded-full bg-[#0b2420] px-2 text-[13px] font-black tabular-nums ring-2 ${stage.count ? `${stage.ring} ${stage.ink}` : "text-white/35 ring-white/15"}`}>{stage.count}</span>
+                  <span className="mt-1.5 text-[11px] font-bold text-white/85">{stage.label}</span>
+                  <span className="text-[10px] leading-tight text-white/40">{stage.sub}</span>
+                </li>
+              ))}
+            </ol>
+            <div className="mt-4 flex items-center justify-between gap-3 border-0 border-t border-solid border-white/10 pt-3 text-[11px]">
+              <span className="inline-flex items-center gap-1.5 text-white/55"><span className="h-1.5 w-1.5 rounded-full bg-rose-400" aria-hidden /> Suspended <strong className="tabular-nums text-white/90">{summary.SUSPENDED ?? 0}</strong></span>
+              <span className="inline-flex items-center gap-1.5 text-white/55"><span className="h-1.5 w-1.5 rounded-full bg-white/40" aria-hidden /> Rejected or ended <strong className="tabular-nums text-white/90">{(summary.REJECTED ?? 0) + (summary.TERMINATED ?? 0)}</strong></span>
+            </div>
+          </div>
+        </div>
+
+        {/* Audit promise and refresh */}
+        <div className="relative flex min-w-0 flex-wrap items-center gap-2 border-0 border-t border-solid border-white/10 px-4 py-3 sm:px-6">
+          <span className="inline-flex w-full items-center gap-1.5 text-[11px] text-white/45 sm:w-auto"><ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Every control is audited and both parties are notified</span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="inline-flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-white/[0.08] px-4 text-xs font-bold text-white transition hover:bg-white/15 disabled:opacity-50 sm:ml-auto sm:w-auto"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden /> Refresh
+          </button>
+        </div>
       </header>
 
-      <section className="partnership-metrics grid min-w-0 border-0 border-t border-solid border-neutral-100 bg-slate-50/70 min-[480px]:grid-cols-2 lg:grid-cols-4">
+      {/* Summary, joined cells like the operator statement's money strip */}
+      <section aria-label="Partnership summary" className="grid min-w-0 grid-cols-2 gap-px bg-neutral-200 lg:grid-cols-4">
         {[
-          { label: "Relationships", value: total, detail: "Filtered portfolio", Icon: Handshake, tone: "bg-emerald-50 text-emerald-700", divider: "" },
-          { label: "Active", value: activeCount, detail: "Booking eligible", Icon: CheckCircle2, tone: "bg-emerald-50 text-emerald-700", divider: "border-0 border-t border-solid border-neutral-100 sm:border-l sm:border-t-0" },
-          { label: "Awaiting consent", value: pendingCount, detail: "Requests & invitations", Icon: Users, tone: "bg-amber-50 text-amber-700", divider: "border-0 border-t border-solid border-neutral-100 lg:border-l lg:border-t-0" },
-          { label: "Suspended", value: summary.SUSPENDED ?? 0, detail: "New bookings blocked", Icon: Ban, tone: "bg-neutral-100 text-neutral-600", divider: "border-0 border-t border-solid border-neutral-100 sm:border-l lg:border-t-0" },
-        ].map(({ label, value, detail, Icon, tone, divider }) => <div key={label} className={`flex items-center gap-3 p-4 ${divider}`}><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${tone}`}><Icon className="h-4 w-4" /></span><div><p className="m-0 text-[9px] font-bold uppercase tracking-[.12em] text-neutral-400">{label}</p><p className="m-0 mt-0.5 text-lg font-black text-neutral-950">{value}</p><p className="m-0 text-[10px] text-neutral-400">{detail}</p></div></div>)}
+          { label: "Relationships", value: total, detail: "In this filtered view", Icon: Handshake, ink: "text-neutral-950", iconTone: "text-neutral-300" },
+          { label: "Active", value: activeCount, detail: "Booking eligible", Icon: CheckCircle2, ink: activeCount ? "text-emerald-700" : "text-neutral-400", iconTone: "text-neutral-300" },
+          { label: "Awaiting consent", value: pendingCount, detail: "Requests and invitations", Icon: Users, ink: pendingCount ? "text-amber-600" : "text-neutral-400", iconTone: pendingCount ? "text-amber-500" : "text-neutral-300" },
+          { label: "Suspended", value: summary.SUSPENDED ?? 0, detail: "New bookings blocked", Icon: Ban, ink: (summary.SUSPENDED ?? 0) ? "text-rose-600" : "text-neutral-400", iconTone: (summary.SUSPENDED ?? 0) ? "text-rose-500" : "text-neutral-300" },
+        ].map(({ label, value, detail, Icon, ink, iconTone }) => (
+          <div key={label} className="min-w-0 bg-white px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="m-0 text-[11px] font-semibold text-neutral-500">{label}</p>
+              <Icon className={`h-4 w-4 shrink-0 ${iconTone}`} aria-hidden />
+            </div>
+            <p className={`m-0 mt-1 text-lg font-black tabular-nums tracking-tight ${ink}`}>{value}</p>
+            <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400">{detail}</p>
+          </div>
+        ))}
       </section>
       {(error || notice) && <div className={`mx-4 mt-4 flex items-start gap-2 rounded-xl border p-3 text-sm sm:mx-5 ${error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`} role={error ? "alert" : "status"}>{error ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}<span>{error || notice}</span></div>}
       {!lifecycleReady && <div className="mx-4 mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-5 text-amber-900 sm:mx-5"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /><div><p className="m-0 font-bold">Partnership lifecycle activation is pending</p><p className="m-0 mt-0.5 text-amber-800">Legacy hotel–agent relationships remain visible. Consent and suspension controls unlock after the prepared lifecycle migration is applied.</p></div></div>}

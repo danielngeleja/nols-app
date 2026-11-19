@@ -16,10 +16,11 @@ import { buildOperatorProfileSeed, mergeOperatorProfileSeed } from "../lib/opera
 import { extractPlannedActivities } from "../lib/agentPlannedActivities.js";
 import { computeAgentLevel, resolveTierLadder } from "../lib/agentLevel.js";
 import { canClaimFinalTourPayout } from "../lib/tourLifecycle.js";
-import { balanceAfterAdvances, balanceDisputeDeadline, computeAdvanceOffer, maxAdvanceRequest, ADVANCE_TRANCHE, TOUR_PAYOUT_POLICY_VERSION } from "../lib/tourPayoutPolicy.js";
+import { balanceAfterAdvances, balanceDisputeDeadline, computeAdvanceOffer, maxAdvanceRequest, ADVANCE_TRANCHE, TOUR_PAYOUT_POLICY_VERSION, tourPayoutPolicyAt } from "../lib/tourPayoutPolicy.js";
 import { loadAdvanceTotals, loadAdvanceTotalsFor, loadOperatorStanding } from "../lib/tourPayouts.js";
+import { checkAdvanceExposure } from "../lib/tourPayoutControls.js";
 import { classifyOperatorCaseResponsibility } from "../lib/tourCaseResponsibility.js";
-import { syncOperatorTourPackages } from "../lib/tourPackageSync.js";
+import { reconcileTourPackages } from "../lib/operatorPackages.js";
 import { OPERATOR_CONTRACT_CURRENT_VERSION, effectiveOperatorContractVersion, loadOperatorContractTemplate } from "../lib/operatorContract.js";
 import { photoLimitBreaches, photoLimitMessage } from "../lib/operatorPhotoLimits.js";
 import { customerRecordReference, isCustomerRecordReference, matchesCustomerRecordReference } from "../lib/customerBookingReference.js";
@@ -1382,7 +1383,7 @@ router.patch(
       select: { id: true, operatorProfile: true, updatedAt: true },
     });
 
-    await syncOperatorTourPackages(gate.agent.id, packageGuard.items, "DRAFT");
+    await reconcileTourPackages(gate.agent.id, updated.operatorProfile);
 
     return res.json({
       ok: true,
@@ -1453,6 +1454,7 @@ router.post(
       where: { operatorAgentId: gate.agent.id, legacyPackageId: packageId, status: { not: "ARCHIVED" } },
       data: { status: "ARCHIVED", archivedAt: new Date() },
     });
+    await reconcileTourPackages(gate.agent.id, updated.operatorProfile);
     await audit(req, "AGENT_TOUR_PACKAGE_REMOVED", `agent:${gate.agent.id}`, null, { packageId, name: item.name || null });
 
     return res.json({ ok: true, agent: updated, removedAt, restoreUntil: new Date(Date.parse(removedAt) + RESTORE_WINDOW_DAYS * 86_400_000).toISOString() });
@@ -1507,7 +1509,7 @@ router.post(
       data: { operatorProfile: nextProfile as any },
       select: { id: true, operatorProfile: true, updatedAt: true },
     });
-    await syncOperatorTourPackages(gate.agent.id, nextItems, "DRAFT");
+    await reconcileTourPackages(gate.agent.id, updated.operatorProfile);
     await audit(req, "AGENT_TOUR_PACKAGE_RESTORED", `agent:${gate.agent.id}`, null, { packageId, name: entry.item?.name || null });
 
     return res.json({ ok: true, agent: updated, live: Boolean(restoredSnapshot) });
@@ -1578,6 +1580,8 @@ router.post(
       data: { operatorProfile: updatedProfile as any },
       select: { id: true, operatorProfile: true, updatedAt: true },
     });
+    // Pending review takes packages off sale on the public site; mirror that.
+    await reconcileTourPackages(agent.id, updated.operatorProfile);
 
     // Create audit entry for agent submission
     await audit(req as AuthedRequest, "SUBMIT_OPERATOR_PROFILE", `agent:${agent.id}`, null, {
@@ -2230,6 +2234,23 @@ router.post(
       });
     }
 
+    // Across all of this operator's unfinished trips, not just this booking.
+    const exposure = await checkAdvanceExposure({
+      operatorAgentId: agent.id,
+      tier: standing.tier,
+      addAmount: amount,
+      currency: booking.currency,
+    });
+    if (!exposure.ok) {
+      return res.status(409).json({
+        ok: false,
+        error: exposure.reason === "over_limit" ? "advance_exposure_limit" : "advance_exposure_unverifiable",
+        message: exposure.reason === "over_limit"
+          ? `Your ${standing.tier.charAt(0)}${standing.tier.slice(1).toLowerCase()} limit for open advances is TZS ${Number(exposure.limitTzs).toLocaleString("en-US")}, and TZS ${Number(exposure.exposureTzs).toLocaleString("en-US")} is already open on trips that have not finished. Request a smaller amount, or wait until an earlier trip finishes (policy section 3.7).`
+          : "We cannot check this advance right now. Please try again later.",
+      });
+    }
+
     const hoursBeforeStart = booking.startDate ? Math.round((new Date(booking.startDate).getTime() - now.getTime()) / 36e5) : null;
     const row = await prisma.tourFinancialTransaction.create({
       data: {
@@ -2241,7 +2262,7 @@ router.post(
         idempotencyKey: `tour-advance:${booking.id}:${advances.rows.length + 1}`,
         metadata: {
           tranche: ADVANCE_TRANCHE,
-          policyVersion: TOUR_PAYOUT_POLICY_VERSION,
+          policyVersion: tourPayoutPolicyAt(now).version,
           operatorNet,
           percentOfNet: operatorNet > 0 ? Math.round((amount / operatorNet) * 1000) / 10 : null,
           inFullWindow: offer.inFullWindow,

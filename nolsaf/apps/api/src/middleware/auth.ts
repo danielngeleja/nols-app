@@ -6,6 +6,7 @@ import { getRoleSessionMaxMinutes, getSessionIdleMinutes } from '../lib/security
 import { clearAuthCookie } from '../lib/sessionManager.js';
 import { touchActiveUser } from '../lib/activePresence.js';
 import { accountMfaSessionAllowed } from '../lib/accountMfaPolicy.js';
+import { supportImpersonatorActive } from '../lib/supportImpersonation.js';
 
 export type Role = 'ADMIN' | 'OWNER' | 'USER' | 'DRIVER' | 'AGENT' | 'NRMS_AGENT';
 
@@ -20,8 +21,12 @@ interface JwtTokenPayload {
   /** Set on short-lived admin support tokens issued by the impersonate endpoints. */
   imp?: boolean;
   act?: number;
-  /** Admin MFA method. ADMIN tokens without this claim are rejected. */
+  /** Admin MFA method, or "passkey" for any role's passkey sign-in. */
   amr?: string;
+  /** Account authenticator method on sessions that passed the code step. */
+  mfa?: string;
+  /** "owner_mfa_setup": a setup-only session (lib/ownerMfaPolicy.ts). */
+  scope?: string;
 }
 
 function authError(code: "SESSION_EXPIRED" | "SESSION_REVOKED" | "ACCOUNT_SUSPENDED" | "ACCOUNT_DISABLED" | "ADMIN_MFA_REQUIRED" | "MFA_REQUIRED", message: string) {
@@ -42,7 +47,50 @@ export interface AuthedUser {
   impersonatorId?: number;
   /** Exact revocable server-side session backing this token. */
   sessionId?: string;
+  /** Signed in with a passkey or an authenticator app code (not SMS or password alone). */
+  strongAuth?: boolean;
+  /** Setup-only session: may only add a passkey or authenticator. */
+  setupOnly?: boolean;
 }
+
+/**
+ * Exactly what a setup-only session may call: read who it is, add a passkey or
+ * authenticator, check the policy, and sign out. Everything else, reads
+ * included, is refused, so a stolen SMS code cannot open the workspace.
+ */
+const OWNER_MFA_SETUP_ALLOWED = new Set([
+  "GET /api/account/me",
+  "GET /api/account/security/passkeys",
+  "POST /api/account/security/passkeys",
+  "POST /api/account/security/passkeys/verify",
+  "POST /api/account/2fa/totp/setup",
+  "POST /api/account/2fa/totp/verify",
+  "GET /api/auth/owner-mfa/status",
+  "GET /api/auth/impersonation/status",
+  "GET /api/auth/logout",
+  "POST /api/auth/logout",
+]);
+
+export function ownerMfaSetupAllows(method: string, path: string): boolean {
+  const m = method.toUpperCase() === "HEAD" ? "GET" : method.toUpperCase();
+  if (m === "OPTIONS") return true;
+  const p = String(path || "").replace(/\/+$/, "") || "/";
+  return OWNER_MFA_SETUP_ALLOWED.has(`${m} ${p}`);
+}
+
+/** Confine setup-only sessions before any router sees the request. */
+export const ownerMfaSetupGuard: RequestHandler = async (req, res, next) => {
+  const token = getTokenFromRequest(req);
+  if (!token) return next();
+  const claims = jwt.decode(token) as JwtTokenPayload | null;
+  if (claims?.scope !== "owner_mfa_setup") return next();
+  if (ownerMfaSetupAllows(req.method, req.path)) return next();
+  return res.status(403).json({
+    error: "Add a passkey or an authenticator app to continue.",
+    code: "OWNER_MFA_SETUP_REQUIRED",
+    redirectTo: "/account/secure-your-account",
+  });
+};
 
 export interface AuthedRequest extends Request {
   user?: AuthedUser;
@@ -220,6 +268,15 @@ export async function verifyToken(token: string): Promise<AuthedUser | null> {
 
     const user = activeSession.user;
     if (!user) return null;
+    // A support session ends the moment its admin loses access (suspended,
+    // demoted, disabled, or signed out everywhere), not when its 10 minutes run out.
+    if (decoded.imp === true && !(await supportImpersonatorActive(decoded.act, decoded.iat))) {
+      await (prisma.session as any).updateMany({
+        where: { id: sessionId, userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }).catch(() => {});
+      throw authError("SESSION_REVOKED", "Support session revoked");
+    }
     if (!accountMfaSessionAllowed(user, decoded)) {
       throw authError("MFA_REQUIRED", "Sign in again and complete authenticator verification");
     }
@@ -297,6 +354,10 @@ export async function verifyToken(token: string): Promise<AuthedUser | null> {
       ...(decoded.imp === true ? { imp: true } : {}),
       ...(decoded.imp === true && Number.isInteger(decoded.act) && Number(decoded.act) > 0
         ? { impersonatorId: Number(decoded.act) } : {}),
+      ...(decoded.imp !== true && decoded.scope !== "owner_mfa_setup"
+        && (decoded.amr === "passkey" || decoded.amr === "totp" || decoded.mfa === "totp" || decoded.mfa === "backup_code")
+        ? { strongAuth: true } : {}),
+      ...(decoded.scope === "owner_mfa_setup" ? { setupOnly: true } : {}),
     };
     return authedUser;
   } catch (err) {

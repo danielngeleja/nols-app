@@ -4,11 +4,13 @@ const {
   jwtVerify,
   jwtDecode,
   sessionFindFirst,
+  userFindUnique,
   getRoleSessionMaxMinutes,
 } = vi.hoisted(() => ({
   jwtVerify: vi.fn(),
   jwtDecode: vi.fn(),
   sessionFindFirst: vi.fn(),
+  userFindUnique: vi.fn(),
   getRoleSessionMaxMinutes: vi.fn(),
 }));
 
@@ -20,8 +22,9 @@ vi.mock("@nolsaf/prisma", () => ({
   prisma: {
     session: {
       findFirst: sessionFindFirst,
-      updateMany: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
+    user: { findUnique: userFindUnique },
   },
 }));
 
@@ -51,6 +54,7 @@ describe("requireAuth schema compatibility", () => {
       exp: Math.floor(Date.now() / 1000) + 3600,
     });
     jwtDecode.mockReturnValue(null);
+    userFindUnique.mockResolvedValue({ role: "ADMIN", suspendedAt: null, isDisabled: false, tokensValidAfter: null });
   });
 
   it("keeps ordinary login available while the finance-role migration is pending", async () => {
@@ -384,5 +388,34 @@ describe("requireAuth schema compatibility", () => {
     await ownerSupportReadOnly({ method: "POST", path: "/api/agent-portal/bookings", headers: { cookie: "nolsaf_token=support" } } as any, res, next);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it("ends a support session once its admin loses access", async () => {
+    sessionFindFirst.mockResolvedValue({
+      id: "session-42", lastSeenAt: new Date(),
+      user: { id: 42, role: "OWNER", email: "owner@example.com", nrmsFinanceRole: "NONE", suspendedAt: null, isDisabled: false, tokensValidAfter: null, twoFactorEnabled: false },
+    });
+    const iat = Math.floor(Date.now() / 1000);
+    jwtVerify.mockReturnValue({ sub: "42", sid: "session-42", role: "OWNER", imp: true, act: 7, iat });
+    const { requireAuth } = await import("./auth.js");
+    const res: any = { set: vi.fn(), status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() };
+
+    for (const admin of [
+      { role: "ADMIN", suspendedAt: new Date(), isDisabled: false, tokensValidAfter: null },
+      { role: "OWNER", suspendedAt: null, isDisabled: false, tokensValidAfter: null },
+      { role: "ADMIN", suspendedAt: null, isDisabled: false, tokensValidAfter: new Date((iat + 5) * 1000) },
+    ]) {
+      userFindUnique.mockResolvedValueOnce(admin);
+      const next = vi.fn();
+      await requireAuth({ method: "GET", headers: { cookie: "nolsaf_token=support" } } as any, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenLastCalledWith(401);
+      expect(res.json).toHaveBeenLastCalledWith(expect.objectContaining({ code: "SESSION_REVOKED" }));
+    }
+
+    jwtVerify.mockReturnValue({ sub: "42", sid: "session-42", role: "OWNER", imp: true, iat });
+    const noActor = vi.fn();
+    await requireAuth({ method: "GET", headers: { cookie: "nolsaf_token=support" } } as any, res, noActor);
+    expect(noActor).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, KeyRound, Loader2, RotateCw, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, KeyRound, Loader2, LockKeyhole, RotateCw, ShieldCheck, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type Stage = "locked" | "sending" | "code-sent" | "verifying" | "granted";
@@ -107,10 +107,11 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
     try {
       const response = await apiClient.post("/admin/2fa/otp/verify", { code: codeValue, purpose: "FINANCE_VIEW" });
       const until = response.data?.data?.until ?? response.data?.until;
-      setGrantedUntilDate(until ? new Date(until) : new Date(Date.now() + 15 * 60 * 1000));
+      const untilDate = until ? new Date(until) : new Date(Date.now() + 15 * 60 * 1000);
+      setGrantedUntilDate(untilDate);
       setCode(Array.from({ length: 6 }, () => ""));
       setStage("granted");
-      window.dispatchEvent(new CustomEvent("finance-grant-granted"));
+      window.dispatchEvent(new CustomEvent("finance-grant-granted", { detail: { until: untilDate.getTime() } }));
     } catch (cause: any) {
       setStage("code-sent");
       setError(errorMessage(cause));
@@ -152,78 +153,121 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
           aria-labelledby="finance-grant-title"
           onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false); }}
         >
-          <div className="relative mx-auto box-border w-full max-w-[440px] max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-3xl bg-white shadow-[0_24px_64px_-16px_rgba(2,40,36,0.45)] ring-1 ring-slate-900/5 sm:max-h-[calc(100dvh-2rem)]">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-transparent text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
-              aria-label="Close finance verification"
-            >
-              <X className="h-4 w-4" aria-hidden />
-            </button>
+          <div className="relative mx-auto box-border w-full max-w-[440px] max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-lg bg-white shadow-[0_24px_64px_-16px_rgba(2,40,36,0.45)] ring-1 ring-slate-900/5 sm:max-h-[calc(100dvh-2rem)]">
+            {/* Vault band: the countdown ring, the step tracker and the title */}
+            <div className="relative overflow-hidden bg-[#0b2420] px-5 pb-5 pt-5 text-white sm:px-7">
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_100%_0%,rgba(16,185,129,0.18)_0%,rgba(11,36,32,0)_60%)]" aria-hidden />
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="absolute right-3 top-3 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-white/50 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40"
+                aria-label="Close finance verification"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
 
-            <div className="px-5 pb-6 pt-6 sm:px-7 sm:pt-7">
-              <div className="flex items-center gap-3">
-                <span
-                  className={`flex h-12 w-12 items-center justify-center rounded-2xl ring-[6px] transition-colors ${
-                    stage === "granted" ? "bg-emerald-600 text-white ring-emerald-50" : "bg-[#02665e] text-white ring-[#02665e]/[0.08]"
-                  }`}
-                  aria-hidden
-                >
-                  {stage === "granted" ? <Check className="h-5 w-5" strokeWidth={2.5} /> : <ShieldCheck className="h-5 w-5" />}
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#02665e]/[0.08] px-2.5 py-1 text-[11px] font-semibold text-[#02665e]">
-                  <KeyRound className="h-3 w-3" aria-hidden /> Finance verification
-                </span>
+              <div className="relative flex items-center gap-4">
+                {(() => {
+                  // One ring for every stage: empty while locked, draining with the code, then the access window.
+                  const r = 26;
+                  const circumference = 2 * Math.PI * r;
+                  const codeFraction = codeLifetime && codeSecondsLeft !== null ? Math.max(0, Math.min(1, codeSecondsLeft / codeLifetime)) : 0;
+                  const fraction = stage === "granted" ? grantProgress : stage === "code-sent" || stage === "verifying" ? (codeExpired ? 1 : codeFraction) : 0;
+                  const stroke = stage === "granted" ? "#6ee7b7" : codeExpired ? "#fb7185" : (codeSecondsLeft ?? 999) <= 60 && stage !== "locked" && stage !== "sending" ? "#fbbf24" : "#6ee7b7";
+                  return (
+                    <span className="relative grid h-16 w-16 shrink-0 place-items-center" aria-hidden>
+                      <svg viewBox="0 0 64 64" className="absolute inset-0 h-16 w-16 -rotate-90">
+                        <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="4" />
+                        <circle
+                          cx="32" cy="32" r={r} fill="none" stroke={stroke} strokeWidth="4" strokeLinecap="round"
+                          strokeDasharray={circumference} strokeDashoffset={circumference * (1 - fraction)}
+                          style={{ transition: "stroke-dashoffset 1s linear, stroke 0.3s" }}
+                        />
+                      </svg>
+                      {stage === "granted" ? (
+                        <Check className="h-6 w-6 text-emerald-300" strokeWidth={2.5} />
+                      ) : stage === "sending" || stage === "verifying" ? (
+                        <Loader2 className="h-5 w-5 animate-spin text-emerald-200" />
+                      ) : stage === "code-sent" && codeSecondsLeft !== null ? (
+                        <span className={`font-mono text-[12px] font-bold tabular-nums ${codeExpired ? "text-rose-300" : (codeSecondsLeft ?? 0) <= 60 ? "text-amber-200" : "text-white"}`}>{codeExpired ? "0:00" : mmss(codeSecondsLeft)}</span>
+                      ) : (
+                        <LockKeyhole className="h-5 w-5 text-emerald-200" />
+                      )}
+                    </span>
+                  );
+                })()}
+                <div className="min-w-0 pr-6">
+                  <p className="m-0 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300/80">
+                    <KeyRound className="h-3 w-3" aria-hidden /> Finance verification
+                  </p>
+                  <h2 id="finance-grant-title" className="m-0 mt-1 text-[19px] font-bold tracking-tight text-white">
+                    {stage === "granted" ? "Finance actions unlocked" : stage === "code-sent" || stage === "verifying" ? "Enter your code" : "Unlock finance actions"}
+                  </h2>
+                  <p className="m-0 mt-0.5 text-[12px] leading-5 text-white/60">
+                    {stage === "granted"
+                      ? "Retry the action that asked for verification."
+                      : stage === "code-sent" || stage === "verifying"
+                        ? "We sent a 6-digit code to your admin contact."
+                        : "A one-time code unlocks finance actions for 15 minutes."}
+                  </p>
+                </div>
               </div>
 
-              <h2 id="finance-grant-title" className="m-0 mt-5 text-[20px] font-bold tracking-tight text-slate-950">
-                {stage === "granted" ? "Finance actions unlocked" : stage === "code-sent" || stage === "verifying" ? "Enter your code" : "Unlock finance actions"}
-              </h2>
-              <p className="m-0 mt-1 text-[13px] leading-5 text-slate-500">
-                {stage === "granted"
-                  ? "Retry the action that asked for verification."
-                  : stage === "code-sent" || stage === "verifying"
-                    ? "Type the 6-digit code we sent to your admin contact. It unlocks finance actions for 15 minutes."
-                    : "Verify with a one-time code. Access lasts 15 minutes."}
-              </p>
+              {/* Step tracker: send, enter, unlocked */}
+              <ol className="relative m-0 mt-5 grid list-none grid-cols-3 gap-1.5 p-0">
+                {[
+                  { label: "Send", done: stage !== "locked" && stage !== "sending", current: stage === "locked" || stage === "sending" },
+                  { label: "Enter", done: stage === "granted", current: stage === "code-sent" || stage === "verifying" },
+                  { label: "Unlocked", done: stage === "granted", current: false },
+                ].map((step, index) => (
+                  <li key={step.label} className="min-w-0">
+                    <span className={`block h-1 rounded-full transition-colors ${step.done ? "bg-emerald-300" : step.current ? "bg-white/50" : "bg-white/10"}`} />
+                    <span className={`mt-1.5 flex items-center gap-1 text-[10px] font-semibold ${step.done ? "text-emerald-200" : step.current ? "text-white" : "text-white/35"}`}>
+                      {step.done ? <Check className="h-3 w-3" strokeWidth={3} aria-hidden /> : <span className="tabular-nums">{index + 1}</span>}
+                      {step.label}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
 
+            <div className="px-5 pb-6 pt-5 sm:px-7">
               {error && (
-                <div className="mt-4 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-[12.5px] font-medium leading-snug text-rose-800 ring-1 ring-inset ring-rose-200" role="alert">
+                <div className="mb-4 flex items-start gap-2 rounded-md bg-rose-50 px-3 py-2.5 text-[12.5px] font-medium leading-snug text-rose-800 ring-1 ring-inset ring-rose-200" role="alert">
                   <AlertTriangle className="mt-px h-4 w-4 shrink-0 text-rose-500" aria-hidden />
                   <span className="min-w-0">{error}</span>
                 </div>
               )}
 
               {stage === "granted" ? (
-                <div className="mt-5">
-                  <div className="flex items-center justify-between text-[12.5px]">
-                    <span className="font-medium text-slate-600">Time remaining</span>
-                    <span className="font-mono font-bold tabular-nums text-emerald-700" aria-live="off">
-                      {grantSecondsLeft !== null ? mmss(grantSecondsLeft) : "15:00"}
-                    </span>
-                  </div>
+                <div>
                   <div
-                    className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"
+                    className="flex items-center justify-between gap-3 rounded-md bg-emerald-50 px-4 py-3 ring-1 ring-inset ring-emerald-100"
                     role="progressbar"
                     aria-label="Finance access time remaining"
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={Math.round(grantProgress * 100)}
                   >
-                    <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-1000 ease-linear" style={{ width: `${grantProgress * 100}%` }} />
+                    <div className="min-w-0">
+                      <p className="m-0 text-[11px] font-semibold text-emerald-800/70">Access open until</p>
+                      <p className="m-0 mt-0.5 text-[15px] font-bold text-emerald-900">{grantedUntil || "15 minutes from now"}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="m-0 text-[11px] font-semibold text-emerald-800/70">Time left</p>
+                      <p className="m-0 mt-0.5 font-mono text-[15px] font-bold tabular-nums text-emerald-900" aria-live="off">{grantSecondsLeft !== null ? mmss(grantSecondsLeft) : "15:00"}</p>
+                    </div>
                   </div>
-                  <p className="m-0 mt-2 text-[12px] text-slate-500">Unlocked until {grantedUntil || "15 minutes from now"}.</p>
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25"
+                    className="mt-4 inline-flex h-11 w-full cursor-pointer items-center justify-center rounded-md border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25"
                   >
                     Done
                   </button>
                 </div>
               ) : stage === "code-sent" || stage === "verifying" ? (
-                <div className="mt-5">
+                <div>
                   <label className="sr-only" htmlFor="finance-otp-code">Verification code</label>
                   <div className="flex items-center gap-2" role="group" aria-label="Six-digit verification code">
                     {Array.from({ length: 6 }, (_, index) => {
@@ -277,12 +321,12 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
                             const full = next.join("");
                             if (/^\d{6}$/.test(full)) void verifyCode(full);
                           }}
-                          className={`box-border h-14 w-full min-w-0 flex-1 rounded-2xl border-[1.5px] border-solid text-center font-mono text-[22px] font-bold text-slate-950 caret-[#02665e] shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none transition focus:border-[#02665e] focus:bg-white focus:shadow-[0_0_0_4px_rgba(2,102,94,0.14)] disabled:opacity-50 ${
+                          className={`box-border h-12 w-full min-w-0 flex-1 rounded-md border-[1.5px] border-solid text-center font-mono text-[20px] font-bold text-slate-950 caret-[#02665e] outline-none transition focus:border-[#02665e] focus:bg-white focus:shadow-[0_0_0_4px_rgba(2,102,94,0.14)] disabled:opacity-50 ${
                             error
                               ? "border-rose-300 bg-rose-50/50"
                               : filled
                                 ? "border-[#02665e] bg-[#02665e]/[0.05] text-[#02665e]"
-                                : "border-slate-300 bg-white"
+                                : "border-slate-200 bg-slate-50/60"
                           }`}
                         />
                         </Fragment>
@@ -290,22 +334,13 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
                     })}
                   </div>
 
-                  {codeLifetime ? (
-                    <div className="mt-4 h-1 overflow-hidden rounded-full bg-slate-100" aria-hidden>
-                      <div
-                        className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${codeExpired ? "bg-rose-400" : (codeSecondsLeft ?? 0) <= 60 ? "bg-amber-400" : "bg-[#02665e]"}`}
-                        style={{ width: `${codeExpired ? 100 : Math.max(0, Math.min(1, (codeSecondsLeft ?? 0) / codeLifetime)) * 100}%` }}
-                      />
-                    </div>
-                  ) : null}
-
-                  <div className="mt-2.5 flex min-h-[28px] items-center justify-between gap-3 text-[12.5px]" aria-live="polite">
+                  <div className="mt-3 flex min-h-[28px] items-center justify-between gap-3 text-[12px]" aria-live="polite">
                     {codeExpired ? (
-                      <span className="font-semibold text-rose-700">Code expired</span>
+                      <span className="font-semibold text-rose-700">Code expired. Send a new one.</span>
                     ) : (
                       <span className="text-slate-500">
                         {codeSecondsLeft !== null ? (
-                          <>Expires in <span className="font-mono font-semibold tabular-nums text-slate-700">{mmss(codeSecondsLeft)}</span></>
+                          <>Expires in <span className="font-mono font-semibold tabular-nums text-slate-700">{mmss(codeSecondsLeft)}</span>{expiresAt ? ` · at ${expiresAt}` : ""}</>
                         ) : (
                           `Expires ${expiresAt ? `at ${expiresAt}` : "soon"}`
                         )}
@@ -317,7 +352,7 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
                         type="button"
                         onClick={sendCode}
                         disabled={resendIn > 0 && !codeExpired}
-                        className="inline-flex min-h-[30px] items-center gap-1.5 rounded-full border border-solid border-slate-200 bg-white px-3 text-[12px] font-semibold text-[#02665e] transition hover:border-[#02665e]/40 hover:bg-[#02665e]/[0.05] disabled:cursor-default disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
+                        className="inline-flex min-h-[30px] cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-2 text-[12px] font-semibold text-[#02665e] transition hover:bg-[#02665e]/[0.06] disabled:cursor-default disabled:bg-transparent disabled:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
                       >
                         <RotateCw className="h-3.5 w-3.5" aria-hidden />
                         {resendIn > 0 && !codeExpired ? <>Resend in <span className="tabular-nums">{resendIn}s</span></> : "Send a new code"}
@@ -330,30 +365,23 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
                     onClick={() => void verifyCode()}
                     disabled={stage === "verifying" || codeExpired || code.join("").length < 6}
                     aria-busy={stage === "verifying" || undefined}
-                    className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25 disabled:cursor-default disabled:bg-slate-200 disabled:text-slate-500"
+                    className="mt-4 inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25 disabled:cursor-default disabled:bg-slate-100 disabled:text-slate-400"
                   >
                     {stage === "verifying" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ShieldCheck className="h-4 w-4" aria-hidden />}
                     {stage === "verifying" ? "Verifying" : "Verify and unlock"}
                   </button>
                 </div>
               ) : (
-                <div className="mt-5">
-                  <ul className="m-0 list-none space-y-2 p-0 text-[12.5px] text-slate-600">
-                    <li className="flex items-center gap-2.5">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600" aria-hidden>1</span>
-                      Get a code on your admin contact
-                    </li>
-                    <li className="flex items-center gap-2.5">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600" aria-hidden>2</span>
-                      Enter it to unlock for 15 minutes
-                    </li>
-                  </ul>
+                <div>
+                  <p className="m-0 text-[12.5px] leading-5 text-slate-600">
+                    We will send a one-time code to your admin contact. Enter it here and protected finance actions open for 15 minutes, then lock again on their own.
+                  </p>
                   <button
                     type="button"
                     onClick={sendCode}
                     disabled={stage === "sending"}
                     aria-busy={stage === "sending" || undefined}
-                    className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25 disabled:cursor-wait disabled:opacity-60"
+                    className="mt-4 inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 text-[14px] font-semibold text-white transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25 disabled:cursor-wait disabled:opacity-60"
                   >
                     {stage === "sending" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <KeyRound className="h-4 w-4" aria-hidden />}
                     {stage === "sending" ? "Sending code" : "Send code"}

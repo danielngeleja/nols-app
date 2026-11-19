@@ -123,32 +123,12 @@
   border-style: solid;
 }
 
-#nrms-partnership-portfolio .partnership-workspace-header h1 {
-  color: #fff;
-}
-
-#nrms-partnership-portfolio .partnership-workspace-header p,
-#nrms-partnership-portfolio .partnership-workspace-header a,
-#nrms-partnership-portfolio .partnership-workspace-header > div > span {
-  color: #cce9e1;
-}
-
-#nrms-partnership-portfolio .partnership-workspace-header > div:last-child {
-  flex-wrap: wrap;
-}
-
-#nrms-partnership-portfolio .partnership-workspace-header > div:last-child > div,
-#nrms-partnership-portfolio .partnership-metrics > div,
 #nrms-partnership-portfolio .partnership-filters > * {
   min-width: 0;
 }
 
 #nrms-partnership-portfolio .partnership-filters > label {
   width: 100%;
-}
-
-#nrms-partnership-portfolio .partnership-metrics > div {
-  padding: 12px 16px;
 }
 
 #nrms-partnership-portfolio .text-neutral-400,
@@ -212,25 +192,6 @@
   min-width: 0;
 }
 
-#nrms-billing-board .billing-board-header h1 {
-  color: #fff;
-}
-
-#nrms-billing-board .billing-board-header p {
-  color: #cce9e1;
-}
-
-#nrms-billing-board .billing-board-metrics > div {
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-#nrms-billing-board .billing-board-metrics > div > span {
-  width: 36px;
-  height: 36px;
-}
-
 #nrms-billing-board .text-neutral-400 {
   color: #64748b;
 }
@@ -256,16 +217,6 @@
 
 #nrms-property-detail .grid > * {
   min-width: 0;
-}
-
-#nrms-property-detail .property-oversight-header h1 {
-  color: #fff;
-}
-
-#nrms-property-detail .property-oversight-header p.text-emerald-700,
-#nrms-property-detail .property-oversight-header p.text-neutral-500,
-#nrms-property-detail .property-oversight-header p.text-neutral-500 svg {
-  color: #cce9e1;
 }
 
 #nrms-property-detail .text-neutral-400 {
@@ -363,46 +314,6 @@
   min-width: 0;
 }
 
-#nrms-directory .directory-workspace-header h1 {
-  color: #fff;
-}
-
-#nrms-directory .directory-workspace-header p {
-  color: #cce9e1;
-}
-
-#nrms-directory .directory-workspace-header nav {
-  border-top-style: solid;
-}
-
-#nrms-directory .directory-workspace-header nav a {
-  background: #ffffff12;
-  border-color: #ffffff26;
-  color: #e0f4ee;
-  font-weight: 600;
-  font-size: 11px;
-  box-shadow: none;
-}
-
-#nrms-directory .directory-workspace-header nav a:hover {
-  background: #ffffff24;
-}
-
-#nrms-directory .directory-workspace-header nav a svg {
-  flex-shrink: 0;
-}
-
-#nrms-directory .directory-metrics > div {
-  padding: 12px;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-#nrms-directory .directory-metrics > div > span {
-  width: 36px;
-  height: 36px;
-}
-
 #nrms-directory .text-neutral-400 {
   color: #64748b;
 }
@@ -484,25 +395,6 @@
 
 #nrms-pricing .grid > * {
   min-width: 0;
-}
-
-#nrms-pricing .pricing-workspace-header h1 {
-  color: #fff;
-}
-
-#nrms-pricing .pricing-workspace-header p {
-  color: #cce9e1;
-}
-
-#nrms-pricing .pricing-summary > div {
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-#nrms-pricing .pricing-summary > div > span {
-  width: 36px;
-  height: 36px;
 }
 
 #nrms-pricing .text-neutral-400 {

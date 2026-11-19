@@ -6,6 +6,14 @@ import { invalidateSessionPolicyCache } from "../lib/securitySettings.js";
 import { enforceSocketSessionPolicy } from "../middleware/socketAuth.js";
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH_FLOOR } from "../lib/security.js";
 import { hasFinanceGrant } from "../lib/financeGrantStore.js";
+import {
+  ADVANCE_EXPOSURE_LIMIT_MAX_TZS,
+  ADVANCE_EXPOSURE_LIMIT_MIN_TZS,
+  ADVANCE_EXPOSURE_TIERS,
+  DEFAULT_ADVANCE_EXPOSURE_LIMITS_TZS,
+  normalizeExposureLimits,
+  openAdvanceLimitEffectiveFrom,
+} from "../lib/tourPayoutControls.js";
 
 /** Convert a resolved tier-spec list back to the editable {TIER:{thresholds}} config. */
 function tierLadderToConfig(raw: unknown) {
@@ -188,6 +196,21 @@ async function hasSalesAutoPayoutColumns(): Promise<boolean> {
 }
 const SALES_AUTO_PAYOUT_MAX_DEFAULT_TZS = 500_000;
 
+let tourPayoutControlColumnsAvailable: boolean | null = null;
+async function hasTourPayoutControlColumns(): Promise<boolean> {
+  // Positive result only: migration 20261118100000 may be applied while running.
+  if (tourPayoutControlColumnsAvailable === true) return true;
+  try {
+    await prisma.systemSetting.findUnique({ where: { id: 1 }, select: { tourAdvanceExposureLimits: true, tourPayoutSeparateApprover: true } as any });
+    tourPayoutControlColumnsAvailable = true;
+    return true;
+  } catch (err: any) {
+    if (err?.code === "P2022" || String(err?.message || "").includes("ColumnNotFound") ||
+      String(err?.message || "").includes("Unknown field")) return false;
+    throw err;
+  }
+}
+
 const UNCLAIMED_AUTO_DAYS_MIN = 3;
 const UNCLAIMED_AUTO_DAYS_MAX = 90;
 
@@ -232,6 +255,7 @@ router.get("/", async (_req, res) => {
   const autoCols = await hasAutoPayoutColumns();
   const ownerWithdrawalLimitCol = await hasOwnerWithdrawalLimitColumn();
   const salesAutoCols = await hasSalesAutoPayoutColumns();
+  const tourCtlCols = await hasTourPayoutControlColumns();
   const s =
     (await prisma.systemSetting.findUnique({
       where: { id: 1 },
@@ -276,6 +300,7 @@ router.get("/", async (_req, res) => {
         ...(autoCols ? { autoPayoutEnabled: true, autoPayoutDailyCapTzs: true, payoutUnclaimedAutoDays: true } : {}),
         ...(ownerWithdrawalLimitCol ? { ownerWithdrawalDailyLimitTzs: true } : {}),
         ...(salesAutoCols ? { salesAutoPayoutEnabled: true, salesAutoPayoutMaxTzs: true } : {}),
+        ...(tourCtlCols ? { tourAdvanceExposureLimits: true, tourPayoutSeparateApprover: true } : {}),
         ...(roleCols
           ? {
               sessionMaxMinutesAdmin: true,
@@ -324,6 +349,13 @@ router.get("/", async (_req, res) => {
   out.salesAutoPayoutEnabled = Boolean(out.salesAutoPayoutEnabled);
   out.salesAutoPayoutMaxTzs = out.salesAutoPayoutMaxTzs ?? SALES_AUTO_PAYOUT_MAX_DEFAULT_TZS;
   out.salesAutoPayoutAvailable = salesAutoCols;
+  // Tour payout controls: effective values (defaults apply until the migration runs).
+  out.tourAdvanceExposureLimits = normalizeExposureLimits(tourCtlCols ? out.tourAdvanceExposureLimits : null);
+  out.tourAdvanceExposureDefaults = { ...DEFAULT_ADVANCE_EXPOSURE_LIMITS_TZS };
+  out.tourPayoutSeparateApprover = tourCtlCols ? out.tourPayoutSeparateApprover !== false : true;
+  out.tourPayoutControlsAvailable = tourCtlCols;
+  // The limit is published policy (section 3.7): it starts on its version's effective date.
+  out.tourAdvanceLimitFrom = openAdvanceLimitEffectiveFrom();
   // Ensure new commission fields always appear in the response with safe defaults.
   out.driverCommissionPercent = out.driverCommissionPercent ?? 10;
   out.agentCommissionPercent = out.agentCommissionPercent ?? 15;
@@ -383,6 +415,7 @@ router.put("/", async (req, res) => {
   const autoCols = await hasAutoPayoutColumns();
   const ownerWithdrawalLimitCol = await hasOwnerWithdrawalLimitColumn();
   const salesAutoCols = await hasSalesAutoPayoutColumns();
+  const tourCtlCols = await hasTourPayoutControlColumns();
   // Fetch full record so the audit diff covers ALL changed fields, not just session ones.
   const before = await prisma.systemSetting.findUnique({ where: { id: 1 } });
 
@@ -449,6 +482,10 @@ router.put("/", async (req, res) => {
   delete (sanitizedUpdate as any).payoutSafeguardsAvailable;
   delete (sanitizedUpdate as any).autoPayoutAvailable;
   delete (sanitizedUpdate as any).ownerWithdrawalLimitAvailable;
+  delete (sanitizedUpdate as any).salesAutoPayoutAvailable;
+  delete (sanitizedUpdate as any).tourAdvanceExposureDefaults;
+  delete (sanitizedUpdate as any).tourPayoutControlsAvailable;
+  delete (sanitizedUpdate as any).tourAdvanceLimitFrom;
 
   // Payout safeguards. Validated explicitly because the body is otherwise
   // copied into the update as-is. Tightening needs nothing extra; loosening
@@ -542,6 +579,43 @@ router.put("/", async (req, res) => {
     }
   }
 
+  // Tour operator payout controls (lib/tourPayoutControls.ts). Raising or
+  // removing a tier's advance limit, or letting one admin verify and approve
+  // the same payout, loosens a safeguard and needs the finance code.
+  if (body.tourAdvanceExposureLimits !== undefined) {
+    const raw = body.tourAdvanceExposureLimits;
+    if (!tourCtlCols) {
+      // Not migrated yet: the code defaults apply and the page shows them read-only.
+      delete (sanitizedUpdate as any).tourAdvanceExposureLimits;
+    } else if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      errors.push({ field: "tourAdvanceExposureLimits", message: "Send a limit for each tier." });
+    } else {
+      const previous = normalizeExposureLimits((before as any)?.tourAdvanceExposureLimits);
+      const next: Record<string, number | null> = {};
+      for (const tier of ADVANCE_EXPOSURE_TIERS) {
+        const v = (raw as Record<string, unknown>)[tier];
+        const parsed = v === undefined ? previous[tier] : (toIntOrNull(v) ?? null);
+        if (parsed !== null && (!Number.isFinite(parsed) || parsed < ADVANCE_EXPOSURE_LIMIT_MIN_TZS || parsed > ADVANCE_EXPOSURE_LIMIT_MAX_TZS)) {
+          errors.push({ field: `tourAdvanceExposureLimits.${tier}`, message: `Must be a whole TZS amount from ${ADVANCE_EXPOSURE_LIMIT_MIN_TZS.toLocaleString("en-US")} to ${ADVANCE_EXPOSURE_LIMIT_MAX_TZS.toLocaleString("en-US")}, or blank for no limit.` });
+          continue;
+        }
+        next[tier] = parsed;
+        const prev = previous[tier];
+        if (prev !== null && (parsed === null || (parsed as number) > prev)) loosensPayoutSafeguards = true;
+      }
+      sanitizedUpdate.tourAdvanceExposureLimits = next;
+    }
+  }
+  if (body.tourPayoutSeparateApprover !== undefined) {
+    if (!tourCtlCols) {
+      delete (sanitizedUpdate as any).tourPayoutSeparateApprover;
+    } else {
+      const on = !(body.tourPayoutSeparateApprover === false || body.tourPayoutSeparateApprover === "false");
+      sanitizedUpdate.tourPayoutSeparateApprover = on;
+      if (!on && (before as any)?.tourPayoutSeparateApprover !== false) loosensPayoutSafeguards = true;
+    }
+  }
+
   // Operator tier ladder: validate (thresholds non-negative + monotonic across tiers).
   if (body.agentTierLadder !== undefined) {
     if (!tierCol) {
@@ -556,6 +630,18 @@ router.put("/", async (req, res) => {
         });
       }
       sanitizedUpdate.agentTierLadder = result.ladder as any;
+      // The tier decides who may take tour advances (SILVER and above) and
+      // how large their open-advance limit is. Every threshold is a minimum,
+      // so lowering any of them promotes operators into money they could not
+      // reach before: that loosens a payout safeguard and needs the finance code.
+      const previous = tierLadderToConfig((before as any)?.agentTierLadder ?? null);
+      for (const [tier, next] of Object.entries(result.ladder)) {
+        const prev = previous[tier];
+        if (!prev) continue;
+        for (const key of ["minTours", "minRevenue", "minRating", "minReviews"] as const) {
+          if (Number(next[key]) < Number(prev[key])) loosensPayoutSafeguards = true;
+        }
+      }
     }
   }
 

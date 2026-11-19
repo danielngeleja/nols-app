@@ -53,6 +53,17 @@ const ACCOUNT_BADGE: Record<string, string> = {
   CLOSED: "border-neutral-200 bg-neutral-100 text-neutral-500",
 };
 
+/** Account status as a dot on the dark identity band. */
+const ACCOUNT_DOT: Record<string, string> = {
+  TRIAL: "bg-sky-400",
+  ACTIVE: "bg-emerald-400",
+  WARNING: "bg-amber-400",
+  PAYMENT_REQUIRED: "bg-rose-400",
+  PAYMENT_PENDING: "bg-violet-400",
+  FROZEN: "bg-orange-400",
+  CLOSED: "bg-white/40",
+};
+
 function shortDate(value: string | null | undefined): string {
   if (!value) return "Never";
   return new Date(value).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
@@ -206,62 +217,119 @@ function AdminNrmsProperty({ propertyId }: { propertyId: number }) {
   const qrActiveCount = data.orderPoints.filter((p) => p.active).length;
 
   return (
-    <div id="nrms-property-detail" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
+    <div id="nrms-property-detail" className="w-full min-w-0 max-w-none space-y-4">
       {/* Preflight is disabled in this project; without border-box, w-full controls (e.g. the enforcement textarea) overflow their container */}
       <style>{`#nrms-property-detail, #nrms-property-detail * { box-sizing: border-box; }`}</style>
-      <Link href="/admin/nrms" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline transition hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> NRMS directory</Link>
 
-      <section className="property-oversight-header relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex min-w-0 items-start gap-3.5">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Building2 className="h-5 w-5" /></span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Property oversight</p>
-                {data.account && <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${ACCOUNT_BADGE[data.account.status] ?? "border-neutral-200 bg-neutral-100 text-neutral-500"}`}>{data.account.status.replaceAll("_", " ")}</span>}
+      {/* Identity band with the credit meter, in the operator-record language */}
+      <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_100%_0%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden="true" />
+        <div className="relative grid min-w-0 gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-center">
+          <div className="min-w-0">
+            <Link href="/admin/nrms" className="inline-flex items-center gap-1 text-[11px] font-semibold text-white/45 no-underline transition hover:text-emerald-300">
+              <ArrowLeft className="h-3 w-3" aria-hidden /> NRMS directory
+            </Link>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300/80">Property oversight</p>
+              {data.account ? (
+                <span className="inline-flex items-center gap-1.5 rounded bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-bold text-white/80">
+                  <span className={`h-1.5 w-1.5 rounded-full ${ACCOUNT_DOT[data.account.status] ?? "bg-white/40"}`} aria-hidden />
+                  {data.account.status.replaceAll("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}
+                </span>
+              ) : null}
+            </div>
+            <h1 className="m-0 mt-1 break-words text-xl font-bold tracking-tight text-white sm:text-2xl">{data.property.title}</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-white/60">
+              <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden /> {data.property.regionName ?? "Region unknown"}</span>
+              <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden /> Activated {shortDate(data.property.nrmsActivatedAt)}</span>
+              <span className="inline-flex min-w-0 items-center gap-1"><UsersRound className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">{owner.fullName || owner.name || `#${owner.id}`} · {owner.email ?? owner.phone ?? "no contact"}</span></span>
+            </div>
+
+            {restrictions.length > 0 || data.openBusinessDay ? (
+              <div className="mt-4 flex flex-wrap gap-1.5">
+                {data.openBusinessDay ? (
+                  <span className="inline-flex items-center gap-2 rounded-md bg-emerald-400/10 px-2.5 py-1.5 text-[11px] font-bold text-emerald-200">
+                    <span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" /></span>
+                    Business day open: {shortDate(data.openBusinessDay.businessDate)}
+                  </span>
+                ) : null}
+                {restrictions.map((r) => (
+                  <span key={r.label} className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-bold ${r.tone.includes("red") ? "bg-rose-500/15 text-rose-200" : "bg-amber-400/15 text-amber-200"}`}>
+                    <ShieldAlert className="h-3.5 w-3.5" aria-hidden /> {r.label}
+                  </span>
+                ))}
               </div>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">{data.property.title}</h1>
-              <p className="mb-0 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 text-neutral-500">
-                <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-neutral-400" /> {data.property.regionName ?? "Region unknown"}</span>
-                <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5 text-neutral-400" /> Activated {shortDate(data.property.nrmsActivatedAt)}</span>
-                <span>Owner: {owner.fullName || owner.name || `#${owner.id}`} ({owner.email ?? owner.phone ?? "no contact"})</span>
-              </p>
-              {restrictions.length > 0 && (
-                <div className="mt-2.5 flex flex-wrap gap-1.5">
-                  {restrictions.map((r) => <span key={r.label} className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${r.tone}`}>{r.label}</span>)}
-                </div>
-              )}
-              {(data.restrictionCases?.length ?? 0) > 0 && (
-                <div className="mt-3 space-y-1.5">
-                  {data.restrictionCases.map((restriction) => (
-                    <div key={restriction.referenceCode} className="rounded-lg border border-orange-200 bg-orange-50/80 px-3 py-2 text-xs text-orange-950">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-mono font-bold">{restriction.referenceCode}</span>
-                        <span className={`font-bold ${restriction.notificationEmailSentAt ? "text-emerald-700" : "text-red-700"}`}>
-                          {restriction.notificationEmailSentAt ? "Email sent" : "Email needs follow-up"}
-                        </span>
-                      </div>
-                      <p className="mb-0 mt-1 leading-5">{restriction.reason}</p>
+            ) : null}
+
+            {(data.restrictionCases?.length ?? 0) > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {data.restrictionCases.map((restriction) => (
+                  <div key={restriction.referenceCode} className="rounded-md bg-orange-400/10 px-3 py-2 text-xs text-orange-100 ring-1 ring-orange-300/20">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-mono font-bold text-orange-200">{restriction.referenceCode}</span>
+                      <span className={`font-bold ${restriction.notificationEmailSentAt ? "text-emerald-300" : "text-rose-300"}`}>
+                        {restriction.notificationEmailSentAt ? "Email sent" : "Email needs follow-up"}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-          {data.account && (
-            <div className="flex shrink-0 items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3.5 py-2.5 shadow-sm">
-              <WalletCards className="h-4 w-4 text-emerald-700" />
-              <div>
-                <p className="m-0 text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Balance</p>
-                <p className="m-0 text-sm font-bold tabular-nums text-neutral-900">{currency} {data.account.unpaidBalance.toLocaleString()} <span className="font-medium text-neutral-400">/ {data.account.unpaidLimit.toLocaleString()}</span></p>
-                {data.account.policy && <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Policy {data.account.policy.version} · {currency} {data.account.policy.roomNightPrice.toLocaleString()} / room-night</p>}
+                    <p className="mb-0 mt-1 leading-5 text-orange-100/90">{restriction.reason}</p>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
+          </div>
+
+          {/* Credit meter: how close the property is to its unpaid limit */}
+          {data.account ? (() => {
+            const balance = data.account.unpaidBalance;
+            const limit = data.account.unpaidLimit;
+            const used = limit > 0 ? Math.min(100, Math.round((balance / limit) * 100)) : balance > 0 ? 100 : 0;
+            const tone = used >= 90 ? { bar: "bg-rose-400", ink: "text-rose-300" } : used >= 50 ? { bar: "bg-amber-400", ink: "text-amber-300" } : { bar: "bg-emerald-400", ink: "text-emerald-300" };
+            const onTrial = data.account.status === "TRIAL";
+            return (
+              <div className="min-w-0 rounded-md bg-white/[0.04] p-4 ring-1 ring-white/10">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Unpaid balance</p>
+                  <p className="m-0 text-[11px] text-white/55"><span className={`font-bold tabular-nums ${tone.ink}`}>{used}%</span> of limit</p>
+                </div>
+                <p className="m-0 mt-2 text-2xl font-black tabular-nums tracking-tight text-white">
+                  {currency} {balance.toLocaleString()}
+                  <span className="ml-1 text-sm font-semibold text-white/45">/ {limit.toLocaleString()}</span>
+                </p>
+                <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/10" role="img" aria-label={`${used}% of the unpaid limit used`}>
+                  <span className={`block h-full rounded-full transition-all duration-700 ${tone.bar}`} style={{ width: `${used}%` }} />
+                </div>
+                <dl className="m-0 mt-3 grid grid-cols-2 gap-2">
+                  <div className="min-w-0">
+                    <dt className="text-[10px] font-semibold text-white/50">Headroom</dt>
+                    <dd className="m-0 mt-0.5 truncate text-[12px] font-bold tabular-nums text-white/90">{currency} {Math.max(0, limit - balance).toLocaleString()}</dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="text-[10px] font-semibold text-white/50">{onTrial ? "Trial ends" : "Trial ended"}</dt>
+                    <dd className="m-0 mt-0.5 truncate text-[12px] font-bold text-white/90">{shortDate(data.account.trialEndsAt)}</dd>
+                  </div>
+                </dl>
+              </div>
+            );
+          })() : (
+            <div className="min-w-0 rounded-md bg-white/[0.04] p-4 text-[12px] text-white/55 ring-1 ring-white/10">No NRMS billing account for this property yet.</div>
           )}
         </div>
-        {data.openBusinessDay && <p className="mb-0 mt-3.5 inline-flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-[11px] font-medium text-emerald-800 shadow-sm">Business day open: {shortDate(data.openBusinessDay.businessDate)}</p>}
-        <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))} className="mt-3 rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold text-white hover:bg-white/20">Verify finance access</button>
+
+        {/* Pricing policy and the finance gate */}
+        <div className="relative flex min-w-0 flex-wrap items-center gap-2 border-0 border-t border-solid border-white/10 px-4 py-3 sm:px-6">
+          <span className="w-full truncate text-[11px] text-white/45 sm:w-auto">
+            {data.account?.policy
+              ? `Policy ${data.account.policy.version} · ${currency} ${data.account.policy.roomNightPrice.toLocaleString()} per room-night`
+              : "No pricing policy attached"}
+          </span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))}
+            className="inline-flex h-9 w-full cursor-pointer items-center justify-center rounded-md border-0 bg-white/[0.08] px-4 text-xs font-bold text-white transition hover:bg-white/15 sm:ml-auto sm:w-auto"
+          >
+            Verify finance access
+          </button>
+        </div>
       </section>
 
       {notice && (

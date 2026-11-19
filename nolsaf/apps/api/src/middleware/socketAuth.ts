@@ -6,6 +6,7 @@ import { prisma } from "@nolsaf/prisma";
 import { getRoleSessionMaxMinutes } from "../lib/securitySettings.js";
 import { touchActiveUser } from "../lib/activePresence.js";
 import { accountMfaSessionAllowed } from "../lib/accountMfaPolicy.js";
+import { supportImpersonatorActive } from "../lib/supportImpersonation.js";
 
 export interface AuthenticatedSocket extends Socket {
   data: {
@@ -38,6 +39,7 @@ interface JwtSocketPayload {
   mfa?: string;
   mfaBinding?: string;
   imp?: boolean;
+  act?: number;
 }
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
@@ -97,6 +99,9 @@ export async function verifyToken(
     });
     const user = activeSession?.user;
     if (!user) return null;
+    if (decoded.imp === true && !(await supportImpersonatorActive(decoded.act, decoded.iat))) return null;
+    // Setup-only sessions get no live data (lib/ownerMfaPolicy.ts).
+    if ((decoded as any).scope === "owner_mfa_setup") return null;
     if (!accountMfaSessionAllowed(user, decoded)) return null;
 
     // Deny suspended users

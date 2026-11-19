@@ -238,7 +238,9 @@ export function middleware(req: NextRequest) {
       path === "/account/login" ||
       path === "/account/register" ||
       path === "/account/forgot-password" ||
-      path === "/account/reset-password";
+      path === "/account/reset-password" ||
+      // Opened from the new sign-in email, often on a phone that is signed out.
+      path === "/account/sign-out-device";
 
     // Allow the Agent Portal pages — but require AGENT (or ADMIN) role.
     // Other authenticated roles hitting /account/agent get redirected to their
@@ -272,6 +274,7 @@ export function middleware(req: NextRequest) {
     path.startsWith("/nrms/guest/payment/") ||
     path.startsWith("/nrms/guest/review/") ||
     path.startsWith("/nrms/supplier-order/") ||
+    path === "/account/sign-out-device" ||
     isSignedTourDocument;
   response.headers.set(
     "Referrer-Policy",

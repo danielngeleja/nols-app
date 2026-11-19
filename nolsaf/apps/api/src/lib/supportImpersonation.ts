@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { getRoleSessionMaxMinutes, getSessionIdleMinutes } from "./securitySettings.js";
 import { getImpersonationHandoffHandle } from "./sessionManager.js";
+import { adminRecordReferenceOrNull } from "./adminRecordReference.js";
 import type { AuthedUser } from "../middleware/auth.js";
 
 const SUPPORT_TTL_SECONDS = 10 * 60;
@@ -101,6 +102,43 @@ export function supportHandoffMatchesUser(
     && current.id === handoff.supportUserId
     && current.role === handoff.supportRole
     && current.impersonatorId === handoff.adminId);
+}
+
+/**
+ * Where the admin lands after a support session: the record they came from,
+ * addressed by its opaque reference (never a row id).
+ */
+export async function supportReturnPath(supportRole: string, supportUserId: number): Promise<string> {
+  const list = supportRole === "OWNER" ? "/admin/owners" : "/admin/agents";
+  try {
+    if (supportRole === "OWNER") {
+      const ref = adminRecordReferenceOrNull("owner", supportUserId);
+      return ref ? `${list}/${ref}` : list;
+    }
+    const agent = await prisma.agent.findUnique({ where: { userId: supportUserId }, select: { id: true } });
+    const ref = adminRecordReferenceOrNull("agent", agent?.id);
+    return ref ? `${list}/${ref}` : list;
+  } catch {
+    return list;
+  }
+}
+
+/**
+ * A support token is only as good as the admin behind it. Reject it as soon
+ * as that admin is no longer an active ADMIN, or has had their sessions cut
+ * off after this support session was issued.
+ */
+export async function supportImpersonatorActive(adminId: unknown, supportIssuedAt: unknown): Promise<boolean> {
+  const id = Number(adminId);
+  if (!Number.isSafeInteger(id) || id <= 0) return false;
+  const admin = await prisma.user.findUnique({
+    where: { id },
+    select: { role: true, suspendedAt: true, isDisabled: true, tokensValidAfter: true },
+  });
+  if (!admin || String(admin.role || "").toUpperCase() !== "ADMIN" || admin.suspendedAt || admin.isDisabled) return false;
+  const issuedAt = Number(supportIssuedAt);
+  if (admin.tokensValidAfter && (!Number.isFinite(issuedAt) || issuedAt < Math.floor(admin.tokensValidAfter.getTime() / 1000))) return false;
+  return true;
 }
 
 export async function consumeSupportHandoff(handleHash: string): Promise<boolean> {

@@ -68,6 +68,7 @@ export default function ReconciliationPage() {
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [expandedStatements, setExpandedStatements] = useState<Set<number>>(new Set());
+  const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
 
   const exportCsv = async () => {
     setExporting(true);
@@ -96,6 +97,7 @@ export default function ReconciliationPage() {
       const [s, p] = await Promise.all([apiClient.get("/api/admin/nrms/reconcile/statements"), apiClient.get("/api/admin/nrms/reconcile/payments")]);
       setStatements(s.data?.statements ?? []);
       setQueue(p.data?.queue ?? []);
+      setRefreshedAt(new Date());
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Failed to load reconciliation");
     } finally {
@@ -139,29 +141,112 @@ export default function ReconciliationPage() {
     exceptions: queue.length,
   }), [statements, queue]);
 
+  /** Where the loaded statements' money stands, for the balance panel in the band. */
+  const balance = useMemo(() => {
+    const sumOf = (status: string) => statements.filter((s) => s.status === status).reduce((sum, s) => sum + s.amount, 0);
+    const paid = sumOf('PAID');
+    const payable = sumOf('PAYABLE');
+    const open = sumOf('OPEN');
+    const total = paid + payable + open;
+    const pct = (v: number) => (total > 0 ? (v / total) * 100 : 0);
+    return { paid, payable, open, total, collectedPct: total > 0 ? Math.round((paid / total) * 100) : null, widths: { paid: pct(paid), payable: pct(payable), open: pct(open) } };
+  }, [statements]);
+
   return (
-    <div id="nrms-reconciliation" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
+    <div id="nrms-reconciliation" className="w-full min-w-0 max-w-none space-y-4">
       {/* Preflight is disabled in this project; without border-box, w-full controls overflow their grid columns */}
       <style>{`#nrms-reconciliation, #nrms-reconciliation * { box-sizing: border-box; }`}</style>
-      <Link href="/admin/nrms/billing" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline transition hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> PAYG billing</Link>
 
-      <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-5 text-white shadow-sm sm:p-6">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3.5">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-emerald-200"><RefreshCw className="h-5 w-5" /></span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200">NRMS finance workspace</p>
-              </div>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Billing reconciliation</h1>
-              <p className="mb-0 mt-1 text-xs leading-5 text-slate-200">Review usage, match provider payments and resolve exceptions.</p>
+      {/* Identity band with a live collection balance, in the operator-record language */}
+      <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_100%_0%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden="true" />
+        <div className="relative grid min-w-0 gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-center">
+          <div className="min-w-0">
+            <Link href="/admin/nrms/billing" className="inline-flex items-center gap-1 text-[11px] font-semibold text-white/45 no-underline transition hover:text-emerald-300">
+              <ArrowLeft className="h-3 w-3" aria-hidden /> PAYG billing
+            </Link>
+            <p className="m-0 mt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300/80">NRMS finance workspace</p>
+            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Billing reconciliation</h1>
+            <p className="m-0 mt-1 text-[12px] text-white/60">Review usage, match provider payments and resolve exceptions.</p>
+            <div className="mt-4">
+              {loading ? (
+                <span className="inline-flex items-center gap-2 rounded-md bg-white/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-white/60"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Checking the queue</span>
+              ) : error ? (
+                <span className="inline-flex items-center gap-2 rounded-md bg-rose-500/15 px-2.5 py-1.5 text-[11px] font-semibold text-rose-200"><XCircle className="h-3.5 w-3.5" aria-hidden /> Could not load reconciliation</span>
+              ) : totals.exceptions > 0 ? (
+                <span className="inline-flex items-center gap-2 rounded-md bg-amber-400/15 px-2.5 py-1.5 text-[11px] font-bold text-amber-200">
+                  <span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-amber-400" /></span>
+                  {totals.exceptions} payment exception{totals.exceptions === 1 ? '' : 's'} need you
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-md bg-emerald-400/10 px-2.5 py-1.5 text-[11px] font-bold text-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Queue clear, every payment matched</span>
+              )}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))} className="rounded-lg border border-white/25 bg-white/10 px-3 py-2.5 text-xs font-bold text-white hover:bg-white/20">Verify finance access</button>
-            <button type="button" disabled={loading} onClick={() => void load()} aria-label="Refresh reconciliation" className="rounded-lg border border-white/25 bg-white/10 p-2.5 text-white disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
-            <button type="button" disabled={exporting} onClick={() => void exportCsv()} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-300 px-3 py-2.5 text-xs font-bold text-emerald-950 hover:bg-emerald-200 disabled:opacity-50">{exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{exporting ? 'Exporting…' : 'Export CSV'}</button>
+
+          {/* Collection balance: where the loaded statements' money stands */}
+          <div className="min-w-0 rounded-md bg-white/[0.04] p-4 ring-1 ring-white/10">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Collection balance</p>
+              <p className="m-0 text-[11px] text-white/55">
+                {balance.collectedPct === null ? 'No statements loaded' : <><span className="font-bold tabular-nums text-emerald-300">{balance.collectedPct}%</span> collected</>}
+              </p>
+            </div>
+            <p className="m-0 mt-2 text-[11px] text-white/50">Awaiting collection</p>
+            <p className="m-0 text-2xl font-black tabular-nums tracking-tight text-white">TZS {balance.payable.toLocaleString()}</p>
+            <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-white/10" role="img" aria-label={`Paid TZS ${balance.paid.toLocaleString()}, payable TZS ${balance.payable.toLocaleString()}, open TZS ${balance.open.toLocaleString()}`}>
+              <span className="h-full bg-emerald-400 transition-all duration-700" style={{ width: `${balance.widths.paid}%` }} />
+              <span className="h-full bg-amber-400 transition-all duration-700" style={{ width: `${balance.widths.payable}%` }} />
+              <span className="h-full bg-sky-400 transition-all duration-700" style={{ width: `${balance.widths.open}%` }} />
+            </div>
+            <dl className="m-0 mt-3 grid grid-cols-3 gap-2">
+              {[
+                { label: 'Paid', value: balance.paid, dot: 'bg-emerald-400' },
+                { label: 'Payable', value: balance.payable, dot: 'bg-amber-400' },
+                { label: 'Open', value: balance.open, dot: 'bg-sky-400' },
+              ].map((part) => (
+                <div key={part.label} className="min-w-0">
+                  <dt className="flex items-center gap-1.5 text-[10px] font-semibold text-white/50"><span className={`h-1.5 w-1.5 rounded-full ${part.dot}`} aria-hidden /> {part.label}</dt>
+                  <dd className="m-0 mt-0.5 truncate text-[12px] font-bold tabular-nums text-white/90">{part.value.toLocaleString()}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
+
+        {/* Actions, with when the figures were last read */}
+        <div className="relative flex min-w-0 flex-wrap items-center gap-2 border-0 border-t border-solid border-white/10 px-4 py-3 sm:px-6">
+          <span className="w-full text-[11px] text-white/45 sm:w-auto">
+            {refreshedAt
+              ? `Refreshed ${refreshedAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Dar_es_Salaam' })} EAT · ${statements.length} statement${statements.length === 1 ? '' : 's'} loaded`
+              : 'Loading figures'}
+          </span>
+          <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))}
+              className="inline-flex h-9 flex-1 cursor-pointer items-center justify-center rounded-md border-0 bg-white/[0.08] px-4 text-xs font-bold text-white transition hover:bg-white/15 sm:flex-none"
+            >
+              Verify finance access
+            </button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void load()}
+              aria-label="Refresh reconciliation"
+              className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-white/[0.08] text-white transition hover:bg-white/15 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
+            </button>
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => void exportCsv()}
+              className="inline-flex h-9 flex-1 cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-emerald-300 px-4 text-xs font-bold text-[#0b2420] transition hover:bg-emerald-200 disabled:opacity-50 sm:flex-none"
+            >
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />}
+              {exporting ? 'Exporting...' : 'Export CSV'}
+            </button>
           </div>
         </div>
       </section>
@@ -169,13 +254,29 @@ export default function ReconciliationPage() {
       {error && <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
       {notice && <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800" role="status"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> <span>{notice}</span></div>}
 
-      <div className="reconciliation-metrics grid min-w-0 gap-3 sm:grid-cols-3">
+      {/* Summary, joined cells like the operator statement's money strip */}
+      <section aria-label="Reconciliation summary" className="reconciliation-metrics grid min-w-0 grid-cols-1 gap-px overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-3">
         {[
-          { icon: AlertTriangle, label: 'Needs attention', value: String(totals.exceptions), detail: 'Provider payment exceptions', tone: 'text-amber-700 bg-amber-50' },
-          { icon: FileText, label: 'Statements loaded', value: String(statements.length), detail: 'Available billing periods', tone: 'text-sky-700 bg-sky-50' },
-          { icon: Wallet, label: 'Awaiting collection', value: `TZS ${totals.payable.toLocaleString()}`, detail: 'Payable statements loaded', tone: 'text-emerald-700 bg-emerald-50' },
-        ].map(({ icon: Icon, label, value, detail, tone }) => <div key={label} className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone}`}><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="m-0 mt-1 break-words text-lg font-bold text-slate-950">{loading || error ? 'Unavailable' : value}</p><p className="m-0 mt-0.5 text-[11px] text-slate-500">{detail}</p></div></div>)}
-      </div>
+          {
+            icon: AlertTriangle, label: 'Needs attention', value: String(totals.exceptions), detail: 'Provider payment exceptions',
+            ink: totals.exceptions > 0 ? 'text-amber-600' : 'text-neutral-950', iconTone: totals.exceptions > 0 ? 'text-amber-600' : 'text-neutral-300',
+          },
+          { icon: FileText, label: 'Statements loaded', value: String(statements.length), detail: 'Available billing periods', ink: 'text-neutral-950', iconTone: 'text-neutral-300' },
+          {
+            icon: Wallet, label: 'Awaiting collection', value: `TZS ${totals.payable.toLocaleString()}`, detail: 'Payable statements loaded',
+            ink: totals.payable > 0 ? 'text-emerald-700' : 'text-neutral-400', iconTone: 'text-neutral-300',
+          },
+        ].map(({ icon: Icon, label, value, detail, ink, iconTone }) => (
+          <div key={label} className="min-w-0 bg-white px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="m-0 text-[11px] font-semibold text-neutral-500">{label}</p>
+              <Icon className={`h-4 w-4 shrink-0 ${iconTone}`} aria-hidden />
+            </div>
+            <p className={`m-0 mt-1 break-words text-lg font-black tabular-nums tracking-tight ${loading || error ? 'text-neutral-300' : ink}`}>{loading || error ? 'Unavailable' : value}</p>
+            <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400">{detail}</p>
+          </div>
+        ))}
+      </section>
 
       {loading && <div role="status" className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"><Loader2 className="h-4 w-4 animate-spin" />Loading statements and provider exceptions…</div>}
 

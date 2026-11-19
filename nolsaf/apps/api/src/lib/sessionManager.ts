@@ -70,6 +70,16 @@ export async function signUserJwt(
     /** Required authentication method for a usable ADMIN session. */
     adminMfa?: "passkey" | "totp";
     accountMfa?: { method: "totp" | "backup_code"; binding: string };
+    /**
+     * Keep the original sign-in time when a token is re-minted for an existing
+     * login (support return, print handoff) so the absolute session limit is
+     * not restarted. `expiresInSeconds` is then counted from this time.
+     */
+    issuedAtSeconds?: number;
+    /** Signed in with a passkey (any role). Marks the session as strongly authenticated. */
+    passkey?: boolean;
+    /** A setup-only session: it can add a passkey or authenticator and nothing else. */
+    scope?: "owner_mfa_setup";
   } = {},
 ): Promise<string> {
   let sessionId: string | null = null;
@@ -107,9 +117,12 @@ export async function signUserJwt(
         sid: session.id,
         ...(options.impersonated ? { imp: true } : {}),
         ...(options.impersonated && options.impersonatorId ? { act: options.impersonatorId } : {}),
-        ...(options.adminMfa ? { amr: options.adminMfa } : {}),
+        ...(options.adminMfa ? { amr: options.adminMfa } : options.passkey ? { amr: "passkey" } : {}),
+        ...(options.scope ? { scope: options.scope } : {}),
         ...(options.accountMfa ? { mfa: options.accountMfa.method, mfaBinding: options.accountMfa.binding } : {}),
-        iat: Math.floor(Date.now() / 1000), // Issued at time
+        iat: options.issuedAtSeconds && Number.isInteger(options.issuedAtSeconds)
+          ? Math.min(options.issuedAtSeconds, Math.floor(Date.now() / 1000))
+          : Math.floor(Date.now() / 1000), // Issued at time
       },
       JWT_SECRET,
       { expiresIn }

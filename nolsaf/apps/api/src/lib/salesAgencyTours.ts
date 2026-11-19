@@ -12,6 +12,7 @@
  * and the operator is never told which partner sent the client.
  */
 import { commissionSourceKey } from "./salesPartner.js";
+import { publicOperatorProfile } from "./operatorPackages.js";
 import { loadPartnerIdentity, payoutAccountKey, phoneKey, type PartnerIdentity } from "./salesSelfDealing.js";
 import { calculateSalesCommission, exclusiveTaxAmount, roundSalesMoney, POST_STAY_BUFFER_DAYS, type CommissionAccrualResult } from "./salesCommission.js";
 import { AGENCY_SETTLE_MS, agencyGateFailure, hashAgencyToken, isAgencyDeskEnabled, isWellFormedAgencyToken, loadAgencyGateInput } from "./salesAgency.js";
@@ -29,13 +30,9 @@ const num = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-/** The operator's approved profile, or null when it is not approved. */
+/** The operator's public (approved) profile, or null: the shared rule in operatorPackages.ts. */
 export function approvedOperatorProfile(value: unknown): Record<string, any> | null {
-  if (!value || typeof value !== "object") return null;
-  const profile = value as Record<string, any>;
-  const status = String(profile.reviewStatus || profile.review?.status || "").toUpperCase();
-  if (status !== "APPROVED") return null;
-  return profile.approvedSnapshot && typeof profile.approvedSnapshot === "object" ? profile.approvedSnapshot : profile;
+  return publicOperatorProfile(value);
 }
 
 export function bookablePackages(profile: Record<string, any> | null): Array<{ id: string; pkg: any }> {

@@ -604,6 +604,10 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
         title: "NRMS Data Retention Scheduled",
         body: `Closed-account retention was scheduled for "${data.propertyTitle || 'your property'}". Guest identifiers are retained for ${Number(data.guestRetentionDays || 730)} days and operational free text for ${Number(data.operationalRetentionDays || 2555)} days from closure. Financial and audit records remain. ${data.reason ? `Reason: ${data.reason}.` : ""}`
       },
+      security_new_sign_in: {
+        title: "New sign-in to your account",
+        body: `Your account was just signed in from ${data.device || "a device"} you have not used before. If this was not you, sign that device out and change your password.`
+      },
       // Legacy alias kept for backward compatibility
       booking_cancelled_by_guest: {
         title: "Booking Cancelled — Refund Processing",
@@ -737,6 +741,16 @@ export async function notifyUser(userId: number, template: string, data: any) {
       agent_advance_rejected: {
         title: "Trip advance not approved",
         body: `Your advance request for booking ${data.bookingCode || "on your trip"} was not approved. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      // New sign-in alerts (lib/newSignInAlert.ts). In the app as well as by
+      // email, so the person still sees it if someone else holds the inbox.
+      security_new_sign_in: {
+        title: "New sign-in to your account",
+        body: `Your account was just signed in from ${data.device || "a device"} you have not used before. If this was not you, sign that device out and change your password.`
+      },
+      agent_new_sign_in: {
+        title: "New sign-in to your account",
+        body: `Your operator account was just signed in from ${data.device || "a device"} you have not used before. If this was not you, sign that device out and change your password.`
       },
       agent_balance_claimable: {
         title: "Trip balance ready to claim",

@@ -26,7 +26,9 @@ export default function CustomerAccountLayout({ children }: { children: ReactNod
     pathname === "/account/register" ||
     pathname === "/account/login" ||
     pathname === "/account/forgot-password" ||
-    pathname === "/account/reset-password";
+    pathname === "/account/reset-password" ||
+    pathname === "/account/sign-out-device" ||
+    pathname === "/account/secure-your-account";
 
   if (isAuthRoute) {
     return <div className="min-h-screen bg-neutral-50">{children}</div>;

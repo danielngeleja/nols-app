@@ -248,8 +248,8 @@ export function getWelcomeEmail(
 // ─── 5. New sign-in alert ─────────────────────────────────────────────────────
 
 export interface LoginAlertEmailData {
-  /** Account display name or email */
-  name: string;
+  /** Person's name; the greeting falls back to "Hi there" without one. */
+  name?: string;
   /** Date/time of the sign-in (UTC) */
   loginAt: Date;
   /** IP address of the request */
@@ -260,37 +260,56 @@ export interface LoginAlertEmailData {
   country?: string;
   /** URL for the password reset page ("wasn't me" action) */
   resetPasswordUrl: string;
+  /** One-click page that signs out exactly this new session. */
+  signOutDeviceUrl?: string;
+  /** Where the person sees their recognised devices. */
+  reviewDevicesUrl?: string;
 }
 
 export function getLoginAlertEmail(data: LoginAlertEmailData): { subject: string; html: string } {
   const RED = "#b42318";
   const RED_BG = "#fdf3f2";
-  const fmtDateTime = (d: Date) =>
-    d.toUTCString().replace(" GMT", " UTC");
+  const esc = (value: unknown) => String(value ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  // Server-rendered times are always East Africa Time, whatever the host clock.
+  const fmtDateTime = (d: Date) => `${new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Dar_es_Salaam", day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(d)} EAT`;
+  const firstName = String(data.name || "").trim().split(/\s+/)[0];
+  const greeting = firstName ? `Hi ${esc(firstName)}` : "Hi there";
+  const link = (href: string, label: string) =>
+    `<a href="${esc(href)}" style="color:${RED};font-weight:bold;text-decoration:none;">${label}</a>`;
+
+  const action = data.signOutDeviceUrl
+    ? `${proButton(data.signOutDeviceUrl, "Sign out that device", RED)}
+    <p style="margin:10px 0 0;color:#4b5563;font-size:14px;">Then ${link(data.resetPasswordUrl, "reset your password")} so it cannot sign in again.</p>`
+    : proButton(data.resetPasswordUrl, "Reset password now", RED);
 
   const body = `
-    <p style="margin:0;color:#4b5563;">Hi ${data.name}, we detected a new sign-in to your NoLSAF account from a device we have not seen before. Please review the details below.</p>
+    <p style="margin:0;color:#4b5563;">${greeting}, someone just signed in to your NoLSAF account from a device you have not used before. Please check the details below.</p>
     ${proDivider()}
     ${proDetailRows(
       "Sign-in details",
       [
         ["Date",       fmtDateTime(data.loginAt)],
-        ["Device",     data.device    || "Unknown"],
-        ["Country",    data.country   || "Unknown"],
-        ["IP address", data.ipAddress || "Unknown"],
+        ["Device",     esc(data.device    || "Unknown")],
+        ["Country",    esc(data.country   || "Unknown")],
+        ["IP address", esc(data.ipAddress || "Unknown")],
       ]
     )}
     ${proDivider()}
     ${proNoteCard(
       RED,
       "If this wasn't you",
-      `Your account may be at risk. Reset your password immediately using the button below and contact <a href="mailto:support@nolsaf.com" style="color:${RED};font-weight:bold;text-decoration:none;">support@nolsaf.com</a>.`,
+      `Your account may be at risk. Sign out that device now, reset your password, and contact <a href="mailto:support@nolsaf.com" style="color:${RED};font-weight:bold;text-decoration:none;">support@nolsaf.com</a>.`,
       RED_BG
     )}
     <div style="height:16px;font-size:0;line-height:0;">&nbsp;</div>
-    ${proButton(data.resetPasswordUrl, "Reset password now", RED)}
+    ${action}
     ${proDivider()}
-    <p style="margin:0;color:#4b5563;font-size:14px;">If this was you, no action is needed. We will not alert you again for this device.</p>
+    <p style="margin:0;color:#4b5563;font-size:14px;">If this was you, no action is needed. We will not alert you again for this device.${data.reviewDevicesUrl ? ` You can ${link(data.reviewDevicesUrl, "review your recognised devices")} at any time.` : ""}</p>
     <p style="margin:18px 0 0;color:#1a1a1a;">Kind regards,<br><strong>The NoLSAF Team</strong></p>
   `;
 

@@ -9,7 +9,8 @@ function auditCreateArgs(req: Request, action: string, resource?: string, before
   let actorRole = (req as any).user?.role as string | undefined;
   if (actorRole && (req as any).user?.imp) actorRole = `${actorRole}:IMP`;
   const ip = req.headers["x-forwarded-for"]?.toString()?.split(",")[0]?.trim() || req.socket.remoteAddress || "";
-  const ua = req.headers["user-agent"] || "";
+  // The column is VARCHAR(255); a longer header would make the insert fail.
+  const ua = String(req.headers["user-agent"] || "").slice(0, 255);
   const createdAt = new Date();
   return {
     data: {

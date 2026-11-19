@@ -9,6 +9,9 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
 import { buildOperatorProfileSeed, mergeOperatorProfileSeed } from "../lib/operatorProfileSeed.js";
 import { computeAgentLevel, resolveTierLadder } from "../lib/agentLevel.js";
+import { buildOperatorStatement, OperatorStatementNotFound } from "../lib/operatorStatement.js";
+import { buildOperatorActivity, OperatorNotFound } from "../lib/operatorActivity.js";
+import { reconcileTourPackages } from "../lib/operatorPackages.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { Prisma } from "@prisma/client";
 import { sendMail } from "../lib/mailer.js";
@@ -1866,6 +1869,8 @@ router.patch(
         data: { operatorProfile: currentProfile as any },
         select: { id: true, operatorProfile: true },
       });
+      // Approval puts the approved packages on sale; a rejection takes them off.
+      await reconcileTourPackages(agent.id, updated.operatorProfile);
 
       await prisma.adminAudit.create({
         data: {
@@ -2461,6 +2466,61 @@ router.post(
     }
   }
 );
+
+// ============================================================
+// GET /api/admin/agents/:id/statement?from=&to=
+// The operator counterpart of the owner statement: identity, agreement,
+// tier, packages, bookings, payouts, recoveries, cases, behaviour and every
+// admin action, for an administrator to print and file. Read-only.
+// `from`/`to` are optional; omitting both gives the whole history.
+// ============================================================
+router.get("/:id/statement", validate(getAgentParamsSchema, "params"), async (req: any, res) => {
+  try {
+    const agentId = Number(req.validatedParams.id);
+    const { from, to } = req.query as Record<string, string | undefined>;
+    const fromDate = from ? new Date(String(from)) : null;
+    const toDate = to ? new Date(String(to)) : null;
+    if (fromDate && Number.isNaN(fromDate.getTime())) return res.status(400).json({ error: "Invalid from date" });
+    if (toDate && Number.isNaN(toDate.getTime())) return res.status(400).json({ error: "Invalid to date" });
+    // An inclusive end date: "to 30 Sept" must include everything on the 30th.
+    if (toDate) toDate.setHours(23, 59, 59, 999);
+
+    const statement = await buildOperatorStatement(
+      agentId,
+      { from: fromDate, to: toDate },
+      { id: req.user?.id ?? null, email: req.user?.email ?? null },
+    );
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.json(statement);
+  } catch (err: any) {
+    if (err instanceof OperatorStatementNotFound) return res.status(404).json({ error: "Operator not found" });
+    console.error("[GET /admin/agents/:id/statement] Error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ============================================================
+// GET /api/admin/agents/:id/behaviour?days= | from=&to=
+// The operator's detailed account trail: sign-ins, devices, security and
+// payout destination changes, trips, payout claims and admin actions, with
+// graded signals. Read-only. Defaults to the last 12 months.
+// ============================================================
+router.get("/:id/behaviour", validate(getAgentParamsSchema, "params"), async (req: any, res) => {
+  try {
+    const activity = await buildOperatorActivity(Number(req.validatedParams.id), {
+      from: typeof req.query.from === "string" ? req.query.from : undefined,
+      to: typeof req.query.to === "string" ? req.query.to : undefined,
+      days: typeof req.query.days === "string" ? req.query.days : undefined,
+    });
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.json(activity);
+  } catch (err: any) {
+    if (err instanceof OperatorNotFound) return res.status(404).json({ error: "Operator not found" });
+    if (err instanceof RangeError) return res.status(400).json({ error: err.message });
+    console.error("[GET /admin/agents/:id/behaviour] Error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 // ============================================================
 // POST /api/admin/agents/:id/impersonate

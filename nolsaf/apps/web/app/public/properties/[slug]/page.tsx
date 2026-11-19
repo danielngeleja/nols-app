@@ -217,6 +217,118 @@ function PropertyGalleryImage({
   );
 }
 
+/**
+ * Stay photos above the fold.
+ * Desktop: one large photo with a 2x2 block beside it, all on one grid with
+ * even gaps, and a clear "Show all photos" button. Fewer photos fill the
+ * same frame without empty placeholders.
+ * Phones: a full-width swipe carousel with a "1 / N" counter.
+ */
+function PropertyPhotoGrid({
+  photos,
+  total,
+  title,
+  onOpenPhoto,
+  onShowAll,
+}: {
+  photos: string[];
+  total: number;
+  title: string;
+  onOpenPhoto: (index: number) => void;
+  onShowAll: () => void;
+}) {
+  const [slide, setSlide] = useState(0);
+  const tiles = photos.slice(1, 5);
+  // Where each side tile sits for 1 to 4 side photos, so the frame is always full.
+  const tileSpan = (i: number): string => {
+    if (tiles.length === 1) return "col-span-2 row-span-2";
+    if (tiles.length === 2) return "col-span-2";
+    if (tiles.length === 3) return i === 0 ? "col-span-2" : "";
+    return "";
+  };
+  const tileButton =
+    "group relative block h-full w-full cursor-pointer overflow-hidden border-0 bg-slate-100 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e]";
+  const dim = "pointer-events-none absolute inset-0 bg-black/0 transition-colors duration-200 group-hover:bg-black/10";
+  const showAllButton = total > 1 ? (
+    <button
+      type="button"
+      onClick={onShowAll}
+      className="absolute bottom-3 right-3 z-[1] inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-solid border-slate-900/10 bg-white px-3 text-[13px] font-semibold text-slate-900 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#02665e]"
+    >
+      <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+      Show all {total} photos
+    </button>
+  ) : null;
+
+  return (
+    <>
+      {/* Desktop and tablet */}
+      <div className="relative hidden md:block">
+        <div className={`grid h-[clamp(320px,38vw,480px)] gap-2 overflow-hidden rounded-lg ${tiles.length ? "grid-cols-4 grid-rows-2" : "grid-cols-1"}`}>
+          <button
+            type="button"
+            onClick={() => onOpenPhoto(0)}
+            aria-label={`Open photo 1 of ${total}`}
+            className={`${tileButton} ${tiles.length ? "col-span-2 row-span-2" : ""}`}
+          >
+            <PropertyGalleryImage src={photos[0]} alt={`${title} photo 1`} sizes="(min-width: 768px) 50vw, 100vw" priority />
+            <span className={dim} aria-hidden />
+          </button>
+          {tiles.map((src, i) => (
+            <button
+              key={src}
+              type="button"
+              onClick={() => onOpenPhoto(i + 1)}
+              aria-label={`Open photo ${i + 2} of ${total}`}
+              className={`${tileButton} ${tileSpan(i)}`}
+            >
+              <PropertyGalleryImage src={src} alt={`${title} photo ${i + 2}`} sizes="(min-width: 768px) 25vw, 50vw" priority={i < 2} />
+              <span className={dim} aria-hidden />
+            </button>
+          ))}
+        </div>
+        {showAllButton}
+      </div>
+
+      {/* Phones: swipe through, tap to open */}
+      <div className="relative md:hidden">
+        <div
+          className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain rounded-lg [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const next = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+            if (next !== slide) setSlide(next);
+          }}
+          aria-label="Photos"
+        >
+          {photos.map((src, i) => (
+            <button
+              key={src}
+              type="button"
+              onClick={() => onOpenPhoto(i)}
+              aria-label={`Open photo ${i + 1} of ${total}`}
+              className="relative aspect-[4/3] w-full flex-none cursor-pointer snap-center overflow-hidden border-0 bg-slate-100 p-0"
+            >
+              <PropertyGalleryImage src={src} alt={`${title} photo ${i + 1}`} sizes="100vw" priority={i === 0} />
+            </button>
+          ))}
+        </div>
+        {total > 1 ? (
+          <button
+            type="button"
+            onClick={onShowAll}
+            aria-label={`Show all ${total} photos`}
+            className="absolute bottom-3 right-3 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-black/60 px-2.5 text-[12px] font-semibold tabular-nums text-white backdrop-blur-sm"
+          >
+            <LayoutGrid className="h-3 w-3" aria-hidden />
+            {Math.min(slide + 1, photos.length)} / {total}
+          </button>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 type PublicPropertyDetail = {
   id: number;
   slug: string;
@@ -3283,78 +3395,13 @@ export default function PublicPropertyDetailPage() {
         {/* Gallery */}
         <div className="mt-6">
           {hero ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-solid border-slate-200">
-              <button
-                type="button"
-                className={[
-                  "relative md:col-span-2 aspect-[16/10] bg-slate-100 cursor-pointer rounded-2xl overflow-hidden",
-                  "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
-                  "motion-safe:hover:scale-[1.01] motion-safe:active:scale-[0.98]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                ].join(" ")}
-                onClick={() => openLightbox(0)}
-                aria-label="Open photo gallery"
-              >
-                <PropertyGalleryImage src={gallery[0]} alt={`${property.title} photo 1`} sizes="(min-width: 768px) 66vw, 100vw" priority />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
-              </button>
-              <div className="grid grid-cols-2 md:grid-cols-1 gap-3 bg-white p-3">
-                {gallery[1] ? (
-                  <button
-                    type="button"
-                    className={[
-                      "relative aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden cursor-pointer",
-                      "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
-                      "motion-safe:hover:scale-[1.01] motion-safe:active:scale-[0.98]",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                    ].join(" ")}
-                    onClick={() => openLightbox(1)}
-                    aria-label="Open photo 2"
-                  >
-                    <PropertyGalleryImage src={gallery[1]} alt={`${property.title} photo 2`} sizes="(min-width: 768px) 22vw, 50vw" priority />
-                  </button>
-                ) : (
-                  <div className="relative aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_25%,rgba(2,102,94,0.10),transparent_55%),linear-gradient(135deg,#f8fafc,#e2e8f0)]" />
-                    <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <ImageIcon className="w-6 h-6 text-slate-400" aria-hidden />
-                    </div>
-                  </div>
-                )}
-                {gallery[2] ? (
-                  <button
-                    type="button"
-                    className={[
-                      "relative aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden cursor-pointer",
-                      "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
-                      "motion-safe:hover:scale-[1.01] motion-safe:active:scale-[0.98]",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                    ].join(" ")}
-                    onClick={() => (hasMorePhotos ? openAllPhotos() : openLightbox(2))}
-                    aria-label={hasMorePhotos ? "View all photos" : "Open photo 3"}
-                  >
-                    <PropertyGalleryImage src={gallery[2]} alt={`${property.title} photo 3`} sizes="(min-width: 768px) 22vw, 50vw" priority />
-                    {hasMorePhotos ? (
-                      <div className="absolute right-3 bottom-3">
-                        <div className="inline-flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-sm px-2.5 py-1.5 shadow-sm ring-1 ring-white/10">
-                          <Eye className="w-3.5 h-3.5 flex-shrink-0 text-white/90" aria-hidden />
-                          <span className="text-[11px] font-semibold text-white leading-none tabular-nums">{images.length}</span>
-                        </div>
-                      </div>
-                    ) : null}
-                  </button>
-                ) : (
-                  <div className="relative aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden">
-                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_25%,rgba(2,102,94,0.10),transparent_55%),linear-gradient(135deg,#f8fafc,#e2e8f0)]" />
-                    <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <ImageIcon className="w-6 h-6 text-slate-400" aria-hidden />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <PropertyPhotoGrid
+              photos={gallery}
+              total={images.length}
+              title={property.title}
+              onOpenPhoto={openLightbox}
+              onShowAll={openAllPhotos}
+            />
           ) : (
             <div>
               {/* Photo layout preview (until Cloudinary / approved photos are available) */}

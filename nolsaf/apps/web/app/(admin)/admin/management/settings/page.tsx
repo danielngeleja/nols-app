@@ -293,7 +293,9 @@ export default function SystemSettingsPage(){
         setTierErrors(map);
         setToast('Fix the highlighted tier values');
       } else {
-        setToast(e?.response?.data?.message || 'Failed to save operator tiers');
+        setToast(e?.response?.status === 403
+          ? 'Lowering a tier requirement lets more operators take tour advances, so it needs your finance code. Verify, then save again.'
+          : (e?.response?.data?.message || 'Failed to save operator tiers'));
       }
     } finally {
       setSavingTiers(false);
@@ -495,6 +497,13 @@ export default function SystemSettingsPage(){
     ? {
         salesAutoPayoutEnabled: Boolean((s as any).salesAutoPayoutEnabled),
         salesAutoPayoutMaxTzs: (s as any).salesAutoPayoutMaxTzs ?? 500000,
+      }
+    : {}),
+  // Tour operator payout controls: only sent once migration 20261118100000 is applied.
+  ...((s as any).tourPayoutControlsAvailable
+    ? {
+        tourAdvanceExposureLimits: (s as any).tourAdvanceExposureLimits,
+        tourPayoutSeparateApprover: (s as any).tourPayoutSeparateApprover !== false,
       }
     : {}),
   supportEmail: supportEmail || s.supportEmail,
@@ -771,7 +780,7 @@ export default function SystemSettingsPage(){
                 value: `${(s?.currency || "TZS").toUpperCase()} · tax ${s?.taxPercent ?? 0}%`,
                 hint: `Driver ${s?.driverCommissionPercent ?? 0}% · tour agent ${s?.agentCommissionPercent ?? 0}% · invoices ${s?.invoicePrefix || "INV"}`,
                 share: null,
-                links: [["payments", "Payments"], ["payoutsafeguards", "Safeguards"], ["invoicing", "Invoicing"], ["bonuses", "Bonuses"]],
+                links: [["payments", "Payments"], ["payoutsafeguards", "Safeguards"], ["tourpayouts", "Tour payouts"], ["invoicing", "Invoicing"], ["bonuses", "Bonuses"]],
               },
               {
                 key: "partners",
@@ -1255,6 +1264,106 @@ export default function SystemSettingsPage(){
             );
           })()}
 
+          {/* Tour operator payouts: admin controls on top of the disbursement policy */}
+          {(() => {
+            const available = Boolean((s as any)?.tourPayoutControlsAvailable);
+            const limits = ((s as any)?.tourAdvanceExposureLimits || {}) as Record<string, number | null>;
+            const defaults = ((s as any)?.tourAdvanceExposureDefaults || {}) as Record<string, number | null>;
+            const separate = (s as any)?.tourPayoutSeparateApprover !== false;
+            const tiers = [
+              { key: "SILVER", label: "Silver" },
+              { key: "GOLD", label: "Gold" },
+              { key: "PLATINUM", label: "Platinum" },
+            ];
+            const setLimit = (tier: string, raw: string) =>
+              setS((prev: any) => ({
+                ...(prev || {}),
+                tourAdvanceExposureLimits: { ...((prev as any)?.tourAdvanceExposureLimits || {}), [tier]: raw === "" ? null : Number(raw) },
+              }));
+            return (
+              <section id="tourpayouts" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <ShieldCheck className="h-4 w-4" />,
+                  "Tour operator payouts",
+                  "Every tour advance and balance is verified and approved by an admin. These controls limit how much advance money one operator can hold and who may approve.",
+                  available ? (
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 text-[11px] font-semibold text-neutral-600"><KeyRound className="h-3 w-3" /> Loosening asks for your finance code</span>
+                  ) : (
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-700"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Needs the database update, defaults apply</span>
+                  ),
+                )}
+                <div className="flex min-w-0 items-center gap-4 px-4 py-3.5 sm:px-5">
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">A different admin must approve</p>
+                    <p className="m-0 mt-0.5 text-xs text-neutral-400">
+                      {separate
+                        ? "On. The admin who verified an advance or balance cannot also approve it."
+                        : "Off. One admin can verify and approve the same tour payout."}
+                    </p>
+                  </div>
+                  <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
+                    <input
+                      id="tourPayoutSeparateApprover"
+                      type="checkbox"
+                      aria-label="A different admin must approve tour payouts"
+                      checked={separate}
+                      disabled={!available}
+                      className="peer sr-only"
+                      onChange={(e) => setS((prev: any) => ({ ...(prev || {}), tourPayoutSeparateApprover: e.target.checked }))}
+                    />
+                    <div className={toggleTrackClass} />
+                  </label>
+                </div>
+                <div className="border-0 border-t border-solid border-neutral-200 px-4 pt-3.5 sm:px-5">
+                  <p className="m-0 text-sm font-semibold text-neutral-900">Open advance limit per operator</p>
+                  <p className="m-0 mt-0.5 text-xs text-neutral-400">The most advance money one operator can hold across trips that have not finished. Advances in other currencies are converted at the current rate.</p>
+                  {(() => {
+                    const from = (s as any)?.tourAdvanceLimitFrom ? new Date((s as any).tourAdvanceLimitFrom) : null;
+                    const label = from ? from.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Dar_es_Salaam" }) : null;
+                    return (
+                      <p className="m-0 mt-1 text-xs text-neutral-500">
+                        {from && from.getTime() > Date.now()
+                          ? `Published in the disbursement policy (section 3.7) and applied from ${label}, after the 30-day notice to operators. `
+                          : "Published in the disbursement policy (section 3.7). "}
+                        Lowering a limit is a payout rule change: give operators 30 days&apos; notice first.
+                      </p>
+                    );
+                  })()}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3">
+                  {tiers.map((t, i) => {
+                    const id = `tourAdvanceExposureLimits.${t.key}`;
+                    const v = limits[t.key];
+                    const d = defaults[t.key];
+                    return (
+                      <div key={t.key} className={`min-w-0 px-4 py-3.5 sm:px-5 ${i ? "border-0 border-t border-solid border-neutral-200 sm:border-l sm:border-t-0" : ""}`}>
+                        <label htmlFor={id} className={sectionLabel}>{t.label}</label>
+                        <div className="relative mt-1.5">
+                          <input
+                            id={id}
+                            type="number" min={100000} step={100000} inputMode="numeric"
+                            disabled={!available}
+                            placeholder="No limit"
+                            value={v === null || v === undefined ? "" : String(v)}
+                            onChange={(e) => setLimit(t.key, e.target.value)}
+                            className={`${fieldClass} pr-14 disabled:cursor-not-allowed disabled:bg-neutral-50 ${validationErrors[id] ? "border-rose-300" : ""}`}
+                          />
+                          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-neutral-400">TZS</span>
+                        </div>
+                        <p className={`m-0 mt-1 text-[11px] ${validationErrors[id] ? "font-medium text-rose-600" : "text-neutral-400"}`}>
+                          {validationErrors[id] || (d != null ? `Default TZS ${Number(d).toLocaleString("en-US")}. Blank means no limit.` : "Blank means no limit.")}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="m-0 border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-4 py-2.5 text-xs text-neutral-500 sm:px-5">
+                  Bronze operators cannot take advances. The policy itself (30% and 70% shares, 7 days and 96 hours, 48 hour dispute window) is fixed by the published policy and the operator agreement, and changes only with notice to operators.
+                </p>
+              </section>
+            );
+          })()}
+
           {/* Operator tiers: the promotion ladder as one ruled table, saved on its own */}
           {(() => {
             const tiers = [
@@ -1275,7 +1384,7 @@ export default function SystemSettingsPage(){
                 {sectionHead(
                   <Crown className="h-4 w-4" />,
                   "Operator tiers",
-                  "A tour operator moves up when all four are met. Each tier must be at least the one below.",
+                  "A tour operator moves up when all four are met. Each tier must be at least the one below. Tiers decide who can take tour advances, so lowering a requirement asks for your finance code.",
                   <>
                     {tiersDirty && (
                       <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-700">

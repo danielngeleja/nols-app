@@ -9,7 +9,7 @@ import { audit } from "../lib/audit.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { sendMail, SECURITY_EMAIL_FROM } from "../lib/mailer.js";
 import { sendSms } from "../lib/sms.js";
-import { setFinanceGrant } from "../lib/financeGrantStore.js";
+import { getFinanceGrantUntil, setFinanceGrant } from "../lib/financeGrantStore.js";
 import { requireNrmsFinanceRole } from "../middleware/financeGrant.js";
 import { getFinanceOtpEmail } from "../lib/financeOtpEmail.js";
 
@@ -235,6 +235,18 @@ async function deliverAdminOtp(adminUser: { email: string | null; phone: string 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("ADMIN") as RequestHandler);
 const requireFinanceOperator = requireNrmsFinanceRole("OPERATOR") as RequestHandler;
+
+// ============================================================
+// GET /admin/2fa/otp/grant: is finance unlocked for this session, and until when
+// ============================================================
+router.get("/otp/grant", requireFinanceOperator, async (req: any, res) => {
+  try {
+    const until = await getFinanceGrantUntil(req);
+    sendSuccess(res, { until });
+  } catch {
+    sendSuccess(res, { until: null });
+  }
+});
 
 // ============================================================
 // POST /admin/2fa/otp/send

@@ -523,7 +523,7 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
       clearAuthToken();
       window.location.assign(r.data.redirectTo);
     } catch (err: any) {
-      showToast("error", err?.response?.data?.error || "Failed to impersonate owner");
+      showToast("error", err?.response?.data?.error || "Could not start the support session.");
     } finally {
       setActionLoading(false);
     }
@@ -2012,22 +2012,22 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
                   onClick={handleImpersonateClick}
                   disabled={actionLoading}
                 >
-                  <Copy className="h-4 w-4" />
-                  Impersonate
+                  <Shield className="h-4 w-4" />
+                  Read-only support session
                 </button>
               ) : (
                 <div className="space-y-3 p-3 sm:p-4 bg-brand/5 rounded-lg border border-brand/20">
                   <div>
                     <label className="block text-xs sm:text-sm font-medium text-gray-900 mb-2">
-                      Reason for Impersonation <span className="text-red-600">*</span>
+                      Why do you need to see their workspace? <span className="text-red-600">*</span>
                     </label>
                     <textarea
                       className="w-full min-h-[80px] px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand transition-all resize-none text-xs sm:text-sm box-border"
-                      placeholder="Please provide a reason for impersonating this owner (e.g., customer support, troubleshooting, etc.)"
+                      placeholder="For example: owner reports their payout page is empty."
                       value={impersonateReason}
                       onChange={(e) => setImpersonateReason(e.target.value)}
                     />
-                    <p className="text-xs text-gray-500 mt-1">This action will be logged in the audit trail.</p>
+                    <p className="text-xs text-gray-500 mt-1">Read-only, ends after 10 minutes, and is logged with your reason.</p>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -2043,9 +2043,9 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
                         </>
                       ) : (
                         <>
-                          <Copy className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
-                          <span className="hidden sm:inline">Confirm Impersonation</span>
-                          <span className="sm:hidden">Confirm</span>
+                          <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+                          <span className="hidden sm:inline">Start support session</span>
+                          <span className="sm:hidden">Start</span>
                         </>
                       )}
                     </button>
