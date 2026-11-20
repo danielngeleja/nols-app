@@ -69,7 +69,18 @@ describe("resolveOwnerAccount", () => {
     const tx = fakeTx([]);
     const result = await resolveOwnerAccount(tx, PARTNER_ID, { name: "Asha Mussa", phone: "0712 345 678", email: "Asha@Example.com" });
     expect(result).toEqual({ ownerUserId: 500, outcome: "CREATED", phone: "+255712345678" });
-    expect(tx.created[0]).toMatchObject({ role: "OWNER", phone: "+255712345678", email: "asha@example.com", passwordHash: null, registrationSource: "SALES_ASSISTED" });
+    expect(tx.created[0]).toMatchObject({ role: "OWNER", phone: "+255712345678", email: null, passwordHash: null, registrationSource: "SALES_ASSISTED" });
+  });
+
+  it("never puts the partner-typed email on a new owner account (password reset goes to the account email)", async () => {
+    // A partner could type an address they control next to the owner's real
+    // phone, then reset the owner's password through it. The account keeps no
+    // email until the owner adds their own, so reset can only reach the phone.
+    const tx = fakeTx([]);
+    await resolveOwnerAccount(tx, PARTNER_ID, { name: "Asha Mussa", phone: "0712 345 678", email: "someone-else@example.com" });
+    expect(tx.created).toHaveLength(1);
+    expect(tx.created[0].email).toBeNull();
+    expect(JSON.stringify(tx.created[0])).not.toContain("someone-else@example.com");
   });
 
   it("attaches to an existing owner found under an older phone spelling", async () => {

@@ -233,6 +233,8 @@
     "20261112090000_add_sales_agency_tour_referrals": "34cc6cdfcad246f71e0f6cf6acfb399002f80aa0b77e6a8ce9ebd99f3d4881e5",
     "20261115100000_add_property_price_history": "5e059eb039bc283f6712879a171bab9149a809f314ab50a005298c6b160fce4e",
     "20261117100000_index_user_reset_password_token": "6b9315dfa59dc2fafe8610be5930dd3766f0ecca261f4d1c23cb6e1d0e479d69",
-    "20261118100000_add_tour_payout_controls": "28fd5f9118bd72e6c396561768f8a9539f9dde5ac6446452d282909138d3b4d5"
+    "20261118100000_add_tour_payout_controls": "28fd5f9118bd72e6c396561768f8a9539f9dde5ac6446452d282909138d3b4d5",
+    "20261120100000_add_sales_assisted_listing": "07de3661caec6d10e406956fd3eee8e7226ab9fe75c05d32d41f24521921de1f",
+    "20261120110000_make_assisted_listing_visit_optional": "f7db1b389695b7e4ab82ca143a91e3d738de3a7c1795d3bb4589c3883fae9c86"
   }
 }

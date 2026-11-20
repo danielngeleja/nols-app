@@ -164,7 +164,11 @@ export async function resolveOwnerAccount(tx: any, salesPartnerId: number, input
       name,
       fullName: name,
       phone,
-      email,
+      // Never the email the partner typed: password reset sends its link to the
+      // account email, so a partner-chosen address would let the partner reset
+      // the owner's password and take the account. The email stays on the lead
+      // as a contact note; the owner adds their own after signing in by SMS.
+      email: null,
       // No password. The owner signs in with an SMS code, or sets one from the setup link.
       passwordHash: null,
       registrationSource: "SALES_ASSISTED",
