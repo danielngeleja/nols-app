@@ -3017,7 +3017,9 @@ export default function BookingConfirmPage() {
               const outDate = bookingData?.checkOut ? new Date(bookingData.checkOut) : null;
               const short = (d: Date | null) => (d && !isNaN(d.getTime()) ? d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : "Add date");
               const guests = (bookingData?.adults || 1) + (bookingData?.children || 0);
-              const entireUnit = Array.isArray(property?.roomsSpec) && property.roomsSpec.some((unit: any) => unit?.bookingMode === "ENTIRE_UNIT");
+              // Separate units (unitStyle "UNIT") are whole places with a count: say "unit", not "entire".
+              const unitsListing = Array.isArray(property?.roomsSpec) && property.roomsSpec.some((unit: any) => unit?.bookingMode === "ENTIRE_UNIT" && unit?.unitStyle === "UNIT");
+              const entireUnit = !unitsListing && Array.isArray(property?.roomsSpec) && property.roomsSpec.some((unit: any) => unit?.bookingMode === "ENTIRE_UNIT");
               const roomName = (() => {
                 if (!property?.roomsSpec || (!selectedRoomCode && selectedRoomIndex === null)) return "";
                 const spec = property.roomsSpec as any;
@@ -3090,7 +3092,7 @@ export default function BookingConfirmPage() {
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <Hotel className="h-3.5 w-3.5 text-slate-400" aria-hidden />
-                      {entireUnit ? `Entire ${roomName || String(property?.type || "place").toLowerCase()}` : `${roomsQty} room${roomsQty !== 1 ? "s" : ""}`}
+                      {entireUnit ? `Entire ${roomName || String(property?.type || "place").toLowerCase()}` : unitsListing ? `${roomsQty} unit${roomsQty !== 1 ? "s" : ""}` : `${roomsQty} room${roomsQty !== 1 ? "s" : ""}`}
                       {!entireUnit && roomName && <span className="font-medium text-slate-700">· {roomName}</span>}
                     </span>
                   </p>

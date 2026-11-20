@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  ChevronsLeft, ChevronsRight, FileText, HeartPulse, KeyRound, LogOut, Menu, ShieldCheck, Trophy, Users, Wallet, X,
+  Building2, ChevronsLeft, ChevronsRight, FileText, HeartPulse, KeyRound, LogOut, Menu, ShieldCheck, Trophy, Users, Wallet, X,
 } from "lucide-react";
 import FinanceGrantPanel from "@/components/FinanceGrantPanel";
 
@@ -16,7 +16,7 @@ import FinanceGrantPanel from "@/components/FinanceGrantPanel";
  * Every API call underneath is still admin-only and audited.
  */
 
-type Badge = "invites" | "review" | "risk" | "holds";
+type Badge = "invites" | "review" | "risk" | "holds" | "queries";
 type NavItem = { href: string; label: string; icon: typeof Users; exact?: boolean; badge?: Badge };
 const NAV: Array<{ title: string; items: NavItem[] }> = [
   {
@@ -24,6 +24,7 @@ const NAV: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { href: "/admin/sales/partners", label: "Sales partners", icon: Users, badge: "invites" },
       { href: "/admin/sales", label: "Conversion review", icon: ShieldCheck, exact: true },
+      { href: "/admin/sales/assisted-listings", label: "Assisted listings", icon: Building2, badge: "queries" },
     ],
   },
   {
@@ -42,11 +43,11 @@ function isActive(pathname: string, item: NavItem) {
   return item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
-type Pulse = { invites: number | null; review: number | null; holds: number | null; atRisk: number | null; strong: number | null };
+type Pulse = { invites: number | null; review: number | null; holds: number | null; atRisk: number | null; strong: number | null; queries: number | null };
 
 /** The month card and the menu badges. Each figure fails quietly on its own. */
 function usePulse(pathname: string): Pulse {
-  const [pulse, setPulse] = useState<Pulse>({ invites: null, review: null, holds: null, atRisk: null, strong: null });
+  const [pulse, setPulse] = useState<Pulse>({ invites: null, review: null, holds: null, atRisk: null, strong: null, queries: null });
   const load = useCallback(async () => {
     const get = async (url: string) => {
       try {
@@ -56,11 +57,12 @@ function usePulse(pathname: string): Pulse {
         return null;
       }
     };
-    const [invites, review, holds, health] = await Promise.all([
+    const [invites, review, holds, health, assisted] = await Promise.all([
       get("/api/admin/sales/team-invites?status=ACCEPTED"),
       get("/api/admin/sales/payouts?status=UNDER_REVIEW&pageSize=1"),
       get("/api/admin/sales/payout-holds"),
       get("/api/admin/sales/team-health"),
+      get("/api/admin/sales/assisted-listings?status=PAUSED_OBJECTION&pageSize=1"),
     ]);
     setPulse({
       invites: invites ? (invites.invites ?? []).length : null,
@@ -68,6 +70,7 @@ function usePulse(pathname: string): Pulse {
       holds: holds ? (holds.partners ?? []).length : null,
       atRisk: health ? Number(health.counts?.AT_RISK ?? 0) : null,
       strong: health ? Number(health.counts?.STRONG ?? 0) : null,
+      queries: assisted ? Number(assisted.total ?? 0) : null,
     });
   }, []);
   useEffect(() => { void load(); }, [load, pathname]);
@@ -97,7 +100,7 @@ export default function SalesWorkspaceLayout({ children }: { children: ReactNode
   const unlock = () => window.dispatchEvent(new CustomEvent("finance-grant-required"));
 
   const badgeFor = (item: NavItem) => {
-    const n = item.badge === "invites" ? pulse.invites : item.badge === "review" ? pulse.review : item.badge === "risk" ? pulse.atRisk : null;
+    const n = item.badge === "invites" ? pulse.invites : item.badge === "review" ? pulse.review : item.badge === "risk" ? pulse.atRisk : item.badge === "queries" ? pulse.queries : null;
     if (!n) return null;
     const tone = item.badge === "risk" ? "bg-rose-400 text-rose-950" : "bg-amber-400 text-emerald-950";
     return <span className={`grid min-w-[1.35rem] place-items-center rounded px-1.5 text-[11px] font-bold leading-5 ${tone}`}>{n}</span>;

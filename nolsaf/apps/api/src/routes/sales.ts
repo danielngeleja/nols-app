@@ -12,6 +12,9 @@ import adminSalesFinanceRouter from "./admin.sales.finance.js";
 import salesContractsRouter from "./sales.contracts.js";
 import salesLeadsRouter from "./sales.leads.js";
 import salesVisitsRouter from "./sales.visits.js";
+import salesAssistedListingRouter from "./sales.assistedListing.js";
+import adminSalesAssistedListingsRouter from "./admin.sales.assistedListings.js";
+import { publicListingNoticeRouter } from "./public.listingNotice.js";
 import salesCardRouter from "./sales.card.js";
 import salesLeaderboardRouter from "./sales.leaderboard.js";
 import salesTeamRouter from "./sales.team.js";
@@ -39,6 +42,10 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/sales", salesContractsRouter as RequestHandler);
   app.use("/api/sales", salesLeadsRouter as RequestHandler);
   app.use("/api/sales", salesVisitsRouter as RequestHandler);
+  // Assisted listing: the partner lists a property for the owner (docs/SALES_ASSISTED_LISTING.md).
+  app.use("/api/sales", salesAssistedListingRouter as RequestHandler);
+  // The owner's "Not expecting this?" link from the SMS. Public, token only.
+  app.use("/api/public/listing-notice", publicListingNoticeRouter as RequestHandler);
   app.use("/api/sales", salesCardRouter as RequestHandler);
   // Leaderboard first: it answers /team/status for every partner, before the
   // team router, which admits team leads only.
@@ -66,4 +73,5 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/admin/sales", adminSalesFinanceRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesTeamsRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesAgencyRouter as RequestHandler);
+  app.use("/api/admin/sales", adminSalesAssistedListingsRouter as RequestHandler);
 }

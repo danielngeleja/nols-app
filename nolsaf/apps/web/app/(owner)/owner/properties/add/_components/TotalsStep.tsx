@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { BedDouble, Check, Cigarette, CigaretteOff, Dog, Lock, Minus, PawPrint, Plus, Tag, Users } from "lucide-react";
+import { Fragment, useMemo } from "react";
+import { ArrowRight, BedDouble, Check, Cigarette, CigaretteOff, Dog, Lock, Minus, PawPrint, Plus, Tag, Users } from "lucide-react";
 import { AddPropertySection } from "./AddPropertySection";
 import { StepFooter } from "./StepFooter";
 
@@ -14,6 +14,9 @@ const PROMPTS: { label: string; hint: string; test: RegExp }[] = [
   { label: "What is nearby", hint: "Shops, food, sights, transport", test: /\b(restaurant|shop|shops|mall|market|airport|bus|park|museum|attraction|attractions|hospital|nearby)\b/i },
   { label: "Who it suits", hint: "Families, business, couples", test: /\b(famil(y|ies)|business|couples?|travell?ers?|groups?|students?|guests?|kids|children)\b/i },
 ];
+
+/** Check-in and check-out choices, every half hour. */
+const RULE_TIMES: string[] = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
 
 export function TotalsStep({
   isVisible,
@@ -255,33 +258,33 @@ export function TotalsStep({
                   <div key={row.key} className="ap-rule-cell">
                     <span className="ap-stat-label">{row.label}</span>
                     <div className="ap-range">
-                      <label className="sr-only" htmlFor={`rule-${row.from}`}>{row.label} from</label>
-                      <input
-                        id={`rule-${row.from}`}
-                        type="time"
-                        title={`${row.label} time (from)`}
-                        value={(houseRules as any)[row.from]}
-                        onChange={(e) => setRule({ [row.from]: e.target.value })}
-                      />
-                      <span className="ap-range-sep">to</span>
-                      <label className="sr-only" htmlFor={`rule-${row.to}`}>{row.label} to</label>
-                      <input
-                        id={`rule-${row.to}`}
-                        type="time"
-                        title={`${row.label} time (to)`}
-                        value={(houseRules as any)[row.to]}
-                        onChange={(e) => setRule({ [row.to]: e.target.value })}
-                      />
+                      {([["from", row.from], ["to", row.to]] as const).map(([edge, field], i) => {
+                        const current = String((houseRules as any)[field] || "");
+                        const options = current && !RULE_TIMES.includes(current) ? [...RULE_TIMES, current].sort() : RULE_TIMES;
+                        return <Fragment key={edge}>
+                          {i === 1 ? <span className="ap-range-sep" aria-hidden><ArrowRight className="h-3.5 w-3.5" /></span> : null}
+                          <label className="sr-only" htmlFor={`rule-${field}`}>{row.label} {edge}</label>
+                          <select
+                            id={`rule-${field}`}
+                            value={current}
+                            onChange={(e) => setRule({ [field]: e.target.value })}
+                            className={current ? "is-set" : ""}
+                          >
+                            <option value="">{edge === "from" ? "From" : "Until"}</option>
+                            {options.map((t) => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                        </Fragment>;
+                      })}
                     </div>
                   </div>
                 ))}
 
                 <div className="ap-rule-cell">
                   <span className="ap-stat-label">Pets</span>
-                  <div className="ap-toggles is-compact" role="radiogroup" aria-label="Pets">
+                  <div className="ap-toggles is-compact is-seg" role="radiogroup" aria-label="Pets">
                     {[
                       { label: "Allowed", v: true, Icon: PawPrint },
-                      { label: "Not allowed", v: false, Icon: Dog },
+                      { label: "No pets", v: false, Icon: Dog },
                     ].map((o) => (
                       <button
                         key={o.label}
@@ -300,10 +303,10 @@ export function TotalsStep({
 
                 <div className="ap-rule-cell">
                   <span className="ap-stat-label">Smoking</span>
-                  <div className="ap-toggles is-compact" role="radiogroup" aria-label="Smoking">
+                  <div className="ap-toggles is-compact is-seg" role="radiogroup" aria-label="Smoking">
                     {[
                       { label: "Allowed", notAllowed: false, Icon: Cigarette },
-                      { label: "Not allowed", notAllowed: true, Icon: CigaretteOff },
+                      { label: "No smoking", notAllowed: true, Icon: CigaretteOff },
                     ].map((o) => (
                       <button
                         key={o.label}
@@ -339,7 +342,7 @@ export function TotalsStep({
                   ) : null}
                   <div className="min-w-0 flex-1">
                     <label htmlFor="rule-other" className="ap-stat-label mb-2">
-                      Other rules <span className="font-normal normal-case tracking-normal text-white/35">optional</span>
+                      Other rules <span className="ap-label-opt">optional</span>
                     </label>
                     <textarea
                       id="rule-other"
@@ -372,30 +375,23 @@ export function TotalsStep({
                   onClick={() => setAcceptGroupBooking(!acceptGroupBooking)}
                   className={`ap-switch${acceptGroupBooking ? " is-on" : ""}`}
                 >
-                  <span className="ap-switch-text">{acceptGroupBooking ? "Accepting" : "Off"}</span>
+                  <span className="ap-switch-text">{acceptGroupBooking ? "On" : "Off"}</span>
                   <span className="ap-switch-track" aria-hidden>
                     <span className="ap-switch-knob" />
                   </span>
                 </button>
               </header>
-              {acceptGroupBooking ? (
-                <div className="ap-card-body">
+              <div className="ap-card-body">
+                {acceptGroupBooking ? (
                   <ul className="ap-points">
-                    <li>
-                      <span className="ap-svc-ico is-on"><BedDouble className="h-3.5 w-3.5" /></span>
-                      Several rooms in one booking
-                    </li>
-                    <li>
-                      <span className="ap-svc-ico is-on"><Users className="h-3.5 w-3.5" /></span>
-                      Weddings, teams, tours and families
-                    </li>
-                    <li>
-                      <span className="ap-svc-ico is-on"><Tag className="h-3.5 w-3.5" /></span>
-                      Tagged as Group stay in search
-                    </li>
+                    <li><BedDouble className="h-4 w-4" aria-hidden />Several rooms in one booking</li>
+                    <li><Users className="h-4 w-4" aria-hidden />Weddings, teams, tours and families</li>
+                    <li><Tag className="h-4 w-4" aria-hidden />Shown as a Group stay in search</li>
                   </ul>
-                </div>
-              ) : null}
+                ) : (
+                  <p className="ap-points-off">Turn on to welcome weddings, teams, tours and families who need several rooms at once.</p>
+                )}
+              </div>
             </section>
           </div>
         </div>

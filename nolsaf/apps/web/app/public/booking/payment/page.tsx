@@ -1438,51 +1438,62 @@ export default function PaymentPage() {
                                   </span>
                                 </label>
 
-                                {/* Wrong network for the chosen wallet */}
-                                {(mismatch || unknownPrefix) && (
-                                  <div
-                                    role="alert"
-                                    className={`rounded-xl px-3.5 py-3 ring-1 ring-inset ${
-                                      portedNumberConfirmed ? "bg-slate-50 ring-slate-200" : "bg-amber-50 ring-amber-200"
-                                    }`}
-                                  >
-                                    <p className="m-0 flex items-start gap-2 text-[13px] font-semibold text-amber-900">
+                                {/* Wrong network for the chosen wallet: say it plainly, offer the two real choices */}
+                                {(mismatch || unknownPrefix) && (portedNumberConfirmed ? (
+                                  <div role="status" className="flex items-center gap-2.5 rounded-lg bg-slate-50 px-3 py-2.5 ring-1 ring-inset ring-slate-200">
+                                    <CheckCircle2 className="h-4 w-4 flex-none text-[#02665e]" aria-hidden />
+                                    <p className="m-0 min-w-0 flex-1 text-[12.5px] text-slate-700">
+                                      Paying with <strong className="font-semibold text-slate-900">{walletName}</strong>. You said this number moved networks.
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setPortedNumberConfirmed(false)}
+                                      className="flex-none border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline [font-family:inherit]"
+                                    >
+                                      Undo
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div role="alert" className="rounded-lg bg-amber-50 px-3.5 py-3 ring-1 ring-inset ring-amber-200">
+                                    <div className="flex items-start gap-2.5">
                                       <AlertCircle className="mt-px h-4 w-4 flex-none text-amber-600" aria-hidden />
-                                      {mismatch && suggestion
-                                        ? `This looks like a ${suggestion.network} number, not ${walletName}.`
-                                        : `0${localDigits.slice(0, 2)} isn't a ${walletName} prefix.`}
-                                    </p>
-                                    <p className="m-0 mt-1 pl-6 text-[12.5px] text-amber-800">
-                                      A payment request to the wrong network will fail. Pick the wallet that matches this number, or check the number.
-                                    </p>
-                                    <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-6">
-                                      {suggestion && suggestionWallet && suggestionEnabled && (
+                                      <div className="min-w-0">
+                                        <p className="m-0 text-[13px] font-semibold text-amber-950">
+                                          {mismatch && suggestion
+                                            ? `This is a ${suggestion.network} number`
+                                            : `0${localDigits.slice(0, 2)} is not a ${walletName} number`}
+                                        </p>
+                                        <p className="m-0 mt-0.5 text-[12.5px] text-amber-900/80">
+                                          {mismatch && suggestion
+                                            ? `You chose ${walletName}. A request to the wrong network will not reach your phone.`
+                                            : `Check the number, or pick the wallet it belongs to.`}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                      {suggestion && suggestionWallet ? (
                                         <button
                                           type="button"
+                                          disabled={!suggestionEnabled}
                                           onClick={() => {
                                             setSelectedMethod(suggestionWallet);
                                             setPortedNumberConfirmed(false);
                                           }}
-                                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-3 text-[13px] font-semibold text-white hover:bg-[#014e47]"
+                                          className="flex h-10 items-center justify-center rounded-lg border-0 bg-[#02665e] px-3 text-[13px] font-semibold text-white hover:bg-[#014e47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 [font-family:inherit]"
                                         >
-                                          Switch to {suggestion.label}
+                                          {suggestionEnabled ? `Pay with ${suggestion.label}` : `${suggestion.label} is unavailable now`}
                                         </button>
-                                      )}
-                                      {suggestion && !suggestionEnabled && (
-                                        <span className="text-[12px] text-amber-800">{suggestion.label} is unavailable right now.</span>
-                                      )}
-                                      <label className="inline-flex cursor-pointer items-center gap-2 text-[12.5px] text-slate-700">
-                                        <input
-                                          type="checkbox"
-                                          checked={portedNumberConfirmed}
-                                          onChange={(e) => setPortedNumberConfirmed(e.target.checked)}
-                                          className="h-4 w-4 accent-[#02665e]"
-                                        />
-                                        My number moved to {walletName}, continue
-                                      </label>
+                                      ) : null}
+                                      <button
+                                        type="button"
+                                        onClick={() => setPortedNumberConfirmed(true)}
+                                        className={`flex h-10 items-center justify-center rounded-lg border border-solid border-amber-300 bg-white px-3 text-[13px] font-semibold text-amber-950 hover:bg-amber-100/60 [font-family:inherit] ${suggestion && suggestionWallet ? "" : "sm:col-span-2"}`}
+                                      >
+                                        Keep {walletName}, my number moved
+                                      </button>
                                     </div>
                                   </div>
-                                )}
+                                ))}
 
                                 <button
                                   type="button"

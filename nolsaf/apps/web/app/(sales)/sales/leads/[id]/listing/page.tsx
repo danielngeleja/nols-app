@@ -1,0 +1,117 @@
+"use client";
+
+/**
+ * Assisted listing: the partner fills in the owner's listing
+ * (docs/SALES_ASSISTED_LISTING.md). This is the owner's own listing wizard,
+ * pointed at the partner's scoped endpoints, so the steps, checks and review
+ * are exactly the ones owners use. Only open while the listing is the
+ * partner's to edit; otherwise it sends them back to the lead.
+ */
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
+import apiClient from "@/lib/apiClient";
+import SalesShell from "@/components/SalesShell";
+import PropertyListingWizard, { type ListingWizardAdapter } from "@/app/(owner)/owner/properties/add/_components/PropertyListingWizard";
+
+export default function SalesAssistedListingPage() {
+  const params = useParams<{ id: string }>();
+  const leadRef = String(params.id || "");
+  const [state, setState] = useState<"loading" | "ready" | "closed" | "error">("loading");
+  const [message, setMessage] = useState("");
+  const [title, setTitle] = useState("");
+
+  useEffect(() => {
+    if (!/^sl_[A-Za-z0-9_-]{22}$/.test(leadRef)) {
+      setState("error");
+      setMessage("This lead link is not valid.");
+      return;
+    }
+    let active = true;
+    apiClient.get(`/api/sales/leads/${leadRef}/assisted-listing`)
+      .then((response) => {
+        if (!active) return;
+        const listing = response.data?.listing;
+        const refusal = response.data?.gate?.refusal;
+        if (!listing) {
+          setState("closed");
+          setMessage("No listing has been started for this lead yet. Start it from the lead page.");
+        } else if (refusal) {
+          setState("closed");
+          setMessage(refusal);
+        } else if (!listing.editable) {
+          setState("closed");
+          setMessage("This listing is with NoLSAF now and can no longer be edited by you.");
+        } else {
+          setTitle(listing.propertyTitle || "");
+          setState("ready");
+        }
+      })
+      .catch((error) => {
+        if (!active) return;
+        setState("error");
+        setMessage(error?.response?.data?.error || "Could not open this listing.");
+      });
+    return () => { active = false; };
+  }, [leadRef]);
+
+  const adapter = useMemo<ListingWizardAdapter>(() => {
+    const base = `/api/sales/leads/${leadRef}/assisted-listing`;
+    let loadedId: number | null = null;
+    return {
+      mode: "assisted",
+      load: async () => {
+        const response = await apiClient.get(`${base}/property`);
+        loadedId = Number(response.data?.id) || null;
+        return response.data;
+      },
+      // The property already exists (created when the listing started), so
+      // saving is always an update to it.
+      save: async (_propertyId, body) => {
+        await apiClient.put(`${base}/property`, body);
+        return loadedId;
+      },
+      submit: async () => {
+        await apiClient.post(`${base}/submit`);
+      },
+      doneHref: () => `/sales/leads/${leadRef}#assisted-listing`,
+      doneLabel: "Back to the lead",
+      doneNote: "NoLSAF reviews the listing. The owner gets an SMS when it goes live.",
+      draftStorageKey: `assisted_property_draft_${leadRef}`,
+      allowResume: false,
+    };
+  }, [leadRef]);
+
+  return (
+    <SalesShell>
+      <div id="sales-assisted-listing" className="w-full min-w-0">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <Link
+            href={`/sales/leads/${leadRef}`}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 hover:no-underline"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to the lead
+          </Link>
+          <p className="m-0 text-xs text-slate-500">
+            Listing {title ? `"${title}" ` : ""}for the owner. The owner sets their own payout details.
+          </p>
+        </div>
+
+        {state === "loading" ? (
+          <div className="grid min-h-60 place-items-center text-slate-500">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        ) : state === "ready" ? (
+          <PropertyListingWizard adapter={adapter} />
+        ) : (
+          <p className="m-0 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            {message}
+          </p>
+        )}
+      </div>
+    </SalesShell>
+  );
+}

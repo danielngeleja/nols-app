@@ -16,6 +16,7 @@ import apiClient from "@/lib/apiClient";
 import PartnerIdCardAdmin, { type AdminIdCard, type CardReadiness, cardGapText } from "./PartnerIdCardAdmin";
 import PartnerTeamAdmin from "./PartnerTeamAdmin";
 import PartnerAgencyAdmin from "./PartnerAgencyAdmin";
+import PartnerAssistedListingAdmin from "./PartnerAssistedListingAdmin";
 import PartnerFileSection, { PartnerAccountFacts, usePartnerFile, type FileSection } from "./PartnerFile";
 
 export type RecordPartner = {
@@ -66,7 +67,7 @@ export type RecordAttention = {
 };
 type Access = { status: string; expiresAt: string | null } | null;
 
-type Tab = "overview" | "agreements" | FileSection | "team" | "card" | "agency";
+type Tab = "overview" | "agreements" | FileSection | "team" | "card" | "agency" | "assisted";
 
 const field = "h-10 w-full min-w-0 rounded-md border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-emerald-400";
 const STATUS_TONE: Record<string, string> = {
@@ -246,7 +247,7 @@ export default function PartnerRecord({
         { key: "withdrawals", label: "Withdrawals", icon: Send, count: partner?._count.payoutRequests, alert: Boolean(attention?.payoutsUnderReview) || paused },
       ],
     },
-    { label: "Distribution", items: [{ key: "agency", label: "Agency Desk", icon: Handshake }] },
+    { label: "Distribution", items: [{ key: "agency", label: "Agency Desk", icon: Handshake }, { key: "assisted", label: "List for owners", icon: Building2 }] },
     { label: "Record", items: [{ key: "history", label: "History", icon: History, count: file.data?.history.length }] },
   ];
 
@@ -517,6 +518,7 @@ export default function PartnerRecord({
 
               {tab === "team" ? <PartnerTeamAdmin partnerId={partner.id} partnerActive={partner.status === "ACTIVE"} /> : null}
               {tab === "agency" ? <PartnerAgencyAdmin partnerId={partner.id} agentCode={partner.agentCode} /> : null}
+              {tab === "assisted" ? <PartnerAssistedListingAdmin partnerId={partner.id} partnerActive={partner.status === "ACTIVE"} /> : null}
               {tab === "leads" || tab === "visits" || tab === "properties" || tab === "earnings" || tab === "withdrawals" || tab === "history" ? (
                 <PartnerFileSection
                   section={tab}

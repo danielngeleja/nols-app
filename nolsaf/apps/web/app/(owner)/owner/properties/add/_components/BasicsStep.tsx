@@ -462,7 +462,7 @@ const handleSectionRef = useCallback(
                           <IconComponent className="h-4 w-4" />
                         </span>
                         <span className="ap-type-name">{pt}</span>
-                        {selected ? <Check className="h-4 w-4 flex-shrink-0 text-[#02665e]" aria-hidden /> : null}
+                        {selected ? <Check className="h-4 w-4 flex-shrink-0 text-[#19b3a4]" aria-hidden /> : null}
                       </label>
                     );
                   })}
@@ -681,12 +681,12 @@ const handleSectionRef = useCallback(
                 <span className="ap-card-head-no">3</span>
                 <div className="ap-card-copy ap-card-head-copy">
                   <h3 className="ap-card-title">Where it is</h3>
-                  <p className="ap-card-sub">Choose each place from the list, or type it if missing. Set the exact pin below.</p>
+                  <p className="ap-card-sub">Pick each level in turn. Not listed? Choose the last option and type it.</p>
                 </div>
                 {regionId && district && ward && street ? (
-                  <span className="ap-card-tag">
+                  <span className="ap-card-tag" title={[street, ward, district].filter(Boolean).join(", ")}>
                     <Check className="h-3.5 w-3.5" aria-hidden />
-                    Set
+                    <span className="max-w-[14rem] truncate">{[ward, district].filter(Boolean).join(", ")}</span>
                   </span>
                 ) : (
                   <span className="ap-card-tag is-todo">Required</span>
@@ -694,9 +694,9 @@ const handleSectionRef = useCallback(
               </header>
 
               <div className="ap-card-body">
-                <div className="space-y-3">
-                {/* Region / District / Ward / Street */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="space-y-4">
+                {/* Region, District, Ward, Street: one path, each level opens the next */}
+                <div className="ap-loc-grid">
                   <div className="space-y-1.5">
                     <label className="ap-label">Region <span className="text-red-300">*</span></label>
                     <div className="relative">
@@ -704,15 +704,15 @@ const handleSectionRef = useCallback(
                         title="Region"
                         value={regionId}
                         onChange={(e) => { setRegionId(e.target.value); setDistrict(""); setWard(""); setStreet(""); setZip(""); setManualDistrict(false); setManualWard(false); setManualStreet(false); }}
-                        className="ap-select"
+                        className={`ap-select${regionId ? " is-set" : ""}`}
                         aria-required={true}
                       >
-                        <option value="">Select</option>
+                        <option value="">Select region</option>
                         {REGIONS.map((r: { id: string; name: string }) => (
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none text-white/40" />
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" aria-hidden />
                     </div>
                   </div>
 
@@ -729,16 +729,16 @@ const handleSectionRef = useCallback(
                         aria-required={true}
                         aria-describedby={touchedBasics.district && !district ? "districtError" : undefined}
                       >
-                        <option value="">{regionId ? "Select" : "Region first"}</option>
+                        <option value="">{regionId ? "Select district" : "Choose region first"}</option>
                         {districts.map((d: string) => (
                           <option key={d} value={d}>{d}</option>
                         ))}
                         <option value="__manual__">My district is not listed</option>
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none text-white/40" />
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" aria-hidden />
                     </div>
                     {districtNeedsInput ? <input type="text" value={district} onChange={(e) => { setDistrict(e.target.value); setWard(""); setStreet(""); setZip(""); setManualWard(false); setManualStreet(false); }} onBlur={() => setTouchedBasics((t) => ({ ...t, district: true }))} maxLength={120} className="ap-input" placeholder="Enter district name" aria-label="District name" aria-required={true} /> : null}
-                    {touchedBasics.district && !district ? <p id="districtError" className="text-[10px] text-red-300 mt-1">Required</p> : null}
+                    {touchedBasics.district && !district ? <p id="districtError" className="ap-field-error"><AlertCircle className="h-3.5 w-3.5" />Required</p> : null}
                   </div>
 
                   <div className="space-y-1.5">
@@ -754,16 +754,16 @@ const handleSectionRef = useCallback(
                         aria-required={true}
                         aria-describedby={touchedBasics.ward && !ward ? "wardError" : undefined}
                       >
-                        <option value="">{district ? "Select" : "District first"}</option>
+                        <option value="">{district ? "Select ward" : "Choose district first"}</option>
                         {wards.map((w: string) => (
                           <option key={w} value={w}>{w}</option>
                         ))}
                         <option value="__manual__">My ward is not listed</option>
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none text-white/40" />
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" aria-hidden />
                     </div>
                     {wardNeedsInput ? <input type="text" value={ward} onChange={(e) => { setWard(e.target.value); setStreet(""); setZip(""); setManualStreet(false); }} onBlur={() => setTouchedBasics((t) => ({ ...t, ward: true }))} maxLength={120} className="ap-input" placeholder="Enter ward name" aria-label="Ward name" aria-required={true} /> : null}
-                    {touchedBasics.ward && !ward ? <p id="wardError" className="text-[10px] text-red-300 mt-1">Required</p> : null}
+                    {touchedBasics.ward && !ward ? <p id="wardError" className="ap-field-error"><AlertCircle className="h-3.5 w-3.5" />Required</p> : null}
                   </div>
 
                   <div className="space-y-1.5">
@@ -778,23 +778,23 @@ const handleSectionRef = useCallback(
                         className={`ap-select${street ? " is-set" : ""}`}
                         aria-required={true}
                       >
-                        <option value="">{ward ? "Select" : "Ward first"}</option>
+                        <option value="">{ward ? "Select street" : "Choose ward first"}</option>
                         {streets.map((s: string) => (
                           <option key={s} value={s}>{s}</option>
                         ))}
                         <option value="__manual__">My street is not listed</option>
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none text-white/40" />
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" aria-hidden />
                     </div>
                     {streetNeedsInput ? <input type="text" value={street} onChange={(e) => setStreet(e.target.value)} onBlur={() => setTouchedBasics((t) => ({ ...t, street: true }))} maxLength={200} className="ap-input" placeholder="Enter street or village name" aria-label="Street or village name" aria-required={true} /> : null}
-                    {touchedBasics.street && !street ? <p id="streetErrorAdmin" className="text-[10px] text-red-300 mt-1">Required</p> : null}
+                    {touchedBasics.street && !street ? <p id="streetErrorAdmin" className="ap-field-error"><AlertCircle className="h-3.5 w-3.5" />Required</p> : null}
                   </div>
                 </div>
 
-                {/* City + Zip */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* City and postcode sit under the first two levels, same widths */}
+                <div className="ap-loc-grid">
                   <div className="space-y-1.5">
-                    <label className="ap-label">City <span className="text-white/40 normal-case tracking-normal text-[10px]">optional</span></label>
+                    <label htmlFor="city" className="ap-label">City <span className="ap-label-opt">optional</span></label>
                     <input
                       id="city"
                       type="text"
@@ -806,7 +806,7 @@ const handleSectionRef = useCallback(
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="ap-label">Zip {selectedWardPostcode ? <span className="text-red-300">*</span> : <span className="text-white/40 normal-case tracking-normal text-[10px]">optional</span>}</label>
+                    <label htmlFor="zip" className="ap-label">Postcode {selectedWardPostcode ? <span className="text-red-300">*</span> : <span className="ap-label-opt">optional</span>}</label>
                     <input
                       id="zip"
                       type="text"
@@ -814,12 +814,12 @@ const handleSectionRef = useCallback(
                       onChange={(e) => setZip(e.target.value)}
                       onBlur={() => setTouchedBasics((t) => ({ ...t, zip: true }))}
                       readOnly={!!selectedWardPostcode}
-                      className="ap-input"
-                      placeholder={selectedWardPostcode ? "Auto-filled" : "Enter postcode"}
+                      className={`ap-input${selectedWardPostcode && zip ? " is-set" : ""}`}
+                      placeholder={selectedWardPostcode ? "Filled from the ward" : "Enter postcode"}
                       aria-required={!!selectedWardPostcode}
                     />
-                    {touchedBasics.zip && selectedWardPostcode && (!zip || zip.trim().length === 0) ? <p id="zipError" className="text-[10px] text-red-300 mt-1">Required</p> : null}
-                    {selectedWardPostcode && zip ? <p className="text-[10px] text-[#02665e] mt-1">Auto-filled from ward</p> : null}
+                    {touchedBasics.zip && selectedWardPostcode && (!zip || zip.trim().length === 0) ? <p id="zipError" className="ap-field-error"><AlertCircle className="h-3.5 w-3.5" />Required</p> : null}
+                    {selectedWardPostcode && zip ? <p className="ap-field-hint"><Check className="h-3.5 w-3.5" aria-hidden />Filled from the ward</p> : null}
                   </div>
                 </div>
                 </div>
@@ -1011,7 +1011,7 @@ const handleSectionRef = useCallback(
                         <option value="INSIDE">Inside the park</option>
                         <option value="NEARBY">Nearby the park</option>
                       </select>
-                      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none text-white/40" />
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" aria-hidden />
                     </div>
                   </div>
                   </div>
@@ -1034,10 +1034,11 @@ const handleSectionRef = useCallback(
                     }}
                     footer={
                       locationDetected ? null : (
-                        <details className="group">
-                          <summary className="flex cursor-pointer select-none list-none items-center gap-1 text-[12px] font-semibold text-white/70 hover:text-white">
-                            <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
-                            Type the coordinates instead
+                        <details className="ap-coords group">
+                          <summary className="ap-coords-toggle">
+                            <Pencil className="h-3.5 w-3.5" aria-hidden />
+                            <span>Enter coordinates by hand</span>
+                            <ChevronDown className="ml-auto h-4 w-4 transition-transform group-open:rotate-180" aria-hidden />
                           </summary>
                           <div className="ap-field-grid mt-2.5">
                             <div>
@@ -1045,6 +1046,7 @@ const handleSectionRef = useCallback(
                               <input
                                 id="latitude"
                                 type="number"
+                                inputMode="decimal"
                                 step="any"
                                 value={latitude as any}
                                 onChange={(e) => {
@@ -1062,6 +1064,7 @@ const handleSectionRef = useCallback(
                               <input
                                 id="longitude"
                                 type="number"
+                                inputMode="decimal"
                                 step="any"
                                 value={longitude as any}
                                 onChange={(e) => {

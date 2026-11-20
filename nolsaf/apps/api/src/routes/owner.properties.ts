@@ -298,6 +298,27 @@ router.use(
   requireRole("OWNER") as unknown as import("express").RequestHandler
 );
 
+/**
+ * Who the listing handlers act for. Normally the signed-in owner. A sales
+ * partner's assisted listing (routes/sales.assistedListing.ts) runs the same
+ * GET, PUT and submit handlers with `req.listingScope` set to the owner it
+ * lists for, so the listing rules live in one place. The audit actor is always
+ * the signed-in user, so a partner's edits are recorded as the partner's.
+ */
+export type ListingScope = {
+  ownerId: number;
+  /** Runs after a successful submit (PENDING), e.g. to move the assisted listing on. */
+  onSubmitted?: (propertyId: number) => Promise<void>;
+};
+
+function listingScopeOf(req: AuthedRequest): ListingScope | undefined {
+  return (req as any).listingScope as ListingScope | undefined;
+}
+
+function listingOwnerId(req: AuthedRequest): number {
+  return listingScopeOf(req)?.ownerId ?? req.user!.id;
+}
+
 function isSchemaMismatchError(err: any) {
   return err instanceof Prisma.PrismaClientKnownRequestError && (err.code === "P2021" || err.code === "P2022");
 }
@@ -650,14 +671,16 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 // ---------- GET BY ID ----------
-router.get("/:id", (async (req: AuthedRequest, res) => {
+export const getListingProperty = (async (req: AuthedRequest, res) => {
   try {
-    const ownerId = req.user!.id;
+    const ownerId = listingOwnerId(req);
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
 
     const property = await findOwnerPropertyById(ownerId, id);
     if (!property) return res.status(404).json({ error: "Property not found" });
+    // A partner listing for an owner never sees the owner's account contact details.
+    if (listingScopeOf(req)) delete (property as any).owner;
 
     const sanitized = sanitizePropertyJsonFields(property as any, `GET /:id property ${id}`);
     if (sanitized.hasRepairForDb && Object.keys(sanitized.updateData).length > 0) {
@@ -728,7 +751,8 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
     console.error("Error in GET /api/owner/properties/:id:", err);
     return res.status(500).json({ error: "Internal Server Error", message: err?.message || "Failed to fetch property" });
   }
-}) as RequestHandler);
+}) as RequestHandler;
+router.get("/:id", getListingProperty);
 
 // ---------- CREATE ----------
 router.post("/", (async (req: AuthedRequest, res) => {
@@ -1031,9 +1055,9 @@ router.patch("/:id/room-price", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 // ---------- UPDATE ----------
-router.put("/:id", (async (req: AuthedRequest, res) => {
+export const updateListingProperty = (async (req: AuthedRequest, res) => {
   try {
-    const ownerId = req.user!.id;
+    const ownerId = listingOwnerId(req);
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
 
@@ -1178,7 +1202,7 @@ router.put("/:id", (async (req: AuthedRequest, res) => {
     ]).catch(() => {}); // Don't fail the request if cache invalidation fails
 
     await auditLog({
-      actorId: ownerId,
+      actorId: req.user!.id,
       actorRole: req.user!.role,
       action: "PROPERTY_UPDATE",
       entity: "PROPERTY",
@@ -1200,12 +1224,13 @@ router.put("/:id", (async (req: AuthedRequest, res) => {
     });
     res.status(400).json({ error: e?.errors ?? e?.message ?? "Update failed" });
   }
-}) as RequestHandler);
+}) as RequestHandler;
+router.put("/:id", updateListingProperty);
 
 // ---------- SUBMIT ----------
-router.post("/:id/submit", (async (req: AuthedRequest, res) => {
+export const submitListingProperty = (async (req: AuthedRequest, res) => {
   try {
-    const ownerId = req.user!.id;
+    const ownerId = listingOwnerId(req);
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
 
@@ -1311,7 +1336,7 @@ router.post("/:id/submit", (async (req: AuthedRequest, res) => {
     }
 
     await auditLog({
-      actorId: ownerId,
+      actorId: req.user!.id,
       actorRole: req.user!.role,
       action: "PROPERTY_SUBMIT",
       entity: "PROPERTY",
@@ -1321,6 +1346,9 @@ router.post("/:id/submit", (async (req: AuthedRequest, res) => {
       ip: req.ip,
       ua: req.headers["user-agent"] as string,
     });
+
+    const onSubmitted = listingScopeOf(req)?.onSubmitted;
+    if (onSubmitted) await onSubmitted(id);
 
     res.json({ ok: true, id: updated.id, status: updated.status });
   } catch (error: any) {
@@ -1335,7 +1363,8 @@ router.post("/:id/submit", (async (req: AuthedRequest, res) => {
       message: error?.message || "Failed to submit property"
     });
   }
-}) as RequestHandler);
+}) as RequestHandler;
+router.post("/:id/submit", submitListingProperty);
 
 // ---------- DELETE ----------
 router.delete("/:id", (async (req: AuthedRequest, res) => {

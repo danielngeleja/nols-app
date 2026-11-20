@@ -152,6 +152,15 @@ async function isFolderAllowedForUser(req: any, folder: string): Promise<boolean
     });
     return Boolean(membership);
   }
+  // Assisted listing: a sales partner with the right (granted, not paused) uploads
+  // the property's photos while listing it for the owner.
+  if (folderMatches(folder, "properties") && req.user?.id) {
+    const partner = await (prisma as any).salesPartnerProfile.findUnique({
+      where: { userId: req.user.id },
+      select: { status: true, assistedListingEnabledAt: true, assistedListingPausedAt: true },
+    }).catch(() => null);
+    if (partner?.status === "ACTIVE" && partner.assistedListingEnabledAt && !partner.assistedListingPausedAt) return true;
+  }
   // Stock evidence: whoever receives goods or records a write-off photographs it.
   if (folderMatches(folder, "nrms-stock") && req.user?.id) {
     const membership = await (prisma as any).nrmsStaffMembership.findFirst({

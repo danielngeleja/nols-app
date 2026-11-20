@@ -31,6 +31,7 @@ import SalesLeadForm, { toSalesLeadPayload, type SalesLeadFormValue } from "@/co
 import SalesDateTimeField from "@/components/sales/SalesDateTimeField";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
 import VisitCheckIn from "@/components/sales/VisitCheckIn";
+import AssistedListingCard from "@/components/sales/AssistedListingCard";
 
 type ActivityRecord = {
   id: number;
@@ -494,6 +495,7 @@ export default function SalesLeadDetailPage() {
               onRecorded={() => void load()}
             />
 
+            <AssistedListingCard leadRef={id} onChanged={() => void load()} />
             <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_360px]">
               <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
                 <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">

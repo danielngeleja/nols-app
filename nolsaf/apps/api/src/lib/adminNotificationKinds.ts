@@ -91,6 +91,8 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   // Sales partners
   sales_partner_contract_signed: act("attention", "sales"),
   sales_partner_conversion_requested: act("attention", "sales"),
+  sales_assisted_listing_submitted: act("attention", "sales"),
+  sales_assisted_listing_objection: act("critical", "sales"),
   sales_partner_payout_requested: act("attention", "sales"),
   sales_partner_payout_review: act("attention", "sales"),
   sales_partner_payout_hold: act("critical", "sales"),

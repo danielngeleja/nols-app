@@ -29,6 +29,8 @@ type Property = {
   currency?: string;
   hotelStar?: string | null;
   services?: any; // Can contain commissionPercent and discountRules
+  /** Listed by a sales partner for the owner (assisted listing). */
+  assistedListing?: { status: string; partnerCode: string | null } | null;
   location?: {
     regionName?: string | null;
     district?: string | null;
@@ -662,6 +664,14 @@ export default function PropertyPreviewsPage() {
                   {/* Title (above image) */}
                   <div className="px-4 pt-4">
                     <div className="text-base font-bold text-slate-900 truncate">{property.title}</div>
+                    {property.assistedListing ? (
+                      <span
+                        className="mt-1 inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-800"
+                        title="A sales partner listed this for the owner. Check photos and details a little more closely."
+                      >
+                        Assisted listing{property.assistedListing.partnerCode ? `, ${property.assistedListing.partnerCode}` : ""}
+                      </span>
+                    ) : null}
                   </div>
 
                   {/* Image */}
