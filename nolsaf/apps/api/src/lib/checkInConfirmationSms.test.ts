@@ -29,7 +29,7 @@ describe("checkInConfirmationText", () => {
       supportPhone: "+255736766726",
     });
     expect(text).toBe(
-      "NoLSAF: Check-in confirmed at NoLSAF Hotel on 07 Oct, 14:00 EAT. If you have not checked in, call NoLSAF now on +255736766726."
+      "Check-in confirmed at NoLSAF Hotel on 07 Oct, 14:00 EAT. If you have not checked in, call NoLSAF now on +255736766726."
     );
   });
 

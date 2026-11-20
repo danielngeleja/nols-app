@@ -270,7 +270,7 @@ function confirmUrl(token: string) {
 
 async function smsClient(phone: string, agentCode: string, token: string) {
   const body =
-    `NoLSAF: sales partner ${agentCode} prepared a group stay request for you. ` +
+    `NoLSAF sales partner ${agentCode} prepared a group stay request for you. ` +
     `Confirm it here: ${confirmUrl(token)} ` +
     `You only ever pay NoLSAF directly. Link valid ${GROUP_REQUEST_LINK_HOURS} hours.`;
   return sendSms(phone, body, { bypassEligibilityCheck: true }).catch(() => null);

@@ -309,14 +309,14 @@ export default function VisitCheckIn({ leadRef: leadId, closed, onRecorded }: { 
           <div className="space-y-3">
             <div className="rounded-lg border border-solid border-slate-200 p-3">
               <p className="m-0 text-[12px] font-semibold text-slate-500">3. Who did you meet?</p>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="mt-2 grid grid-cols-[repeat(auto-fit,minmax(88px,1fr))] gap-2">
                 {MET_WITH.map(([value, label]) => (
                   <button
                     key={value}
                     type="button"
                     onClick={() => setMetWith(value)}
                     aria-pressed={metWith === value}
-                    className={`h-9 rounded-lg border border-solid px-2 text-[13px] font-semibold [font-family:inherit] ${metWith === value ? "border-[#02665e] bg-[#02665e]/10 text-[#02665e]" : "border-slate-300 bg-white text-slate-700"}`}
+                    className={`h-9 min-w-0 truncate rounded-lg border border-solid px-2 text-[13px] font-semibold [font-family:inherit] ${metWith === value ? "border-[#02665e] bg-[#02665e]/10 text-[#02665e]" : "border-slate-300 bg-white text-slate-700"}`}
                   >
                     {label}
                   </button>

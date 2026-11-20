@@ -150,7 +150,7 @@ export async function notifyTourOperatorCase(input: TourCaseOperatorNotification
     const deliveries: Promise<unknown>[] = [];
     if (agent.user.email) deliveries.push(sendMail(agent.user.email, `${copy.title}: ${input.bookingCode}`, emailHtml));
     if (agent.user.phone && ["SUBMITTED", "APPROVED", "REJECTED", "REFUNDED", "RECOVERY_REQUIRED"].includes(input.kind)) {
-      deliveries.push(sendSms(agent.user.phone, `NoLSAF: ${copy.title}. Booking ${input.bookingCode}. ${copy.body} Open your operator portal.`));
+      deliveries.push(sendSms(agent.user.phone, `${copy.title}. Booking ${input.bookingCode}. ${copy.body} Open your operator portal.`));
     }
     if (deliveries.length) void Promise.allSettled(deliveries);
     return true;

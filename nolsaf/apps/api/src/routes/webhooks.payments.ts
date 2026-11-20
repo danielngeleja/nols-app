@@ -142,7 +142,7 @@ async function notifyOwnerInvoicePaid(params: {
       }
       if (owner?.phone) {
         const smsText =
-          `NoLSAF: New booking!\n` +
+          `New booking!\n` +
           `Booking ${bookingReference}` + (propertyTitle ? ` at ${String(propertyTitle).slice(0, 40)}` : "") + `\n` +
           (checkIn ? `Check-in: ${new Date(checkIn).toISOString().slice(0, 10)}\n` : "") +
           (amount ? `Your payout: ${Number(amount).toLocaleString("en-US")} TZS\n` : "") +
@@ -339,7 +339,7 @@ async function notifyTravellerInvoicePaid(updatedInvoice: any, sourceInvoice: an
       const ci = new Date(booking.checkIn).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
       const co = new Date(booking.checkOut).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
       const smsText =
-        `NoLSAF: Payment Confirmed!\n` +
+        `Payment confirmed!\n` +
         `Ref: ${refCode}\n` +
         `Property: ${String(booking.property?.title || "").slice(0, 40)}\n` +
         `Check-in: ${ci}\n` +
@@ -812,7 +812,7 @@ export async function markGroupBookingDepositPaid(
 
     if (user?.phone) {
       const smsText =
-        `NoLSAF: Group Stay Confirmed!\n` +
+        `Group stay confirmed!\n` +
         `Ref: #${groupBooking.id}\n` +
         (destination ? `Destination: ${destination.slice(0, 30)}\n` : "") +
         `Deposit paid: ${groupBooking.currency} ${want.toLocaleString("en-US")}\n` +
@@ -971,7 +971,7 @@ export async function markTourBookingPaid(
       if (agent?.user?.phone) {
         const payout = tour.operatorPayoutAmount != null ? Number(tour.operatorPayoutAmount) : null;
         const smsText =
-          `NoLSAF: New tour booking!\n` +
+          `New tour booking!\n` +
           `Tour: ${String(tour.title || "").slice(0, 40)}\n` +
           `Travelers: ${tour.travelerCount}\n` +
           (payout ? `Your payout: ${tour.currency} ${payout.toLocaleString("en-US")}\n` : "") +
@@ -987,7 +987,7 @@ export async function markTourBookingPaid(
   if (tour.guestPhone) {
     try {
       const smsText =
-        `NoLSAF: Tour Booking Confirmed!\n` +
+        `Tour booking confirmed!\n` +
         `Ref: ${tour.bookingCode}\n` +
         `Tour: ${String(tour.title || "").slice(0, 40)}\n` +
         (tour.destination ? `Destination: ${String(tour.destination).slice(0, 30)}\n` : "") +

@@ -183,8 +183,17 @@ describe("the owner's public link", () => {
 
   it("refuses an unknown token", async () => {
     h.db.salesAssistedListing.findUnique.mockResolvedValue(null);
-    const res = await request(app).post(`/api/public/listing-notice/${"a".repeat(32)}/object`).send({});
+    const res = await request(app).post(`/api/public/listing-notice/${"a".repeat(32)}/object`).send({ note: "This is not my property" });
     expect(res.status).toBe(404);
+  });
+
+  it("refuses to pause without a reason", async () => {
+    for (const body of [{}, { note: null }, { note: "" }, { note: "  " }]) {
+      const res = await request(app).post(`/api/public/listing-notice/${"c".repeat(32)}/object`).send(body);
+      expect(res.status).toBe(400);
+    }
+    expect(h.db.salesAssistedListing.updateMany).not.toHaveBeenCalled();
+    expect(h.db.property.update).not.toHaveBeenCalled();
   });
 
   it("can only pause the listing", async () => {

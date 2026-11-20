@@ -102,15 +102,7 @@ function inferBasePrice(rooms: any[]){
     const numPrice = Number(price);
     return numPrice > 0 ? numPrice : 0;
   }).filter(n => n > 0); 
-  const result = prices.length ? Math.min(...prices) : null;
-  // Debug logging
-  console.log('[inferBasePrice]', { 
-    roomsCount: rooms.length, 
-    rooms: rooms.map(r => ({ pricePerNight: r.pricePerNight, price: r.price })), 
-    prices, 
-    result 
-  });
-  return result;
+  return prices.length ? Math.min(...prices) : null;
 }
 function toServerType(t: string){
   const map: Record<string, string> = { "Guest House":"GUEST_HOUSE", "Townhouse":"TOWNHOUSE", "Other":"OTHER" };

@@ -818,7 +818,7 @@ router.post("/invoices/:id/remind-payout", async (req, res) => {
           `),
         );
       } else {
-        delivery = await sendSms(destination, `NoLSAF: Your owner payout claim is waiting. ${instruction}${profileUrl ? ` ${profileUrl}` : ""}`);
+        delivery = await sendSms(destination, `Your owner payout claim is waiting. ${instruction}${profileUrl ? ` ${profileUrl}` : ""}`);
       }
     } catch (error) {
       console.error("Owner payout reminder delivery failed", { invoiceId: id, channel, error });
