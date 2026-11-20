@@ -239,6 +239,10 @@ export type ListingWizardAdapter = {
   doneHref: () => string;
   doneLabel: string;
   doneNote: string;
+  /** The success dialog's words, so it speaks to whoever submitted. */
+  successTitle?: string;
+  successTimeline?: string;
+  successSteps?: string[];
   /** Browser draft key; per listing in assisted mode. */
   draftStorageKey: string;
   /** Owner mode offers "resume a draft"; assisted mode always edits one listing. */
@@ -2350,7 +2354,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
               <div className="flex items-center justify-center w-12 h-12 mx-auto mb-3 rounded-md bg-white/20">
                 <CheckCircle2 className="w-6 h-6 text-white" />
               </div>
-              <h2 className="text-base font-bold text-white">Submitted for Review!</h2>
+              <h2 className="text-base font-bold text-white">{adapter.successTitle ?? "Submitted for Review!"}</h2>
             </div>
 
             {/* Review Timeline */}
@@ -2360,7 +2364,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                 <div className="flex-1">
                   <p className="text-xs font-bold text-white mb-0.5">Review Timeline</p>
                   <p className="text-[11px] text-white/80 leading-relaxed">
-                    Your property will be reviewed within <strong className="text-white">3-5 business days</strong>. You&apos;ll receive a notification once complete.
+                    {adapter.successTimeline ?? <>Your property will be reviewed within <strong className="text-white">3-5 business days</strong>. You&apos;ll receive a notification once complete.</>}
                   </p>
                 </div>
               </div>
@@ -2373,9 +2377,11 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                 <div className="flex-1">
                   <p className="text-xs font-bold text-white mb-1">What Happens Next?</p>
                   <ul className="text-[11px] text-white/80 space-y-0.5 list-disc list-inside">
-                    <li>Our team will verify all property details</li>
-                    <li>We&apos;ll check photos and room specs</li>
-                    <li>You&apos;ll be notified via email when approved</li>
+                    {(adapter.successSteps ?? [
+                      "Our team will verify all property details",
+                      "We'll check photos and room specs",
+                      "You'll be notified via email when approved",
+                    ]).map((step) => <li key={step}>{step}</li>)}
                   </ul>
                 </div>
               </div>

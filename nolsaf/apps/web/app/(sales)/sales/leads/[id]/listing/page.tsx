@@ -77,7 +77,15 @@ export default function SalesAssistedListingPage() {
       },
       doneHref: () => `/sales/leads/${leadRef}#assisted-listing`,
       doneLabel: "Back to the lead",
-      doneNote: "NoLSAF reviews the listing. The owner gets an SMS when it goes live.",
+      doneNote: "Follow its progress on the lead page.",
+      successTitle: "Sent to NoLSAF for review",
+      successTimeline: "NoLSAF reviews the owner's listing within 3 to 5 business days. It is locked while it is being reviewed.",
+      successSteps: [
+        "NoLSAF checks the details, photos and rooms",
+        "The owner gets an SMS when it goes live",
+        "You get a notification when it is approved or returned",
+        "Your attribution is checked in the conversion review",
+      ],
       draftStorageKey: `assisted_property_draft_${leadRef}`,
       allowResume: false,
     };

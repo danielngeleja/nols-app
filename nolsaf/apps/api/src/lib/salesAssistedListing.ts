@@ -24,7 +24,7 @@ import { loadPartnerIdentity, phoneKey } from "./salesSelfDealing.js";
 import { sendSms } from "./sms.js";
 import { webOrigin } from "./salesPartnerCard.js";
 import { issuePasswordSetupToken, ONBOARDING_SETUP_HOURS, passwordSetupLink } from "./passwordSetupLink.js";
-import { notifyAdmins, notifyUser } from "./notifications.js";
+import { notifyAdmins, notifyOwner, notifyUser } from "./notifications.js";
 import { invalidateCache, cacheKeys } from "./performance.js";
 
 const db = prisma as any;
@@ -241,6 +241,8 @@ export function liveSmsText(input: { propertyName: string; signInLink: string; s
  */
 export async function sendAssistedNotice(input: {
   assistedId: number;
+  ownerUserId: number;
+  ownerAccountOutcome: "CREATED" | "ATTACHED_EXISTING";
   ownerPhone: string;
   ownerName: string;
   partnerName: string;
@@ -248,14 +250,26 @@ export async function sendAssistedNotice(input: {
   noticeRaw: string;
 }): Promise<boolean> {
   try {
+    const noticeLink = noticeUrl(input.noticeRaw);
     const text = noticeSmsText({
       ownerName: input.ownerName,
       partnerName: input.partnerName,
       propertyName: input.propertyName,
-      noticeLink: noticeUrl(input.noticeRaw),
+      noticeLink,
     });
-    const result = await sendSms(input.ownerPhone, text, { bypassEligibilityCheck: true, sensitiveContent: true });
-    if (!result?.success) return false;
+    // A brand-new account has no SMS preference yet and this notice is its only
+    // safeguard, so it always goes. An existing owner's opt-out is respected,
+    // and they get the same notice in their NoLSAF inbox instead.
+    const existing = input.ownerAccountOutcome === "ATTACHED_EXISTING";
+    const result = await sendSms(input.ownerPhone, text, { bypassEligibilityCheck: !existing, sensitiveContent: true });
+    if (existing) {
+      await notifyOwner(input.ownerUserId, "assisted_listing_started", { partnerName: input.partnerName, propertyTitle: input.propertyName, noticeLink }).catch(() => undefined);
+    }
+    if (!result?.success || result.provider === "suppressed") {
+      // The inbox notice still counts as telling an existing owner.
+      if (existing) await db.salesAssistedListing.update({ where: { id: input.assistedId }, data: { noticeSentAt: new Date() } });
+      return existing;
+    }
     await db.salesAssistedListing.update({ where: { id: input.assistedId }, data: { noticeSentAt: new Date() } });
     return true;
   } catch (error) {
@@ -336,6 +350,7 @@ export async function onAssistedPropertyApproved(propertyId: number): Promise<vo
         id: true,
         status: true,
         ownerUserId: true,
+        ownerAccountOutcome: true,
         property: { select: { title: true } },
         owner: { select: { phone: true, passwordHash: true } },
         salesPartner: { select: { userId: true } },
@@ -363,8 +378,12 @@ export async function onAssistedPropertyApproved(propertyId: number): Promise<vo
         setupLink,
         noticeLink: noticeUrl(noticeRaw),
       });
-      const sent = await sendSms(row.owner.phone, text, { bypassEligibilityCheck: true, sensitiveContent: true }).catch(() => null);
-      if (sent?.success) {
+      const existing = row.ownerAccountOutcome === "ATTACHED_EXISTING";
+      const sent = await sendSms(row.owner.phone, text, { bypassEligibilityCheck: !existing, sensitiveContent: true }).catch(() => null);
+      if (existing) {
+        await notifyOwner(row.ownerUserId, "assisted_listing_live", { propertyTitle: row.property?.title, noticeLink: noticeUrl(noticeRaw) }).catch(() => undefined);
+      }
+      if (sent?.success && sent.provider !== "suppressed") {
         await db.salesAssistedListing.update({ where: { id: row.id }, data: { liveNoticeSentAt: new Date() } });
       }
     }
@@ -395,6 +414,38 @@ export async function onAssistedPropertyRejected(propertyId: number, reasons: st
   } catch (error) {
     console.error("[assisted-listing] reject hook failed", (error as any)?.message ?? error);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Releasing an account made by mistake
+// ---------------------------------------------------------------------------
+
+/**
+ * When a listing is cancelled, the owner account the system created for it is
+ * released if nobody ever used it: no sign-in (phone never verified by a code,
+ * no password) and nothing else of theirs on NoLSAF. Its phone and email are
+ * cleared and it is disabled, so a mistyped number does not stay blocked for
+ * the real person behind it. Accounts in use are never touched.
+ */
+export async function releaseUnusedOwnerAccount(tx: any, row: { id: number; propertyId: number; ownerUserId: number; ownerAccountOutcome: string }): Promise<boolean> {
+  if (row.ownerAccountOutcome !== "CREATED") return false;
+  const owner = await tx.user.findUnique({
+    where: { id: row.ownerUserId },
+    select: { id: true, phoneVerifiedAt: true, emailVerifiedAt: true, passwordHash: true, registrationSource: true },
+  });
+  if (!owner || owner.registrationSource !== "SALES_ASSISTED") return false;
+  if (owner.phoneVerifiedAt || owner.emailVerifiedAt || owner.passwordHash) return false;
+  const [otherProperties, otherListings, bookings] = await Promise.all([
+    tx.property.count({ where: { ownerId: owner.id, id: { not: row.propertyId } } }),
+    tx.salesAssistedListing.count({ where: { ownerUserId: owner.id, id: { not: row.id }, status: { not: "CANCELLED" } } }),
+    tx.booking.count({ where: { propertyId: row.propertyId } }),
+  ]);
+  if (otherProperties > 0 || otherListings > 0 || bookings > 0) return false;
+  await tx.user.update({
+    where: { id: owner.id },
+    data: { phone: null, email: null, isDisabled: true, tokensValidAfter: new Date() },
+  });
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -468,13 +519,14 @@ export async function recordObjection(raw: string, note: string | null): Promise
 export async function resolveObjection(input: { assistedId: number; outcome: "RESUME" | "CANCEL"; adminUserId: number; reason: string }) {
   const row = await db.salesAssistedListing.findUnique({
     where: { id: input.assistedId },
-    select: { id: true, status: true, statusBeforeObjection: true, propertyId: true, salesPartnerId: true, property: { select: { title: true } }, salesPartner: { select: { userId: true } } },
+    select: { id: true, status: true, statusBeforeObjection: true, propertyId: true, salesPartnerId: true, ownerUserId: true, ownerAccountOutcome: true, property: { select: { title: true } }, salesPartner: { select: { userId: true } } },
   });
   if (!row) throw new AssistedListingError(404, "Assisted listing not found");
   if (row.status !== "PAUSED_OBJECTION") throw new AssistedListingError(409, "Only a paused listing can be resolved");
   const now = new Date();
   const before = (row.statusBeforeObjection || "DRAFTING") as AssistedStatus;
   let partnerPaused = false;
+  let accountReleased = false;
   await db.$transaction(async (tx: any) => {
     const moved = await tx.salesAssistedListing.updateMany({
       where: { id: row.id, status: "PAUSED_OBJECTION" },
@@ -488,6 +540,7 @@ export async function resolveObjection(input: { assistedId: number; outcome: "RE
     }
     if (input.outcome === "CANCEL") {
       await tx.property.update({ where: { id: row.propertyId }, data: { status: "SUSPENDED" } });
+      accountReleased = await releaseUnusedOwnerAccount(tx, row);
       const upheld = await tx.salesAssistedListing.count({ where: { salesPartnerId: row.salesPartnerId, objectionOutcome: "CANCEL" } });
       if (upheld >= ASSISTED_OBJECTION_PAUSE_THRESHOLD) {
         const paused = await tx.salesPartnerProfile.updateMany({
@@ -502,5 +555,5 @@ export async function resolveObjection(input: { assistedId: number; outcome: "RE
   if (input.outcome === "CANCEL") {
     await notifyUser(row.salesPartner.userId, "sales_assisted_listing_cancelled", { propertyTitle: row.property?.title, reason: input.reason }).catch(() => undefined);
   }
-  return { status: input.outcome === "RESUME" ? before : "CANCELLED", partnerPaused };
+  return { status: input.outcome === "RESUME" ? before : "CANCELLED", partnerPaused, accountReleased };
 }

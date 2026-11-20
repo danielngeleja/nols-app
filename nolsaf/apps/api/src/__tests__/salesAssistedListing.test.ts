@@ -5,7 +5,7 @@ vi.mock("../lib/sms.js", () => ({ sendSms: vi.fn(async () => ({ success: true })
 vi.mock("../lib/notifications.js", () => ({ notifyAdmins: vi.fn(), notifyUser: vi.fn() }));
 vi.mock("../lib/performance.js", () => ({ invalidateCache: vi.fn(), cacheKeys: { property: () => "p", adminSummary: () => "a" } }));
 
-const {
+import {
   AssistedListingError,
   assistedGateOf,
   assistedGateRefusal,
@@ -16,8 +16,9 @@ const {
   newNoticeToken,
   noticeSmsText,
   propertyTypeFromLead,
+  releaseUnusedOwnerAccount,
   resolveOwnerAccount,
-} = await import("../lib/salesAssistedListing.js");
+} from "../lib/salesAssistedListing.js";
 
 const PARTNER_ID = 7;
 const PARTNER_USER_ID = 70;

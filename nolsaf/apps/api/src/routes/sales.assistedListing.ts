@@ -194,7 +194,8 @@ router.post("/leads/:id/assisted-listing", blockImpersonated as RequestHandler, 
         orderBy: { capturedAt: "desc" },
         select: { id: true },
       });
-      if (!visit) throw new AssistedListingError(409, "Check in at the property first. A verified on-site visit is needed before you list it for the owner.");
+      // A visit is not required (partners cannot reach every property), but
+      // when one exists it is attached as evidence for the admin review.
       const open = await tx.salesAssistedListing.count({ where: { salesPartnerId: partnerId, status: { in: [...ASSISTED_OPEN] } } });
       if (open >= ASSISTED_MAX_OPEN_DRAFTS) {
         throw new AssistedListingError(409, `You have ${open} listings in progress. Submit some before starting another.`);
@@ -224,7 +225,7 @@ router.post("/leads/:id/assisted-listing", blockImpersonated as RequestHandler, 
           salesPartnerId: partnerId,
           propertyId: property.id,
           ownerUserId: owner.ownerUserId,
-          visitId: visit.id,
+          visitId: visit?.id ?? null,
           ownerAccountOutcome: owner.outcome,
           objectionReferenceHash: token.hash,
         },
@@ -242,6 +243,7 @@ router.post("/leads/:id/assisted-listing", blockImpersonated as RequestHandler, 
         assistedId: row.id,
         propertyId: property.id,
         propertyName: property.title,
+        ownerUserId: owner.ownerUserId,
         ownerPhone: owner.phone,
         outcome: owner.outcome,
         partnerName: profile.user?.fullName || profile.user?.name || profile.agentCode,
@@ -251,6 +253,8 @@ router.post("/leads/:id/assisted-listing", blockImpersonated as RequestHandler, 
 
     const smsSent = await sendAssistedNotice({
       assistedId: result.assistedId,
+      ownerUserId: result.ownerUserId,
+      ownerAccountOutcome: result.outcome,
       ownerPhone: result.ownerPhone,
       ownerName: input.ownerName,
       partnerName: result.partnerName,

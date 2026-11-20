@@ -26,6 +26,7 @@ import {
   ASSISTED_STATUSES,
   AssistedListingError,
   maskOwnerPhone,
+  releaseUnusedOwnerAccount,
   resolveObjection,
 } from "../lib/salesAssistedListing.js";
 
@@ -110,7 +111,7 @@ router.get("/assisted-listings", limitSalesAdminRead, asyncHandler(async (req: A
       ownerEngaged: Boolean(row.owner?.phoneVerifiedAt),
       property: row.property,
       partner: { id: row.salesPartner?.id, code: row.salesPartner?.agentCode, name: row.salesPartner?.user?.fullName || row.salesPartner?.user?.name || null },
-      visit: row.visit,
+      visit: row.visit ?? null,
       noticeSentAt: row.noticeSentAt,
       liveNoticeSentAt: row.liveNoticeSentAt,
       objectedAt: row.objectedAt,
@@ -158,12 +159,13 @@ router.post("/assisted-listings/:id/cancel", limitSalesAdminWrite, asyncHandler(
   if (bad(res, params) || bad(res, parsed)) return;
   const row = await db.salesAssistedListing.findUnique({
     where: { id: params.data!.id },
-    select: { id: true, status: true, propertyId: true, property: { select: { title: true } }, salesPartner: { select: { userId: true } } },
+    select: { id: true, status: true, propertyId: true, ownerUserId: true, ownerAccountOutcome: true, property: { select: { title: true } }, salesPartner: { select: { userId: true } } },
   });
   if (!row) return res.status(404).json({ error: "Assisted listing not found" });
   if (row.status === "CANCELLED") return res.status(409).json({ error: "This listing is already cancelled" });
   if (row.status === "PAUSED_OBJECTION") return res.status(409).json({ error: "Resolve the owner's query instead (Cancel or Resume)." });
   const now = new Date();
+  let accountReleased = false;
   await db.$transaction(async (tx: any) => {
     const moved = await tx.salesAssistedListing.updateMany({
       where: { id: row.id, status: row.status },
@@ -172,6 +174,8 @@ router.post("/assisted-listings/:id/cancel", limitSalesAdminWrite, asyncHandler(
     if (moved.count !== 1) throw new AssistedListingError(409, "This listing was changed by someone else. Reload.");
     // Off NoLSAF for good; the record is kept, not deleted.
     await tx.property.update({ where: { id: row.propertyId }, data: { status: "SUSPENDED" } });
+    // A never-used account made for this listing gives its phone number back.
+    accountReleased = await releaseUnusedOwnerAccount(tx, row);
   });
   await Promise.all([
     invalidateCache(cacheKeys.property(row.propertyId)),
@@ -179,8 +183,8 @@ router.post("/assisted-listings/:id/cancel", limitSalesAdminWrite, asyncHandler(
     invalidateCache(cacheKeys.adminSummary()),
   ]).catch(() => undefined);
   await notifyUser(row.salesPartner.userId, "sales_assisted_listing_cancelled", { propertyTitle: row.property?.title, reason: parsed.data!.reason }).catch(() => undefined);
-  await audit(req as any, "SALES_ASSISTED_LISTING_CANCEL", "SALES_ASSISTED_LISTING", { status: row.status }, { status: "CANCELLED", reason: parsed.data!.reason }, row.id);
-  return res.json({ ok: true, status: "CANCELLED" });
+  await audit(req as any, "SALES_ASSISTED_LISTING_CANCEL", "SALES_ASSISTED_LISTING", { status: row.status }, { status: "CANCELLED", reason: parsed.data!.reason, accountReleased }, row.id);
+  return res.json({ ok: true, status: "CANCELLED", accountReleased });
 }));
 
 router.get("/partners/:id/assisted-listing", limitSalesAdminRead, asyncHandler(async (req: AuthedRequest, res: Response) => {

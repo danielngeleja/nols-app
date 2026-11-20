@@ -13,6 +13,14 @@ import Link from "next/link";
 import { AlertTriangle, ArrowRight, Building2, CheckCircle2, Clock3, Loader2, MessageSquare, PauseCircle, Send, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
+export type AssistedListingSummary = {
+  granted: boolean;
+  paused: boolean;
+  hasVerifiedVisit: boolean;
+  listingStatus: Listing["status"] | null;
+  returnReasons: string | null;
+};
+
 type Listing = {
   status: "DRAFTING" | "SUBMITTED" | "RETURNED" | "APPROVED" | "PAUSED_OBJECTION" | "CANCELLED";
   editable: boolean;
@@ -53,7 +61,7 @@ function eat(value: string | null) {
   return new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) + " EAT";
 }
 
-export default function AssistedListingCard({ leadRef, onChanged }: { leadRef: string; onChanged?: () => void }) {
+export default function AssistedListingCard({ leadRef, onChanged, onState }: { leadRef: string; onChanged?: () => void; onState?: (summary: AssistedListingSummary | null) => void }) {
   const [state, setState] = useState<State | null>(null);
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
@@ -65,11 +73,21 @@ export default function AssistedListingCard({ leadRef, onChanged }: { leadRef: s
     try {
       const response = await apiClient.get(`/api/sales/leads/${leadRef}/assisted-listing`);
       setState(response.data);
+      const data = response.data as State;
+      const reasons = data.listing?.returnReasons;
+      onState?.({
+        granted: Boolean(data.gate?.granted),
+        paused: Boolean(data.gate?.paused),
+        hasVerifiedVisit: Boolean(data.hasVerifiedVisit),
+        listingStatus: data.listing?.status ?? null,
+        returnReasons: reasons ? [...(reasons.reasons ?? []), reasons.note].filter(Boolean).join(". ") || null : null,
+      });
       setForm((current) => current.ownerName || current.ownerPhone ? current : response.data.prefill);
     } catch {
       setState(null);
+      onState?.(null);
     }
-  }, [leadRef]);
+  }, [leadRef, onState]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -99,7 +117,6 @@ export default function AssistedListingCard({ leadRef, onChanged }: { leadRef: s
 
   const blocker = state.gate.refusal
     || (!state.leadOpen ? "This lead is closed." : null)
-    || (!state.hasVerifiedVisit ? "Check in at the property first. A verified on-site visit is needed before you list it for the owner." : null)
     || (state.openDrafts >= state.maxOpenDrafts ? `You have ${state.openDrafts} listings in progress. Submit some before starting another.` : null);
 
   return (
@@ -233,6 +250,12 @@ export default function AssistedListingCard({ leadRef, onChanged }: { leadRef: s
                 />
               </label>
             </div>
+            {!state.hasVerifiedVisit ? (
+              <p className="m-0 flex items-start gap-2 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-900">
+                <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                No on-site visit recorded. You can still list it; a check-in at the property helps NoLSAF approve it faster.
+              </p>
+            ) : null}
             <label className="flex items-start gap-2 text-xs leading-5 text-slate-600">
               <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-1" />
               <span>

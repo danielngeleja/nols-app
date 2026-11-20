@@ -8519,8 +8519,9 @@ model SalesAssistedListing {
   salesPartnerId Int
   propertyId     Int @unique
   ownerUserId    Int
-  /// The verified on-site visit that allowed the listing to start.
-  visitId        Int
+  /// The partner's latest verified on-site visit when the listing started, if
+  /// any. A visit is encouraged, not required: admin review shows its absence.
+  visitId        Int?
 
   ownerAccountOutcome String @db.VarChar(20)
   status              String @default("DRAFTING") @db.VarChar(20)
@@ -8553,7 +8554,7 @@ model SalesAssistedListing {
   salesPartner        SalesPartnerProfile @relation(fields: [salesPartnerId], references: [id], onDelete: Restrict)
   property            Property            @relation("SalesAssistedListingProperty", fields: [propertyId], references: [id], onDelete: Cascade)
   owner               User                @relation("SalesAssistedListingOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
-  visit               SalesLeadVisit      @relation(fields: [visitId], references: [id], onDelete: Restrict)
+  visit               SalesLeadVisit?     @relation(fields: [visitId], references: [id], onDelete: SetNull)
   objectionResolvedBy User?               @relation("SalesAssistedListingResolver", fields: [objectionResolvedById], references: [id], onDelete: SetNull)
 
   @@index([salesPartnerId, status])

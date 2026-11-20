@@ -194,7 +194,9 @@ export default function AdminAssistedListingsPage() {
                       <p className="m-0 text-xs text-neutral-500">{row.partner.name || ""}</p>
                     </td>
                     <td className="px-3 py-3 text-xs text-neutral-600">
-                      <p className="m-0">Visit {row.visit ? eat(row.visit.capturedAt) : "missing"}{row.visit?.distanceMeters != null ? `, ${row.visit.distanceMeters} m from reference` : ""}</p>
+                      {row.visit
+                        ? <p className="m-0">Visit {eat(row.visit.capturedAt)}{row.visit.distanceMeters != null ? `, ${row.visit.distanceMeters} m from reference` : ""}</p>
+                        : <p className="m-0 font-semibold text-amber-700">No on-site visit: check photos and the owner closely</p>}
                       <p className="m-0">SMS 1 {row.noticeSentAt ? eat(row.noticeSentAt) : "not sent"}</p>
                       {row.liveNoticeSentAt ? <p className="m-0">Live SMS {eat(row.liveNoticeSentAt)}</p> : null}
                     </td>

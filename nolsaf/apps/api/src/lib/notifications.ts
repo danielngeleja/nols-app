@@ -385,6 +385,14 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       : typeof data?.bookingReference === "string" ? data.bookingReference : null;
     // Create notification in database if Notification model exists
     const notificationTemplates: Record<string, { title: string; body: string }> = {
+      assisted_listing_started: {
+        title: "A NoLSAF partner is listing your property",
+        body: `${data.partnerName || "A NoLSAF sales partner"} is preparing ${data.propertyTitle || "a property"} to go live on NoLSAF for you. You do not need to do anything. Not expecting this? Open ${data.noticeLink || "the link in this notice"} or contact NoLSAF support.`
+      },
+      assisted_listing_live: {
+        title: "Your property is live on NoLSAF",
+        body: `${data.propertyTitle || "Your property"} is now live on NoLSAF. Add your payout account to receive booking money. Not expecting this? Open ${data.noticeLink || "the link in this notice"}.`
+      },
       guest_code_request_resolved: {
         title: "Guest check-in code resent",
         body: `NoLSAF resent the check-in code to the guest for booking ${data.bookingReference || ""}${data.destinationMasked ? ` (${data.destinationMasked})` : ""}. Ask the guest to show it at the desk.`
