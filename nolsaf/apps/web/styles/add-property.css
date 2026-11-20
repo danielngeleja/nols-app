@@ -81,7 +81,7 @@
   overflow: hidden;
   padding: 1.25rem 1.125rem 1.375rem;
   border: 1px solid var(--ap-line);
-  border-radius: 1rem;
+  border-radius: 0.5rem;
   background: #07090c;
   box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
 }
@@ -115,26 +115,30 @@
   gap: 0.5rem;
 }
 
-.ap-head .ap-eyebrow {
+/* "Step 1 of 6 · New listing": plain text, not another pill */
+.ap-head .ap-kicker {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-head .ap-kicker-sep {
+  width: 0.25rem;
+  height: 0.25rem;
   border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
-  padding: 0.3rem 0.7rem;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.35);
 }
 
 .ap-head .ap-save {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  border-radius: 9999px;
+  border-radius: 0.375rem;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.06);
   padding: 0.25rem 0.625rem;
@@ -166,20 +170,13 @@
 }
 
 /* ------------------------------------------------------------- title block -- */
-.ap-head-main {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
 .ap-head-copy {
   min-width: 0;
 }
 
 .ap-head .ap-title {
   margin: 0;
-  font-size: clamp(1.375rem, 1.1rem + 1.4vw, 2rem);
+  font-size: clamp(1.375rem, 1.1rem + 1.2vw, 1.875rem);
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.01em;
@@ -188,166 +185,152 @@
 
 .ap-head .ap-sub {
   margin: 0.375rem 0 0;
-  max-width: 46ch;
+  max-width: 52ch;
   font-size: 0.875rem;
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.62);
 }
 
-/* The step count, read as one number rather than a sentence */
-.ap-head .ap-count {
-  display: flex;
-  align-items: baseline;
-  gap: 0.25rem;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.ap-head .ap-count-now {
-  font-size: clamp(1.5rem, 1.2rem + 1.4vw, 2.125rem);
-  font-weight: 800;
-  line-height: 1;
-  color: #ffffff;
-}
-
-.ap-head .ap-count-of {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-/* --------------------------------------------------------------- progress -- */
-/* One segment per step, so the bar and the rail below cannot disagree. */
-.ap-head .ap-track {
-  display: flex;
-  gap: 0.25rem;
-  width: 100%;
-}
-
-.ap-head .ap-seg {
-  flex: 1 1 0;
-  height: 0.25rem;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.14);
-  transition: background 0.3s ease, box-shadow 0.3s ease;
-}
-
-.ap-head .ap-seg.is-done {
-  background: var(--ap-brand-lift);
-}
-
-.ap-head .ap-seg.is-active {
-  background: #ffffff;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25), 0 0 14px rgba(255, 255, 255, 0.35);
-}
-
-/* ------------------------------------------------------------------- rail -- */
+/* ---------------------------------------------------------------- stepper -- */
+/* One connected stepper is the progress: six equal columns, a dot in each,
+   and the line between dots fills with brand as steps are passed. It never
+   scrolls sideways, from a 320px phone up. */
 .ap-head .ap-rail {
+  --ap-dot: 1.75rem;
   min-width: 0;
+  padding-top: 0.25rem;
 }
 
 .ap-head .ap-rail ol {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.ap-head .ap-rail li {
+.ap-head .ap-step {
+  position: relative;
   display: flex;
+  justify-content: center;
   min-width: 0;
-  flex: 0 0 auto;
 }
 
-/* The active step is the one that grows to fill the room it needs */
-.ap-head .ap-rail li:has(.ap-node.is-active) {
-  flex: 1 1 auto;
-  min-width: 0;
+/* The two halves of the line on either side of each dot */
+.ap-head .ap-step::before,
+.ap-head .ap-step::after {
+  content: "";
+  position: absolute;
+  top: calc(var(--ap-dot) / 2 - 1px);
+  height: 2px;
+  width: calc(50% - var(--ap-dot) / 2 - 0.25rem);
+  background: rgba(255, 255, 255, 0.14);
+  transition: background 0.3s ease;
+}
+
+.ap-head .ap-step::before {
+  left: 0;
+}
+
+.ap-head .ap-step::after {
+  right: 0;
+}
+
+.ap-head .ap-step:first-child::before,
+.ap-head .ap-step:last-child::after {
+  display: none;
+}
+
+/* Passed steps light the line on both sides; the current step lights the
+   line that leads into it. */
+.ap-head .ap-step.is-past::before,
+.ap-head .ap-step.is-past::after,
+.ap-head .ap-step.is-active::before {
+  background: var(--ap-brand-lift);
 }
 
 .ap-head .ap-node {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
   max-width: 100%;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.04);
-  padding: 0.3125rem 0.5rem;
-  color: rgba(255, 255, 255, 0.72);
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.5);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.ap-head .ap-node:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.28);
-  color: #ffffff;
 }
 
 .ap-head .ap-node:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+  cursor: default;
 }
 
 .ap-head .ap-node:focus-visible {
+  outline: none;
+}
+
+.ap-head .ap-node:focus-visible .ap-node-dot {
   outline: 2px solid #ffffff;
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
 .ap-head .ap-node-dot {
   display: inline-flex;
-  height: 1.625rem;
-  width: 1.625rem;
+  height: var(--ap-dot);
+  width: var(--ap-dot);
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.06);
-  font-size: 0.8125rem;
+  border-radius: 0.375rem;
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  background: #07090c;
+  font-size: 0.75rem;
   font-weight: 700;
   line-height: 1;
+  color: rgba(255, 255, 255, 0.55);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ap-head .ap-node:hover:not(:disabled) .ap-node-dot {
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #ffffff;
 }
 
 .ap-head .ap-node-name {
   display: none;
-  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
-  padding-right: 0.25rem;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Done: brand fill. Active: white pill, brand text. Both are unmistakable. */
-.ap-head .ap-node.is-done .ap-node-dot,
-.ap-head .ap-node.is-visited .ap-node-dot {
+/* Visited or passed: brand dot. Done: brand dot with a tick. */
+.ap-head .ap-step.is-visited .ap-node-dot,
+.ap-head .ap-step.is-done .ap-node-dot {
   border-color: transparent;
   background: var(--ap-brand);
   color: #ffffff;
 }
 
-.ap-head .ap-node.is-active {
+.ap-head .ap-step.is-visited .ap-node,
+.ap-head .ap-step.is-done .ap-node {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* Current: white dot with a soft brand halo, and the only bright label */
+.ap-head .ap-step.is-active .ap-node-dot {
   border-color: #ffffff;
   background: #ffffff;
   color: var(--ap-brand);
+  box-shadow: 0 0 0 4px rgba(11, 139, 127, 0.35);
 }
 
-.ap-head .ap-node.is-active .ap-node-dot {
-  border-color: transparent;
-  background: var(--ap-brand);
+.ap-head .ap-step.is-active .ap-node {
   color: #ffffff;
-}
-
-/* On a phone the rail is numbers, and only the step you are on says its name.
-   Six labelled pills used to force a sideways scroll on every small screen. */
-.ap-head .ap-node.is-active .ap-node-name {
-  display: block;
 }
 
 /* ------------------------------------------------------------------ chips -- */
@@ -362,7 +345,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
-  border-radius: 9999px;
+  border-radius: 0.375rem;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.06);
   padding: 0.25rem 0.625rem;
@@ -378,28 +361,10 @@
 /* ------------------------------------------------------------ breakpoints -- */
 @media (min-width: 640px) {
   .ap-head {
-    padding: 1.75rem 1.5rem 1.875rem;
+    padding: 1.5rem 1.5rem 1.625rem;
   }
 
-  .ap-head .ap-node {
-    padding: 0.3125rem 0.75rem 0.3125rem 0.375rem;
-  }
-
-  /* From tablet up there is room for every name, and the rail splits the width
-     evenly so it never scrolls sideways. */
-  .ap-head .ap-rail ol {
-    gap: 0.5rem;
-  }
-
-  .ap-head .ap-rail li {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-
-  .ap-head .ap-node {
-    width: 100%;
-  }
-
+  /* From tablet up every step shows its name under its dot */
   .ap-head .ap-node-name {
     display: block;
   }
@@ -407,11 +372,11 @@
 
 @media (min-width: 1024px) {
   .ap-head {
-    padding: 2rem 2rem 2.125rem;
+    padding: 1.75rem 2rem 1.875rem;
   }
 
   .ap-head-inner {
-    gap: 1.25rem;
+    gap: 1.125rem;
   }
 }
 
@@ -511,7 +476,7 @@
   --ap-line: rgba(255, 255, 255, 0.18);
   @apply box-border overflow-hidden border border-solid;
   border-color: var(--ap-line);
-  border-radius: 1rem;
+  border-radius: 0.5rem;
   background: #151b1e;
   box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
 }
@@ -521,14 +486,14 @@
 }
 
 .ap-card-head {
-  @apply flex flex-wrap items-center gap-x-2.5 gap-y-2 border-0 border-b border-solid px-3 py-2.5 sm:px-4;
-  border-color: var(--ap-line);
-  background: rgba(255, 255, 255, 0.045);
+  @apply flex flex-wrap items-center gap-x-2.5 gap-y-2 border-0 border-b border-solid px-3 py-3 sm:px-4;
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
-/* The number: round, brand filled, exactly like the rail in the band above */
+/* The number: a small brand square, the same shape as the stepper above */
 .ap-card-head-no {
-  @apply inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[12.5px] font-bold text-white;
+  @apply inline-flex h-6 w-6 flex-shrink-0 items-center justify-center text-[12px] font-bold text-white;
+  border-radius: 0.375rem;
   background: var(--ap-brand);
 }
 
@@ -537,22 +502,23 @@
 }
 
 .ap-card-title {
-  @apply m-0 text-[14.5px] font-bold leading-tight text-white;
+  @apply m-0 text-[14.5px] font-semibold leading-tight text-white;
 }
 
 .ap-card-sub {
-  @apply m-0 text-[12.5px] leading-tight text-white/55;
+  @apply m-0 text-[12.5px] leading-tight text-white/45;
 }
 
 /* The state of a section, shown on its own header */
+/* Done reads as a quiet brand tick with the choice; still to do is muted text */
 .ap-card-tag {
-  @apply inline-flex flex-shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-bold uppercase tracking-[0.04em] text-white;
-  background: var(--ap-brand);
+  @apply inline-flex flex-shrink-0 items-center gap-1.5 px-2 py-0.5 text-[12px] font-semibold text-white;
+  border-radius: 0.375rem;
+  background: rgba(2, 102, 94, 0.45);
 }
 
 .ap-card-tag.is-todo {
-  @apply bg-transparent text-white/60;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  @apply bg-transparent px-0 font-medium text-white/45;
 }
 
 .ap-card-body {
@@ -617,7 +583,8 @@
 }
 
 .ap-btn {
-  @apply box-border inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-solid px-4 text-[13px] font-semibold text-white transition-colors disabled:opacity-60;
+  @apply box-border inline-flex h-10 cursor-pointer items-center justify-center gap-2 border border-solid px-4 text-[13px] font-semibold text-white transition-colors disabled:opacity-60;
+  border-radius: 0.375rem;
   border-color: rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.05);
 }
@@ -633,6 +600,266 @@
 
 .ap-btn.is-primary:hover:not(:disabled) {
   background: #03786f;
+}
+
+/* ------------------------------------------------------------- info card -- */
+/* A small "i" beside a card title opens a plain explanation inside the card */
+.ap-info-btn {
+  @apply inline-flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center self-center border-0 bg-transparent p-0 text-white/45 transition-colors;
+  border-radius: 0.375rem;
+}
+
+.ap-info-btn:hover,
+.ap-info-btn.is-on {
+  color: #19b3a4;
+  background: rgba(11, 139, 127, 0.14);
+}
+
+.ap-info-btn:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+}
+
+/* The explanation pops over the page. It is rendered into <body>, so it
+   carries its own styles rather than relying on the builder's parents. */
+.ap-pop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(3, 6, 8, 0.66);
+  backdrop-filter: blur(3px);
+  animation: ap-pop-fade 0.15s ease-out;
+}
+
+.ap-pop {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 34rem;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.5rem;
+  background: #11171a;
+  color: #ffffff;
+  box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.8);
+  animation: ap-pop-in 0.18s ease-out;
+}
+
+.ap-pop * {
+  box-sizing: border-box;
+}
+
+.ap-pop-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.75rem;
+}
+
+.ap-pop-badge {
+  display: inline-flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  background: #02665e;
+  color: #ffffff;
+}
+
+.ap-pop-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.ap-pop-sub {
+  margin: 0.125rem 0 0;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ap-pop .ap-pin-icon-btn {
+  display: inline-flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ap-pop .ap-pin-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.ap-pop-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0 1rem;
+}
+
+@media (min-width: 520px) {
+  .ap-pop-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.ap-pop-item {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.375rem;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.75rem;
+}
+
+.ap-pop-item-ico {
+  display: inline-flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  background: rgba(11, 139, 127, 0.18);
+  color: #19b3a4;
+}
+
+.ap-pop-item-title {
+  margin: 0.5rem 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.ap-pop-item-text {
+  margin: 0.25rem 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.ap-pop-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.75rem 1rem 1rem;
+}
+
+.ap-pop-tip {
+  display: flex;
+  flex: 1 1 16rem;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.ap-pop-tip svg {
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+  color: #19b3a4;
+}
+
+.ap-pop-ok {
+  height: 2.5rem;
+  cursor: pointer;
+  border: 0;
+  border-radius: 0.375rem;
+  background: #02665e;
+  padding: 0 1.25rem;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.ap-pop-ok:hover {
+  background: #03786f;
+}
+
+@keyframes ap-pop-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ap-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* --------------------------------------------------------------- pin row -- */
+/* The pin as one compact line: icon, coordinates, accuracy. The map itself
+   opens on demand, it is not drawn into the card. */
+.ap-pin-row {
+  @apply flex min-w-0 items-center gap-3 border border-solid px-3 py-2.5;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.ap-pin-row.is-empty {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: transparent;
+}
+
+.ap-pin-row-ico {
+  @apply flex h-8 w-8 flex-shrink-0 items-center justify-center text-white;
+  border-radius: 0.375rem;
+  background: #02665e;
+}
+
+.ap-pin-row.is-empty .ap-pin-row-ico {
+  @apply text-white/50;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ap-pin-row-copy {
+  @apply flex min-w-0 flex-1 flex-col gap-0.5;
+}
+
+.ap-pin-row-main {
+  @apply flex min-w-0 items-center gap-1 text-[13.5px] font-semibold text-white;
+}
+
+.ap-pin-acc {
+  @apply inline-flex min-w-0 items-center gap-1.5 text-[12px] text-white/50;
+}
+
+.ap-pin-acc-dot {
+  @apply h-2 w-2 flex-shrink-0 rounded-full;
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.ap-pin-acc.is-good .ap-pin-acc-dot { background: #19b3a4; }
+.ap-pin-acc.is-fair .ap-pin-acc-dot { background: #fbbf24; }
+.ap-pin-acc.is-weak .ap-pin-acc-dot { background: #f87171; }
+
+.ap-pin-icon-btn {
+  @apply inline-flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-white/50 no-underline transition-colors;
+  border-radius: 0.375rem;
+}
+
+.ap-pin-icon-btn:hover {
+  @apply text-white;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* Floor planner: the building as rows, top floor first */
@@ -762,9 +989,10 @@
 
 /* minus / value / plus */
 .ap-stepper {
-  @apply box-border flex h-11 items-stretch overflow-hidden rounded-lg border border-solid;
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.05);
+  @apply box-border flex h-10 items-stretch overflow-hidden border border-solid;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .ap-stepper.is-small {
@@ -772,7 +1000,7 @@
 }
 
 .ap-step-btn {
-  @apply box-border flex w-11 flex-shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35;
+  @apply box-border flex w-10 flex-shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35;
 }
 
 .ap-stepper.is-small .ap-step-btn {
@@ -790,7 +1018,7 @@
 
 .add-property-view .ap-stepper input,
 .ap-step-val {
-  @apply box-border flex h-full min-w-0 flex-1 items-center justify-center border-0 bg-transparent px-2 text-center font-mono text-[15px] font-bold tabular-nums text-white shadow-none outline-none;
+  @apply box-border flex h-full min-w-0 flex-1 items-center justify-center border-0 bg-transparent px-2 text-center text-[15px] font-semibold tabular-nums text-white shadow-none outline-none;
   -moz-appearance: textfield;
 }
 
@@ -812,7 +1040,13 @@
 }
 
 .ap-stepper:focus-within {
-  border-color: #02665e;
+  border-color: #0b8b7f;
+  box-shadow: 0 0 0 2px rgba(11, 139, 127, 0.3);
+}
+
+.add-property-view .ap-stepper input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+  font-weight: 500;
 }
 
 .ap-stepper input::-webkit-outer-spin-button,
@@ -844,145 +1078,100 @@
   @apply inline-flex flex-shrink-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-white/75 hover:text-white hover:underline;
 }
 
-/* Two-way choice */
+/* Whole place or rooms: one question, one segmented switch, and a single line
+   that explains the choice that is on. */
 .ap-mode-bar {
   margin-bottom: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 0.75rem;
-  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.5rem;
   background: #151b1e;
+  padding: 0.75rem 1rem;
   color: #fff;
 }
 
-.ap-mode-bar-head {
+.ap-mode-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-  padding: 0.625rem 0.875rem;
-  background: rgba(255, 255, 255, 0.045);
+  gap: 0.625rem 1rem;
 }
 
-.ap-mode-bar-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
+.ap-mode-q {
+  margin: 0;
+  font-size: 0.90625rem;
+  font-weight: 600;
 }
 
-.ap-mode-bar-copy strong {
-  font-size: 0.875rem;
-}
-
-.ap-mode-bar-copy span {
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 0.75rem;
-}
-
-.ap-mode-bar-tag {
-  border-radius: 999px;
-  padding: 0.25rem 0.625rem;
-  background: rgba(2, 102, 94, 0.28);
-  color: #a9e5df;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.ap-mode-options {
-  display: grid;
+.ap-mode-seg {
+  display: inline-grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-  padding: 0.75rem;
-}
-
-.add-property-view .ap-mode-option {
-  display: flex;
-  min-width: 0;
-  min-height: 4.5rem;
-  align-items: center;
-  gap: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  gap: 0.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.5rem;
-  padding: 0.625rem 0.75rem;
-  background: #20282b;
-  color: #fff;
-  text-align: left;
-  cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.25rem;
 }
 
-.add-property-view .ap-mode-option.is-on {
-  border-color: #0a9e92;
-  background: #103d3b;
-}
-
-.ap-mode-option-icon {
-  display: flex;
-  width: 2.25rem;
+.add-property-view .ap-mode-seg-btn {
+  display: inline-flex;
+  min-width: 0;
   height: 2.25rem;
-  flex: none;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.72);
+  gap: 0.5rem;
+  white-space: nowrap;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  padding: 0 0.875rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.ap-mode-option.is-on .ap-mode-option-icon {
+.add-property-view .ap-mode-seg-btn:hover:not(:disabled):not(.is-on) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.add-property-view .ap-mode-seg-btn.is-on {
   background: #02665e;
   color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-.ap-mode-option-copy {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.ap-mode-option-copy strong {
-  font-size: 0.8125rem;
-}
-
-.ap-mode-option-copy span {
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 0.75rem;
-  line-height: 1.25;
-}
-
-.ap-mode-option-check {
-  flex: none;
-  color: #74e2d7;
-}
-
-.add-property-view .ap-mode-option:hover:not(:disabled):not(.is-on) {
-  border-color: rgba(255, 255, 255, 0.4);
-  background: #263034;
-}
-
-.add-property-view .ap-mode-option:disabled {
+.add-property-view .ap-mode-seg-btn:disabled {
   cursor: not-allowed;
-  opacity: 0.4;
+  opacity: 0.35;
 }
 
-.add-property-view .ap-mode-option:focus-visible {
-  outline: 2px solid #4fd1c5;
-  outline-offset: 2px;
+.add-property-view .ap-mode-seg-btn:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
 }
 
-.ap-mode-lock-note {
-  margin: 0;
-  padding: 0 0.875rem 0.625rem;
+.ap-mode-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin: 0.625rem 0 0;
   color: rgba(255, 255, 255, 0.5);
-  font-size: 0.75rem;
+  font-size: 0.78125rem;
+  line-height: 1.45;
 }
 
+.ap-mode-hint svg {
+  margin-top: 0.125rem;
+  flex-shrink: 0;
+  color: #19b3a4;
+}
+
+/* On a phone the switch takes the full width under the question */
 @media (max-width: 640px) {
-  .ap-mode-options { grid-template-columns: minmax(0, 1fr); }
+  .ap-mode-seg { display: grid; width: 100%; }
 }
 
 .ap-toggles {
@@ -990,46 +1179,140 @@
 }
 
 .ap-toggle {
-  @apply box-border inline-flex h-11 min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-solid px-3 text-[13px] font-semibold text-white/75 transition-colors;
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.03);
+  @apply box-border inline-flex h-10 min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 border border-solid px-3 text-[13px] font-semibold text-white/70 transition-colors;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: transparent;
 }
 
 .ap-toggle:hover {
   @apply text-white;
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.24);
 }
 
 .ap-toggle.is-on {
   @apply text-white;
-  border-color: #02665e;
-  background: rgba(2, 102, 94, 0.3);
+  border-color: #0b8b7f;
+  background: rgba(2, 102, 94, 0.25);
 }
 
-/* Beds */
-.ap-beds {
-  @apply grid gap-2 sm:grid-cols-2 xl:grid-cols-4;
-}
-
-.ap-bed {
-  @apply box-border flex min-w-0 items-center gap-2.5 rounded-lg border border-solid p-2.5 transition-colors;
-  border-color: rgba(255, 255, 255, 0.14);
+/* A two-way choice as one segmented switch: a track, the chosen side filled */
+.ap-toggles.is-seg {
+  @apply box-border h-10 gap-1 border border-solid p-[3px];
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.03);
 }
 
+.ap-toggles.is-seg .ap-toggle {
+  @apply h-full gap-1.5 border-0 px-2 text-white/60;
+  border-radius: 0.25rem;
+  background: transparent;
+}
+
+.ap-toggles.is-seg .ap-toggle:hover:not(.is-on) {
+  @apply text-white;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ap-toggles.is-seg .ap-toggle.is-on {
+  @apply text-white;
+  background: #02665e;
+}
+
+.ap-toggles.is-seg .ap-toggle svg {
+  @apply h-4 w-4 flex-shrink-0;
+}
+
+.ap-toggle-help {
+  @apply hidden truncate text-[12px] font-normal text-white/45 md:inline;
+}
+
+.ap-toggles.is-seg .ap-toggle.is-on .ap-toggle-help {
+  @apply text-white/70;
+}
+
+/* Beds: each type is a small card, name on top and its own counter below,
+   so long names never collide with the buttons. */
+.ap-beds {
+  @apply grid grid-cols-2 gap-2 xl:grid-cols-4;
+}
+
+.ap-bed {
+  @apply box-border flex min-w-0 flex-col gap-2.5 border border-solid p-2.5 transition-colors;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: transparent;
+}
+
 .ap-bed.is-on {
-  border-color: #02665e;
-  background: rgba(2, 102, 94, 0.22);
+  border-color: #0b8b7f;
+  background: rgba(2, 102, 94, 0.18);
+}
+
+.ap-bed-top {
+  @apply flex min-w-0 items-center gap-2.5;
 }
 
 .ap-bed-ico {
-  @apply flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-white/60;
-  background: rgba(255, 255, 255, 0.08);
+  @apply flex h-8 w-8 flex-shrink-0 items-center justify-center text-white/55;
+  border-radius: 0.375rem;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .ap-bed.is-on .ap-bed-ico {
   @apply text-white;
   background: #02665e;
+}
+
+.ap-bed-copy {
+  @apply flex min-w-0 flex-col;
+}
+
+.ap-bed-name {
+  @apply truncate text-[13px] font-semibold leading-tight text-white;
+}
+
+.ap-bed-size {
+  @apply truncate text-[11px] leading-tight text-white/45;
+}
+
+/* minus, count, plus: one row across the card */
+.ap-bed-step {
+  @apply box-border grid h-8 grid-cols-[2rem_minmax(0,1fr)_2rem] items-stretch overflow-hidden border border-solid;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.add-property-view .ap-bed-step-btn {
+  @apply box-border flex h-full w-full cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-white/70 transition-colors;
+}
+
+.add-property-view .ap-bed-step-btn:hover:not(:disabled) {
+  @apply text-white;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.add-property-view .ap-bed-step-btn:disabled {
+  @apply cursor-not-allowed opacity-30;
+}
+
+.add-property-view .ap-bed-step-btn.is-plus {
+  @apply text-white;
+  background: #02665e;
+}
+
+.add-property-view .ap-bed-step-btn.is-plus:hover:not(:disabled) {
+  background: #03786f;
+}
+
+.ap-bed-step-val {
+  @apply flex items-center justify-center text-[13.5px] font-semibold tabular-nums text-white;
+}
+
+.ap-bed:not(.is-on) .ap-bed-step-val {
+  @apply text-white/45;
 }
 
 /* Keep the bedroom list stable while editing one bedroom beside it. */
@@ -1142,18 +1425,52 @@
 
 .ap-unit-finish { display: grid; gap: 20px; }
 .ap-unit-finish > :first-child { max-width: 900px; }
-.ap-unit-pricing { display: flex; box-sizing: border-box; width: 100%; max-width: 900px; flex-direction: column; gap: 14px; min-width: 0; padding: 16px; border: 1px solid rgba(255, 255, 255, 0.13); border-radius: 10px; background: rgba(255, 255, 255, 0.025); }
-.ap-unit-pricing-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
-.ap-unit-pricing-head h4 { margin: 0; color: #fff; font-size: 15px; font-weight: 700; }
-.ap-unit-pricing-head p { margin: 2px 0 0; color: rgba(255, 255, 255, 0.6); font-size: 12px; }
-.ap-unit-capacity { padding: 5px 9px; border-radius: 999px; background: rgba(2, 102, 94, 0.7); color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.ap-unit-pricing { display: flex; box-sizing: border-box; width: 100%; flex-direction: column; gap: 14px; min-width: 0; padding: 16px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0.5rem; background: rgba(255, 255, 255, 0.02); }
+
+/* Nightly price, whole place: header, then price and rule side by side */
+.ap-np-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; }
+.ap-np-head h4 { margin: 0; color: #fff; font-size: 15px; font-weight: 600; }
+.ap-np-head p { margin: 2px 0 0; color: rgba(255, 255, 255, 0.45); font-size: 12.5px; }
+.ap-np-cap { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 0.375rem; background: rgba(2, 102, 94, 0.3); color: #c9f1ec; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.ap-np-cap svg { color: #19b3a4; }
+.ap-np-cap.is-muted { background: transparent; padding: 4px 0; color: rgba(255, 255, 255, 0.4); font-weight: 500; }
+.ap-np-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; align-items: end; }
+.ap-np-grid .ap-label { display: block; margin-bottom: 6px; }
+.ap-np-extra { padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.ap-np-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; height: 40px; box-sizing: border-box; padding: 3px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 0.375rem; background: rgba(255, 255, 255, 0.03); }
+.add-property-view .ap-np-seg-btn { min-width: 0; border: 0; border-radius: 0.25rem; background: transparent; color: rgba(255, 255, 255, 0.6); font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; }
+.add-property-view .ap-np-seg-btn:hover:not(:disabled):not(.is-on) { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.add-property-view .ap-np-seg-btn.is-on { background: #02665e; color: #fff; }
+.add-property-view .ap-np-seg-btn:disabled { cursor: not-allowed; opacity: 0.35; }
+.add-property-view .ap-np-seg-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.ap-np-hint { display: flex; align-items: flex-start; gap: 6px; margin: -4px 0 0; color: rgba(255, 255, 255, 0.5); font-size: 12px; line-height: 1.45; }
+.ap-np-hint svg { margin-top: 2px; flex-shrink: 0; color: #19b3a4; }
+/* The section shows the price as one summary line; editing opens the popup */
+.ap-np-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px; border: 1px dashed rgba(255, 255, 255, 0.18); border-radius: 0.375rem; }
+.ap-np-summary.is-set { border-style: solid; border-color: rgba(11, 139, 127, 0.55); background: rgba(2, 102, 94, 0.1); }
+.ap-np-summary-ico { display: flex; height: 36px; width: 36px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 0.375rem; background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.55); }
+.ap-np-summary.is-set .ap-np-summary-ico { background: #02665e; color: #fff; }
+.ap-np-summary-label { display: block; color: rgba(255, 255, 255, 0.45); font-size: 11.5px; font-weight: 500; }
+.ap-np-summary-value { display: block; color: #fff; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ap-np-summary-value small { margin-left: 4px; color: rgba(255, 255, 255, 0.45); font-size: 12px; font-weight: 500; }
+.ap-np-summary-rule { display: block; margin-top: 1px; color: rgba(255, 255, 255, 0.55); font-size: 12px; }
+.ap-np-summary-rule.is-warn { color: #fbbf24; }
+.ap-np-body { display: flex; flex-direction: column; gap: 14px; padding: 4px 16px 0; }
+.ap-np-body .ap-label { display: block; margin-bottom: 6px; }
+.ap-np-body .ap-np-hint { margin: 8px 0 0; }
+.ap-pop.ap-pop-wide { max-width: 36rem; }
+.ap-unit-money-input.is-big { height: 48px; }
+.ap-unit-money-input.is-big input { font-size: 18px; }
+.ap-pop-ok:disabled { cursor: not-allowed; opacity: 0.45; }
+.ap-np-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+@media (max-width: 640px) { .ap-np-grid { grid-template-columns: minmax(0, 1fr); } .ap-np-actions > .ap-btn { flex: 1 1 auto; } }
 .ap-unit-base-rate { max-width: 380px; }
 .ap-unit-base-rate .ap-label, .ap-unit-rate-fields .ap-label { display: block; margin-bottom: 6px; }
-.ap-unit-money-input { display: flex; min-width: 0; height: 44px; align-items: center; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; background: #222a2d; }
-.ap-unit-money-input:focus-within { border-color: #0ba89b; outline: 2px solid rgba(11, 168, 155, 0.22); }
-.ap-unit-money-input > span { align-self: stretch; display: flex; align-items: center; padding: 0 12px; border-right: 1px solid rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.7); font-size: 11px; font-weight: 700; }
-.ap-unit-money-input input { width: 100%; min-width: 0; height: 100%; padding: 0 12px; border: 0; outline: 0; background: transparent; color: #fff; font: inherit; font-size: 14px; }
-.ap-unit-money-input input::placeholder { color: rgba(255, 255, 255, 0.38); }
+.ap-unit-money-input { display: flex; box-sizing: border-box; min-width: 0; height: 40px; align-items: center; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 0.375rem; background: rgba(255, 255, 255, 0.035); }
+.ap-unit-money-input:focus-within { border-color: #0b8b7f; box-shadow: 0 0 0 2px rgba(11, 139, 127, 0.3); }
+.ap-unit-money-input > span { align-self: stretch; display: flex; align-items: center; padding: 0 12px; border-right: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.5); font-size: 11.5px; font-weight: 600; }
+.ap-unit-money-input input { width: 100%; min-width: 0; height: 100%; padding: 0 12px; border: 0; outline: 0; background: transparent; color: #fff; font: inherit; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ap-unit-money-input input::placeholder { color: rgba(255, 255, 255, 0.3); font-weight: 400; }
 .ap-unit-rate-rule { display: flex; flex-direction: column; gap: 7px; min-width: 0; margin: 5px 0 0; padding: 0; border: 0; }
 .ap-unit-rate-rule legend { margin-bottom: 7px; color: #fff; font-size: 12px; font-weight: 700; }
 .ap-unit-pricing .ap-unit-rate-rule { display: block; margin: 0; }
@@ -1235,26 +1552,60 @@
   @apply grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5;
 }
 
+/* An amenity chip. Every chip carries a checkbox square on the right, empty
+   when off and teal with a tick when on, so the choice is readable at a glance
+   and not only by a faint change of tint. */
 .ap-check {
-  @apply box-border flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-solid px-2 py-1.5 text-[12.5px] font-medium text-white/80 transition-colors;
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.03);
+  @apply box-border flex min-w-0 cursor-pointer items-center gap-2 border border-solid py-2 pl-2.5 pr-2 text-[12.5px] font-medium text-white/70 transition-colors;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: transparent;
+}
+
+.ap-check > span:not(.ap-check-ico) {
+  @apply min-w-0 flex-1 truncate;
+}
+
+.ap-check::after {
+  content: "";
+  @apply ml-auto h-4 w-4 flex-shrink-0;
+  border-radius: 0.25rem;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.28);
+  background: transparent center / 12px 12px no-repeat;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .ap-check:hover {
   @apply text-white;
-  border-color: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-check:hover::after {
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.5);
+}
+
+.ap-check:focus-within {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
 }
 
 .ap-check-ico {
-  @apply flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-white/55;
-  background: rgba(255, 255, 255, 0.08);
+  @apply flex h-6 w-6 flex-shrink-0 items-center justify-center text-white/50;
+  border-radius: 0.375rem;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .ap-check.is-on {
-  @apply text-white;
-  border-color: #02665e;
-  background: rgba(2, 102, 94, 0.22);
+  @apply font-semibold text-white;
+  border-color: #0b8b7f;
+  background: rgba(2, 102, 94, 0.2);
+}
+
+.ap-check.is-on::after {
+  box-shadow: none;
+  background-color: #0b8b7f;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
 }
 
 .ap-check.is-on .ap-check-ico {
@@ -1264,9 +1615,10 @@
 
 /* Price: unit | amount | per */
 .ap-price {
-  @apply box-border flex h-11 max-w-md items-stretch overflow-hidden rounded-lg border border-solid;
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.05);
+  @apply box-border flex h-10 max-w-md items-stretch overflow-hidden border border-solid;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .ap-price.is-set {
@@ -1274,17 +1626,18 @@
 }
 
 .ap-price:focus-within {
-  border-color: #02665e;
-  box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.45);
+  border-color: #0b8b7f;
+  box-shadow: 0 0 0 2px rgba(11, 139, 127, 0.3);
 }
 
 .ap-price-unit {
-  @apply flex flex-shrink-0 items-center px-3 text-[12px] font-bold text-white/55;
-  background: rgba(255, 255, 255, 0.04);
+  @apply flex flex-shrink-0 items-center border-0 border-l border-solid px-3 text-[12px] font-semibold text-white/45;
+  border-color: rgba(255, 255, 255, 0.08);
+  background: transparent;
 }
 
 .add-property-view .ap-price input {
-  @apply box-border h-full min-w-0 flex-1 border-0 bg-transparent px-3 font-mono text-[15px] font-bold tabular-nums text-white shadow-none outline-none;
+  @apply box-border h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-[14px] font-semibold tabular-nums text-white shadow-none outline-none;
 }
 
 .add-property-view .ap-price input:focus {
@@ -1937,9 +2290,19 @@ label.ap-btn {
 .ap-breakfast-option.is-on { border-color: #069b90; background: rgba(2, 102, 94, 0.22); color: #fff; font-weight: 700; }
 .ap-breakfast-option:focus-within { outline: 2px solid #36c5b8; outline-offset: 2px; }
 .ap-service-more { border-top: 1px solid rgba(255, 255, 255, 0.1); }
-.ap-service-more-toggle { display: flex; width: 100%; min-height: 43px; align-items: center; justify-content: space-between; padding: 9px 16px; border: 0; background: transparent; color: #fff; cursor: pointer; font-size: 12px; font-weight: 700; text-align: left; }
-.ap-service-more-toggle:hover { background: rgba(255, 255, 255, 0.04); }
-.ap-service-more-toggle:focus-visible { outline: 2px solid #36c5b8; outline-offset: -2px; }
+/* "More services": says what is inside and what is already picked */
+.ap-service-more-toggle { display: flex; width: 100%; align-items: center; gap: 12px; padding: 12px 16px; border: 0; background: transparent; color: #fff; cursor: pointer; font: inherit; text-align: left; transition: background 0.15s ease; }
+.ap-service-more-toggle:hover { background: rgba(255, 255, 255, 0.035); }
+.ap-service-more-toggle:focus-visible { outline: 2px solid #ffffff; outline-offset: -2px; }
+.ap-service-more-ico { display: inline-flex; height: 32px; width: 32px; flex-shrink: 0; align-items: center; justify-content: center; border: 1px dashed rgba(255, 255, 255, 0.25); border-radius: 0.375rem; color: rgba(255, 255, 255, 0.7); transition: transform 0.2s ease, border-color 0.15s ease, color 0.15s ease; }
+.ap-service-more-toggle:hover .ap-service-more-ico { border-color: #0b8b7f; color: #19b3a4; }
+.ap-service-more-toggle.is-open .ap-service-more-ico { transform: rotate(45deg); border-style: solid; border-color: #0b8b7f; color: #19b3a4; }
+.ap-service-more-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
+.ap-service-more-copy strong { font-size: 13.5px; font-weight: 600; color: #fff; }
+.ap-service-more-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: rgba(255, 255, 255, 0.5); }
+.ap-service-more-badge { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; border-radius: 0.25rem; background: rgba(2, 102, 94, 0.35); padding: 2px 8px; color: #c9f1ec; font-size: 12px; font-weight: 600; }
+.ap-service-more-chev { flex-shrink: 0; color: rgba(255, 255, 255, 0.45); transition: transform 0.2s ease; }
+.ap-service-more-toggle.is-open .ap-service-more-chev { transform: rotate(180deg); }
 .ap-service-more-content { border-top: 1px solid rgba(255, 255, 255, 0.08); }
 .ap-service-more-content .ap-breakfast-choice { padding: 12px 16px 2px; }
 .ap-service-legacy-mall { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px; border-top: 1px solid rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.72); font-size: 12px; }
@@ -2034,31 +2397,37 @@ label.ap-btn {
 }
 
 .ap-place-form {
-  @apply box-border flex flex-col gap-3 rounded-lg border border-solid p-3;
-  border-color: #02665e;
-  background: rgba(2, 102, 94, 0.08);
+  @apply box-border flex flex-col gap-4 border border-solid p-4;
+  border-radius: 0.5rem;
+  border-color: rgba(11, 139, 127, 0.45);
+  background: rgba(255, 255, 255, 0.025);
   width: 100%;
   max-width: 1040px;
   margin-inline: auto;
 }
 
-.ap-place-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.7fr); gap: 12px; }
+/* Place, its name when it is not in the list, and distance: one row */
+.ap-place-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(180px, 0.6fr); gap: 12px 16px; align-items: start; }
+.ap-place-main.has-name { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(160px, 0.55fr); }
 .ap-place-main > div, .ap-place-secondary > div { min-width: 0; }
 .ap-place-main .ap-label, .ap-place-secondary .ap-label { margin-bottom: 6px; }
 .ap-place-name-label { margin-top: 11px; }
 .ap-place-select-wrap { position: relative; }
-.ap-place-select-wrap .ap-select { width: 100%; height: 44px; padding-right: 38px; }
-.ap-place-select-wrap > svg { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: rgba(255, 255, 255, 0.65); pointer-events: none; }
-.ap-place-distance-summary { display: flex; box-sizing: border-box; min-height: 44px; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid rgba(6, 155, 144, 0.4); border-radius: 8px; background: rgba(2, 102, 94, 0.15); color: #fff; }
+.ap-place-select-wrap .ap-select { width: 100%; height: 40px; padding-right: 38px; }
+.ap-place-select-wrap > svg { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: rgba(255, 255, 255, 0.35); pointer-events: none; }
+.ap-place-distance-summary { display: flex; box-sizing: border-box; min-height: 40px; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid rgba(11, 139, 127, 0.45); border-radius: 0.375rem; background: rgba(2, 102, 94, 0.15); color: #fff; }
 .ap-place-distance-summary > svg { flex: none; color: #18b8aa; }
 .ap-place-distance-summary strong { white-space: nowrap; font-size: 13px; }
 .ap-place-distance-summary small { margin-left: auto; color: rgba(255, 255, 255, 0.55); font-size: 11px; text-align: right; }
-.ap-place-secondary { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 20px; }
+.ap-place-secondary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 20px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
 .ap-place-reach-field { flex: 1 1 400px; }
 .ap-place-link-field { flex: 0 1 285px; }
 .ap-reach.ap-place-reach { display: flex; flex-wrap: wrap; gap: 6px; }
-.ap-place-reach .ap-toggle { height: 36px; flex: 0 0 auto; padding-inline: 11px; font-size: 12px; }
-@media (max-width: 660px) { .ap-place-main { grid-template-columns: minmax(0, 1fr); } .ap-place-distance-summary small { margin-left: auto; } .ap-place-link-field { flex: 1 1 100%; } }
+.ap-place-reach .ap-toggle { height: 40px; flex: 0 0 auto; gap: 6px; padding-inline: 12px; font-size: 12.5px; font-weight: 500; }
+.ap-place-reach .ap-toggle.is-on { font-weight: 600; }
+.ap-place-reach .ap-toggle.is-on svg { color: #19b3a4; }
+@media (max-width: 860px) { .ap-place-main.has-name { grid-template-columns: minmax(0, 1fr) minmax(140px, 0.6fr); } .ap-place-main.has-name > div:first-child { grid-column: 1 / -1; } }
+@media (max-width: 660px) { .ap-place-main, .ap-place-main.has-name { grid-template-columns: minmax(0, 1fr); } .ap-place-distance-summary small { margin-left: auto; } .ap-place-link-field { flex: 1 1 100%; } }
 
 /* On/off switch that sits in a card header */
 .ap-switch {
@@ -2066,7 +2435,7 @@ label.ap-btn {
 }
 
 .ap-switch-text {
-  @apply text-[12px] font-bold uppercase tracking-[0.04em] text-white/55;
+  @apply text-[12.5px] font-medium text-white/50;
 }
 
 .ap-switch.is-on .ap-switch-text {
@@ -2074,7 +2443,7 @@ label.ap-btn {
 }
 
 .ap-switch-track {
-  @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200;
+  @apply relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200;
   background: rgba(255, 255, 255, 0.16);
 }
 
@@ -2083,12 +2452,12 @@ label.ap-btn {
 }
 
 .ap-switch-knob {
-  @apply absolute left-0.5 h-5 w-5 rounded-full bg-white transition-transform duration-200;
+  @apply absolute left-0.5 h-4 w-4 rounded-full bg-white transition-transform duration-200;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .ap-switch.is-on .ap-switch-knob {
-  transform: translateX(20px);
+  transform: translateX(16px);
 }
 
 .ap-switch:focus-visible {
@@ -2098,12 +2467,25 @@ label.ap-btn {
 }
 
 /* Short facts in one line, each with a round icon */
+/* Short facts as small chips, each with a plain teal icon */
 .ap-points {
-  @apply m-0 flex list-none flex-wrap gap-x-6 gap-y-2 p-0;
+  @apply m-0 flex list-none flex-wrap gap-2 p-0;
 }
 
 .ap-points li {
-  @apply flex items-center gap-2 text-[13px] text-white/80;
+  @apply flex items-center gap-2 border border-solid px-2.5 py-1.5 text-[12.5px] text-white/75;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.ap-points li svg {
+  @apply flex-shrink-0;
+  color: #19b3a4;
+}
+
+.ap-points-off {
+  @apply m-0 text-[12.5px] leading-relaxed text-white/45;
 }
 
 .ap-svc-ico.is-on {
@@ -2179,36 +2561,55 @@ label.ap-btn {
 
 .ap-toggles.is-compact .ap-toggle {
   @apply gap-1.5 px-2 text-[12.5px];
+  white-space: nowrap;
+}
+
+/* House rules: quiet sentence-case labels, not shouting caps */
+.ap-rules .ap-stat-label {
+  @apply text-[12px] font-medium normal-case tracking-normal text-white/70;
 }
 
 label.ap-stat-label {
   @apply block;
 }
 
-/* from | to, one joined control */
+/* from -> to, one joined control with two short time lists */
 .ap-range {
-  @apply box-border flex h-11 w-full items-stretch overflow-hidden rounded-lg border border-solid;
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
+  @apply box-border flex h-10 w-full items-stretch overflow-hidden border border-solid;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .ap-range:focus-within {
-  border-color: #02665e;
-  box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.45);
+  border-color: #0b8b7f;
+  box-shadow: 0 0 0 2px rgba(11, 139, 127, 0.3);
 }
 
-.add-property-view .ap-range input {
-  @apply box-border h-full min-w-0 flex-1 border-0 bg-transparent px-2.5 font-mono text-[14px] font-semibold tabular-nums text-white shadow-none outline-none;
+.add-property-view .ap-range input,
+.add-property-view .ap-range select {
+  @apply box-border h-full min-w-0 flex-1 cursor-pointer appearance-none border-0 bg-transparent px-2 text-center text-[14px] font-semibold tabular-nums text-white/45 shadow-none outline-none;
   color-scheme: dark;
+  background-image: none;
 }
 
-.add-property-view .ap-range input:focus {
+.add-property-view .ap-range select.is-set {
+  @apply text-white;
+}
+
+.add-property-view .ap-range select option {
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.add-property-view .ap-range input:focus,
+.add-property-view .ap-range select:focus {
   box-shadow: none;
 }
 
 .ap-range-sep {
-  @apply flex flex-shrink-0 items-center px-2 text-[12px] font-semibold text-white/45;
-  background: rgba(255, 255, 255, 0.04);
+  @apply flex flex-shrink-0 items-center px-1 text-white/30;
+  background: transparent;
 }
 
 .ap-input[type="time"] {
@@ -2303,33 +2704,37 @@ label.ap-stat-label {
 }
 
 .ap-type {
-  @apply box-border flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-solid px-2.5 py-2 transition-colors duration-150;
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.03);
+  @apply box-border flex h-10 min-w-0 cursor-pointer items-center gap-2 border border-solid px-3 transition-colors duration-150;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: transparent;
 }
 
 .ap-type:hover {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.04);
 }
 
+/* The icon is a hint, not a badge: no disc behind it */
 .ap-type-ico {
-  @apply flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-white/60 transition-colors duration-150;
-  background: rgba(255, 255, 255, 0.08);
+  @apply flex flex-shrink-0 items-center justify-center text-white/45 transition-colors duration-150;
 }
 
 .ap-type-name {
-  @apply min-w-0 flex-1 truncate text-[13px] font-semibold text-white;
+  @apply min-w-0 flex-1 truncate text-[13px] font-medium text-white/85;
 }
 
 .ap-type.is-selected {
-  border-color: var(--ap-brand);
-  background: rgba(2, 102, 94, 0.22);
+  border-color: #0b8b7f;
+  background: rgba(2, 102, 94, 0.18);
 }
 
 .ap-type.is-selected .ap-type-ico {
-  background: var(--ap-brand);
-  @apply text-white;
+  color: #19b3a4;
+}
+
+.ap-type.is-selected .ap-type-name {
+  @apply font-semibold text-white;
 }
 
 /* --------------------------------------------------------------- fields ---- */
@@ -2342,37 +2747,43 @@ label.ap-stat-label {
 }
 
 .ap-label {
-  @apply mb-1.5 block text-[12px] font-semibold text-white/80;
+  @apply mb-1.5 block text-[12px] font-medium text-white/70;
 }
 
 .add-property-view .ap-input,
 .add-property-view .ap-select,
 .ap-input,
 .ap-select {
-  @apply box-border h-11 w-full rounded-lg border border-solid px-3 text-[13.5px] text-white transition-colors duration-150;
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
+  @apply box-border h-10 w-full border border-solid px-3 text-[13.5px] text-white transition-colors duration-150;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
   font-family: inherit;
 }
 
 .ap-input::placeholder {
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .ap-input:hover,
 .ap-select:hover {
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.24);
 }
 
 .ap-input:focus,
 .ap-select:focus {
-  border-color: var(--ap-brand);
+  border-color: #0b8b7f;
   outline: none;
-  box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.45);
+  box-shadow: 0 0 0 2px rgba(11, 139, 127, 0.3);
 }
 
+/* Invalid is a calm red edge, not a glowing box */
 .ap-input.is-invalid {
-  border-color: #f87171;
+  border-color: rgba(248, 113, 113, 0.7);
+}
+
+.ap-input.is-invalid:focus {
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.2);
 }
 
 .ap-select {
@@ -2400,8 +2811,66 @@ label.ap-stat-label {
   background: rgba(255, 255, 255, 0.02);
 }
 
+/* The location path: four equal columns on a laptop, two on a phone. City
+   and postcode reuse it so they line up under Region and District instead of
+   stretching across the card. */
+.ap-loc-grid {
+  @apply grid grid-cols-2 gap-x-3 gap-y-3 md:grid-cols-4;
+}
+
+.ap-loc-grid > * {
+  @apply min-w-0 space-y-1.5;
+}
+
+.ap-label-opt {
+  @apply ml-1 text-[11px] font-normal text-white/35;
+}
+
+.ap-field-hint {
+  @apply mt-1.5 flex items-center gap-1 text-[11.5px] text-[#19b3a4];
+  margin-bottom: 0;
+}
+
+/* "Enter coordinates by hand": a real, visible control, not a faint link */
+.ap-coords-toggle {
+  @apply flex h-10 cursor-pointer select-none list-none items-center gap-2 border border-solid px-3 text-[13px] font-semibold text-white/85 transition-colors;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.ap-coords-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.ap-coords-toggle:hover {
+  @apply text-white;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ap-coords-toggle svg:first-child {
+  color: #19b3a4;
+}
+
+.ap-coords[open] .ap-coords-toggle {
+  border-color: rgba(11, 139, 127, 0.7);
+}
+
+/* Coordinates are typed, not stepped: hide the number spinners */
+.ap-coords input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.ap-coords input[type="number"]::-webkit-outer-spin-button,
+.ap-coords input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .ap-field-error {
-  @apply mt-1.5 flex items-center gap-1 text-[12px] font-medium text-red-300;
+  @apply mt-1.5 flex items-center gap-1 text-[11.5px] font-normal text-red-300/90;
   margin-bottom: 0;
 }
 
@@ -2416,65 +2885,72 @@ label.ap-stat-label {
 }
 
 .ap-opt {
-  @apply box-border relative flex cursor-pointer items-start gap-2.5 rounded-lg border border-solid p-3 transition-colors duration-150;
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.03);
+  @apply box-border relative flex cursor-pointer items-start gap-2.5 border border-solid px-3 py-2.5 transition-colors duration-150;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: transparent;
 }
 
 .ap-opt:hover {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.04);
 }
 
+/* The icon is a hint beside the name, not a badge: no disc behind it */
 .ap-opt-ico {
-  @apply flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-white/60 transition-colors duration-150;
-  background: rgba(255, 255, 255, 0.08);
+  @apply mt-px flex flex-shrink-0 items-center justify-center text-white/45 transition-colors duration-150;
 }
 
 .ap-opt-name {
-  @apply text-[13px] font-semibold text-white;
+  @apply pr-6 text-[13px] font-medium text-white/90;
 }
 
 .ap-opt-desc {
-  @apply mt-0.5 text-[11.5px] leading-snug text-white/55;
+  @apply mt-0.5 text-[11.5px] leading-snug text-white/45;
 }
 
 .ap-opt.is-selected {
-  border-color: var(--ap-brand);
-  background: rgba(2, 102, 94, 0.22);
+  border-color: #0b8b7f;
+  background: rgba(2, 102, 94, 0.18);
 }
 
 .ap-opt.is-selected .ap-opt-ico {
-  background: var(--ap-brand);
-  @apply text-white;
+  color: #19b3a4;
+}
+
+.ap-opt.is-selected .ap-opt-name {
+  @apply font-semibold text-white;
 }
 
 .ap-opt-check {
-  @apply absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full text-white;
-  background: var(--ap-brand);
+  @apply absolute right-2.5 top-2.5 flex h-4 w-4 items-center justify-center text-white;
+  border-radius: 0.25rem;
+  background: #0b8b7f;
 }
 
 /* A small inline control that belongs to the option above it */
 .ap-inline {
-  @apply mt-2.5 flex flex-wrap items-center gap-2 rounded-lg border border-solid px-3 py-2;
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.03);
+  @apply mt-2.5 flex flex-wrap items-center gap-2 border border-solid px-3 py-2;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .ap-inline-label {
-  @apply text-[12px] font-semibold text-white/80;
+  @apply text-[12px] font-medium text-white/70;
 }
 
 .ap-inline input {
-  @apply box-border h-8 w-16 rounded-md border border-solid px-2 text-center text-[12.5px] text-white;
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
+  @apply box-border h-8 w-16 border border-solid px-2 text-center text-[12.5px] text-white;
+  border-radius: 0.375rem;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .ap-inline input:focus {
-  border-color: var(--ap-brand);
+  border-color: #0b8b7f;
   outline: none;
-  box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.45);
+  box-shadow: 0 0 0 2px rgba(11, 139, 127, 0.3);
 }
 
 .add-property-stage-header {
@@ -3002,3 +3478,244 @@ button:active:not(:disabled) {
 
 
 /* end of add-property styles */
+
+
+/* ===========================================================================
+   Nightly price popup (NightlyPriceDialog). A light card over the dark
+   builder, so the money decision feels calm and readable. Rendered into
+   <body>, so every rule here stands on its own.
+   ======================================================================== */
+.np-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  animation: ap-pop-fade 0.15s ease-out;
+}
+
+.np-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 30rem;
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 30px 70px -20px rgba(15, 23, 42, 0.45);
+  animation: ap-pop-in 0.18s ease-out;
+}
+
+.np-card * { box-sizing: border-box; }
+
+.np-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 6px;
+}
+
+.np-title { margin: 0; font-size: 17px; font-weight: 700; color: #0f172a; }
+.np-sub { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; font-size: 13px; color: #64748b; }
+.np-dot { width: 3px; height: 3px; border-radius: 999px; background: #94a3b8; }
+
+.np-close {
+  display: inline-flex; height: 32px; width: 32px; flex-shrink: 0; cursor: pointer;
+  align-items: center; justify-content: center; border: 0; border-radius: 0.375rem;
+  background: transparent; color: #64748b;
+}
+.np-close:hover { background: #f1f5f9; color: #0f172a; }
+
+.np-body {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  overflow-y: auto;
+  padding: 12px 20px 20px;
+}
+
+.np-label { display: block; margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #334155; }
+
+.np-money {
+  display: flex; height: 42px; min-width: 0; align-items: stretch; overflow: hidden;
+  border: 1px solid #cbd5e1; border-radius: 0.375rem; background: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.np-money:focus-within { border-color: #02665e; box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.15); }
+.np-money.is-bad { border-color: #f87171; }
+.np-money > span {
+  display: flex; align-items: center; padding: 0 12px; border-right: 1px solid #e2e8f0;
+  background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 600;
+}
+.np-money input {
+  width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0 12px;
+  color: #0f172a; font: inherit; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.np-money input::placeholder { color: #cbd5e1; font-weight: 500; }
+.np-money.is-big { height: 52px; }
+.np-money.is-big input { font-size: 22px; font-weight: 700; }
+
+.np-error { margin: 6px 0 0; font-size: 12.5px; color: #dc2626; }
+.np-hint { margin: 0; font-size: 12.5px; color: #64748b; }
+
+/* What the price means, live */
+.np-earn {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-top: 10px;
+  overflow: hidden; border: 1px solid #e2e8f0; border-radius: 0.375rem; background: #e2e8f0;
+}
+.np-earn > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; padding: 8px 10px; background: #f8fafc; }
+.np-earn span { font-size: 11.5px; color: #64748b; }
+.np-earn strong { font-size: 13.5px; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-earn > div.is-main { background: #e8f3f2; }
+.np-earn > div.is-main span { color: #02665e; }
+.np-earn > div.is-main strong { color: #02665e; }
+
+/* Two clear choices with a real radio mark */
+.np-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.np-option {
+  display: flex; min-width: 0; align-items: flex-start; gap: 10px; cursor: pointer; text-align: left;
+  border: 1px solid #e2e8f0; border-radius: 0.375rem; background: #ffffff; padding: 10px 12px; font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.np-option:hover:not(:disabled):not(.is-on) { border-color: #94a3b8; }
+.np-option:disabled { cursor: not-allowed; opacity: 0.5; }
+.np-option.is-on { border-color: #02665e; background: #f0f8f7; box-shadow: inset 0 0 0 1px #02665e; }
+.np-option strong { display: block; font-size: 13.5px; font-weight: 600; color: #0f172a; }
+.np-option small { display: block; margin-top: 2px; font-size: 12px; line-height: 1.35; color: #64748b; }
+.np-option:focus-visible { outline: 2px solid #02665e; outline-offset: 2px; }
+.np-radio {
+  margin-top: 2px; height: 16px; width: 16px; flex-shrink: 0; border-radius: 999px;
+  box-shadow: inset 0 0 0 1.5px #94a3b8; background: #ffffff;
+}
+.np-option.is-on .np-radio { box-shadow: inset 0 0 0 5px #02665e; }
+
+.np-extra {
+  display: flex; flex-direction: column; gap: 10px; margin-top: 10px; padding: 12px;
+  border-radius: 0.375rem; background: #f8fafc; border: 1px solid #e2e8f0;
+}
+.np-extra-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 11rem); align-items: center; gap: 12px; }
+.np-extra-label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: #334155; }
+.np-extra-label svg { color: #02665e; }
+
+.np-stepper {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; height: 42px; overflow: hidden;
+  border: 1px solid #cbd5e1; border-radius: 0.375rem; background: #ffffff;
+}
+.np-stepper button {
+  display: flex; align-items: center; justify-content: center; cursor: pointer; border: 0;
+  background: transparent; color: #334155;
+}
+.np-stepper button:hover:not(:disabled) { background: #f1f5f9; }
+.np-stepper button:disabled { cursor: not-allowed; opacity: 0.35; }
+.np-stepper > span { display: flex; align-items: center; justify-content: center; font-size: 13.5px; font-weight: 600; color: #0f172a; }
+
+.np-ladder { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
+.np-ladder-item {
+  display: flex; flex-direction: column; gap: 1px; padding: 6px 10px; border-radius: 0.375rem;
+  background: #ffffff; border: 1px solid #e2e8f0;
+}
+.np-ladder-item span { font-size: 11.5px; color: #64748b; }
+.np-ladder-item strong { font-size: 13px; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+
+.np-foot {
+  display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px;
+  border-top: 1px solid #e2e8f0; background: #f8fafc;
+}
+.np-btn {
+  display: inline-flex; height: 40px; align-items: center; gap: 6px; cursor: pointer;
+  border: 1px solid #cbd5e1; border-radius: 0.375rem; background: #ffffff; padding: 0 16px;
+  font: inherit; font-size: 13.5px; font-weight: 600; color: #334155;
+}
+.np-btn:hover:not(:disabled) { background: #f1f5f9; }
+.np-btn.is-primary { border-color: #02665e; background: #02665e; color: #ffffff; }
+.np-btn.is-primary:hover:not(:disabled) { background: #03786f; }
+.np-btn:disabled { cursor: not-allowed; opacity: 0.45; }
+
+@media (max-width: 520px) {
+  .np-options { grid-template-columns: minmax(0, 1fr); }
+  .np-earn { grid-template-columns: minmax(0, 1fr); }
+  .np-extra-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .np-foot > .np-btn { flex: 1 1 0; justify-content: center; }
+}
+
+
+/* Separate units: the unit type card and the saved list */
+.ap-unit-type-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px 16px; }
+.ap-unit-type-grid .ap-label { display: block; margin-bottom: 6px; }
+@media (max-width: 640px) { .ap-unit-type-grid { grid-template-columns: minmax(0, 1fr); } }
+/* A saved unit or unit layout: photo, name and count, facts as small chips,
+   the night total, then quiet actions */
+.ap-saved-unit { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 10px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0.375rem; color: rgba(255, 255, 255, 0.8); transition: border-color 0.15s ease; }
+.ap-saved-unit:hover { border-color: rgba(255, 255, 255, 0.2); }
+.ap-saved-unit.is-editing { border-color: #0b8b7f; background: rgba(2, 102, 94, 0.12); }
+.ap-saved-unit-thumb { display: flex; height: 52px; width: 64px; flex-shrink: 0; align-items: center; justify-content: center; overflow: hidden; border-radius: 0.375rem; background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.45); }
+.ap-saved-unit-thumb img { display: block; height: 100%; width: 100%; object-fit: cover; }
+.ap-saved-unit-title { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.ap-saved-unit-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; font-size: 14px; font-weight: 600; }
+.ap-saved-unit-badge { flex-shrink: 0; border-radius: 0.25rem; background: rgba(2, 102, 94, 0.35); padding: 1px 7px; color: #c9f1ec; font-size: 11.5px; font-weight: 600; }
+.ap-saved-unit-badge.is-editing { background: rgba(251, 191, 36, 0.15); color: #fcd34d; }
+.ap-saved-unit-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; color: rgba(255, 255, 255, 0.55); font-size: 12px; }
+.ap-saved-unit-facts > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.ap-saved-unit-facts svg { color: rgba(255, 255, 255, 0.4); }
+.ap-saved-unit-facts .is-price { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ap-saved-unit-facts .is-price svg { color: #19b3a4; }
+.ap-saved-unit-facts small { margin-left: 1px; color: rgba(255, 255, 255, 0.45); font-size: 11.5px; font-weight: 400; }
+.ap-saved-unit-total { display: flex; flex-shrink: 0; flex-direction: column; align-items: flex-end; gap: 1px; padding: 0 12px; border-left: 1px solid rgba(255, 255, 255, 0.08); }
+.ap-saved-unit-total span { color: rgba(255, 255, 255, 0.45); font-size: 11px; }
+.ap-saved-unit-total strong { color: #fff; font-size: 13.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ap-saved-unit-actions { display: flex; flex-shrink: 0; gap: 4px; }
+.add-property-view .ap-saved-unit-btn { display: inline-flex; height: 32px; width: 32px; cursor: pointer; align-items: center; justify-content: center; border: 0; border-radius: 0.375rem; background: transparent; color: rgba(255, 255, 255, 0.55); transition: background 0.15s ease, color 0.15s ease; }
+.add-property-view .ap-saved-unit-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.add-property-view .ap-saved-unit-btn.is-danger:hover { background: rgba(248, 113, 113, 0.12); color: #fca5a5; }
+@media (max-width: 640px) {
+  .ap-saved-unit { flex-wrap: wrap; }
+  .ap-saved-unit-total { order: 3; flex-direction: row; align-items: baseline; gap: 6px; padding: 8px 0 0; border-left: 0; border-top: 1px solid rgba(255, 255, 255, 0.08); width: 100%; }
+}
+
+.ap-unit-name-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.add-property-view .ap-unit-name-chip { cursor: pointer; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 0.375rem; background: transparent; padding: 4px 9px; color: rgba(255, 255, 255, 0.7); font: inherit; font-size: 12px; font-weight: 500; transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease; }
+.add-property-view .ap-unit-name-chip:hover { border-color: rgba(255, 255, 255, 0.28); color: #fff; }
+.add-property-view .ap-unit-name-chip.is-on { border-color: #0b8b7f; background: rgba(2, 102, 94, 0.25); color: #fff; }
+.ap-unit-count-hint { margin: 8px 0 0; color: rgba(255, 255, 255, 0.5); font-size: 12px; line-height: 1.45; }
+
+.ap-unit-mismatch { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 8px 0 0; color: #fbbf24; font-size: 12px; line-height: 1.45; }
+.add-property-view .ap-unit-mismatch button { cursor: pointer; border: 0; background: transparent; padding: 0; color: #fff; font: inherit; font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+
+
+/* InfoTip: a small light card next to an "i" button, drawn into <body>.
+   Short rows with an icon each, not paragraphs. */
+.it-card {
+  position: fixed;
+  z-index: 1250;
+  box-sizing: border-box;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 16px 40px -12px rgba(15, 23, 42, 0.4);
+  animation: ap-pop-in 0.14s ease-out;
+}
+.it-card * { box-sizing: border-box; }
+.it-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 8px 6px 12px; }
+.it-title { margin: 0; font-size: 13px; font-weight: 700; color: #0f172a; }
+.it-close { display: inline-flex; height: 24px; width: 24px; cursor: pointer; align-items: center; justify-content: center; border: 0; border-radius: 0.375rem; background: transparent; color: #94a3b8; }
+.it-close:hover { background: #f1f5f9; color: #0f172a; }
+.it-body { padding: 0 12px 12px; }
+.it-rows { display: flex; flex-direction: column; gap: 8px; }
+.it-row { display: flex; align-items: flex-start; gap: 10px; }
+.it-ico { display: inline-flex; height: 28px; width: 28px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 0.375rem; background: #e8f3f2; color: #02665e; }
+.it-row strong { display: block; font-size: 12.5px; font-weight: 600; line-height: 1.3; color: #0f172a; }
+.it-row span:not(.it-ico) { display: block; margin-top: 1px; font-size: 12px; line-height: 1.35; color: #64748b; }
+.it-example { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; border-top: 1px solid #f1f5f9; padding-top: 10px; }
+.it-chip { border: 1px solid #e2e8f0; border-radius: 0.375rem; background: #f8fafc; padding: 3px 8px; font-size: 11.5px; color: #334155; }
+.it-chip b { color: #02665e; font-weight: 700; }
+.it-sum { font-size: 11.5px; font-weight: 600; color: #02665e; }

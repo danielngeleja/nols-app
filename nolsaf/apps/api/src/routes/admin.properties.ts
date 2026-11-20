@@ -27,6 +27,7 @@ import {
   sendRestrictionOpenedEmail,
   sendRestrictionResolvedEmail,
 } from "../lib/restrictionCases.js";
+import { onAssistedPropertyApproved, onAssistedPropertyRejected } from "../lib/salesAssistedListing.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireAdmin as RequestHandler);
@@ -575,6 +576,26 @@ router.get("/", (async (req: AuthedRequest, res) => {
           // Skip this item entirely if even minimal serialization fails
         }
       }
+    }
+
+    // Listings a sales partner made for an owner carry a badge so the reviewer
+    // checks them a little more closely (lib/salesAssistedListing.ts). A
+    // separate, failure-tolerant lookup, so the list never depends on it.
+    try {
+      const ids = serializedItems.map((item) => item.id);
+      if (ids.length) {
+        const assisted = await (prisma as any).salesAssistedListing.findMany({
+          where: { propertyId: { in: ids } },
+          select: { propertyId: true, status: true, salesPartner: { select: { agentCode: true } } },
+        });
+        const byProperty = new Map<number, any>(assisted.map((row: any) => [row.propertyId, row]));
+        for (const item of serializedItems as any[]) {
+          const row = byProperty.get(item.id);
+          item.assistedListing = row ? { status: row.status, partnerCode: row.salesPartner?.agentCode ?? null } : null;
+        }
+      }
+    } catch {
+      // Not migrated yet, or unavailable: the list shows without badges.
     }
 
     const response: AdminPropertyListResponse = {
@@ -1288,6 +1309,15 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
       return;
     }
   }
+  // A listing a sales partner made for an owner cannot go live while the owner
+  // has queried it, or after it was withdrawn (lib/salesAssistedListing.ts).
+  const assisted = await (prisma as any).salesAssistedListing.findUnique({ where: { propertyId: id }, select: { status: true } }).catch(() => null);
+  if (assisted && ["PAUSED_OBJECTION", "CANCELLED"].includes(assisted.status)) {
+    res.status(409).json({ error: assisted.status === "PAUSED_OBJECTION"
+      ? "The owner queried this assisted listing. Resolve it in Sales, Assisted listings first."
+      : "This assisted listing was cancelled and cannot be approved." });
+    return;
+  }
   // Approve can only be used for initial approval (PENDING) or re-approval after rejection (REJECTED)
   // Once approved, properties can only be suspended/unsuspended, not re-approved
   // To restore a suspended property, use unsuspend instead
@@ -1409,6 +1439,8 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
     }),
   ]);
 
+  await onAssistedPropertyApproved(id);
+
   broadcastStatus(req, payload);
   res.json({ ok: true, id: updated.id, status: updated.status });
 }) as RequestHandler);
@@ -1506,6 +1538,8 @@ router.post("/:id/reject", (async (req: AuthedRequest, res) => {
       ua: req.headers["user-agent"] as string,
     }),
   ]);
+
+  await onAssistedPropertyRejected(id, parse.data.reasons, parse.data.note ?? null);
 
   broadcastStatus(req, payload);
   res.json({ ok: true, id: updated.id, status: updated.status });
@@ -1641,6 +1675,15 @@ router.post("/:id/unsuspend", (async (req: AuthedRequest, res) => {
   if (!parse.success) {
     const errors = parse.error.issues.map(e => `${e.path.join('.')}: ${e.message}`).join(', ');
     return res.status(400).json({ error: `Validation failed: ${errors}` });
+  }
+
+  // An assisted listing paused by the owner's query, or withdrawn, is restored
+  // only through Sales, Assisted listings, never by unsuspending it here.
+  const assistedRow = await (prisma as any).salesAssistedListing.findUnique({ where: { propertyId: id }, select: { status: true } }).catch(() => null);
+  if (assistedRow && ["PAUSED_OBJECTION", "CANCELLED"].includes(assistedRow.status)) {
+    return res.status(409).json({ error: assistedRow.status === "PAUSED_OBJECTION"
+      ? "The owner queried this assisted listing. Resolve it in Sales, Assisted listings."
+      : "This assisted listing was cancelled and cannot be put back on sale." });
   }
 
   const before = await prisma.property.findFirst({

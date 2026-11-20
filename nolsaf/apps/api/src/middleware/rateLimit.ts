@@ -756,6 +756,16 @@ export const limitSalesLeadCheck = rateLimit({
   },
 });
 
+/** The owner's "Not expecting this?" link on an assisted listing SMS. Public, so bounded per IP. */
+export const limitAssistedListingNotice = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many attempts. Please wait a moment and try again." },
+  keyGenerator: (req) => `assisted-notice:${req.ip || req.socket?.remoteAddress || "unknown"}`,
+});
+
 export const limitSalesLeadWrite = rateLimit({
   windowMs: 15 * 60_000,
   limit: 100,

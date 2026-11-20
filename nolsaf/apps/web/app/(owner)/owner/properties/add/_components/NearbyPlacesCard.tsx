@@ -206,9 +206,9 @@ function PlaceForm({
         </div>
       ) : null}
 
-      <div className="ap-place-main">
-        <div>
-          {isCatalogType(draft.type) && catalogOptions.length > 0 ? <><label className="ap-label" htmlFor={`place-catalog-${draft.id}`}>{draft.type}</label>
+      <div className={`ap-place-main${isCatalogType(draft.type) && catalogOptions.length > 0 && (!draft.pointCode || (points.length > 0 && !selectedPoint)) ? " has-name" : ""}`}>
+        {isCatalogType(draft.type) && catalogOptions.length > 0 ? <div>
+          {<><label className="ap-label" htmlFor={`place-catalog-${draft.id}`}>{draft.type}</label>
             <div className="ap-place-select-wrap"><select id={`place-catalog-${draft.id}`} className="ap-select" value={draft.pointCode ?? ""} onChange={(event) => {
               const point = points.find((item) => item.id === event.target.value);
               if (!point) { setDistanceText(""); set({ pointCode: undefined, name: "", distanceKm: "", distanceKind: undefined }); return; }
@@ -216,8 +216,10 @@ function PlaceForm({
               setDistanceText(distanceKm === "" ? "" : String(distanceKm));
               set({ pointCode: point.id, name: point.label, distanceKm, distanceKind: "straight_line" });
             }}><option value="">My place is not listed</option>{catalogOptions.map((point) => <option key={point.id} value={point.id} disabled={point.id !== initial.pointCode && usedPointCodes.has(point.id)}>{point.label} · {point.city}</option>)}</select><ChevronDown className="h-4 w-4" aria-hidden="true" /></div>
-          </> : null}
-          {!draft.pointCode || (points.length > 0 && !selectedPoint) ? <><label className={`ap-label${catalogOptions.length > 0 ? " ap-place-name-label" : ""}`} htmlFor={`place-name-${draft.id}`}>
+          </>}
+        </div> : null}
+        {!draft.pointCode || (points.length > 0 && !selectedPoint) ? <div>
+          <><label className="ap-label" htmlFor={`place-name-${draft.id}`}>
             Name <span className="text-red-300">*</span>
           </label>
           <input
@@ -228,10 +230,10 @@ function PlaceForm({
             placeholder={PLACEHOLDERS[draft.type]}
             className={`ap-input${nameError ? " is-invalid" : draft.name.trim().length >= 2 ? " is-set" : ""}`}
           />
-          {nameError ? <p className="ap-field-error">{nameError}</p> : null}</> : null}
-        </div>
+          {nameError ? <p className="ap-field-error">{nameError}</p> : null}</>
+        </div> : null}
         <div>
-          {selectedPoint ? <><span className="ap-label">From your property</span><div className="ap-place-distance-summary"><MapPin className="h-4 w-4" aria-hidden="true" /><strong>{from && distanceText ? `${distanceText} km` : "Set property pin"}</strong><small>{from ? "Straight-line distance" : "Needed to calculate distance"}</small></div></> : <><label className="ap-label" htmlFor={`place-distance-${draft.id}`}>Distance <span className="font-normal text-white/40">optional</span></label>
+          {selectedPoint ? <><span className="ap-label">From your property</span><div className="ap-place-distance-summary"><MapPin className="h-4 w-4" aria-hidden="true" /><strong>{from && distanceText ? `${distanceText} km` : "Set property pin"}</strong><small>{from ? "Straight-line distance" : "Needed to calculate distance"}</small></div></> : <><label className="ap-label" htmlFor={`place-distance-${draft.id}`}>Distance <span className="ap-label-opt">optional</span></label>
           <div className="ap-price">
             <input
               id={`place-distance-${draft.id}`}
@@ -286,7 +288,7 @@ function PlaceForm({
                   onClick={() => set({ reachableBy: on ? draft.reachableBy.filter((m) => m !== mode) : [...draft.reachableBy, mode] })}
                   className={`ap-toggle${on ? " is-on" : ""}`}
                 >
-                  <Icon className="h-4 w-4" />
+                  {on ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                   {label}
                 </button>
               );
@@ -294,14 +296,14 @@ function PlaceForm({
           </div>
         </div>
         <div className="ap-place-link-field">
-          <label className="ap-label" htmlFor={`place-url-${draft.id}`}>Website or map link <span className="font-normal text-white/40">optional</span></label>
+          <label className="ap-label" htmlFor={`place-url-${draft.id}`}>Website or map link <span className="ap-label-opt">optional</span></label>
           <input id={`place-url-${draft.id}`} type="url" value={draft.url ?? ""} onChange={(e) => set({ url: e.target.value })} placeholder="https://" className={`ap-input${urlError ? " is-invalid" : ""}`} />
           {urlError ? <p className="ap-field-error">{urlError}</p> : null}
         </div>
       </div>
 
       <div className="ap-form-actions">
-        <button type="button" onClick={onCancel} className="ap-btn">
+        <button type="button" onClick={onCancel} className="ap-btn-text">
           Cancel
         </button>
         <button type="button" onClick={save} disabled={tried && !canSave} className="ap-btn is-primary">

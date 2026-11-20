@@ -221,11 +221,29 @@ router.get("/leads/conversion-requests", limitSalesAdminRead, asyncHandler(async
     else entry.flagged += row._count._all;
     visitsByLead.set(row.leadId, entry);
   }
+  // Listed by the partner for the owner: the property to bind is already known.
+  // Looked up apart so the queue never depends on the assisted-listing table.
+  const assistedByLead = new Map<number, any>();
+  if (leadIds.length) {
+    try {
+      const rows = await db.salesAssistedListing.findMany({
+        where: { leadId: { in: leadIds } },
+        select: { leadId: true, propertyId: true, status: true, property: { select: { title: true, status: true } } },
+      });
+      for (const row of rows) assistedByLead.set(row.leadId, { propertyId: row.propertyId, status: row.status, property: row.property });
+    } catch {
+      // Not migrated yet: no assisted hints.
+    }
+  }
   res.json({
     total,
     page,
     pageSize,
-    leads: leads.map((lead: any) => ({ ...lead, visitSummary: visitsByLead.get(lead.id) ?? { verified: 0, flagged: 0 } })),
+    leads: leads.map((lead: any) => ({
+      ...lead,
+      visitSummary: visitsByLead.get(lead.id) ?? { verified: 0, flagged: 0 },
+      assistedListing: assistedByLead.get(lead.id) ?? null,
+    })),
   });
 }));
 

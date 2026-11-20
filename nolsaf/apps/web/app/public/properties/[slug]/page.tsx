@@ -247,7 +247,7 @@ function PropertyPhotoGrid({
     return "";
   };
   const tileButton =
-    "group relative block h-full w-full cursor-pointer overflow-hidden border-0 bg-slate-100 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e]";
+    "group relative block h-full w-full cursor-pointer overflow-hidden rounded-md border-0 bg-slate-100 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e]";
   const dim = "pointer-events-none absolute inset-0 bg-black/0 transition-colors duration-200 group-hover:bg-black/10";
   const showAllButton = total > 1 ? (
     <button
@@ -422,6 +422,8 @@ type RoomSpecRow = {
   roomsCount: number | null;
   bedsSummary: string;
   bookingMode: "ROOM" | "ENTIRE_UNIT";
+  /** "UNIT": one of several separate units of this type; null for rooms or the entire place. */
+  unitStyle: "UNIT" | null;
   bedrooms: Array<{ name: string; bedsSummary: string; sleeps: number | null }>;
   maxGuestsPerUnit: number | null;
   includedGuests: number | null;
@@ -950,6 +952,17 @@ function getBedDimensions(bedsSummary: string): string | null {
 
 }
 
+/**
+ * How guests book this listing: by the room, the entire place, or one of
+ * several separate units (see web lib/propertyBookingMode.ts).
+ */
+function listingBookingStyle(roomsSpec: unknown): "ROOMS" | "ENTIRE" | "UNITS" {
+  const list = Array.isArray(roomsSpec) ? roomsSpec : [];
+  if (list.some((room: any) => room?.bookingMode === "ENTIRE_UNIT" && room?.unitStyle === "UNIT")) return "UNITS";
+  if (list.some((room: any) => room?.bookingMode === "ENTIRE_UNIT")) return "ENTIRE";
+  return "ROOMS";
+}
+
 function normalizeRoomSpec(
   r: any, 
 
@@ -967,6 +980,7 @@ function normalizeRoomSpec(
   const roomsCount = roomsCountRaw == null ? null : (Number.isFinite(Number(roomsCountRaw)) ? Number(roomsCountRaw) : null);
   const bedsSummary = bedsToSummary(r?.beds);
   const bookingMode = r?.bookingMode === "ENTIRE_UNIT" ? "ENTIRE_UNIT" : "ROOM";
+  const unitStyle = bookingMode === "ENTIRE_UNIT" && r?.unitStyle === "UNIT" ? "UNIT" as const : null;
   const bedrooms = Array.isArray(r?.bedrooms) ? r.bedrooms.map((bedroom: any, index: number) => ({
     name: String(bedroom?.name || `Bedroom ${index + 1}`),
     bedsSummary: bedsToSummary(bedroom?.beds),
@@ -1015,6 +1029,7 @@ function normalizeRoomSpec(
     roomsCount,
     bedsSummary,
     bookingMode,
+    unitStyle,
     bedrooms,
     maxGuestsPerUnit: Number(r?.maxGuestsPerUnit) > 0 ? Number(r.maxGuestsPerUnit) : null,
     includedGuests: Number(r?.includedGuests) > 0 ? Number(r.includedGuests) : null,
@@ -1205,7 +1220,9 @@ function PropertyAvailabilityChecker({
   selectedRoomCode,
   onRoomTypeSelect,
   roomPrice,
+  roomInfo,
   entireUnit = false,
+  unitsListing = false,
   entireUnitLabel,
 
 }: {
@@ -1223,7 +1240,11 @@ function PropertyAvailabilityChecker({
   onRoomTypeSelect?: (roomCode: string | null) => void;
   /** Guest-facing nightly price for a room type, shown on each room option. */
   roomPrice?: (roomCode: string) => number | null;
+  /** The name guests know (not the internal room code) and one short fact line. */
+  roomInfo?: (roomCode: string) => { title: string; detail: string | null } | null;
   entireUnit?: boolean;
+  /** Separate units: guests choose one whole unit; wording says "unit", not "room". */
+  unitsListing?: boolean;
   entireUnitLabel?: string;
 
 }) {
@@ -1383,7 +1404,10 @@ function PropertyAvailabilityChecker({
     const isChecking = Boolean(checkIn && checkOut && !availability && !error);
     // Free rooms first, ordered by price in the chosen direction; sold out last.
     const roomOptions = roomOptionsFrom(availability)
-      .map((o) => ({ ...o, label: entireUnit ? `Entire ${entireUnitLabel || "place"}` : o.label, price: roomPrice?.(o.code) ?? null }))
+      .map((o) => {
+        const info = roomInfo?.(o.code) ?? null;
+        return { ...o, label: entireUnit ? `Entire ${entireUnitLabel || "place"}` : info?.title || o.label, detail: info?.detail ?? null, price: roomPrice?.(o.code) ?? null };
+      })
       .sort((a, b) => {
         if ((a.free > 0) !== (b.free > 0)) return a.free > 0 ? -1 : 1;
         if (a.price == null || b.price == null) return a.price == null ? (b.price == null ? 0 : 1) : -1;
@@ -1513,7 +1537,7 @@ function PropertyAvailabilityChecker({
                     <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100" aria-hidden>
                       <Check className="h-3 w-3 text-emerald-700" strokeWidth={3} />
                     </span>
-                    {rooms > 0 ? (entireUnit ? "Entire place available" : `${rooms} room${rooms === 1 ? "" : "s"} available`) : "Available"}
+                    {rooms > 0 ? (entireUnit ? "Entire place available" : unitsListing ? `${rooms} unit${rooms === 1 ? "" : "s"} available` : `${rooms} room${rooms === 1 ? "" : "s"} available`) : "Available"}
                     {nights > 0 && <span className="font-normal text-slate-500">· {nights} night{nights === 1 ? "" : "s"}</span>}
                   </p>
                   {loading && (
@@ -1525,10 +1549,10 @@ function PropertyAvailabilityChecker({
                 </div>
 
                 {roomOptions.length > 0 && (
-                  <fieldset className="m-0 mt-3 border-0 p-0">
-                    <legend className="sr-only">{entireUnit ? "Choose the entire place" : "Choose your room"}</legend>
+                  <fieldset className="m-0 mt-3 min-w-0 border-0 p-0">
+                    <legend className="sr-only">{entireUnit ? "Choose the entire place" : unitsListing ? "Choose your unit" : "Choose your room"}</legend>
                     <div className="mb-2 flex items-center justify-between gap-3">
-                      <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500" aria-hidden>{entireUnit ? "Choose the entire place" : "Choose your room"}</span>
+                      <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500" aria-hidden>{entireUnit ? "Choose the entire place" : unitsListing ? "Choose your unit" : "Choose your room"}</span>
                       {canSortByPrice && (
                         <button
                           type="button"
@@ -1542,7 +1566,7 @@ function PropertyAvailabilityChecker({
                       )}
                     </div>
                     <div className="space-y-2" role="radiogroup">
-                      {roomOptions.map(({ code, label, free, price }) => {
+                      {roomOptions.map(({ code, label, detail, free, price }) => {
                         const selected = selectedRoomCode === code;
                         const soldOutType = free <= 0;
                         const isLowest = !soldOutType && price != null && lowestPrice != null && price === lowestPrice;
@@ -1580,7 +1604,8 @@ function PropertyAvailabilityChecker({
                                   </span>
                                 )}
                               </span>
-                              <span className="mt-0.5 block text-[12px]">
+                              <span className="mt-0.5 block truncate text-[12px]">
+                                {detail ? <span className={soldOutType ? "text-slate-400" : "text-slate-500"}>{detail} · </span> : null}
                                 {soldOutType ? (
                                   <span className="text-slate-400">Sold out for these dates</span>
                                 ) : free <= 3 ? (
@@ -2607,6 +2632,23 @@ export default function PublicPropertyDetailPage() {
   }, [property, systemCommission]);
 
 
+  const roomOptionInfo = useMemo(() => {
+    const rows = property ? normalizeRoomsSpec(property.roomsSpec as any[], property.currency, property.basePrice, property, systemCommission) : [];
+    return (code: string | null | undefined): { title: string; detail: string | null } | null => {
+      if (!code || code === "default") return null;
+      const key = String(code).trim();
+      const row =
+        rows.find((r) => r.roomCode === key || r.roomType === key) ??
+        rows.find((r) => String(r.roomCode ?? r.roomType).replace(/-\d+$/, "") === key.replace(/-\d+$/, ""));
+      if (!row) return null;
+      const parts: string[] = [];
+      if (row.bookingMode === "ENTIRE_UNIT" && row.bedrooms.length > 0) parts.push(`${row.bedrooms.length} bedroom${row.bedrooms.length === 1 ? "" : "s"}`);
+      else if (row.bedsSummary && row.bedsSummary !== "-") parts.push(row.bedsSummary);
+      if (row.maxGuestsPerUnit) parts.push(`sleeps ${row.maxGuestsPerUnit}`);
+      return { title: row.roomType, detail: parts.length ? parts.join(" · ") : null };
+    };
+  }, [property, systemCommission]);
+
   const about = useMemo(() => {
     const fallback = "No description provided yet.";
     const raw = cleanPublicText(String(property?.description || ""));
@@ -3470,11 +3512,19 @@ export default function PublicPropertyDetailPage() {
                 types. A home is booked whole: show guests, bedrooms, bathrooms. */}
             {(() => {
               const roomTypeCount = Array.isArray(property.roomsSpec) ? property.roomsSpec.length : 0;
-              const entireUnit = Array.isArray(property.roomsSpec) && property.roomsSpec.some((room: any) => room?.bookingMode === "ENTIRE_UNIT");
+              const style = listingBookingStyle(property.roomsSpec);
+              const entireUnit = style === "ENTIRE";
+              const unitsListing = style === "UNITS";
+              const totalUnits = unitsListing ? (property.roomsSpec as any[]).reduce((sum: number, room: any) => sum + (Number(room?.roomsCount) || 0), 0) : 0;
               const byTheRoom =
-                !entireUnit && (/^(HOTEL|LODGE|GUEST_HOUSE|RESORT|HOSTEL|MOTEL)$/i.test(String(property.type || "").replace(/[\s-]+/g, "_")) || roomTypeCount > 1);
+                !entireUnit && !unitsListing && (/^(HOTEL|LODGE|GUEST_HOUSE|RESORT|HOSTEL|MOTEL)$/i.test(String(property.type || "").replace(/[\s-]+/g, "_")) || roomTypeCount > 1);
               const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-              const facts = (byTheRoom
+              const facts = (unitsListing
+                ? [
+                    totalUnits > 0 ? { Icon: DoorOpen, text: plural(totalUnits, "unit", "units") } : null,
+                    roomTypeCount > 0 ? { Icon: LayoutGrid, text: plural(roomTypeCount, "unit type", "unit types") } : null,
+                  ]
+                : byTheRoom
                 ? [
                     property.totalBedrooms ? { Icon: DoorOpen, text: plural(property.totalBedrooms, "room", "rooms") } : null,
                     roomTypeCount > 0 ? { Icon: LayoutGrid, text: plural(roomTypeCount, "room type", "room types") } : null,
@@ -3644,7 +3694,7 @@ export default function PublicPropertyDetailPage() {
             </div>
             {/* What's included and the live menu: moved out of the booking card so it stays focused */}
             {(servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 || property.nrmsMenuUrl) ? (
-              <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 sm:p-5">
+              <div className="rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3.5 sm:px-5">
               {servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 ? (() => {
                 // Keep included items, other available services, and safety distinct.
                 // Safety features are never presented as paid extras.
@@ -3656,31 +3706,24 @@ export default function PublicPropertyDetailPage() {
                 const hiddenCount = extras.length - LIMIT;
                 return (
                   <div>
-                    <h3 className="m-0 text-base font-bold text-slate-900">What this place offers</h3>
-                    <dl className="m-0 mt-3 space-y-2.5">
+                    <h3 className="m-0 text-[15px] font-bold text-slate-900">What this place offers</h3>
+                    {/* One compact list: a short label on the left, the items on one line on the right */}
+                    <dl className="m-0 mt-1.5">
                       {servicesByCategory.included.length > 0 && (
-                        <div className="rounded-xl border border-solid border-emerald-200 bg-emerald-50/60 p-3">
-                          <dt className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
-                            <CheckCircle2 className="h-3.5 w-3.5 flex-none" aria-hidden />
-                            Included in your price
-                          </dt>
-                          <dd className="m-0 mt-2 flex flex-wrap gap-1.5">
+                        <div className="grid items-center gap-x-3 gap-y-1 py-1 sm:grid-cols-[96px_minmax(0,1fr)]">
+                          <dt><span className="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200"><CheckCircle2 className="h-3 w-3" aria-hidden />Included</span></dt>
+                          <dd className="m-0 flex flex-wrap items-center gap-x-3.5 gap-y-1">
                             {servicesByCategory.included.map((item: string) => {
                               const meta = amenityMeta(item);
-                              // The row already says "in your price", so "Free parking"
-                              // reads as "Parking" and "Breakfast included" as "Breakfast".
+                              // The label already says "included", so "Free parking" reads as "Parking".
                               const short = item
                                 .replace(/\b(free|included|inclusive|complimentary)\b/gi, "")
                                 .replace(/\s{2,}/g, " ")
                                 .trim();
                               const label = short ? short.charAt(0).toUpperCase() + short.slice(1) : item;
                               return (
-                                <span
-                                  key={item}
-                                  title={item}
-                                  className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[12.5px] font-semibold text-emerald-900 ring-1 ring-inset ring-emerald-200"
-                                >
-                                  <meta.Icon className="h-3.5 w-3.5 flex-none text-emerald-700" aria-hidden />
+                                <span key={item} title={item} className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-slate-800">
+                                  <meta.Icon className="h-4 w-4 flex-none text-emerald-600" aria-hidden />
                                   {label}
                                 </span>
                               );
@@ -3689,17 +3732,14 @@ export default function PublicPropertyDetailPage() {
                         </div>
                       )}
                       {extras.length > 0 && (
-                        <div className="rounded-xl border border-solid border-slate-200 bg-slate-50 p-3">
-                          <dt className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-bold text-slate-800">
-                            Available at the property
-                            <span className="font-normal text-slate-500">Charges may apply</span>
-                          </dt>
-                          <dd className="m-0 mt-2 flex flex-wrap items-center gap-1.5">
+                        <div className="grid items-center gap-x-3 gap-y-1 py-1 sm:grid-cols-[96px_minmax(0,1fr)]">
+                          <dt><span className="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200"><Tags className="h-3 w-3" aria-hidden />On site</span></dt>
+                          <dd className="m-0 flex flex-wrap items-center gap-x-3.5 gap-y-1">
                             {shownExtras.map((item: string) => {
                               const meta = amenityMeta(item);
                               return (
-                                <span key={item} className="inline-flex items-center gap-1.5 rounded-full border border-solid border-slate-200 bg-white px-2.5 py-1 text-[12.5px] text-slate-700">
-                                  <meta.Icon className="h-3.5 w-3.5 flex-none text-slate-500" aria-hidden />
+                                <span key={item} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-700">
+                                  <meta.Icon className="h-4 w-4 flex-none text-slate-400" aria-hidden />
                                   {item}
                                 </span>
                               );
@@ -3709,26 +3749,24 @@ export default function PublicPropertyDetailPage() {
                                 type="button"
                                 onClick={() => setPriceServicesOpen((v) => !v)}
                                 aria-expanded={priceServicesOpen}
-                                className="border-0 bg-transparent px-1.5 py-1 text-[12.5px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 [font-family:inherit]"
+                                className="border-0 bg-transparent p-0 text-[13px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 [font-family:inherit]"
                               >
                                 {priceServicesOpen ? "Show less" : `+${hiddenCount} more`}
                               </button>
                             )}
+                            <span className="text-[11.5px] text-slate-400">may cost extra</span>
                           </dd>
                         </div>
                       )}
                       {safety.length > 0 && (
-                        <div className="rounded-xl border border-solid border-sky-100 bg-sky-50/50 p-3">
-                          <dt className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                            <ShieldCheck className="h-3.5 w-3.5 flex-none" aria-hidden />
-                            Safety at the property
-                          </dt>
-                          <dd className="m-0 mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                        <div className="grid items-center gap-x-3 gap-y-1 py-1 sm:grid-cols-[96px_minmax(0,1fr)]">
+                          <dt><span className="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold bg-sky-50 text-sky-800 ring-1 ring-inset ring-sky-200"><ShieldCheck className="h-3 w-3" aria-hidden />Safety</span></dt>
+                          <dd className="m-0 flex flex-wrap items-center gap-x-3.5 gap-y-1">
                             {safety.map((item: string) => {
                               const meta = amenityMeta(item);
                               return (
-                                <span key={item} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600">
-                                  <meta.Icon className="h-3.5 w-3.5 flex-none text-slate-400" aria-hidden />
+                                <span key={item} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-700">
+                                  <meta.Icon className="h-4 w-4 flex-none text-slate-400" aria-hidden />
                                   {item}
                                 </span>
                               );
@@ -3801,8 +3839,10 @@ export default function PublicPropertyDetailPage() {
               const checkingAvailability = hasDates && availabilityData == null;
               const hasRoomSelection = Boolean(selectedRoomCode);
               const canRequestBooking = hasDates && availabilityData?.available === true && hasRoomSelection;
-              const entireUnit = Array.isArray(property.roomsSpec) && property.roomsSpec.some((room: any) => room?.bookingMode === "ENTIRE_UNIT");
-              const bookingActionLabel = !hasDates ? "Check availability" : checkingAvailability ? "Checking availability" : soldOut ? "Not available" : !hasRoomSelection ? (entireUnit ? "Choose the whole unit" : "Choose a room to continue") : (entireUnit ? "Request entire place" : "Request booking");
+              const bookingStyle = listingBookingStyle(property.roomsSpec);
+              const entireUnit = bookingStyle === "ENTIRE";
+              const unitsListing = bookingStyle === "UNITS";
+              const bookingActionLabel = !hasDates ? "Check availability" : checkingAvailability ? "Checking availability" : soldOut ? "Not available" : !hasRoomSelection ? (entireUnit ? "Choose the whole unit" : unitsListing ? "Choose a unit to continue" : "Choose a room to continue") : (entireUnit ? "Request entire place" : "Request booking");
               // A selected room gives an exact base rate; guest-dependent charges
               // are added after the guest count is entered at checkout.
               const selectedNightly = roomNightlyPrice(selectedRoomCode);
@@ -3829,7 +3869,9 @@ export default function PublicPropertyDetailPage() {
                       selectedRoomCode={selectedRoomCode}
                       onRoomTypeSelect={setSelectedRoomCode}
                       roomPrice={roomNightlyPrice}
+                      roomInfo={roomOptionInfo}
                       entireUnit={entireUnit}
+                      unitsListing={unitsListing}
                       entireUnitLabel={String((property.roomsSpec as any[])?.find((room: any) => room?.bookingMode === "ENTIRE_UNIT")?.roomType || property.type || "place")}
                     />
                   </div>
@@ -4033,7 +4075,7 @@ export default function PublicPropertyDetailPage() {
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
               <DoorClosed className="w-5 h-5" aria-hidden />
             </span>
-            <h2 className="text-lg font-semibold text-slate-900">{Array.isArray(property.roomsSpec) && property.roomsSpec.some((room: any) => room?.bookingMode === "ENTIRE_UNIT") ? "The entire place" : "Rooms"}</h2>
+            <h2 className="text-lg font-semibold text-slate-900">{listingBookingStyle(property.roomsSpec) === "UNITS" ? "Units" : listingBookingStyle(property.roomsSpec) === "ENTIRE" ? "The entire place" : "Rooms"}</h2>
           </div>
           {(() => {
             const rows = normalizeRoomsSpec(property.roomsSpec, property.currency, property.basePrice, property, systemCommission);
@@ -4093,10 +4135,10 @@ export default function PublicPropertyDetailPage() {
                             {idx + 1}
                           </span>
                           <div className="min-w-0">
-                            <h3 className="m-0 truncate text-[17px] font-bold leading-tight text-slate-900">{r.bookingMode === "ENTIRE_UNIT" ? `Entire ${r.roomType}` : r.roomType}</h3>
+                            <h3 className="m-0 truncate text-[17px] font-bold leading-tight text-slate-900">{r.bookingMode === "ENTIRE_UNIT" && r.unitStyle !== "UNIT" ? `Entire ${r.roomType}` : r.roomType}</h3>
                             {typeof r.roomsCount === "number" && r.roomsCount > 0 ? (
                               <div className="text-[12px] text-slate-500">
-                                {r.bookingMode === "ENTIRE_UNIT" ? "All bedrooms are included in one booking" : `${r.roomsCount} ${r.roomsCount === 1 ? "room" : "rooms"} of this type`}
+                                {r.unitStyle === "UNIT" ? `${r.roomsCount} ${r.roomsCount === 1 ? "unit" : "units"} of this type · every bedroom included` : r.bookingMode === "ENTIRE_UNIT" ? "All bedrooms are included in one booking" : `${r.roomsCount} ${r.roomsCount === 1 ? "room" : "rooms"} of this type`}
                               </div>
                             ) : null}
                           </div>
@@ -4215,7 +4257,7 @@ export default function PublicPropertyDetailPage() {
                                   return (
                                     <>
                                       <div className="mb-2.5 flex items-center justify-between gap-3">
-                                        <span className="text-[12px] font-semibold text-slate-500">{allAmenities} amenities in this {r.bookingMode === "ENTIRE_UNIT" ? "place" : "room"}</span>
+                                        <span className="text-[12px] font-semibold text-slate-500">{allAmenities} amenities in this {r.unitStyle === "UNIT" ? "unit" : r.bookingMode === "ENTIRE_UNIT" ? "place" : "room"}</span>
                                         <button
                                           type="button"
                                           onClick={() => setOpenRoomAmen((prev) => toggleInSet(prev, idx))}
@@ -4277,7 +4319,7 @@ export default function PublicPropertyDetailPage() {
                             className="text-[22px] font-black leading-tight text-slate-900 tabular-nums"
                             noteClassName="text-xs font-normal text-slate-500 mt-0.5"
                           />
-                          <div className="text-xs text-slate-500">per night, {r.bookingMode === "ENTIRE_UNIT" ? "entire place" : "per room"}</div>
+                          <div className="text-xs text-slate-500">per night, {r.unitStyle === "UNIT" ? "whole unit" : r.bookingMode === "ENTIRE_UNIT" ? "entire place" : "per room"}</div>
                           {r.extraGuestFee && r.includedGuests && <div className="mt-1 text-[11px] text-slate-600">Includes {r.includedGuests} guest{r.includedGuests === 1 ? "" : "s"}; +{fmtMoney(r.extraGuestFee, property?.currency || "TZS")} per extra guest per night.</div>}
                           {r.discountLabel ? (
                             <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#02665e]/10 px-2 py-0.5 text-[11px] font-semibold text-[#02665e]">
@@ -4292,7 +4334,7 @@ export default function PublicPropertyDetailPage() {
                             onClick={reserve}
                             className="inline-flex h-11 cursor-pointer items-center justify-center rounded-xl border-0 bg-[#02665e] px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#014e47] active:scale-[0.98] md:w-full"
                           >
-                            {r.bookingMode === "ENTIRE_UNIT" ? "Book entire place" : "Pay now"}
+                            {r.unitStyle === "UNIT" ? "Book this unit" : r.bookingMode === "ENTIRE_UNIT" ? "Book entire place" : "Pay now"}
                           </button>
                           <span className="inline-flex items-center gap-1 text-[10.5px] text-slate-400">
                             <Lock className="h-2.5 w-2.5" aria-hidden />

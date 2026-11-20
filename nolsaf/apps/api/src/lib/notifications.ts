@@ -137,6 +137,14 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Sales partner agreement awaiting activation",
         body: `${data.agentCode || "A sales partner"} signed agreement ${data.contractNumber || ""}. Review and countersign it before activating workspace access.`
       },
+        sales_assisted_listing_submitted: {
+        title: "Assisted listing to review",
+        body: `${data.partnerCode || "A sales partner"} listed "${data.propertyTitle || "a property"}" for its owner. Review it in Properties (it carries the Assisted listing badge), then verify the conversion in Sales.`
+        },
+        sales_assisted_listing_objection: {
+        title: "Owner queried an assisted listing",
+        body: `The owner of "${data.propertyTitle || "a property"}" tapped "Not expecting this?" on a listing prepared by ${data.partnerCode || "a sales partner"}. The listing is paused. Call the owner, then cancel or resume it in Sales, Assisted listings.${data.note ? ` They wrote: "${data.note}"` : ""}`
+        },
         sales_partner_conversion_requested: {
         title: "Sales lead conversion awaiting review",
         body: `${data.propertyName || "A sales prospect"} was submitted for ${data.proposedProduct || "product"} conversion review${data.duplicateReviewStatus === "POSSIBLE_DUPLICATE" ? " and has a possible duplicate warning" : ""}.`
@@ -377,6 +385,14 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       : typeof data?.bookingReference === "string" ? data.bookingReference : null;
     // Create notification in database if Notification model exists
     const notificationTemplates: Record<string, { title: string; body: string }> = {
+      assisted_listing_started: {
+        title: "A NoLSAF partner is listing your property",
+        body: `${data.partnerName || "A NoLSAF sales partner"} is preparing ${data.propertyTitle || "a property"} to go live on NoLSAF for you. You do not need to do anything. Not expecting this? Open ${data.noticeLink || "the link in this notice"} or contact NoLSAF support.`
+      },
+      assisted_listing_live: {
+        title: "Your property is live on NoLSAF",
+        body: `${data.propertyTitle || "Your property"} is now live on NoLSAF. Add your payout account to receive booking money. Not expecting this? Open ${data.noticeLink || "the link in this notice"}.`
+      },
       guest_code_request_resolved: {
         title: "Guest check-in code resent",
         body: `NoLSAF resent the check-in code to the guest for booking ${data.bookingReference || ""}${data.destinationMasked ? ` (${data.destinationMasked})` : ""}. Ask the guest to show it at the desk.`
@@ -850,6 +866,22 @@ export async function notifyUser(userId: number, template: string, data: any) {
       sales_partner_attribution_approved: {
         title: "Property approved to your portfolio",
         body: `${data.propertyName || "A property"} has been verified as yours for ${data.productType || "the agreed product"}. It will now generate earnings for you.`
+      },
+      sales_assisted_listing_returned: {
+        title: "Listing returned for changes",
+        body: `NoLSAF returned "${data.propertyTitle || "your assisted listing"}" for changes.${data.reasons ? ` ${data.reasons}` : ""} Open the lead to fix it and submit again.`
+      },
+      sales_assisted_listing_approved: {
+        title: "Assisted listing is live",
+        body: `"${data.propertyTitle || "The property"}" you listed for its owner is now live on NoLSAF. The owner has been told by SMS.`
+      },
+      sales_assisted_listing_paused: {
+        title: "Assisted listing paused",
+        body: `"${data.propertyTitle || "A listing"}" was paused${data.reason ? `: ${data.reason}` : " while NoLSAF checks with the owner"}. You cannot edit it until NoLSAF resolves it.`
+      },
+      sales_assisted_listing_cancelled: {
+        title: "Assisted listing cancelled",
+        body: `"${data.propertyTitle || "A listing"}" was cancelled by NoLSAF.${data.reason ? ` Reason: ${data.reason}` : ""}`
       },
       sales_partner_attribution_verified: {
         title: "Property attribution verified",

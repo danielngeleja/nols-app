@@ -54,6 +54,8 @@ type Lead = {
   conversionRequestedAt: string;
   createdAt: string;
   visitSummary?: { verified: number; flagged: number };
+  /** Listed by the partner for the owner: the property to bind is already known. */
+  assistedListing?: { propertyId: number; status: string; property: { title: string; status: string } | null } | null;
   salesPartner: {
     id: number;
     agentCode: string;
@@ -262,7 +264,28 @@ export default function SalesReviewPage() {
         }),
         loadAllAttributions(),
       ]);
-      setLeads(queueResponse.data?.leads ?? []);
+      const queue: Lead[] = queueResponse.data?.leads ?? [];
+      setLeads(queue);
+      // An assisted listing names its own property: preselect it so the admin
+      // only confirms, instead of searching for a property the partner made.
+      setSelectedProperty((current) => {
+        const next = { ...current };
+        for (const item of queue) {
+          const assisted = item.assistedListing;
+          if (!assisted || next[item.id]) continue;
+          next[item.id] = {
+            id: assisted.propertyId,
+            title: assisted.property?.title || item.propertyName,
+            status: assisted.property?.status || "DRAFT",
+            city: null,
+            regionName: item.region,
+            listedAt: null,
+            owner: { id: 0, name: null, email: null },
+            salesAttributions: [],
+          };
+        }
+        return next;
+      });
       setAttributions(allAttributions);
     } catch (cause: any) {
       setError(messageFor(cause, "Could not load sales review data"));
@@ -646,6 +669,12 @@ export default function SalesReviewPage() {
                           })}
                         </dl>
                         <LeadVisitEvidence leadId={lead.id} summary={lead.visitSummary} />
+                        {lead.assistedListing ? (
+                          <p className="m-0 mt-3 rounded-lg border border-solid border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+                            Assisted listing: the partner listed &quot;{lead.assistedListing.property?.title || lead.propertyName}&quot; for the owner
+                            (property {lead.assistedListing.property?.status?.toLowerCase() || "draft"}). It is preselected below.
+                          </p>
+                        ) : null}
                       </div>
 
                       {/* Decision panel */}

@@ -1,6 +1,6 @@
 import Image from "next/image";
 import type { Dispatch, SetStateAction } from "react";
-import { AlertCircle, ArrowRight, BedDouble, Check, ChevronDown, Cigarette, CigaretteOff, Copy, House, Info, Minus, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowRight, Banknote, BedDouble, Building2, Check, ChevronDown, Cigarette, CigaretteOff, Copy, House, Info, Lock, Minus, Pencil, Plus, Trash2 } from "lucide-react";
 import { BATHROOM_ICONS, OTHER_AMENITIES_ICONS } from "@/lib/amenityIcons";
 import { useEffect, useMemo, useState } from "react";
 import { AddPropertySection } from "./AddPropertySection";
@@ -8,9 +8,9 @@ import { StepFooter } from "./StepFooter";
 import { FloorPlanner } from "./FloorPlanner";
 import { RoomPhotoSlots } from "./RoomPhotoSlots";
 import { EntireUnitEditor } from "./EntireUnitEditor";
+import { NightlyPriceDialog } from "./NightlyPriceDialog";
 import type { BedroomLayout } from "@/lib/listingInventory";
-import { isRoomOnlyPropertyType } from "@/lib/propertyBookingMode";
-import { OwnerPriceBreakdown } from "@/components/owner-property/OwnerPriceBreakdown";
+import { bookingModesForPropertyType, isRoomOnlyPropertyType, type PropertyBookingMode } from "@/lib/propertyBookingMode";
 import type { FloorUses } from "./floorUses";
 
 export { UNIT_AMENITY_ITEMS } from "./EntireUnitEditor";
@@ -103,8 +103,8 @@ export function RoomsStep({
   goToNextStep: () => void;
   buildingType: string;
   propertyType: string;
-  bookingMode: "ROOM" | "ENTIRE_UNIT";
-  setBookingMode: (value: "ROOM" | "ENTIRE_UNIT") => void;
+  bookingMode: PropertyBookingMode;
+  setBookingMode: (value: PropertyBookingMode) => void;
   unitBedrooms: BedroomLayout[];
   setUnitBedrooms: (value: BedroomLayout[]) => void;
   totalFloors: number | "";
@@ -166,6 +166,8 @@ export function RoomsStep({
   BED_ICONS: Record<string, any>;
 }) {
   const [customRoomTypeSelected, setCustomRoomTypeSelected] = useState(false);
+  // The room's nightly rate is edited in a popup card; the side panel shows the result.
+  const [roomPriceOpen, setRoomPriceOpen] = useState(false);
   useEffect(() => {
     if (ROOM_TYPE_NAMES.has(roomType)) setCustomRoomTypeSelected(false);
   }, [roomType]);
@@ -372,38 +374,54 @@ export function RoomsStep({
 
 
   const roomOnly = isRoomOnlyPropertyType(propertyType);
+  // An older listing saved in a style this type no longer offers keeps that style visible.
+  const allowedModes = bookingModesForPropertyType(propertyType);
+  const bookingModes = allowedModes.includes(bookingMode) ? allowedModes : [...allowedModes, bookingMode];
+  const MODE_LABELS: Record<PropertyBookingMode, { label: string; Icon: typeof House }> = {
+    ENTIRE_UNIT: { label: "Entire place", Icon: House },
+    UNITS: { label: "Separate units", Icon: Building2 },
+    ROOM: { label: "Individual rooms", Icon: BedDouble },
+  };
   const hasSavedWholeUnit = definedRooms.some((room) => room.bookingMode === "ENTIRE_UNIT");
   const modePicker = roomOnly
     ? hasSavedWholeUnit && <div className="mb-3 rounded-lg border border-solid border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" role="alert">
         {propertyType} listings use individually bookable rooms. Remove the saved whole-place unit below, then add its room types.
       </div>
     : <div className="ap-mode-bar">
-    <div className="ap-mode-bar-head">
-      <div className="ap-mode-bar-copy"><strong>How will guests book this {propertyType && propertyType !== "Other" ? propertyType.toLowerCase() : "property"}?</strong>
-        <span>This decides what one reservation includes and how you set the nightly price.</span>
+    <div className="ap-mode-row">
+      <p className="ap-mode-q">How will guests book this {propertyType && propertyType !== "Other" ? propertyType.toLowerCase() : "property"}?</p>
+      <div className="ap-mode-seg" role="radiogroup" aria-label="What guests book" style={{ gridTemplateColumns: `repeat(${bookingModes.length}, minmax(0, 1fr))` }}>
+        {bookingModes.map((value) => {
+          const { label, Icon } = MODE_LABELS[value];
+          return <button
+            key={value} type="button" role="radio" aria-checked={bookingMode === value}
+            disabled={definedRooms.length > 0 && bookingMode !== value}
+            className={`ap-mode-seg-btn${bookingMode === value ? " is-on" : ""}`}
+            onClick={() => {
+              setBookingMode(value);
+              setRoomType(value === "ENTIRE_UNIT" ? (propertyType || "Villa") : value === "UNITS" ? "" : "Single");
+              setRoomsCount(value === "ROOM" ? "" : 1);
+            }}
+          ><Icon className="h-4 w-4" aria-hidden />{label}</button>;
+        })}
       </div>
-      <span className="ap-mode-bar-tag">Affects price &amp; availability</span>
     </div>
-    <div className="ap-mode-options" role="radiogroup" aria-label="What guests book">
-        {([
-          { value: "ENTIRE_UNIT", label: "The entire place", detail: "One booking includes every bedroom. Set one price for the whole place.", Icon: House },
-          { value: "ROOM", label: "Individual rooms", detail: "Guests choose a room. Each room type has its own beds, photos and price.", Icon: BedDouble },
-        ] as const).map(({ value, label, detail, Icon }) => <button
-          key={value} type="button" role="radio" aria-checked={bookingMode === value}
-          disabled={definedRooms.length > 0 && bookingMode !== value}
-          className={`ap-mode-option${bookingMode === value ? " is-on" : ""}`}
-          onClick={() => { setBookingMode(value); setRoomType(value === "ENTIRE_UNIT" ? (propertyType || "Villa") : "Single"); setRoomsCount(value === "ENTIRE_UNIT" ? 1 : ""); }}
-        ><span className="ap-mode-option-icon"><Icon className="h-4 w-4" aria-hidden /></span>
-          <span className="ap-mode-option-copy"><strong>{label}</strong><span>{detail}</span></span>
-          {bookingMode === value && <Check className="ap-mode-option-check h-4 w-4" aria-hidden />}
-        </button>)}
-    </div>
-    {definedRooms.length > 0 && <p className="ap-mode-lock-note">Remove the saved room inventory to change this arrangement.</p>}
+    <p className="ap-mode-hint">
+      {definedRooms.length > 0
+        ? <><Lock className="h-3.5 w-3.5" aria-hidden />Locked while {bookingMode === "UNITS" ? "units" : "rooms"} are saved. Remove them to switch.</>
+        : bookingMode === "ENTIRE_UNIT"
+          ? <><Info className="h-3.5 w-3.5" aria-hidden />One booking takes every bedroom. You set one nightly price for the whole place.</>
+          : bookingMode === "UNITS"
+            ? <><Info className="h-3.5 w-3.5" aria-hidden />Several self-contained units at this address. A booking takes one whole unit, with everything inside it. The other units stay free for other guests.</>
+            : <><Info className="h-3.5 w-3.5" aria-hidden />Guests pick a room. Each room type gets its own beds, photos and nightly price.</>}
+    </p>
   </div>;
 
-  if (bookingMode === "ENTIRE_UNIT" && (!roomOnly || hasSavedWholeUnit)) return <AddPropertySection as="section" sectionRef={sectionRef} isVisible={isVisible} className="add-property-step-surface">
+  if ((bookingMode === "ENTIRE_UNIT" || bookingMode === "UNITS") && (!roomOnly || hasSavedWholeUnit)) return <AddPropertySection as="section" sectionRef={sectionRef} isVisible={isVisible} className="add-property-step-surface">
     {isVisible && <div className="w-full">{modePicker}<EntireUnitEditor
-      roomType={roomType}
+      unitsMode={bookingMode === "UNITS"} propertyType={propertyType}
+      roomType={roomType} setRoomType={setRoomType}
+      roomsCount={roomsCount} setRoomsCount={setRoomsCount}
       bedrooms={unitBedrooms} setBedrooms={setUnitBedrooms}
       roomDescription={roomDescription} setRoomDescription={setRoomDescription}
       bathItems={bathItems} setBathItems={setBathItems}
@@ -486,7 +504,7 @@ export function RoomsStep({
                           <Info className="h-3.5 w-3.5" />
                           Guide
                         </summary>
-                        <div className="absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded-lg border border-solid border-white/20 bg-[#1d2427] p-3.5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]">
+                        <div className="absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded-md border border-solid border-white/15 bg-[#1d2427] p-3.5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]">
                           <dl className="m-0 space-y-2 text-[12px]">
                             {[
                               ["Room class", "Standard, Deluxe and Executive describe the level or style of a room."],
@@ -525,7 +543,7 @@ export function RoomsStep({
                         <option value="Other">Other</option>
                         <option value="__custom__">Custom room name…</option>
                       </select>
-                      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" aria-hidden />
                     </div>
                     {customRoomType && <div className="mt-2">
                       <label htmlFor="custom-room-type" className="ap-label">Name shown to guests</label>
@@ -572,6 +590,7 @@ export function RoomsStep({
                         value={roomsCount as any}
                         onChange={(e) => setRoomsCount(numOrEmpty(e.target.value))}
                         type="number"
+                        inputMode="numeric"
                         min={1}
                         placeholder="0"
                         className={roomsCountOk ? "is-set" : ""}
@@ -591,7 +610,7 @@ export function RoomsStep({
                   {/* Smoking */}
                   <div>
                     <span className="ap-label">Smoking inside</span>
-                    <div className="ap-toggles" role="radiogroup" aria-label="Smoking allowed">
+                    <div className="ap-toggles is-seg" role="radiogroup" aria-label="Smoking allowed">
                       {[
                         { value: "no" as const, label: "Not allowed", icon: CigaretteOff },
                         { value: "yes" as const, label: "Allowed", icon: Cigarette },
@@ -670,31 +689,19 @@ export function RoomsStep({
                     const bedCount = beds[k] ?? 0;
                     return (
                       <div key={k} className={`ap-bed${bedCount > 0 ? " is-on" : ""}`}>
-                        <span className="ap-bed-ico">{BedIcon ? <BedIcon className="h-4 w-4" /> : null}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[13px] font-semibold text-white">{label} bed</span>
-                          <span className="block truncate text-[11.5px] text-white/50">{size}</span>
-                        </span>
-                        <span className="ap-stepper is-small">
-                          <button
-                            type="button"
-                            aria-label={`Remove one ${k} bed`}
-                            onClick={() => changeBed(k, -1)}
-                            disabled={bedCount === 0}
-                            className="ap-step-btn"
-                          >
+                        <div className="ap-bed-top">
+                          <span className="ap-bed-ico">{BedIcon ? <BedIcon className="h-4 w-4" /> : null}</span>
+                          <span className="ap-bed-copy"><span className="ap-bed-name">{label} bed</span><span className="ap-bed-size">{size}</span></span>
+                        </div>
+                        <div className="ap-bed-step">
+                          <button type="button" aria-label={`Remove one ${k} bed`} onClick={() => changeBed(k, -1)} disabled={bedCount === 0} className="ap-bed-step-btn">
                             <Minus className="h-3.5 w-3.5" />
                           </button>
-                          <span className="ap-step-val">{bedCount}</span>
-                          <button
-                            type="button"
-                            aria-label={`Add one ${k} bed`}
-                            onClick={() => changeBed(k, 1)}
-                            className="ap-step-btn is-plus"
-                          >
+                          <span className="ap-bed-step-val" aria-live="polite">{bedCount}</span>
+                          <button type="button" aria-label={`Add one ${k} bed`} onClick={() => changeBed(k, 1)} className="ap-bed-step-btn is-plus">
                             <Plus className="h-3.5 w-3.5" />
                           </button>
-                        </span>
+                        </div>
                       </div>
                     );
                   })}
@@ -760,7 +767,7 @@ export function RoomsStep({
                 <div className="ap-fields-3">
                   <div className="sm:col-span-2">
                     <span className="ap-label">Bathroom</span>
-                    <div className="ap-toggles" role="radiogroup" aria-label="Bathroom type">
+                    <div className="ap-toggles is-seg" role="radiogroup" aria-label="Bathroom type">
                       {[
                         { value: "yes" as const, label: "Private", help: "Only this room" },
                         { value: "no" as const, label: "Shared", help: "Used by others" },
@@ -774,7 +781,7 @@ export function RoomsStep({
                           className={`ap-toggle${bathPrivate === option.value ? " is-on" : ""}`}
                         >
                           {option.label}
-                          <span className="font-normal text-white/55">{option.help}</span>
+                          <span className="ap-toggle-help">{option.help}</span>
                         </button>
                       ))}
                     </div>
@@ -878,48 +885,50 @@ export function RoomsStep({
                 </div>
 
                 <aside className="ap-split-side">
-                  <label htmlFor="room-nightly-price" className="ap-label">
-                    Nightly rate, one {roomTypeOk ? roomType : "room"} <span className="text-red-300">*</span>
-                  </label>
-                  <div className={`ap-price is-lg${priceOk ? " is-set" : ""}`}>
-                    <span className="ap-price-unit">TZS</span>
-                    <input
-                      id="room-nightly-price"
-                      value={pricePerNight === "" ? "" : Number(pricePerNight).toLocaleString("en-US")}
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(/,/g, "");
-                        const val = numOrEmpty(raw);
-                        setPricePerNight(val);
-                      }}
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="50,000"
-                    />
-                  </div>
-                  {!priceOk && pricePerNight !== "" ? (
-                    <p className="ap-field-error">Minimum nightly price is TZS 5,000.</p>
-                  ) : null}
-
-                  <dl className="ap-rate">
-                    <div>
-                      <dt>{roomCountNum > 1 ? `All ${roomCountNum} rooms, one night` : "One room, one night"}</dt>
-                      <dd>
-                        {priceOk
-                          ? `TZS ${(Number(pricePerNight) * Math.max(1, roomCountNum)).toLocaleString("en-US")}`
-                          : "Not set"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Minimum rate</dt>
-                      <dd>TZS 5,000</dd>
-                    </div>
-                  </dl>
-                   <p className="m-0 ap-note">This is your rate for one room per night.</p>
-                  <fieldset className="ap-unit-rate-rule"><legend>Does the rate change with guest count?</legend><label className={`ap-unit-rate-option${unitPricingMode === "FLAT" ? " is-on" : ""}`}><input type="radio" name="room-pricing-mode" checked={unitPricingMode === "FLAT"} onChange={() => setUnitPricingMode("FLAT")} /><span><strong>Same price for all guests</strong><small>Up to {capacityOk ? roomMaxGuests : "the declared maximum"} per room</small></span></label><label className={`ap-unit-rate-option${unitPricingMode === "EXTRA_GUEST" ? " is-on" : ""}`}><input type="radio" name="room-pricing-mode" checked={unitPricingMode === "EXTRA_GUEST"} disabled={!capacityOk || Number(roomMaxGuests) < 2} onChange={() => setUnitPricingMode("EXTRA_GUEST")} /><span><strong>Charge for additional guests</strong><small>Set how many are included, then a fee for each extra guest.</small></span></label></fieldset>
-                  {unitPricingMode === "EXTRA_GUEST" && <div className="space-y-2"><div><label className="ap-label" htmlFor="room-included-guests">Guests included per room</label><input id="room-included-guests" className="ap-input" type="number" inputMode="numeric" min={1} max={Math.max(1, Number(roomMaxGuests) - 1)} value={unitIncludedGuests} onChange={(event) => setUnitIncludedGuests(event.target.value ? Number(event.target.value) : "")} placeholder="1" /></div><div><label className="ap-label" htmlFor="room-extra-guest-fee">Each extra guest, per night (TZS)</label><input id="room-extra-guest-fee" className="ap-input" inputMode="numeric" value={unitExtraGuestFee === "" ? "" : Number(unitExtraGuestFee).toLocaleString("en-US")} onChange={(event) => { const raw = event.target.value.replace(/[^0-9]/g, ""); setUnitExtraGuestFee(raw ? Number(raw) : ""); }} placeholder="20,000" /></div></div>}
-                  {unitPricingMode === "EXTRA_GUEST" && !guestPricingOk && <p className="ap-field-error">Include fewer guests than the room sleeps and set a positive extra-guest fee.</p>}
-                   {priceOk && <OwnerPriceBreakdown rate={Number(pricePerNight)} commissionPercent={commissionPercent} dark />}
-                   {priceOk && capacityOk && unitPricingMode === "EXTRA_GUEST" && guestPricingOk && <div className="ap-unit-rate-preview"><strong>Your rate with extra guests</strong><span>{roomMaxGuests} guests: TZS {(Number(pricePerNight) + (Number(roomMaxGuests) - Number(unitIncludedGuests)) * Number(unitExtraGuestFee)).toLocaleString("en-US")} per night, before the NoLSAF fee</span></div>}
+                  {(() => {
+                    const roomGuests = capacityOk ? Number(roomMaxGuests) : 0;
+                    const roomName = roomTypeOk ? roomType : "room";
+                    const ruleText = !priceOk
+                      ? `Set the rate for one ${roomName} per night.`
+                      : unitPricingMode === "EXTRA_GUEST"
+                        ? (guestPricingOk
+                          ? `Covers ${unitIncludedGuests} guest${Number(unitIncludedGuests) === 1 ? "" : "s"}, then TZS ${Number(unitExtraGuestFee).toLocaleString("en-US")} per extra guest`
+                          : "Extra guest fee not finished")
+                        : roomGuests > 0 ? `Same price for up to ${roomGuests} guests` : "Same price for every booking";
+                    const allRooms = roomCountNum > 1 && priceOk
+                      ? `All ${roomCountNum} rooms for one night: TZS ${(Number(pricePerNight) * roomCountNum).toLocaleString("en-US")} before the NoLSAF fee.`
+                      : null;
+                    return <>
+                      <span className="ap-label">Nightly rate, one {roomName} <span className="text-red-300">*</span></span>
+                      <div className={`ap-np-summary${priceOk && guestPricingOk ? " is-set" : ""}`}>
+                        <span className="ap-np-summary-ico" aria-hidden><Banknote className="h-4 w-4" /></span>
+                        <div className="min-w-0 flex-1">
+                          <strong className="ap-np-summary-value">{priceOk ? `TZS ${Number(pricePerNight).toLocaleString("en-US")}` : "Not set"}{priceOk ? <small> per night</small> : null}</strong>
+                          <span className={`ap-np-summary-rule${priceOk && !guestPricingOk ? " is-warn" : ""}`}>{ruleText}</span>
+                          {allRooms ? <span className="ap-np-summary-rule">{allRooms}</span> : null}
+                        </div>
+                        <button type="button" className={`ap-btn${priceOk ? "" : " is-primary"}`} onClick={() => setRoomPriceOpen(true)}>
+                          {priceOk ? <><Pencil className="h-4 w-4" />Edit</> : <><Banknote className="h-4 w-4" />Set rate</>}
+                        </button>
+                      </div>
+                      <NightlyPriceDialog
+                        open={roomPriceOpen}
+                        onClose={() => setRoomPriceOpen(false)}
+                        value={{ pricePerNight, pricingMode: unitPricingMode, includedGuests: unitIncludedGuests, extraGuestFee: unitExtraGuestFee }}
+                        guestCapacity={roomGuests}
+                        commissionPercent={commissionPercent}
+                        subject={`One ${roomName}`}
+                        priceLabel={`Your rate for one ${roomName} per night`}
+                        note={allRooms}
+                        onSave={(next) => {
+                          setPricePerNight(next.pricePerNight);
+                          setUnitPricingMode(next.pricingMode);
+                          setUnitIncludedGuests(next.includedGuests);
+                          setUnitExtraGuestFee(next.extraGuestFee);
+                        }}
+                      />
+                    </>;
+                  })()}
 
                   <ul className="ap-checklist is-stacked">
                     {requiredChecks.map((item) => (

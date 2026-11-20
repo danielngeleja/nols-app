@@ -8,7 +8,7 @@ import {
   Car,
   Check,
   ChevronDown,
-  ChevronUp,
+  Plus,
   Coffee,
   Dumbbell,
   FireExtinguisher,
@@ -125,6 +125,10 @@ export function ServicesStep({
     const s: any = services || {};
     return SERVICE_GROUPS.reduce((sum, g) => sum + g.items.filter((i) => !!s[i.key]).length, 0) + (s.breakfastIncluded || s.breakfastAvailable ? 1 : 0);
   }, [services]);
+  // What is behind "More services", so the owner knows whether to open it.
+  const moreItems = moreGroups.flatMap((group) => group.items);
+  const moreTotal = moreItems.length + (!hotelStyle ? 1 : 0);
+  const morePreview = moreItems.slice(0, 3).map((item) => item.label).join(", ");
   const moreCount = moreGroups.reduce((sum, group) => sum + group.items.filter((item) => !!services?.[item.key]).length, 0) + (!hotelStyle && (services?.breakfastIncluded || services?.breakfastAvailable) ? 1 : 0);
   const breakfastChoice = services?.breakfastIncluded ? "included" : services?.breakfastAvailable ? "extra" : "none";
 
@@ -268,7 +272,15 @@ export function ServicesStep({
               {hotelStyle ? <div className="ap-service-breakfast-wrap">{breakfastPicker}</div> : null}
               {renderGroups(priorityGroups)}
               <div className="ap-service-more">
-                <button type="button" className="ap-service-more-toggle" aria-expanded={showMoreServices} onClick={() => setShowMoreServices((value) => !value)}><span>{showMoreServices ? "Hide" : "Show"} more services{moreCount > 0 ? ` · ${moreCount} selected` : ""}</span>{showMoreServices ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>
+                <button type="button" className={`ap-service-more-toggle${showMoreServices ? " is-open" : ""}`} aria-expanded={showMoreServices} onClick={() => setShowMoreServices((value) => !value)}>
+                  <span className="ap-service-more-ico" aria-hidden><Plus className="h-4 w-4" /></span>
+                  <span className="ap-service-more-copy">
+                    <strong>{showMoreServices ? "Fewer services" : "More services"}</strong>
+                    <small>{showMoreServices ? "Hide the extra list" : `${moreTotal} more to choose from${morePreview ? `, like ${morePreview}` : ""}`}</small>
+                  </span>
+                  {moreCount > 0 ? <span className="ap-service-more-badge"><Check className="h-3.5 w-3.5" aria-hidden />{moreCount} selected</span> : null}
+                  <ChevronDown className="ap-service-more-chev h-4 w-4" aria-hidden />
+                </button>
                 {showMoreServices ? <div className="ap-service-more-content">{!hotelStyle ? breakfastPicker : null}{renderGroups(moreGroups)}</div> : null}
               </div>
               {services?.nearbyMall ? <div className="ap-service-legacy-mall"><span>“Mall nearby” was saved in the old service list. Add the named mall under Nearby places, then clear this old flag.</span><button type="button" onClick={() => setServices((previous: any) => ({ ...previous, nearbyMall: false }))}>Clear old flag</button></div> : null}

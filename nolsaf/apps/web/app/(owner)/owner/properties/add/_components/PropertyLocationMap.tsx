@@ -1,7 +1,8 @@
 "use client";
 // v2
-import { AlertCircle, CheckCircle2, LocateFixed, LocateOff, MapPin, X } from "lucide-react";
+import { AlertCircle, Car, Check, CheckCircle2, Copy, Eye, Info, LocateFixed, LocateOff, Map as MapIcon, MapPin, Navigation, X } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export type PropertyLocationDetectionMeta = {
   source?: "gps" | "pin";
@@ -478,6 +479,38 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
   }, []);
 
   const hasCoords = hasValidCoordinates(latitude, longitude);
+  const [copied, setCopied] = useState(false);
+  const [showPinInfo, setShowPinInfo] = useState(false);
+
+  useEffect(() => {
+    if (!showPinInfo) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setShowPinInfo(false); };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showPinInfo]);
+
+  const accuracyM = locationDetected && locationDetected.accuracy !== null && locationDetected.accuracy !== undefined
+    ? Math.round(locationDetected.accuracy)
+    : null;
+  const accuracyTone = accuracyM === null ? "hand" : accuracyM <= 30 ? "good" : accuracyM <= 100 ? "fair" : "weak";
+  const accuracyText = accuracyM === null ? "Placed by hand" : `GPS within ${accuracyM} m`;
+  const coordText = hasCoords ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : "";
+
+  const copyCoords = useCallback(async () => {
+    if (!coordText) return;
+    try {
+      await navigator.clipboard.writeText(coordText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Clipboard blocked: the numbers stay visible to copy by hand.
+    }
+  }, [coordText]);
 
   useEffect(() => {
     // Only dismiss hard errors once coords exist. Soft "info" hints (e.g. "drag
@@ -509,6 +542,17 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
 
             <div className="ap-card-head-copy">
               <p className="ap-card-title">Exact pin</p>
+              <button
+                type="button"
+                onClick={() => setShowPinInfo((v) => !v)}
+                className={`ap-info-btn${showPinInfo ? " is-on" : ""}`}
+                aria-expanded={showPinInfo}
+                aria-controls="pin-info"
+                aria-label="Why the exact pin matters"
+                title="Why the exact pin matters"
+              >
+                <Info className="h-4 w-4" />
+              </button>
               <p className="ap-card-sub">Where guests should arrive.</p>
             </div>
 
@@ -533,30 +577,87 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
           </div>
 
           <div className="ap-card-body ap-card-body-fill">
-            {hasCoords ? (
-              <dl className="ap-readout">
-                <div>
-                  <dt>Latitude</dt>
-                  <dd>{Number(latitude).toFixed(6)}</dd>
-                </div>
-                <div>
-                  <dt>Longitude</dt>
-                  <dd>{Number(longitude).toFixed(6)}</dd>
-                </div>
-                <div>
-                  <dt>Accuracy</dt>
-                  <dd>
-                    {locationDetected && locationDetected.accuracy !== null && locationDetected.accuracy !== undefined
-                      ? `${Math.round(locationDetected.accuracy)} m`
-                      : "By hand"}
-                  </dd>
-                </div>
-              </dl>
-            ) : (
-              <p className="m-0 text-[13px] leading-5 text-white/60">
-                Stand at the property and use your location, or drop the pin on the map yourself.
-              </p>
-            )}
+            {showPinInfo && typeof document !== "undefined"
+              ? createPortal(
+                  <div className="ap-pop-backdrop" onMouseDown={() => setShowPinInfo(false)}>
+                    <div
+                      id="pin-info"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="pin-info-title"
+                      className="ap-pop"
+                      onMouseDown={(event) => event.stopPropagation()}
+                    >
+                      <div className="ap-pop-head">
+                        <span className="ap-pop-badge" aria-hidden>
+                          <MapPin className="h-5 w-5" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p id="pin-info-title" className="ap-pop-title">Why the exact pin matters</p>
+                          <p className="ap-pop-sub">One point on the map does four jobs at NoLSAF.</p>
+                        </div>
+                        <button type="button" onClick={() => setShowPinInfo(false)} className="ap-pin-icon-btn" aria-label="Close" autoFocus>
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <div className="ap-pop-grid">
+                        {[
+                          { Icon: Navigation, title: "Guests find you", text: "After booking, guests get directions straight to this point. Put it on the main entrance or gate." },
+                          { Icon: Car, title: "Driver pickup and drop off", text: "NoLSAF drivers use this exact point for transfers and rides, so nobody waits on the wrong street." },
+                          { Icon: Eye, title: "Your privacy", text: "Hotels, lodges and guest houses show the exact pin. A private home shows only the area until a guest books." },
+                          { Icon: MapPin, title: "Search and nearby", text: "It places you in map search and works out distances to parks, hospitals and transport." },
+                        ].map(({ Icon, title: itemTitle, text }) => (
+                          <div key={itemTitle} className="ap-pop-item">
+                            <span className="ap-pop-item-ico" aria-hidden><Icon className="h-4 w-4" /></span>
+                            <p className="ap-pop-item-title">{itemTitle}</p>
+                            <p className="ap-pop-item-text">{text}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="ap-pop-foot">
+                        <p className="ap-pop-tip">
+                          <LocateFixed className="h-4 w-4" aria-hidden />
+                          Best result: stand at the entrance and tap Re-detect, or open the map and move the pin onto the gate.
+                        </p>
+                        <button type="button" onClick={() => setShowPinInfo(false)} className="ap-pop-ok">
+                          Got it
+                        </button>
+                      </div>
+                    </div>
+                  </div>,
+                  document.body,
+                )
+              : null}
+
+            {/* One compact line: where the pin is and how sure we are */}
+            <div className={`ap-pin-row${hasCoords ? "" : " is-empty"}`}>
+              <span className="ap-pin-row-ico" aria-hidden>
+                <MapPin className="h-4 w-4" />
+              </span>
+              <span className="ap-pin-row-copy">
+                {hasCoords ? (
+                  <>
+                    <span className="ap-pin-row-main">
+                      <span className="truncate tabular-nums">{coordText}</span>
+                      <button type="button" onClick={() => void copyCoords()} className="ap-pin-icon-btn" aria-label="Copy coordinates" title="Copy coordinates">
+                        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                      </button>
+                    </span>
+                    <span className={`ap-pin-acc is-${accuracyTone}`}>
+                      <span className="ap-pin-acc-dot" aria-hidden />
+                      {accuracyText}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="ap-pin-row-main">No pin yet</span>
+                    <span className="ap-pin-acc">Use your location at the property, or open the map.</span>
+                  </>
+                )}
+              </span>
+            </div>
 
             {locationDetected && locationDetected.accuracy !== null && locationDetected.accuracy !== undefined && locationDetected.accuracy > 100 ? (
               <p className="m-0 flex items-start gap-2 text-[12.5px] leading-5 text-white/80">
@@ -604,8 +705,8 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
               </button>
 
               <button type="button" onClick={openMap} className="ap-btn">
-                <MapPin className="h-4 w-4" />
-                {hasCoords ? "Adjust pin" : "Pin on map"}
+                <MapIcon className="h-4 w-4" />
+                Open map
               </button>
 
               {hasCoords && onClear ? (
