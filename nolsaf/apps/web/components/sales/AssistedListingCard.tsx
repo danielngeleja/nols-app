@@ -64,7 +64,6 @@ function eat(value: string | null) {
 export default function AssistedListingCard({ leadRef, onChanged, onState }: { leadRef: string; onChanged?: () => void; onState?: (summary: AssistedListingSummary | null) => void }) {
   const [state, setState] = useState<State | null>(null);
   const [error, setError] = useState("");
-  const [starting, setStarting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ ownerName: "", ownerPhone: "", ownerEmail: "" });
   const [confirmed, setConfirmed] = useState(false);
@@ -104,7 +103,6 @@ export default function AssistedListingCard({ leadRef, onChanged, onState }: { l
         ownerPhone: form.ownerPhone,
         ownerEmail: form.ownerEmail || null,
       });
-      setStarting(false);
       setConfirmed(false);
       await load();
       onChanged?.();
@@ -207,21 +205,13 @@ export default function AssistedListingCard({ leadRef, onChanged, onState }: { l
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
             {blocker}
           </p>
-        ) : !starting ? (
-          <button
-            type="button"
-            onClick={() => setStarting(true)}
-            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white transition hover:opacity-90"
-          >
-            <Building2 className="h-4 w-4" />
-            List it for the owner
-          </button>
         ) : (
           <div id="assisted-listing-start" className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="block">
                 <span className="mb-1.5 block text-[11px] font-bold text-slate-600">Owner's full name</span>
                 <input
+                  id="assisted-owner-name"
                   value={form.ownerName}
                   onChange={(event) => setForm({ ...form, ownerName: event.target.value })}
                   maxLength={160}
@@ -262,24 +252,24 @@ export default function AssistedListingCard({ leadRef, onChanged, onState }: { l
                 The owner agreed with me in person that I list this property for them. I understand NoLSAF will text them now, the owner sets their own payout details, and I cannot change the listing after I submit it.
               </span>
             </label>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => { setStarting(false); setError(""); }}
-                className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={busy || !confirmed || form.ownerName.trim().length < 3 || form.ownerPhone.trim().length < 9}
-                onClick={start}
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-sm font-bold text-white disabled:opacity-50"
-              >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                {busy ? "Starting" : "Start and text the owner"}
-              </button>
-            </div>
+            {(() => {
+              const missing = form.ownerName.trim().length < 3 ? "Add the owner's full name"
+                : form.ownerPhone.trim().length < 9 ? "Add the owner's mobile number"
+                : !confirmed ? "Tick the box to confirm the owner agreed"
+                : null;
+              return <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <button
+                  type="button"
+                  disabled={busy || Boolean(missing)}
+                  onClick={start}
+                  className="inline-flex min-h-10 items-center gap-2 rounded-md border-0 bg-[#073c35] px-4 text-sm font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                >
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {busy ? "Starting" : "Start listing"}
+                </button>
+                <span className="text-xs text-slate-500">{missing ?? "NoLSAF texts the owner as soon as you start."}</span>
+              </div>;
+            })()}
           </div>
         )}
       </div>

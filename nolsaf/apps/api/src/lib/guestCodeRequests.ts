@@ -31,7 +31,7 @@ export async function deliverGuestCheckinCode(booking: {
   code: { code: string };
 }): Promise<{ channel: GuestCodeChannel | null; destinationMasked: string | null }> {
   const reference = customerBookingReference(booking.id);
-  const message = `NoLSAF: Your property has asked you to present the check-in code for booking ${reference}. Find it in My Bookings or your booking message. Show it only if you are checking in. If unexpected, contact NoLSAF support.`;
+  const message = `Your property has asked you to present the check-in code for booking ${reference}. Find it in My Bookings or your booking message. Show it only if you are checking in. If unexpected, contact NoLSAF support.`;
   let channel: GuestCodeChannel | null = null;
   let destinationMasked: string | null = null;
 

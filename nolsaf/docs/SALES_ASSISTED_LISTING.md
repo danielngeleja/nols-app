@@ -79,7 +79,7 @@ Reminders for SMS 3: at 24 hours and at guest check-in, then stop. Payout stays 
 
 - `objectLink` carries an opaque reference; only its SHA-256 hash is stored (same approach as `SalesOwnerConfirmation`).
 - Opening it does **not** require sign-in. Objecting is low-harm: it only pauses.
-- One tap "I did not agree to this" with optional note.
+- "Yes, I agreed" is the one primary button; "Report it" is a quieter link. Reporting needs a chosen reason (the API refuses a pause with no reason), plus a short note when the reason is "Something else".
 - Effect, immediately: listing moves to `PAUSED_OBJECTION` (unpublished if live), partner edit access revoked, admin alerted, partner sees "Paused: owner query".
 - Admin resolves by calling the owner: **cancel** (listing withdrawn, partner flagged, no attribution) or **resume** (owner confirmed, listing restored).
 - Existing confirmed bookings on an objected listing are handled by admin case by case (contact owner and guest, rebook or refund under the normal policy).

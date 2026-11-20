@@ -27,6 +27,14 @@ import { proButton, proDetailRows, proEmail, proNoteCard, BRAND_TEAL } from "./e
 const db = prisma as any;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+
+/** "LUMORA APARTMENTS" reads as shouting in a text: show it as "Lumora Apartments". Mixed case is kept. */
+function smsName(value: string): string {
+  const text = String(value || "").trim();
+  if (!text || text !== text.toUpperCase() || !/[A-Z]/.test(text)) return text;
+  return text.toLowerCase().replace(/\b([a-z])/g, (letter) => letter.toUpperCase());
+}
+
 export const OWNER_CONFIRMATION_TTL_DAYS = 7;
 /** Send one in-app reminder when this little time is left. */
 const REMINDER_BEFORE_MS = 2 * DAY_MS;
@@ -208,7 +216,7 @@ export async function deliverOwnerConfirmationNotices(notices: OwnerConfirmation
       if (owner?.phone) {
         await sendSms(
           owner.phone,
-          `NoLSAF: ${notice.partnerName} says they helped you list ${notice.propertyTitle}. Sign in to confirm or deny: ${url}`,
+          `Did ${smsName(notice.partnerName)}, a NoLSAF sales partner, help you list ${smsName(notice.propertyTitle)}? Tap to answer yes or no: ${url}`,
           { bypassEligibilityCheck: true, sensitiveContent: true },
         ).catch(() => undefined);
       }

@@ -19,8 +19,9 @@ import { findByNoticeToken, isNoticeToken, recordObjection } from "../lib/salesA
 export const publicListingNoticeRouter = Router();
 
 const NOT_FOUND = { error: "This link is not valid any more. If something is wrong, call NoLSAF support." };
+// A pause needs a stated reason: a bare tap must not be able to take a listing off sale.
 const objectSchema = z.object({
-  note: z.union([z.string().trim().max(500), z.literal(""), z.null()]).optional(),
+  note: z.string().trim().min(3).max(500),
 }).strict();
 
 publicListingNoticeRouter.get("/:token", limitAssistedListingNotice as any, asyncHandler(async (req, res: Response) => {
@@ -43,8 +44,9 @@ publicListingNoticeRouter.post("/:token/object", limitAssistedListingNotice as a
   const token = String(req.params.token || "");
   if (!isNoticeToken(token)) return res.status(404).json(NOT_FOUND);
   const parsed = objectSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ error: "Keep the note under 500 characters." });
-  const note = parsed.data.note ? sanitizeText(parsed.data.note).slice(0, 500) || null : null;
+  if (!parsed.success) return res.status(400).json({ error: "Tell us what is wrong (under 500 characters)." });
+  const note = sanitizeText(parsed.data.note).trim().slice(0, 500);
+  if (note.length < 3) return res.status(400).json({ error: "Tell us what is wrong (under 500 characters)." });
   const outcome = await recordObjection(token, note);
   if (outcome === "NOT_FOUND") return res.status(404).json(NOT_FOUND);
   if (outcome === "CLOSED") return res.json({ ok: true, paused: false, closed: true });

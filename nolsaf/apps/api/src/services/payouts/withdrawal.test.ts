@@ -660,7 +660,7 @@ describe("unclaimed payouts (policy 5.2.2)", () => {
 
   it("reminder text names the amount, destination and send time, and carries no code", () => {
     const text = unclaimedReminderText({ total: 180000, destination: "Vodacom ***456", sendOn: new Date("2026-10-10T11:00:00Z") });
-    expect(text).toBe("NoLSAF: TZS 180,000 is ready in My Payouts. If you do not withdraw it, we will send it to Vodacom ***456 on 10 Oct, 14:00 EAT.");
+    expect(text).toBe("TZS 180,000 is ready in My Payouts. If you do not withdraw it, we will send it to Vodacom ***456 on 10 Oct, 14:00 EAT.");
     expect(text).not.toContain("—");
   });
 

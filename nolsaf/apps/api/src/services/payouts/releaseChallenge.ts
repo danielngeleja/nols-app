@@ -186,7 +186,7 @@ async function deliver(
   }
   if (admin.phone) {
     const text =
-      `NoLSAF: code ${code} releases batch ${batch.batchReference} — ` +
+      `Code ${code} releases payout batch ${batch.batchReference}: ` +
       `${formatMoney(batch.totalAmount, batch.currency)} across ${batch.itemCount} payout(s). ` +
       `Expires in ${Math.ceil(CHALLENGE_TTL_MS / 60_000)} min. Do not share it.`;
     const result = await sendSms(admin.phone, text, { bypassEligibilityCheck: true });

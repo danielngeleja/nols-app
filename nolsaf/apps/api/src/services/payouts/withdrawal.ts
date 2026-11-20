@@ -879,7 +879,7 @@ async function remindedReleaseIds(releaseIds: number[], sentBy?: Date): Promise<
 
 export function unclaimedReminderText(input: { total: number; destination: string; sendOn: Date }): string {
   return (
-    `NoLSAF: ${formatTzs(input.total)} is ready in My Payouts. If you do not withdraw it, ` +
+    `${formatTzs(input.total)} is ready in My Payouts. If you do not withdraw it, ` +
     `we will send it to ${input.destination} on ${formatEat(input.sendOn)}.`
   );
 }

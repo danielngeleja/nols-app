@@ -112,7 +112,7 @@ function activityIcon(type: string) {
 
 const CONTACT_TYPES = ["VISIT", "CALL", "MEETING", "EMAIL"];
 
-type NextAction = { label: string; primary?: boolean; href?: string; onClick?: () => void };
+type NextAction = { label: string; primary?: boolean; href?: string; onClick?: () => void; Icon?: typeof Target; hint?: string };
 type NextStep = { tone: "go" | "wait" | "warn" | "done" | "closed"; title: string; text: string; actions: NextAction[] };
 
 const NEXT_TONE: Record<NextStep["tone"], { box: string; icon: string; Icon: typeof Target }> = {
@@ -302,8 +302,8 @@ export default function SalesLeadDetailPage() {
           ? "If the owner has no time, list it for them. If they list it themselves, ask NoLSAF to verify it."
           : "When the owner has listed the property on NoLSAF, ask NoLSAF to verify it for you.",
         actions: [
-          ...(assisted?.granted && !assisted.paused ? [{ label: "List it for the owner", onClick: () => scrollToId("assisted-listing"), primary: true }] : []),
-          { label: "Owner listed it: request conversion", onClick: () => setConversionConfirm(true), primary: !(assisted?.granted && !assisted.paused) },
+          ...(assisted?.granted && !assisted.paused ? [{ label: "Start the listing", onClick: () => { scrollToId("assisted-listing"); window.setTimeout(() => document.getElementById("assisted-owner-name")?.focus({ preventScroll: true }), 400); }, primary: true }] : []),
+          { label: "Request verification", Icon: ShieldCheck, hint: "The owner listed it themselves: ask NoLSAF to verify it", onClick: () => setConversionConfirm(true), primary: !(assisted?.granted && !assisted.paused) },
         ] };
 
   const progress = [
@@ -387,9 +387,9 @@ export default function SalesLeadDetailPage() {
             {nextStep ? (() => {
               const tone = NEXT_TONE[nextStep.tone];
               return (
-                <section id="lead-next-step" className={`mt-5 rounded-2xl border border-solid p-4 sm:p-5 ${tone.box}`}>
+                <section id="lead-next-step" className={`mt-5 rounded-xl border border-solid p-4 sm:p-5 ${tone.box}`}>
                   <div className="flex flex-wrap items-start gap-4">
-                    <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${tone.icon}`}><tone.Icon className="h-5 w-5" /></span>
+                    <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${tone.icon}`}><tone.Icon className="h-5 w-5" /></span>
                     <div className="min-w-0 flex-1">
                       <p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">Next step</p>
                       <h2 className="m-0 mt-0.5 text-base font-black text-slate-900">{nextStep.title}</h2>
@@ -398,10 +398,10 @@ export default function SalesLeadDetailPage() {
                     {nextStep.actions.length ? (
                       <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                         {nextStep.actions.map((action) => {
-                          const cls = `inline-flex min-h-10 items-center gap-2 rounded-xl px-4 text-sm font-bold no-underline transition hover:no-underline ${action.primary ? "bg-[#073c35] text-white hover:opacity-90" : "border border-solid border-slate-300 bg-white text-slate-700 hover:border-emerald-300 hover:text-emerald-800"}`;
+                          const cls = `inline-flex min-h-10 items-center gap-2 rounded-md px-4 text-sm font-bold no-underline transition hover:no-underline ${action.primary ? "bg-[#073c35] text-white hover:opacity-90" : "border border-solid border-slate-300 bg-white text-slate-700 hover:border-emerald-300 hover:text-emerald-800"}`;
                           return action.href
                             ? <Link key={action.label} href={action.href} className={cls}>{action.label}<ArrowRight className="h-4 w-4" /></Link>
-                            : <button key={action.label} type="button" onClick={action.onClick} className={`${cls} cursor-pointer border-0`}>{action.label}</button>;
+                            : <button key={action.label} type="button" title={action.hint} onClick={action.onClick} className={`${cls} cursor-pointer border-0`}>{action.Icon ? <action.Icon className="h-4 w-4" /> : null}{action.label}</button>;
                         })}
                       </div>
                     ) : null}

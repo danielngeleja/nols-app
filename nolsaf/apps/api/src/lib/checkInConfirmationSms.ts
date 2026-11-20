@@ -21,7 +21,7 @@ function formatEat(date: Date): string {
 export function checkInConfirmationText(input: { propertyTitle: string | null; usedAt: Date; supportPhone: string }): string {
   const raw = String(input.propertyTitle || "your stay").trim();
   const title = raw.length > TITLE_MAX ? `${raw.slice(0, TITLE_MAX - 1).trimEnd()}.` : raw;
-  return `NoLSAF: Check-in confirmed at ${title} on ${formatEat(input.usedAt)}. ` +
+  return `Check-in confirmed at ${title} on ${formatEat(input.usedAt)}. ` +
     `If you have not checked in, call NoLSAF now on ${input.supportPhone}.`;
 }
 
