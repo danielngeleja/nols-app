@@ -924,8 +924,16 @@ export default function PropertyPreview({
       });
     }
     
-    // Combine property photos first, then room photos
-    return [...propertyPhotos, ...roomPhotos];
+    // Property photos first, then room photos, each picture once: rooms keep the
+    // same files in both `photos` and `roomImages`, and some also sit in the
+    // property's own list, which used to double the count and repeat tiles.
+    const seen = new Set<string>();
+    return [...propertyPhotos, ...roomPhotos].filter((src) => {
+      const key = src.trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayPhotos, property?.photos, property?.roomsSpec]);
 

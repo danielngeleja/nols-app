@@ -161,7 +161,7 @@ export function PropertyPhotoGrid({
           </button>
           {tiles.map((src, i) => (
             <button
-              key={src}
+              key={`${i}-${src}`}
               type="button"
               onClick={() => onOpenPhoto(i + 1)}
               aria-label={`Open photo ${i + 2} of ${total}`}
@@ -188,7 +188,7 @@ export function PropertyPhotoGrid({
         >
           {photos.map((src, i) => (
             <button
-              key={src}
+              key={`${i}-${src}`}
               type="button"
               onClick={() => onOpenPhoto(i)}
               aria-label={`Open photo ${i + 1} of ${total}`}
