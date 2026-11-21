@@ -23,7 +23,7 @@
 import { Prisma } from "@prisma/client";
 import { BASE_CURRENCY, getFxRates } from "./fx.js";
 
-export const REVENUE_STREAMS = ["ACCOMMODATION", "TOUR", "TRANSPORT", "GROUP_STAY", "SUBSCRIPTION"] as const;
+export const REVENUE_STREAMS = ["ACCOMMODATION", "TOUR", "TRANSPORT", "GROUP_STAY", "SUBSCRIPTION", "LONG_STAY"] as const;
 export type RevenueStream = (typeof REVENUE_STREAMS)[number];
 
 export const RECOGNIZED = "RECOGNIZED" as const;

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo } from "react";
-import { ArrowRight, BedDouble, Check, Cigarette, CigaretteOff, Dog, Lock, Minus, PawPrint, Plus, Tag, Users } from "lucide-react";
+import { ArrowRight, BedDouble, Check, Cigarette, CigaretteOff, Dog, FileText, Lock, Minus, MoonStar, PawPrint, Plus, ShieldCheck, Tag, Users } from "lucide-react";
 import { AddPropertySection } from "./AddPropertySection";
 import { StepFooter } from "./StepFooter";
 
@@ -17,6 +17,28 @@ const PROMPTS: { label: string; hint: string; test: RegExp }[] = [
 
 /** Check-in and check-out choices, every half hour. */
 const RULE_TIMES: string[] = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
+
+/** Long stay: the clauses every lease already carries, so owners do not repeat them. */
+const LEASE_BASICS = ["No subletting or nightly re-letting", "Visits with 24h notice", "Repairs split", "No changes without your OK", "Residential use only", "Respect for neighbours"];
+
+/** One living rule per row: label on the left, the answer on the right; stacked on phones. */
+const RULE_ROW = "grid items-center gap-x-6 gap-y-2.5 border-0 border-t border-solid border-white/[0.06] py-4 first:border-t-0 sm:grid-cols-[minmax(0,220px)_minmax(0,1fr)]";
+
+function RuleLabel({ Icon, label, hint, optional, htmlFor }: { Icon: typeof Users; label: string; hint: string; optional?: boolean; htmlFor?: string }) {
+  const Wrap = htmlFor ? "label" : "div";
+  return (
+    <Wrap {...(htmlFor ? { htmlFor } : {})} className="flex min-w-0 items-center gap-3">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-teal-400/10 text-teal-300"><Icon className="h-4 w-4" aria-hidden /></span>
+      <span className="min-w-0">
+        <span className="flex items-center gap-2 text-[13.5px] font-semibold text-white/90">
+          {label}
+          {optional ? <span className="rounded bg-white/[0.06] px-1.5 py-px text-[10.5px] font-medium text-white/45">Optional</span> : null}
+        </span>
+        <span className="mt-0.5 block truncate text-[12px] text-white/45">{hint}</span>
+      </span>
+    </Wrap>
+  );
+}
 
 export function TotalsStep({
   isVisible,
@@ -36,6 +58,8 @@ export function TotalsStep({
   goToPreviousStep,
   goToNextStep,
   currentStep,
+  monthly = false,
+  onPreviewLease,
 }: {
   isVisible: boolean;
   sectionRef: (el: HTMLElement | null) => void;
@@ -58,11 +82,19 @@ export function TotalsStep({
     petsNote: string;
     smokingNotAllowed: boolean | null;
     other: string;
+    smokingPolicy?: "" | "outside" | "none" | "allowed";
+    overnightGuests?: "" | "allowed" | "limited" | "none";
+    overnightNights?: number;
+    quietFrom?: string;
+    quietTo?: string;
   };
   setHouseRules: (updater: (prev: any) => any) => void;
   goToPreviousStep: () => void;
   goToNextStep: () => void;
   currentStep: number;
+  /** Long stay: a few living rules here; the full rules are in the lease. */
+  monthly?: boolean;
+  onPreviewLease?: () => void;
 }) {
   const baths = Number(totalBathrooms) || 0;
   const guests = declaredInventoryGuests ?? (Number(maxGuests) || 0);
@@ -227,6 +259,106 @@ export function TotalsStep({
               </div>
             </section>
 
+            {monthly ? (
+              <section className="ap-card">
+                <header className="ap-card-head">
+                  <span className="ap-card-head-no">3</span>
+                  <div className="ap-card-head-copy">
+                    <h3 className="ap-card-title">Living rules</h3>
+                    <p className="ap-card-sub">What tenants ask first. Written into the lease.</p>
+                  </div>
+                  <span className={`ap-card-tag${houseRules.smokingPolicy || houseRules.overnightGuests ? "" : " is-todo"}`}>
+                    {[houseRules.smokingPolicy, houseRules.overnightGuests, houseRules.quietFrom || houseRules.quietTo].filter(Boolean).length} of 3 set
+                  </span>
+                </header>
+                <div>
+                  {/* One rule per row: what it is on the left, the answer on the right */}
+                  <div className="px-4 sm:px-5" style={{ boxSizing: "border-box" }}>
+                    {([
+                      {
+                        key: "smoking", label: "Smoking", hint: "Inside the home and on balconies", Icon: CigaretteOff,
+                        value: houseRules.smokingPolicy || "",
+                        options: [["outside", "Outside only"], ["none", "Not at all"], ["allowed", "Allowed"]] as Array<[string, string]>,
+                        pick: (v: string) => setRule({ smokingPolicy: v, smokingNotAllowed: v !== "allowed" }),
+                      },
+                      {
+                        key: "guests", label: "Overnight visitors", hint: "Friends or family staying the night", Icon: Users,
+                        value: houseRules.overnightGuests || "",
+                        options: [["allowed", "Welcome"], ["limited", "Some nights"], ["none", "Not allowed"]] as Array<[string, string]>,
+                        pick: (v: string) => setRule({ overnightGuests: v }),
+                      },
+                    ]).map((row) => (
+                      <div key={row.key} className={RULE_ROW} style={{ boxSizing: "border-box" }}>
+                        <RuleLabel Icon={row.Icon} label={row.label} hint={row.hint} />
+                        <div className="min-w-0">
+                          <div className="flex w-full rounded-lg bg-white/[0.05] p-0.5" role="radiogroup" aria-label={row.label} style={{ boxSizing: "border-box" }}>
+                            {row.options.map(([v, l]) => (
+                              <button key={v} type="button" role="radio" aria-checked={row.value === v} onClick={() => row.pick(v)}
+                                className={`h-9 min-w-0 flex-1 cursor-pointer truncate rounded-md border-0 px-2 text-[13px] font-semibold transition-colors [font-family:inherit] ${row.value === v ? "bg-teal-500/90 text-white shadow-sm" : "bg-transparent text-white/55 hover:text-white/85"}`}>{l}</button>
+                            ))}
+                          </div>
+                          {row.key === "guests" && houseRules.overnightGuests === "limited" ? (
+                            <div className="mt-2 flex items-center justify-end gap-1.5 text-[12px] text-white/55">
+                              Up to
+                              <button type="button" aria-label="Fewer nights" disabled={(houseRules.overnightNights || 7) <= 1} onClick={() => setRule({ overnightNights: Math.max(1, (houseRules.overnightNights || 7) - 1) })} className="grid h-7 w-7 cursor-pointer place-items-center rounded-md border-0 bg-white/[0.06] p-0 text-white/70 hover:bg-white/10 disabled:opacity-30"><Minus className="h-3 w-3" /></button>
+                              <span className="w-6 text-center text-[13px] font-semibold tabular-nums text-white">{houseRules.overnightNights || 7}</span>
+                              <button type="button" aria-label="More nights" disabled={(houseRules.overnightNights || 7) >= 30} onClick={() => setRule({ overnightNights: Math.min(30, (houseRules.overnightNights || 7) + 1) })} className="grid h-7 w-7 cursor-pointer place-items-center rounded-md border-0 bg-white/[0.06] p-0 text-white/70 hover:bg-white/10 disabled:opacity-30"><Plus className="h-3 w-3" /></button>
+                              nights a month
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Quiet hours */}
+                    <div className={RULE_ROW} style={{ boxSizing: "border-box" }}>
+                      <RuleLabel Icon={MoonStar} label="Quiet hours" hint="When noise should stop" optional />
+                      <div className="ap-range" style={{ width: "100%", height: 40, margin: 0, boxSizing: "border-box" }}>
+                        {([["from", "quietFrom", "From"], ["to", "quietTo", "Until"]] as const).map(([edge, field, ph], i) => {
+                          const current = String((houseRules as any)[field] || "");
+                          const options = current && !RULE_TIMES.includes(current) ? [...RULE_TIMES, current].sort() : RULE_TIMES;
+                          return <Fragment key={edge}>
+                            {i === 1 ? <span className="ap-range-sep" aria-hidden><ArrowRight className="h-3.5 w-3.5" /></span> : null}
+                            <label className="sr-only" htmlFor={`rule-${field}`}>Quiet hours {edge}</label>
+                            <select id={`rule-${field}`} value={current} onChange={(e) => setRule({ [field]: e.target.value })} className={current ? "is-set" : ""}>
+                              <option value="">{ph}</option>
+                              {options.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          </Fragment>;
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Anything else */}
+                    <div className={RULE_ROW} style={{ boxSizing: "border-box" }}>
+                      <RuleLabel Icon={Tag} label="Anything else" hint="One short rule, in your words" optional htmlFor="rule-other-monthly" />
+                      <input id="rule-other-monthly" value={houseRules.other} onChange={(e) => setRule({ other: e.target.value })} maxLength={300}
+                        className="block h-10 w-full rounded-lg border border-solid border-white/10 bg-white/[0.04] px-3 text-[13px] text-white outline-none placeholder:text-white/30 focus:border-teal-400/60 [font-family:inherit]"
+                        style={{ boxSizing: "border-box", margin: 0 }} placeholder="e.g. The gate closes at 22:00" />
+                    </div>
+                  </div>
+
+                  {/* What every lease already says, so the owner does not repeat it */}
+                  <div className="border-0 border-t border-solid border-white/[0.06] bg-white/[0.015] px-4 py-4 sm:px-5" style={{ boxSizing: "border-box" }}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="flex items-center gap-2 text-[13px] font-semibold text-white/85"><ShieldCheck className="h-4 w-4 text-teal-300" />Already in every lease</span>
+                      {onPreviewLease ? (
+                        <button type="button" onClick={onPreviewLease} className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-teal-400/15 px-3 text-[12.5px] font-semibold text-teal-200 hover:bg-teal-400/25 [font-family:inherit]">
+                          <FileText className="h-3.5 w-3.5" />Read the lease
+                        </button>
+                      ) : null}
+                    </div>
+                    <ul className="m-0 mt-3 flex list-none flex-wrap gap-1.5 p-0">
+                      {LEASE_BASICS.map((item) => (
+                        <li key={item} className="inline-flex items-center gap-1.5 rounded-md border border-solid border-white/[0.07] bg-white/[0.03] px-2.5 py-1 text-[12px] text-white/60">
+                          <Check className="h-3 w-3 text-teal-300/80" aria-hidden />{item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </section>
+            ) : <>
             {/* ---------------------------------------------------------------
                 3. House rules, one row each
                --------------------------------------------------------------- */}
@@ -357,10 +489,12 @@ export function TotalsStep({
               </div>
             </section>
 
+            </>}
+
             {/* ---------------------------------------------------------------
                 4. Group bookings: one switch, and what it means once on
                --------------------------------------------------------------- */}
-            <section className="ap-card">
+            {monthly ? null : <section className="ap-card">
               <header className="ap-card-head">
                 <span className="ap-card-head-no">4</span>
                 <div className="ap-card-head-copy">
@@ -392,7 +526,7 @@ export function TotalsStep({
                   <p className="ap-points-off">Turn on to welcome weddings, teams, tours and families who need several rooms at once.</p>
                 )}
               </div>
-            </section>
+            </section>}
           </div>
         </div>
       )}

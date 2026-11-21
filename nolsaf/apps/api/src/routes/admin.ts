@@ -2,6 +2,7 @@ import { type Express, type RequestHandler } from "express";
 import { adminAllowlist } from "../middleware/adminAllowlist";
 import requireRole from "../middleware/auth";
 import admin2faRouter from "./admin.2fa.js";
+import adminLongStayRouter from "./admin.longStay.js";
 import adminAgentsRouter from "./admin.agents";
 import adminActionCenterRouter from "./admin.actionCenter";
 import adminAuditRetentionRouter from "./admin.auditRetention";
@@ -199,6 +200,7 @@ export function registerAdminPrimaryRoutes(app: Express): void {
 export function registerAdminPostPaymentRoutes(app: Express): void {
   app.use("/admin/owners", adminOwnersRouter);
   app.use("/api/admin/owners", adminOwnersRouter as RequestHandler);
+  app.use("/api/admin/long-stay", adminLongStayRouter as RequestHandler);
   app.use("/admin/properties", adminPropertiesRouter);
   app.use("/api/admin/properties", adminPropertiesRouter as RequestHandler);
   app.use("/admin/summary", requireRole("ADMIN") as RequestHandler, adminSummaryRouter as RequestHandler);

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import PropertyPreview from "@/components/PropertyPreview";
+import LongStayReview, { type ReviewCheck } from "@/components/admin/properties/LongStayReview";
 import { Loader2, ScanEye, MapPin, Star, Search, X, ChevronDown, Users } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useAdminQueryId } from "@/lib/adminRecordRefs";
@@ -31,6 +32,8 @@ type Property = {
   services?: any; // Can contain commissionPercent and discountRules
   /** Listed by a sales partner for the owner (assisted listing). */
   assistedListing?: { status: string; partnerCode: string | null } | null;
+  /** NIGHTLY or LONG_STAY (docs/LONG_STAY_RENTALS.md). */
+  rentalMode?: string | null;
   location?: {
     regionName?: string | null;
     district?: string | null;
@@ -138,6 +141,16 @@ export default function PropertyPreviewsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
+  /** NIGHTLY or LONG_STAY for the open property, from the long-stay review (null until known). */
+  const [selectedRentalMode, setSelectedRentalMode] = useState<string | null>(null);
+  /** Long-stay readiness steps for the review progress bar. */
+  const [selectedReviewChecks, setSelectedReviewChecks] = useState<ReviewCheck[]>([]);
+  // The list already knows the rental mode, so the loading skeleton has the right shape at once.
+  useEffect(() => {
+    setSelectedRentalMode(properties.find((p) => p.id === selectedPropertyId)?.rentalMode ?? null);
+    setSelectedReviewChecks([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPropertyId]);
   const [statusFilter, setStatusFilter] = useState<string>("PENDING");
   const [systemCommission, setSystemCommission] = useState<number>(0);
   const [counts, setCounts] = useState<Record<string, number>>({
@@ -328,9 +341,14 @@ export default function PropertyPreviewsPage() {
 
   if (selectedPropertyId) {
     return (
+      <>
       <PropertyPreview
         propertyId={selectedPropertyId}
         mode="admin"
+        rentalMode={selectedRentalMode}
+        reviewChecks={selectedReviewChecks}
+        reviewPending={selectedRentalMode === "LONG_STAY" && selectedReviewChecks.length === 0}
+        adminTop={<LongStayReview propertyId={selectedPropertyId} expectLongStay={selectedRentalMode === "LONG_STAY"} onMode={setSelectedRentalMode} onChecks={setSelectedReviewChecks} />}
         onClose={() => setSelectedPropertyId(null)}
         onApproved={() => {
           setSelectedPropertyId(null);
@@ -353,6 +371,7 @@ export default function PropertyPreviewsPage() {
           }
         }}
       />
+      </>
     );
   }
 
@@ -664,6 +683,9 @@ export default function PropertyPreviewsPage() {
                   {/* Title (above image) */}
                   <div className="px-4 pt-4">
                     <div className="text-base font-bold text-slate-900 truncate">{property.title}</div>
+                    {property.rentalMode === "LONG_STAY" ? (
+                      <span className="mr-1 mt-1 inline-flex rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-[#02665e]">Long stay</span>
+                    ) : null}
                     {property.assistedListing ? (
                       <span
                         className="mt-1 inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-800"

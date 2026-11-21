@@ -20,7 +20,27 @@ const KITCHEN_CHOICES = [
   { value: "Shared kitchen", label: "Shared kitchen", detail: "Shared with others" },
 ];
 const LIVING_AMENITIES = ["Washing machine", "Balcony", "Private entrance", "Barbecue area", "Garden or courtyard"];
-export const UNIT_AMENITY_ITEMS = [...KITCHEN_TYPES, ...KITCHEN_EQUIPMENT, ...LIVING_AMENITIES];
+
+/**
+ * A home rented for months is described the way a tenant judges a place to
+ * live: the rooms, the kitchen, water and power, security and the
+ * surroundings, not hotel extras like a phone or a coffee maker.
+ */
+const HOME_KITCHEN_CHOICES = [
+  { value: "Private kitchen", label: "Full kitchen", detail: "Room to cook every day" },
+  { value: "Kitchenette", label: "Kitchenette", detail: "A compact cooking corner" },
+  { value: "", label: "No kitchen", detail: "No place to cook" },
+];
+const HOME_KITCHEN_EQUIPMENT = ["Stove", "Oven", "Refrigerator", "Freezer", "Microwave", "Kitchen cupboards", "Sink and worktop", "Dining table"];
+export const HOME_GROUPS: Array<{ title: string; hint: string; items: string[] }> = [
+  { title: "Rooms and spaces", hint: "Beyond the bedrooms", items: ["Sitting room", "Dining area", "Balcony", "Store room", "Laundry area", "Servant quarter (DSQ)", "Private entrance", "Garden or courtyard"] },
+  { title: "Furnishing and comfort", hint: "What stays in the home", items: ["Beds and mattresses", "Sofa set", "Wardrobes", "Curtains", "Washing machine", "TV", "Air conditioning", "Ceiling fans", "Water heater", "Mosquito nets"] },
+  { title: "Water and power", hint: "What tenants ask first", items: ["Running water", "Water tank", "Borehole", "Own water meter", "Own LUKU meter", "Backup generator", "Solar power", "Fibre internet ready"] },
+  { title: "Security", hint: "The guard is set in Services", items: ["Gated compound", "CCTV", "Burglar bars", "Electric fence", "Alarm system"] },
+  { title: "Outside and around", hint: "Parking is set in Services", items: ["All-weather road", "Near public transport", "Near shops", "Rubbish collection"] },
+];
+const HOME_ITEMS = HOME_GROUPS.flatMap((g) => g.items);
+export const UNIT_AMENITY_ITEMS = Array.from(new Set([...KITCHEN_TYPES, ...KITCHEN_EQUIPMENT, ...LIVING_AMENITIES, ...HOME_KITCHEN_EQUIPMENT, ...HOME_ITEMS]));
 
 export function EntireUnitEditor({
   unitsMode = false, propertyType = "", setRoomType, roomsCount, setRoomsCount,
@@ -32,7 +52,7 @@ export function EntireUnitEditor({
   commissionPercent,
   pricingMode, setPricingMode, includedGuests, setIncludedGuests, extraGuestFee, setExtraGuestFee,
   addRoomType, editingRoomIndex, onEditRoom, onRemoveRoom, onCancelRoomEdit,
-  definedRooms, bathOptions, sharedOptions,
+  definedRooms, bathOptions, sharedOptions, monthly = false,
 }: {
   /** Separate units: several unit types, each with its own count of identical units. */
   unitsMode?: boolean;
@@ -60,12 +80,18 @@ export function EntireUnitEditor({
   onEditRoom: (index: number) => void; onRemoveRoom: (index: number) => void;
   onCancelRoomEdit: () => void; definedRooms: any[];
   bathOptions: string[]; sharedOptions: string[];
+  /** Long stay: the home is let by the month, so there is no nightly price here. */
+  monthly?: boolean;
 }) {
   const [openBedroom, setOpenBedroom] = useState(0);
   // The nightly price is edited in a popup card; the section only shows the result.
   const [priceOpen, setPriceOpen] = useState(false);
   const guestCapacity = useMemo(() => declaredGuestCapacity(bedrooms), [bedrooms]);
   const kitchenType = KITCHEN_TYPES.find((item) => otherAmenities.includes(item)) ?? "";
+  // Long stay speaks of a home and the people living there; nightly speaks of a unit and its guests.
+  const people = monthly ? "people" : "guests";
+  const kitchenChoices = monthly ? HOME_KITCHEN_CHOICES : KITCHEN_CHOICES;
+  const kitchenEquipment = monthly ? HOME_KITCHEN_EQUIPMENT : KITCHEN_EQUIPMENT.filter((item) => item !== "Cooking allowed");
   useEffect(() => {
     if (kitchenType && !otherAmenities.includes("Cooking allowed")) setOtherAmenities([...otherAmenities, "Cooking allowed"]);
   }, [kitchenType, otherAmenities, setOtherAmenities]);
@@ -75,7 +101,7 @@ export function EntireUnitEditor({
   const selectedBedroom = bedrooms[selectedBedroomIndex];
   const pricingComplete = pricingMode === "FLAT" || (Number.isInteger(Number(includedGuests)) && Number(includedGuests) >= 1 && Number(includedGuests) < guestCapacity && Number(extraGuestFee) > 0);
   const unitCount = Number(roomsCount) || 0;
-  const canSave = roomType.trim().length > 0 && hasCompleteBedrooms(bedrooms) && roomImages.length >= 3 && Number(pricePerNight) >= 5000 && pricingComplete && (!unitsMode || unitCount >= 1);
+  const canSave = roomType.trim().length > 0 && hasCompleteBedrooms(bedrooms) && roomImages.length >= 3 && (monthly || (Number(pricePerNight) >= 5000 && pricingComplete)) && (!unitsMode || unitCount >= 1);
   // Entire place: one unit, so the form closes once it is saved. Separate units:
   // the form stays open for the next unit type.
   const hasSavedUnit = !unitsMode && definedRooms.length > 0 && editingRoomIndex === null;
@@ -180,9 +206,9 @@ export function EntireUnitEditor({
         <h3 className="ap-card-title">{unitsMode ? `Bedrooms in each ${unitName}` : "Bedrooms and beds"}</h3>
         <p className="ap-card-sub">{unitsMode
           ? (unitCount > 1 ? `Set them once. All ${unitCount} units of this layout get the same bedrooms.` : "Set the bedrooms of this unit. One booking includes all of them.")
-          : `One booking includes every bedroom in this ${roomType || "place"}.`}</p>
+          : monthly ? "The tenant rents every bedroom. Say how many people the home fits." : `One booking includes every bedroom in this ${roomType || "place"}.`}</p>
       </div><span className="ap-card-tag">{completedBedrooms === bedrooms.length
-        ? (unitsMode ? `Sleeps ${guestCapacity} per unit${unitCount > 1 ? ` · ${guestCapacity * unitCount} across ${unitCount}` : ""}` : `Sleeps ${guestCapacity} guests in total`)
+        ? (unitsMode ? `Sleeps ${guestCapacity} per unit${unitCount > 1 ? ` · ${guestCapacity * unitCount} across ${unitCount}` : ""}` : `Sleeps ${guestCapacity} ${people} in total`)
         : `${bedrooms.length - completedBedrooms} ${bedrooms.length - completedBedrooms === 1 ? "bedroom needs" : "bedrooms need"} details`}</span>
         <button type="button" className="ap-btn ap-unit-add-button" aria-describedby={incompleteBedroom >= 0 ? "unit-bedroom-requirement" : undefined} onClick={addBedroom}><Plus className="h-4 w-4" /> Add bedroom</button>
       </header>
@@ -201,7 +227,7 @@ export function EntireUnitEditor({
           })}
         </div>
         {selectedBedroom && <div id={`bedroom-panel-${selectedBedroomIndex}`} className="ap-bedroom-editor">
-          <div className="ap-bedroom-editor-head"><div><strong>Bedroom {selectedBedroomIndex + 1}</strong><span>Set the beds and the number of guests. The total is calculated for you.</span></div></div>
+          <div className="ap-bedroom-editor-head"><div><strong>Bedroom {selectedBedroomIndex + 1}</strong><span>Set the beds and how many {people} sleep here. The total is calculated for you.</span></div></div>
           <label className="ap-label" htmlFor={`bedroom-${selectedBedroomIndex}`}>Bedroom name</label>
           <input id={`bedroom-${selectedBedroomIndex}`} className="ap-unit-bedroom-name-input" value={selectedBedroom.name} onChange={(event) => updateBedroom(selectedBedroomIndex, { ...selectedBedroom, name: event.target.value })} placeholder={`Bedroom ${selectedBedroomIndex + 1}`} />
           <span className="ap-label ap-bedroom-beds-label">Beds in this bedroom</span>
@@ -222,42 +248,46 @@ export function EntireUnitEditor({
               </div>
             </div>;
           })}</div>
-          <div className="ap-bedroom-capacity"><div className="ap-bedroom-capacity-copy"><span className="ap-label">How many guests can sleep here? <span className="text-red-300">*</span></span><p className="ap-note">Choose one number. We add the bedrooms together automatically.</p></div><div className="ap-bedroom-quick-count" role="group" aria-label={`Guest capacity for ${selectedBedroom.name || `Bedroom ${selectedBedroomIndex + 1}`}`}>{[1, 2, 3, 4].map((count) => <button key={count} type="button" className={Number(selectedBedroom.sleeps) === count ? "is-on" : ""} aria-pressed={Number(selectedBedroom.sleeps) === count} onClick={() => updateBedroom(selectedBedroomIndex, { ...selectedBedroom, sleeps: count })}>{count}</button>)}<label className="ap-bedroom-more-count"><span>Or type</span><input type="text" inputMode="numeric" aria-label="Type guest capacity" value={selectedBedroom.sleeps || ""} placeholder="5+" onChange={(event) => { const raw = event.target.value.replace(/[^0-9]/g, "").slice(0, 2); updateBedroom(selectedBedroomIndex, { ...selectedBedroom, sleeps: raw ? Number(raw) : 0 }); }} /></label></div></div>
+          <div className="ap-bedroom-capacity"><div className="ap-bedroom-capacity-copy"><span className="ap-label">How many {people} can sleep here? <span className="text-red-300">*</span></span><p className="ap-note">Choose one number. We add the bedrooms together automatically.</p></div><div className="ap-bedroom-quick-count" role="group" aria-label={`Guest capacity for ${selectedBedroom.name || `Bedroom ${selectedBedroomIndex + 1}`}`}>{[1, 2, 3, 4].map((count) => <button key={count} type="button" className={Number(selectedBedroom.sleeps) === count ? "is-on" : ""} aria-pressed={Number(selectedBedroom.sleeps) === count} onClick={() => updateBedroom(selectedBedroomIndex, { ...selectedBedroom, sleeps: count })}>{count}</button>)}<label className="ap-bedroom-more-count"><span>Or type</span><input type="text" inputMode="numeric" aria-label="Type guest capacity" value={selectedBedroom.sleeps || ""} placeholder="5+" onChange={(event) => { const raw = event.target.value.replace(/[^0-9]/g, "").slice(0, 2); updateBedroom(selectedBedroomIndex, { ...selectedBedroom, sleeps: raw ? Number(raw) : 0 }); }} /></label></div></div>
         </div>}
       </div>
         <p id="unit-bedroom-requirement" className={`ap-note ap-bedroom-status mt-2${incompleteBedroom < 0 ? " text-teal-300" : ""}`} role="status">{incompleteBedroom >= 0 ? `Complete Bedroom ${incompleteBedroom + 1} with a name, at least one bed, and its guest capacity before adding another bedroom or continuing.` : "Bedrooms are complete. You can add another bedroom or continue."}</p>
-        <div className="mt-4"><label className="ap-label" htmlFor="unit-description">{unitsMode ? `Describe one ${unitName}` : "Describe the whole place"}</label>
-          <textarea id="unit-description" className="ap-input ap-textarea" rows={3} value={roomDescription} onChange={(event) => setRoomDescription(event.target.value)} placeholder="Layout, living areas, privacy and what guests can use" />
+        <div className="mt-4"><label className="ap-label" htmlFor="unit-description">{unitsMode ? `Describe one ${unitName}` : monthly ? "Describe the home" : "Describe the whole place"}</label>
+          <textarea id="unit-description" className="ap-input ap-textarea" rows={3} value={roomDescription} onChange={(event) => setRoomDescription(event.target.value)} placeholder={monthly ? "The neighbourhood, which floor, light and air, the compound, and why it is a good place to live" : "Layout, living areas, privacy and what guests can use"} />
         </div>
       </div>
     </section>
 
     <section className="ap-card">
-      <header className="ap-card-head"><span className="ap-card-head-no">{n(2)}</span><div className="ap-card-head-copy"><h3 className="ap-card-title">{unitsMode ? `What is inside each ${unitName}?` : "What is inside this unit?"}</h3><p className="ap-card-sub">Select only amenities guests can actually use.</p></div></header>
+      <header className="ap-card-head"><span className="ap-card-head-no">{n(2)}</span><div className="ap-card-head-copy"><h3 className="ap-card-title">{monthly ? "What comes with the home?" : unitsMode ? `What is inside each ${unitName}?` : "What is inside this unit?"}</h3><p className="ap-card-sub">{monthly ? "Everything the tenant gets for the whole lease. Tick only what is really there: NoLSAF checks it on the inspection." : "Select only amenities guests can actually use."}</p></div></header>
       <div className="ap-card-body space-y-4">
-        <div className="ap-kitchen-section"><span className="ap-label" id="unit-kitchen-label">Kitchen access</span>
-          <div className="ap-kitchen-choices" role="radiogroup" aria-labelledby="unit-kitchen-label">{KITCHEN_CHOICES.map(({ value, label, detail }) => <label key={label} className={`ap-kitchen-choice${kitchenType === value ? " is-on" : ""}`}>
+        <div className="ap-kitchen-section"><span className="ap-label" id="unit-kitchen-label">{monthly ? "Kitchen" : "Kitchen access"}</span>
+          <div className="ap-kitchen-choices" role="radiogroup" aria-labelledby="unit-kitchen-label">{kitchenChoices.map(({ value, label, detail }) => <label key={label} className={`ap-kitchen-choice${kitchenType === value ? " is-on" : ""}`}>
             <input type="radio" className="sr-only" name="unit-kitchen-type" value={value} checked={kitchenType === value} onChange={() => {
-              const kept = otherAmenities.filter((item) => !KITCHEN_TYPES.includes(item) && item !== "Cooking allowed" && (value || !KITCHEN_EQUIPMENT.includes(item)));
+              const kept = otherAmenities.filter((item) => !KITCHEN_TYPES.includes(item) && item !== "Cooking allowed" && (value || (!KITCHEN_EQUIPMENT.includes(item) && !HOME_KITCHEN_EQUIPMENT.includes(item))));
               // A kitchen is there to cook in: choosing one allows cooking.
               setOtherAmenities(value ? [...kept, value, "Cooking allowed"] : kept);
             }} />
             <span className="ap-kitchen-choice-copy"><strong>{label}</strong><small>{detail}</small></span><span className="ap-kitchen-choice-mark" aria-hidden="true">{kitchenType === value && <Check className="h-3.5 w-3.5" />}</span>
           </label>)}</div>
           {kitchenType && <div className="ap-kitchen-details">
-            <p className="m-0 ap-note"><Check className="h-3.5 w-3.5 shrink-0" aria-hidden />Guests can cook in this kitchen.</p>
-            <div><span className="ap-label">Available kitchen equipment</span><div className="ap-checks">{KITCHEN_EQUIPMENT.filter((item) => item !== "Cooking allowed").map((item) => <label key={item} className={`ap-check${otherAmenities.includes(item) ? " is-on" : ""}`}><input type="checkbox" className="sr-only" checked={otherAmenities.includes(item)} onChange={() => toggle(otherAmenities, setOtherAmenities, item)} /><span>{item}</span></label>)}</div></div>
+            <p className="m-0 ap-note"><Check className="h-3.5 w-3.5 shrink-0" aria-hidden />{monthly ? "The tenant can cook here." : "Guests can cook in this kitchen."}</p>
+            <div><span className="ap-label">{monthly ? "In the kitchen" : "Available kitchen equipment"}</span><div className="ap-checks">{kitchenEquipment.map((item) => <label key={item} className={`ap-check${otherAmenities.includes(item) ? " is-on" : ""}`}><input type="checkbox" className="sr-only" checked={otherAmenities.includes(item)} onChange={() => toggle(otherAmenities, setOtherAmenities, item)} /><span>{item}</span></label>)}</div></div>
           </div>}
         </div>
+        {monthly ? HOME_GROUPS.map((group) => (
+          <div key={group.title}><span className="ap-label">{group.title}{group.hint ? <span className="ml-1.5 font-normal text-white/40">{group.hint}</span> : null}</span><div className="ap-checks">{group.items.map((item) => <label key={item} className={`ap-check${otherAmenities.includes(item) ? " is-on" : ""}`}><input type="checkbox" className="sr-only" checked={otherAmenities.includes(item)} onChange={() => toggle(otherAmenities, setOtherAmenities, item)} /><span>{item}</span></label>)}</div></div>
+        )) : <>
         <div><span className="ap-label">Living spaces</span><div className="ap-checks">{LIVING_AMENITIES.map((item) => <label key={item} className={`ap-check${otherAmenities.includes(item) ? " is-on" : ""}`}><input type="checkbox" className="sr-only" checked={otherAmenities.includes(item)} onChange={() => toggle(otherAmenities, setOtherAmenities, item)} /><span>{item}</span></label>)}</div></div>
         <div><span className="ap-label">Other amenities in the unit</span><div className="ap-checks">{sharedOptions.map((item) => <label key={item} className={`ap-check${otherAmenities.includes(item) ? " is-on" : ""}`}><input type="checkbox" className="sr-only" checked={otherAmenities.includes(item)} onChange={() => toggle(otherAmenities, setOtherAmenities, item)} /><span>{item}</span></label>)}</div></div>
-        <div><span className="ap-label">Bathrooms</span><div className="ap-checks">{bathOptions.map((item) => <label key={item} className={`ap-check${bathItems.includes(item) ? " is-on" : ""}`}><input type="checkbox" className="sr-only" checked={bathItems.includes(item)} onChange={() => toggle(bathItems, setBathItems, item)} /><span>{item}</span></label>)}</div></div>
-        <div><label className="ap-label" htmlFor="unit-other-amenities">Something missing? Separate with commas</label><input id="unit-other-amenities" className="ap-input" value={otherAmenitiesText} onChange={(event) => setOtherAmenitiesText(event.target.value)} placeholder="e.g. barbecue, mosquito net" /></div>
+        </>}
+        <div><span className="ap-label">{monthly ? "Bathrooms and toilets" : "Bathrooms"}</span><div className="ap-checks">{bathOptions.map((item) => <label key={item} className={`ap-check${bathItems.includes(item) ? " is-on" : ""}`}><input type="checkbox" className="sr-only" checked={bathItems.includes(item)} onChange={() => toggle(bathItems, setBathItems, item)} /><span>{item}</span></label>)}</div></div>
+        <div><label className="ap-label" htmlFor="unit-other-amenities">Something missing? Separate with commas</label><input id="unit-other-amenities" className="ap-input" value={otherAmenitiesText} onChange={(event) => setOtherAmenitiesText(event.target.value)} placeholder={monthly ? "e.g. guard house, rooftop terrace, play area" : "e.g. barbecue, mosquito net"} /></div>
       </div>
     </section>
 
     <section className="ap-card">
-      <header className="ap-card-head"><span className="ap-card-head-no">{n(3)}</span><div className="ap-card-head-copy"><h3 className="ap-card-title">{unitsMode ? `Photos and price for one ${unitName}` : "Photos and price for the whole unit"}</h3><p className="ap-card-sub">{unitsMode ? "Photos of this unit type, and the nightly rate for one unit." : "Add at least three photos, then set your nightly rate."}</p></div></header>
+      <header className="ap-card-head"><span className="ap-card-head-no">{n(3)}</span><div className="ap-card-head-copy"><h3 className="ap-card-title">{monthly ? "Photos of the whole home" : unitsMode ? `Photos and price for one ${unitName}` : "Photos and price for the whole unit"}</h3><p className="ap-card-sub">{monthly ? "Add at least three photos. The monthly rent is set below." : unitsMode ? "Photos of this unit type, and the nightly rate for one unit." : "Add at least three photos, then set your nightly rate."}</p></div></header>
       <div className="ap-card-body ap-unit-finish">
         <RoomPhotoSlots images={roomImages} onUpload={(files) => { if (files) onPickRoomImages(files); }} onRemove={(index) => { setRoomImages((prev) => prev.filter((_, i) => i !== index)); setRoomImageSaved((prev) => prev.filter((_, i) => i !== index)); setRoomImageUploading((prev) => prev.filter((_, i) => i !== index)); }} saved={roomImageSaved} uploading={roomImageUploading} />
         {(() => {
@@ -271,7 +301,7 @@ export function EntireUnitEditor({
                 : "Extra guest fee not finished")
               : guestCapacity > 0 ? `Same price for up to ${guestCapacity} guests` : "Same price for every booking";
           return <div className="ap-unit-pricing">
-            <div className={`ap-np-summary${priceReady ? " is-set" : ""}`}>
+            {!monthly && <div className={`ap-np-summary${priceReady ? " is-set" : ""}`}>
               <span className="ap-np-summary-ico" aria-hidden><Banknote className="h-4 w-4" /></span>
               <div className="min-w-0 flex-1">
                 <span className="ap-np-summary-label">{unitsMode ? "Nightly price per unit" : "Nightly price"}</span>
@@ -281,7 +311,7 @@ export function EntireUnitEditor({
               <button type="button" className={`ap-btn${priceSet ? "" : " is-primary"}`} onClick={() => setPriceOpen(true)}>
                 {priceSet ? <><Pencil className="h-4 w-4" />Edit price</> : <><Banknote className="h-4 w-4" />Set price</>}
               </button>
-            </div>
+            </div>}
 
             <div className="ap-np-actions">
               {editingRoomIndex !== null && <button type="button" className="ap-btn" onClick={onCancelRoomEdit}>Cancel editing</button>}
@@ -334,7 +364,7 @@ export function EntireUnitEditor({
             <div className="ap-saved-unit-facts">
               <span><BedDouble className="h-3.5 w-3.5" aria-hidden />{bedroomCount} bedroom{bedroomCount === 1 ? "" : "s"}</span>
               <span><Users className="h-3.5 w-3.5" aria-hidden />Sleeps {unit.maxGuestsPerUnit || "?"}</span>
-              <span className="is-price"><Banknote className="h-3.5 w-3.5" aria-hidden />TZS {nightly.toLocaleString("en-US")}<small>/night{unitsMode ? " each" : ""}</small></span>
+              {monthly ? null : <span className="is-price"><Banknote className="h-3.5 w-3.5" aria-hidden />TZS {nightly.toLocaleString("en-US")}<small>/night{unitsMode ? " each" : ""}</small></span>}
               {extraFee ? <span>Covers {unit.includedGuests}, +TZS {Number(unit.extraGuestFee).toLocaleString("en-US")} per extra guest</span> : null}
             </div>
           </div>

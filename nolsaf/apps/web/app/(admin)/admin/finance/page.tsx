@@ -34,7 +34,7 @@ import {
 import apiClient from "@/lib/apiClient";
 import RevenueReconciliationPanel from "@/components/admin/RevenueReconciliationPanel";
 
-type StreamKey = "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions";
+type StreamKey = "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions" | "longStay";
 
 type StreamSummary = {
   key: StreamKey;
@@ -80,6 +80,7 @@ const STREAM_META: Record<StreamKey, { icon: any; color: string; href: string | 
   transport: { icon: Car, color: "#fbbf24", href: "/admin/drivers/invoices" },
   groupStay: { icon: Users, color: "#a78bfa", href: "/admin/group-stays/revenue" },
   subscriptions: { icon: CreditCard, color: "#2dd4bf", href: "/admin/nrms/billing" },
+  longStay: { icon: Building2, color: "#f472b6", href: "/admin/long-stay/tenancies" },
 };
 
 type SeriesPoint = { start: string; end: string; revenue: number; gmv: number; partnerNet: number; count: number };

@@ -1,4 +1,8 @@
 import { Router } from "express";
+import { publicLongStayView, todayInEat } from "../lib/longStay/listing.js";
+import { latestPassedInspection, publicInspectionView } from "../lib/longStay/inspection.js";
+import { longStayOpen } from "../lib/longStay/fees.js";
+import { extractPublicKeyFromSlug } from "../lib/publicPropertyKey.js";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { nightlyPriceOptions, serviceTagSet, toPublicCard, toPublicDetail } from "../lib/publicPropertyDto.js";
@@ -175,12 +179,6 @@ function parseAmenities(v: any): string[] {
   return out.slice(0, 50);
 }
 
-function extractPublicKeyFromSlug(idOrSlug: string): string | null {
-  const raw = String(idOrSlug || "").trim().toLowerCase();
-  if (!raw) return null;
-  const key = raw.includes("-") ? raw.slice(raw.lastIndexOf("-") + 1) : raw;
-  return /^[a-z0-9]{20,40}$/.test(key) ? key : null;
-}
 
 function bboxFromKm(lat: number, lng: number, radiusKm: number) {
   // Very good approximation for small radii.
@@ -366,6 +364,8 @@ const listPublicProperties: RequestHandler = async (req, res) => {
 
   const where: any = {
     status: "APPROVED",
+    // Long-stay homes are rented by the month and listed only when asked for.
+    rentalMode: String((req.query as any)?.rental ?? "") === "long-stay" ? "LONG_STAY" : "NIGHTLY",
   };
 
   // IMPORTANT: Do not filter via relation `tourismSite.slug` here.
@@ -987,6 +987,8 @@ const getPublicProperty: RequestHandler = async (req, res) => {
               ownerId: true, // Include ownerId to check ownership on frontend
               nrmsActivatedAt: true,
               nrmsMenuPublic: true,
+              rentalMode: true,
+              longStayListing: true,
               images: {
                 where: {
                   // Show all uploaded images on public details as long as they're not rejected.
@@ -1078,6 +1080,19 @@ const getPublicProperty: RequestHandler = async (req, res) => {
               qrCodeDataUrl,
             },
           });
+          // Long stay (docs/LONG_STAY_RENTALS.md): monthly terms instead of nights.
+          if (p.rentalMode === "LONG_STAY") {
+            const [tenancies, inspection] = await Promise.all([
+              prisma.tenancy.findMany({ where: { propertyId: id }, select: { status: true, endDate: true } }),
+              latestPassedInspection(prisma, id),
+            ]);
+            (dto as any).rentalMode = "LONG_STAY";
+            // Reservations open only on a home with a current NoLSAF inspection.
+            const inspected = publicInspectionView(inspection, todayInEat());
+            (dto as any).longStay = { ...publicLongStayView(p.longStayListing, tenancies), inspected, open: longStayOpen() && Boolean(inspected) };
+          } else {
+            (dto as any).rentalMode = "NIGHTLY";
+          }
           return { property: dto };
         },
         {

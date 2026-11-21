@@ -13,6 +13,7 @@
 import { isOwnerSubmittedInvoice } from "./accommodationPayout.js";
 import { moneyStageOf } from "./invoiceMoneyStage.js";
 import { recognizeRevenue, reverseRevenue, type LedgerResult } from "./revenueLedger.js";
+import { cancellationOf, LONG_STAY_FIGURE_FIELDS, longStayRevenueFigures } from "./longStay/revenueFigures.js";
 
 /** Interactive transaction options for status change plus ledger write. */
 export const REVENUE_TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 } as const;
@@ -309,4 +310,57 @@ export async function recognizeNrmsPaymentRevenue(db: any, paymentId: number, op
     recognizedAt: opts.recognizedAt ?? payment.verifiedAt ?? new Date(),
     paymentEventId,
   });
+}
+
+// ── Long stay ────────────────────────────────────────────────────────────────
+
+/**
+ * A long-stay tenancy whose move-in is confirmed (docs/LONG_STAY_RENTALS.md
+ * section 5.5). Both fees are earned then, once the home was handed over:
+ * gross = what the tenant paid NoLSAF (first month + tenant fee),
+ * commission = tenant fee + landlord commission, partnerNet = the landlord's
+ * first-month payout. Amounts come from the frozen tenancy only. The balance
+ * the tenant paid the landlord directly never touches NoLSAF and is not GMV.
+ */
+export async function recognizeLongStayRevenue(db: any, tenancyId: number, opts: RecognitionOptions = {}): Promise<LedgerResult> {
+  const t = await db.tenancy.findUnique({ where: { id: tenancyId }, select: LONG_STAY_FIGURE_FIELDS });
+  if (!t) return skipped("NOT_FOUND");
+  const figures = longStayRevenueFigures(t);
+  if (!figures) return skipped(t.paidAt ? "NOTHING_EARNED" : "NOT_PAID");
+  return recognizeRevenue(db, {
+    stream: "LONG_STAY",
+    sourceType: "TENANCY",
+    sourceId: t.id,
+    currency: figures.currency,
+    gross: figures.gross,
+    commission: figures.commission,
+    partnerNet: figures.partnerNet,
+    recognizedAt: opts.recognizedAt ?? figures.at,
+    paymentEventId: opts.paymentEventId ?? null,
+  });
+}
+
+/** The first month went back to the tenant after move-in had been confirmed. */
+export async function reverseLongStayRevenue(db: any, tenancyId: number, reason: string): Promise<LedgerResult> {
+  return reverseRevenue(db, {
+    original: { stream: "LONG_STAY", sourceType: "TENANCY", sourceId: tenancyId },
+    sourceType: "TENANCY_REFUND",
+    sourceId: tenancyId,
+    reason,
+  });
+}
+
+/**
+ * Brings the ledger in line with a tenancy after any change: recognized once
+ * move-in is confirmed, reversed if the first month was then refunded. Both
+ * writes are idempotent on their source keys, so calling this twice is safe.
+ */
+export async function syncLongStayRevenue(db: any, tenancyId: number): Promise<LedgerResult> {
+  const t = await db.tenancy.findUnique({ where: { id: tenancyId }, select: LONG_STAY_FIGURE_FIELDS });
+  if (!t) return skipped("NOT_FOUND");
+  // Refunded after move-in: reverse. A cancellation keeps what NoLSAF earned.
+  if (!cancellationOf(t) && (t.payoutStatus === "REFUND_DUE" || t.payoutStatus === "REFUNDED")) {
+    return reverseLongStayRevenue(db, tenancyId, "First month refunded to the tenant");
+  }
+  return recognizeLongStayRevenue(db, tenancyId);
 }

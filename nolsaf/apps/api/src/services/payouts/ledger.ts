@@ -64,6 +64,7 @@ async function alertPayoutAdmins(kind: string, disbursementId: number, extra: Re
   }
 }
 import { sendMail } from "../../lib/mailer.js";
+import { markTenancyPayoutPaid } from "../../lib/longStay/payout.js";
 import { getOwnerDisbursementEmail } from "../../lib/bookingEmailTemplates.js";
 import { generateOwnerDisbursementPdf } from "../../lib/pdfDocuments.js";
 import QRCode from "qrcode";
@@ -107,6 +108,7 @@ const SOURCE_REF_CODE: Record<PayoutSourceType, string> = {
   TOUR_ADVANCE: "A",
   DRIVER_TRIP: "D",
   SALES_PAYOUT: "S",
+  TENANCY: "L",
 };
 
 // Alphanumeric only (no ambiguous chars excluded — collisions are guarded by
@@ -1065,6 +1067,17 @@ async function writeBackSourcePaid(
         where: { id: sourceId },
         data: { status: "PAID", paidAt: now, paymentRef: externalReferenceId },
       });
+      return;
+    }
+
+    if (sourceType === "TENANCY") {
+      const marked = await markTenancyPayoutPaid(tx, sourceId, Number(amount), externalReferenceId, now);
+      if (marked) {
+        const row = await tx.tenancy.findUnique({ where: { id: sourceId }, select: { landlordId: true, property: { select: { title: true } } } });
+        if (row) {
+          void notifyUser(row.landlordId, "long_stay_payout_paid", { propertyTitle: row.property?.title, amount: Number(amount), reference: externalReferenceId }).catch(() => {});
+        }
+      }
       return;
     }
 

@@ -19,6 +19,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
+  ClipboardCheck,
   Bell,
   BookOpen,
   Building2,
@@ -58,6 +59,7 @@ const NAV = [
   { href: "/sales", label: "Overview", Icon: LayoutDashboard },
   { href: "/sales/leads", label: "Leads", Icon: UsersRound },
   { href: "/sales/properties", label: "Properties", Icon: Building2 },
+  { href: "/sales/inspections", label: "Inspections", Icon: ClipboardCheck },
   { href: "/sales/leaderboard", label: "Leaderboard", Icon: Trophy },
   { href: "/sales/team", label: "My team", Icon: Users, teamLeadOnly: true },
   { href: "/sales/agency", label: "Agency Desk", Icon: Handshake, agencyOnly: true },
@@ -72,9 +74,9 @@ const NAV = [
 ];
 
 const NAV_GROUPS = [
-  { label: "Workspace", items: NAV.slice(0, 6) },
-  { label: "Finance", items: NAV.slice(6, 9) },
-  { label: "Resources", items: NAV.slice(9) },
+  { label: "Workspace", items: NAV.slice(0, 7) },
+  { label: "Finance", items: NAV.slice(7, 10) },
+  { label: "Resources", items: NAV.slice(10) },
 ];
 
 /** Status pill colours, per doc section 9.7. */

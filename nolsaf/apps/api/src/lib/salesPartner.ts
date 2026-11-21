@@ -222,6 +222,8 @@ export const COMMISSION_TYPES = [
   "AGENCY_GROUP",
   /** Agency Desk: a listed operator tour the partner sent a client to. */
   "AGENCY_TOUR",
+  /** Flat fee for a long-stay home inspection NoLSAF accepted (pass or fail). */
+  "LONG_STAY_INSPECTION",
   "PERFORMANCE_BONUS",
   "MANUAL_ADJUSTMENT",
 ] as const;

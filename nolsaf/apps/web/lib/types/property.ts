@@ -31,6 +31,14 @@ export interface PropertyPreviewProps {
   onRejected?: () => void;
   onUpdated?: () => void;
   onClose?: () => void;
+  /** NIGHTLY or LONG_STAY. Long stays hide the nightly price table and the check-in house rules. */
+  rentalMode?: string | null;
+  /** Admin: extra steps for the review progress bar (long-stay readiness). */
+  reviewChecks?: Array<{ label: string; ok: boolean }>;
+  /** Admin: the extra steps are still loading, so the bar shows "Checking" instead of a low score. */
+  reviewPending?: boolean;
+  /** Admin: shown right under the command bar (the long-stay review). */
+  adminTop?: import("react").ReactNode;
 }
 
 export interface PropertyLocation {

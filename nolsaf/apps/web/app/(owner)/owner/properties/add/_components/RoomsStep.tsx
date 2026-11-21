@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Image from "next/image";
 import type { Dispatch, SetStateAction } from "react";
 import { AlertCircle, ArrowRight, Banknote, BedDouble, Building2, Check, ChevronDown, Cigarette, CigaretteOff, Copy, House, Info, Lock, Minus, Pencil, Plus, Trash2 } from "lucide-react";
@@ -27,6 +28,9 @@ const ROOM_TYPE_NAMES = new Set<string>([...ROOM_TYPE_GROUPS.flatMap((group) => 
 
 
 export function RoomsStep({
+  rentalModeSlot = null,
+  longStaySlot = null,
+  monthly = false,
   isVisible,
   sectionRef,
   currentStep,
@@ -96,6 +100,12 @@ export function RoomsStep({
   toggleStr,
   BED_ICONS,
 }: {
+  /** Long stay (docs/LONG_STAY_RENTALS.md): the "how do you rent it" switch, shown first. */
+  rentalModeSlot?: ReactNode;
+  /** The monthly terms card, shown after the home is described. */
+  longStaySlot?: ReactNode;
+  /** True when the home is let by the month: whole place only, no nightly price. */
+  monthly?: boolean;
   isVisible: boolean;
   sectionRef: (el: HTMLElement | null) => void;
   currentStep: number;
@@ -383,7 +393,7 @@ export function RoomsStep({
     ROOM: { label: "Individual rooms", Icon: BedDouble },
   };
   const hasSavedWholeUnit = definedRooms.some((room) => room.bookingMode === "ENTIRE_UNIT");
-  const modePicker = roomOnly
+  const bookingPicker = monthly ? null : roomOnly
     ? hasSavedWholeUnit && <div className="mb-3 rounded-lg border border-solid border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" role="alert">
         {propertyType} listings use individually bookable rooms. Remove the saved whole-place unit below, then add its room types.
       </div>
@@ -416,6 +426,7 @@ export function RoomsStep({
             : <><Info className="h-3.5 w-3.5" aria-hidden />Guests pick a room. Each room type gets its own beds, photos and nightly price.</>}
     </p>
   </div>;
+  const modePicker = <>{rentalModeSlot}{bookingPicker}</>;
 
   if ((bookingMode === "ENTIRE_UNIT" || bookingMode === "UNITS") && (!roomOnly || hasSavedWholeUnit)) return <AddPropertySection as="section" sectionRef={sectionRef} isVisible={isVisible} className="add-property-step-surface">
     {isVisible && <div className="w-full">{modePicker}<EntireUnitEditor
@@ -438,7 +449,8 @@ export function RoomsStep({
       addRoomType={addRoomType} editingRoomIndex={editingRoomIndex} onEditRoom={onEditRoom}
       onRemoveRoom={onRemoveRoom} onCancelRoomEdit={onCancelRoomEdit} definedRooms={definedRooms}
       bathOptions={BATH_ITEMS} sharedOptions={ROOM_ITEMS}
-    /></div>}
+      monthly={monthly}
+    />{longStaySlot}</div>}
     {isVisible && <StepFooter onPrev={goToPreviousStep} onNext={goToNextStep} prevDisabled={currentStep <= 0} nextDisabled={currentStep >= 5} />}
   </AddPropertySection>;
 

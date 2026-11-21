@@ -75,6 +75,18 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
 
   // Properties and NRMS
   property_submitted: act("attention", "properties"),
+  long_stay_tenant_id_submitted: act("attention", "people"),
+  long_stay_inspection_needed: act("attention", "support"),
+  long_stay_inspection_report: act("attention", "support"),
+  long_stay_enquiry: act("attention", "support"),
+  long_stay_payment_review: act("critical", "money"),
+  long_stay_payout_ready: act("attention", "money"),
+  long_stay_cancelled_paid: act("attention", "money"),
+  long_stay_landlord_notice: act("attention", "support"),
+  long_stay_overdue_admin: act("attention", "support"),
+  long_stay_claim_overdue: act("critical", "money"),
+  long_stay_dispute_opened: act("critical", "support"),
+  long_stay_move_in_silent: act("attention", "support"),
   property_approved: info("properties"),
   property_rejected: info("properties"),
   property_price_watch: act("attention", "properties"),

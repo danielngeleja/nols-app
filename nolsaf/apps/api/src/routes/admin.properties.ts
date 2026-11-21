@@ -28,6 +28,10 @@ import {
   sendRestrictionResolvedEmail,
 } from "../lib/restrictionCases.js";
 import { onAssistedPropertyApproved, onAssistedPropertyRejected } from "../lib/salesAssistedListing.js";
+import { longStaySubmitRefusal } from "../lib/longStay/listing.js";
+import { longStayOpen } from "../lib/longStay/fees.js";
+import { inspectionRefusal, requestInspection } from "../lib/longStay/inspection.js";
+import { todayInEat } from "../lib/longStay/listing.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireAdmin as RequestHandler);
@@ -313,6 +317,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
             title: true,
             status: true,
             type: true,
+            rentalMode: true,
             owner: { select: { id: true, name: true, email: true } },
             regionName: true,
             district: true,
@@ -1295,9 +1300,29 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
 
   const before = await prisma.property.findFirst({
     where: { id },
-    select: { status: true, ownerId: true, title: true, tourismSiteId: true, parkPlacement: true },
+    select: { status: true, ownerId: true, title: true, type: true, rentalMode: true, tourismSiteId: true, parkPlacement: true },
   });
   if (!before) { res.status(404).json({ error: "Not found" }); return; }
+  // Long stay (docs/LONG_STAY_RENTALS.md): the landlord's switch, the home type
+  // and the terms are checked again here, since any of them may have changed
+  // since submit. Long-stay listings stay off sale until tenants can book them
+  // (milestone 4), so approval is refused until then.
+  if (before.rentalMode === "LONG_STAY") {
+    const refusal = await longStaySubmitRefusal(prisma, { id, ownerId: before.ownerId, type: before.type, rentalMode: before.rentalMode });
+    if (refusal) { res.status(409).json({ error: refusal }); return; }
+    if (!longStayOpen()) {
+      res.status(409).json({ error: "Long-stay listings cannot go live yet: tenant booking opens in a later release. Review the terms and keep it pending." });
+      return;
+    }
+    // No long-stay home goes live without a NoLSAF Sales Partner's passed inspection (section 13).
+    const notInspected = await inspectionRefusal(prisma, id, todayInEat());
+    if (notInspected) {
+      // Listings that reached review another way (assisted listing, relisting) get their request here.
+      await requestInspection(prisma, id, "FIRST").catch(() => null);
+      res.status(409).json({ error: `${notInspected} Assign a partner in Long stays, Inspections.` });
+      return;
+    }
+  }
   if ((before.parkPlacement === "INSIDE" || before.parkPlacement === "NEARBY") && !before.tourismSiteId) {
     res.status(400).json({ error: "tourismSiteId_required_when_parkPlacement_set" });
     return;

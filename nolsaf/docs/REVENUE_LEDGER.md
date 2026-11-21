@@ -63,6 +63,7 @@ reconciled against today's figures before cutover.
 | TRANSPORT | Driver payout claim (`driver.scheduled.ts` `POST /:id/payout-claim`) and admin approval (`admin.drivers.ts` `POST /trips/:id/payout/approve`), when the trip is `paymentStatus = PAID` | `TRANSPORT:TRANSPORT_BOOKING:<id>` | payout `grossAmount` / `commissionAmount` / `netPaid` | payout `createdAt` |
 | SUBSCRIPTION | `reconcileNrmsPayment` (`lib/nrmsBilling.ts`): AzamPay, Coral, NRMS callback | `SUBSCRIPTION:NRMS_SERVICE_PAYMENT:<id>` | `amount` / `amount` / 0 | `verifiedAt` |
 | SUBSCRIPTION | Admin manual reconcile (`admin.nrms.reconcile.ts` `POST /tokens/:tokenId/reconcile`) | same | same | same |
+| LONG_STAY | Move-in confirmed (`lib/longStay/moveIn.ts` `finishMoveIn`: both sides, 72-hour auto-confirm, admin), and admin decisions (`admin.longStay.ts` `POST /tenancies/:ref/resolve`), through `syncLongStayRevenue` | `LONG_STAY:TENANCY:<tenancyId>` | `bookingAmount` (first month + tenant fee, the only money that passes through NoLSAF) / `tenantFee + landlordCommission` / `monthlyRent - landlordCommission`, tenancy currency | `moveInConfirmedAt` |
 
 Notes:
 
@@ -80,6 +81,9 @@ Notes:
 | ACCOMMODATION | Cancellation request moves to `REFUNDED` (`admin.cancellations.ts` `PATCH /:id`, inside its transaction) | `ACCOMMODATION:CANCELLATION_REFUND:<cancellationRequestId>` | net refund paid (`refundChargesJson.netRefundAmount`, else `refundAmount`) |
 | ACCOMMODATION | Card chargeback recorded (`POST /admin/disbursements/recoveries/chargeback`) | `ACCOMMODATION:CHARGEBACK:<ownerPayoutRecoveryId>` | chargeback amount |
 | TOUR | Tour case action `RECORD_REFUND` (`admin.tourCases.ts` `POST /:id/action`, inside its transaction) | `TOUR:TOUR_REFUND:<tourFinancialTransactionId>` | net refund after channel charges (`metadata.channelCharges.netRefundAmount`, else `amount`) |
+| LONG_STAY | Admin decision sends the first month back after move-in (`payoutStatus` `REFUND_DUE`), through `syncLongStayRevenue` | `LONG_STAY:TENANCY_REFUND:<tenancyId>` | everything left on the recognition |
+
+Long-stay ledger writes are best effort after the tenancy move (logged on failure); `syncLongStayRevenue` and the backfill (`--stream=LONG_STAY`) replay them safely. The finance overview's "Long stay" stream uses the same rule (confirmed move-in, not refunded; pending = paid first months still held).
 
 A reversal finds its original by the booking's guest invoice (accommodation) or
 the tour booking. When the ledger has not seen the original yet (before the

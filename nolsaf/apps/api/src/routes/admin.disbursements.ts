@@ -488,7 +488,7 @@ const listSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
   status: z.string().trim().max(20).optional(),
-  sourceType: z.enum(["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]).optional(),
+  sourceType: z.enum(["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT", "TENANCY"]).optional(),
   q: z.string().trim().max(120).optional(),
   // AUTO: approved by the system under the automatic caps. ADMIN: everything a
   // person approves, including rows created before lanes existed (null).
@@ -515,7 +515,7 @@ const DISBURSEMENT_STATUSES: readonly string[] = [
 
 const createSchema = z
   .object({
-    sourceType: z.enum(["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]),
+    sourceType: z.enum(["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT", "TENANCY"]),
     sourceId: z.coerce.number().int().positive(),
     payoutAccountId: z.coerce.number().int().positive(),
     remarks: z.string().trim().max(300).optional(),
@@ -524,7 +524,7 @@ const createSchema = z
 
 const provisionSchema = z
   .object({
-    sourceType: z.enum(["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]),
+    sourceType: z.enum(["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT", "TENANCY"]),
     sourceId: z.coerce.number().int().positive(),
   })
   .strict();

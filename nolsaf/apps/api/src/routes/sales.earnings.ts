@@ -42,6 +42,7 @@ function sourceLabel(sourceKey: string, type: string) {
   if (key.startsWith("AGENCY_INVOICE:")) return "Agency Desk booking";
   if (key.startsWith("AGENCY_GROUP:")) return "Agency Desk group stay";
   if (key.startsWith("AGENCY_TOUR:")) return "Agency Desk tour";
+  if (key.startsWith("LONG_STAY_INSPECTION:")) return "Long-stay home inspection";
   if (key.startsWith("BONUS:")) return "Performance bonus";
   if (key.startsWith("ADJUSTMENT:REVERSAL-")) return "Reversal of an earlier earning";
   if (key.startsWith("ADJUSTMENT:")) return "Adjustment by NoLSAF";

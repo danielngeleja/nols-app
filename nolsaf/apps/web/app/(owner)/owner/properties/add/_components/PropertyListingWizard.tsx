@@ -13,6 +13,8 @@ import { bookingModeOfEntries, defaultBookingModeForPropertyType, isRoomOnlyProp
 import { TotalsStep } from "./TotalsStep";
 import { PhotosStep } from "./PhotosStep";
 import { ROOM_ITEMS, UNIT_AMENITY_ITEMS, RoomsStep } from "./RoomsStep";
+import LeasePreviewDialog, { leaseRulesPayload, livingRuleLines } from "@/components/longStay/LeasePreviewDialog";
+import { EMPTY_LONG_STAY_TERMS, LongStayTermsCard, RentalModeSwitch, longStayTermsComplete, longStayTermsForServer, longStayTermsFromServer, type LongStayTermsDraft } from "./LongStayTermsCard";
 import { cleanFloorUses, parseFloorUses, type FloorUses } from "./floorUses";
 import { ServicesStep } from "./ServicesStep";
 import { ReviewStep } from "./ReviewStep";
@@ -338,6 +340,11 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                 setRoomType(defaultMode === "ENTIRE_UNIT" ? property.type : "Single");
                 setRoomsCount(defaultMode === "ENTIRE_UNIT" ? 1 : "");
               }
+              if (property.rentalMode === "LONG_STAY") {
+                setRentalMode("LONG_STAY");
+                const terms = longStayTermsFromServer(property.longStay);
+                if (terms) setLongStayTerms(terms);
+              }
               if (property.hotelStar) setHotelStar(property.hotelStar);
               if (property.buildingType) setBuildingType(property.buildingType);
               if (typeof property.totalFloors === "number") setTotalFloors(property.totalFloors);
@@ -389,6 +396,11 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                             ? (hrObj as any).smoking
                             : prevObj.smokingNotAllowed,
                         other: String((hrObj as any).other || prevObj.other || ""),
+                        smokingPolicy: ["outside", "none", "allowed"].includes((hrObj as any).smokingPolicy) ? (hrObj as any).smokingPolicy : "",
+                        overnightGuests: ["allowed", "limited", "none"].includes((hrObj as any).overnightGuests) ? (hrObj as any).overnightGuests : "",
+                        overnightNights: Number((hrObj as any).overnightNights) || 7,
+                        quietFrom: String((hrObj as any).quietHours || "").split(" to ")[0] || "",
+                        quietTo: String((hrObj as any).quietHours || "").split(" to ")[1] || "",
                       };
                     });
                   }
@@ -689,6 +701,12 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     petsNote: string;
     smokingNotAllowed: boolean | null; // aligns with public property UI (true => Not Allowed)
     other: string;
+    // Long stay living rules (written into the lease)
+    smokingPolicy?: "" | "outside" | "none" | "allowed";
+    overnightGuests?: "" | "allowed" | "limited" | "none";
+    overnightNights?: number;
+    quietFrom?: string;
+    quietTo?: string;
   }>({
     checkInFrom: "",
     checkInTo: "",
@@ -698,7 +716,13 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     petsNote: "",
     smokingNotAllowed: null,
     other: "",
+    smokingPolicy: "",
+    overnightGuests: "",
+    overnightNights: 7,
+    quietFrom: "",
+    quietTo: "",
   });
+  const [leasePreviewOpen, setLeasePreviewOpen] = useState(false);
 
   // property photos (controlled here)
   const [photos, setPhotos] = useState<string[]>([]);
@@ -742,6 +766,24 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   const [unitIncludedGuests, setUnitIncludedGuests] = useState<number | "">("");
   const [unitExtraGuestFee, setUnitExtraGuestFee] = useState<number | "">("");
   const [definedRooms, setDefinedRooms] = useState<RoomEntry[]>([]);
+
+  // Long stay (docs/LONG_STAY_RENTALS.md): offered only to owners NoLSAF
+  // switched on, for home types. The server enforces the same rules.
+  const [rentalMode, setRentalMode] = useState<"NIGHTLY" | "LONG_STAY">("NIGHTLY");
+  const [longStayTerms, setLongStayTerms] = useState<LongStayTermsDraft>(EMPTY_LONG_STAY_TERMS);
+  const [longStayEligibility, setLongStayEligibility] = useState<{ granted: boolean; paused: boolean; refusal: string | null; bookingsOpen: boolean; propertyTypes: string[] } | null>(null);
+  useEffect(() => {
+    if (adapter.mode !== "owner") return;
+    let active = true;
+    apiClient.get("/api/owner/long-stay/eligibility")
+      .then((response) => { if (active) setLongStayEligibility(response.data); })
+      .catch(() => { if (active) setLongStayEligibility(null); });
+    return () => { active = false; };
+  }, [adapter.mode]);
+  const isLongStay = rentalMode === "LONG_STAY";
+  const canOfferLongStay = adapter.mode === "owner"
+    && Boolean(longStayEligibility?.granted && !longStayEligibility.paused)
+    && Boolean(longStayEligibility?.propertyTypes?.includes(toServerType(type)));
 
   const changePropertyType = (nextType: string) => {
     setType(nextType);
@@ -860,6 +902,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           roomFloorDistribution,
           floorUses,
           acceptGroupBooking, freeCancellation, paymentModes,
+          rentalMode, longStayTerms,
           currentStep,
           visitedSteps: Array.from(visitedSteps),
           timestamp: new Date().toISOString(),
@@ -886,6 +929,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     pricePerNight, unitPricingMode, unitIncludedGuests, unitExtraGuestFee,
     acceptGroupBooking, freeCancellation, paymentModes,
     houseRules,
+    rentalMode, longStayTerms,
     currentStep, visitedSteps,
   ]);
   
@@ -1104,13 +1148,46 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latitude, longitude, regionId]);
 
-  const roomStepError = isRoomOnlyPropertyType(type) && definedRooms.some((room) => room.bookingMode === "ENTIRE_UNIT")
+  const baseRoomStepError = isRoomOnlyPropertyType(type) && definedRooms.some((room) => room.bookingMode === "ENTIRE_UNIT")
     ? `${type} listings need room inventory. Remove the saved whole-place unit and add the rooms guests book.`
     : definedRooms.length < 1
     ? bookingMode === "ENTIRE_UNIT" ? "Set every bedroom's beds and guest capacity, then save the entire unit before continuing." : bookingMode === "UNITS" ? "Save at least one unit type before continuing." : "Save at least one room type before continuing."
     : definedRooms.some((room) => room.bookingMode === "ENTIRE_UNIT" && !hasCompleteBedrooms(room.bedrooms))
       ? "Every bedroom in the saved unit needs a name, a bed, and declared guest capacity. Edit the unit to complete it."
       : editingRoomIndex !== null ? (bookingMode === "UNITS" ? "Save or cancel your unit edits before continuing." : "Save or cancel your room edits before continuing.") : null;
+  const roomStepError = isLongStay && definedRooms.some((room) => room.bookingMode !== "ENTIRE_UNIT" || room.unitStyle === "UNIT")
+    ? "A monthly listing rents the whole home. Remove the saved rooms or units, then save the entire place."
+    : baseRoomStepError ?? (isLongStay && !longStayTermsComplete(longStayTerms) ? "Complete the monthly rent and terms." : null);
+
+  // Rooms or units that a whole-home monthly listing cannot keep.
+  const roomsBlockingMonthly = definedRooms.filter((room) => room.bookingMode !== "ENTIRE_UNIT" || room.unitStyle === "UNIT");
+  const [monthlyAsk, setMonthlyAsk] = useState(false);
+
+  const changeRentalMode = (next: "NIGHTLY" | "LONG_STAY") => {
+    if (next === rentalMode) { setMonthlyAsk(false); return; }
+    if (next === "LONG_STAY") {
+      // Ask in the card, never in a browser pop-up: the owner chooses to clear them or stay nightly.
+      if (roomsBlockingMonthly.length) { setMonthlyAsk(true); return; }
+      setBookingMode("ENTIRE_UNIT");
+      if (definedRooms.length === 0) { setRoomType(type || "Apartment"); setRoomsCount(1); }
+    }
+    setMonthlyAsk(false);
+    // Parking is priced per month on a long stay and per day on nightly stays.
+    setServices((prev: any) => ({ ...(prev || {}), parkingPeriod: next === "LONG_STAY" ? "month" : undefined }));
+    setRentalMode(next);
+  };
+
+  /** The owner chose monthly: drop the per-room set-up and start one whole-home unit. */
+  const clearRoomsForMonthly = () => {
+    setDefinedRooms((list) => list.filter((room) => room.bookingMode === "ENTIRE_UNIT" && room.unitStyle !== "UNIT"));
+    setEditingRoomIndex(null);
+    setBookingMode("ENTIRE_UNIT");
+    setRoomType(type || "Apartment");
+    setRoomsCount(1);
+    setMonthlyAsk(false);
+    setServices((prev: any) => ({ ...(prev || {}), parkingPeriod: "month" }));
+    setRentalMode("LONG_STAY");
+  };
 
   const goToNextStep = () => {
     if (currentStep < 5) {
@@ -1356,7 +1433,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     if (!roomType.trim()) errs.push(bookingMode === "UNITS" ? "Name this unit type, for example 2-bedroom apartment." : whole ? "Unit type is required." : "Room type is required.");
     if (!roomsCount || Number(roomsCount) <= 0) errs.push(whole ? "Number of units is required." : "Rooms count is required.");
     if (roomImages.length < 3) errs.push("Add at least three photos.");
-    if (Number(pricePerNight) < 5000) errs.push("Nightly price must be at least TZS 5,000.");
+    if (!isLongStay && Number(pricePerNight) < 5000) errs.push("Nightly price must be at least TZS 5,000.");
     if (whole && !hasCompleteBedrooms(unitBedrooms)) {
       errs.push("Give every bedroom a name, at least one bed, and a guest capacity.");
     }
@@ -1400,7 +1477,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           : {}),
       smoking, bathPrivate, bathItems, towelColor,
       otherAmenities: Array.from(new Set([...otherAmenities, ...splitComma(otherAmenitiesText)])),
-      roomDescription, roomImages, pricePerNight: Number(pricePerNight || 0)
+      roomDescription, roomImages, pricePerNight: isLongStay ? 0 : Number(pricePerNight || 0)
     };
     // Editing replaces the group in place; otherwise it is a new group
     if (editingRoomIndex !== null && editingRoomIndex < definedRooms.length) {
@@ -1570,6 +1647,11 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
       // In public UI, houseRules.smoking === true means "Smoking Not Allowed"
       if (typeof hr.smokingNotAllowed === "boolean") out.smoking = hr.smokingNotAllowed;
       if (hr.other && typeof hr.other === "string" && hr.other.trim()) out.other = hr.other.trim();
+      // Long stay living rules, read by the lease (lib/longStay/lease.ts leaseRulesFrom).
+      const living = leaseRulesPayload(hr);
+      if (living?.smokingPolicy) { out.smokingPolicy = living.smokingPolicy; out.smoking = living.smokingPolicy !== "allowed"; }
+      if (living?.overnightGuests) { out.overnightGuests = living.overnightGuests; if (living.overnightGuests === "limited") out.overnightNights = living.overnightNights; }
+      if (living?.quietHours) out.quietHours = living.quietHours;
 
       return Object.keys(out).length ? out : null;
     })();
@@ -1610,6 +1692,15 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
         ? Math.max(1, autoMaxGuests)
         : maxGuests === "" || maxGuests == null || Number(maxGuests) <= 0 ? Math.max(1, autoMaxGuests) : Number(maxGuests),
       houseRules: houseRulesObj,
+
+      // Long stay: sent only when the owner can choose it. Incomplete terms are
+      // not sent (the server would refuse the whole save); submit checks them.
+      ...(canOfferLongStay || isLongStay
+        ? isLongStay
+          // The choice is saved at once; the terms go with it once complete (submit still needs them).
+          ? { rentalMode: "LONG_STAY", longStay: longStayTermsComplete(longStayTerms) ? longStayTermsForServer(longStayTerms) : null }
+          : { rentalMode: "NIGHTLY" }
+        : {}),
 
       // Backend expects services as JSON: can be array of strings OR object with nearbyFacilities
       // Send as object to preserve full nearbyFacilities data (name, distance, etc.) AND all service properties
@@ -1864,6 +1955,11 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     if (draft.acceptGroupBooking !== undefined) setAcceptGroupBooking(draft.acceptGroupBooking);
     if (draft.freeCancellation !== undefined) setFreeCancellation(draft.freeCancellation);
     if (draft.paymentModes && Array.isArray(draft.paymentModes)) setPaymentModes(draft.paymentModes);
+    // Monthly (long stay) is remembered even before its terms are complete.
+    if (draft.rentalMode === "LONG_STAY") {
+      setRentalMode("LONG_STAY");
+      if (draft.longStayTerms && typeof draft.longStayTerms === "object") setLongStayTerms({ ...EMPTY_LONG_STAY_TERMS, ...draft.longStayTerms });
+    }
 
     const step = typeof draft.currentStep === "number" ? Math.max(0, Math.min(5, draft.currentStep)) : 0;
     const visited = Array.isArray(draft.visitedSteps)
@@ -2143,6 +2239,22 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
 
         {/* ROOM TYPES */}
         <RoomsStep
+          monthly={isLongStay}
+          rentalModeSlot={canOfferLongStay || isLongStay ? (
+            <RentalModeSwitch
+              value={rentalMode}
+              onChange={changeRentalMode}
+              blocker={monthlyAsk && roomsBlockingMonthly.length ? { count: roomsBlockingMonthly.length, units: roomsBlockingMonthly.some((r) => r.unitStyle === "UNIT") } : null}
+              onClearAndSwitch={clearRoomsForMonthly}
+              onKeepNightly={() => setMonthlyAsk(false)}
+              lockedReason={!canOfferLongStay && isLongStay ? (longStayEligibility?.refusal || "Long stays are not available for this listing type.") : null}
+            />
+          ) : null}
+          longStaySlot={isLongStay ? (
+            <div className="mt-4">
+              <LongStayTermsCard value={longStayTerms} onChange={setLongStayTerms} number={definedRooms.length > 0 ? 2 : 4} bookingsOpen={Boolean(longStayEligibility?.bookingsOpen)} onPreviewLease={() => setLeasePreviewOpen(true)} />
+            </div>
+          ) : null}
           isVisible={showRooms}
           sectionRef={(el) => {
             sectionRefs.current[1] = el;
@@ -2224,6 +2336,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           goToPreviousStep={goToPreviousStep}
           goToNextStep={goToNextStep}
           services={services as any}
+          monthly={isLongStay}
           propertyType={type}
           propertyLatitude={latitude}
           propertyLongitude={longitude}
@@ -2251,6 +2364,8 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           setAcceptGroupBooking={setAcceptGroupBooking}
           houseRules={houseRules as any}
           setHouseRules={setHouseRules as any}
+          monthly={isLongStay}
+          onPreviewLease={() => setLeasePreviewOpen(true)}
           goToPreviousStep={goToPreviousStep}
           goToNextStep={goToNextStep}
           currentStep={currentStep}
@@ -2316,6 +2431,19 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
             bedrooms: totalBedrooms,
             bathrooms: totalBathrooms,
             maxGuests: hasDeclaredInventory ? autoMaxGuests : maxGuests,
+            longStay: isLongStay ? {
+              terms: longStayTerms,
+              parking: (() => {
+                const sv: any = services || {};
+                if (!sv.parking || sv.parking === "no") return "No parking";
+                const spaces = Number(sv.parkingSpaces) || 1;
+                const kind = `${sv.parkingCovered ? "Covered" : "Open"}, ${spaces} car${spaces === 1 ? "" : "s"}`;
+                return sv.parking === "free" ? `${kind}, in the rent` : `${kind}, ${Number(sv.parkingPrice) ? `TZS ${Number(sv.parkingPrice).toLocaleString("en-US")} a month` : "extra each month"}`;
+              })(),
+              rules: livingRuleLines(leaseRulesPayload(houseRules)),
+              onPreviewLease: () => setLeasePreviewOpen(true),
+              onEditTerms: () => scrollToStep(1, true),
+            } : null,
           }}
         />
                   </div>
@@ -2326,6 +2454,9 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
 
         </div>
       </div>
+
+      {/* The full lease, readable from the terms card, the living rules and the review (long stay only). */}
+      {isLongStay ? <LeasePreviewDialog open={leasePreviewOpen} onClose={() => setLeasePreviewOpen(false)} terms={longStayTermsForServer(longStayTerms)} houseRules={leaseRulesPayload(houseRules)} homeTitle={title} /> : null}
 
       {/* Submission Success Modal */}
       {showSubmissionSuccess && (

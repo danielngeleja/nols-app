@@ -50,6 +50,14 @@ export const SETTLE_RULES: Record<string, Rule> = {
       return out;
     },
   },
+  // Closes "Tenant ID to check" once an admin decided it, or it was replaced.
+  long_stay_tenant_id_submitted: {
+    field: "tenantProfileId",
+    check: async (client, ids) => byStatus(
+      await client.longStayTenantProfile.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } }), ids,
+      (s) => (s === "PENDING" ? null : `The ID check was ${lower(s)}.`), "The ID check no longer exists.",
+    ),
+  },
   property_submitted: {
     field: "propertyId",
     check: async (client, ids) => byStatus(

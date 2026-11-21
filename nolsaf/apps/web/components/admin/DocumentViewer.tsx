@@ -56,6 +56,11 @@ export type DocumentViewerProps = {
   /** Download name; ".pdf" / ".html" is applied per format. */
   filename?: string;
   pdfFormat?: PdfFormat;
+  /**
+   * For one long flowing `.sheet` (a contract): PDF page margins in mm
+   * [top, right, bottom, left] and the elements a page break must not cut.
+   */
+  pdfFlow?: { margin: [number, number, number, number]; avoid: string[] };
   tabs?: DocumentViewerTab[];
   activeTab?: string;
   onTabChange?: (key: string) => void;
@@ -148,6 +153,7 @@ export default function DocumentViewer({
   error = null,
   filename = "Document.pdf",
   pdfFormat = "a5",
+  pdfFlow,
   tabs,
   activeTab,
   onTabChange,
@@ -277,10 +283,10 @@ export default function DocumentViewer({
         .from(source)
         .set({
           filename: `${baseName(filename)}.pdf`,
-          margin: 0,
+          margin: pdfFlow ? pdfFlow.margin : 0,
           jsPDF: { unit: "mm", format: pdfFormat, orientation: "portrait" },
           html2canvas: { scale: 2, useCORS: true, logging: false, windowWidth: source.offsetWidth },
-          pagebreak: { mode: sheets.length > 1 ? ["css"] : [] },
+          pagebreak: pdfFlow ? { mode: ["css", "legacy"], avoid: pdfFlow.avoid } : { mode: sheets.length > 1 ? ["css"] : [] },
         })
         .save();
     } catch {
@@ -289,7 +295,7 @@ export default function DocumentViewer({
     } finally {
       setPdfBusy(false);
     }
-  }, [filename, pdfFormat, print]);
+  }, [filename, pdfFormat, pdfFlow, print]);
 
   const saveHtml = useCallback(() => {
     setSaveOpen(false);
