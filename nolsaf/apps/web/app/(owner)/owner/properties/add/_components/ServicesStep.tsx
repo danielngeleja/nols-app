@@ -341,7 +341,7 @@ export function ServicesStep({
                     <span className="min-w-0 text-white/85">
                       {parking === "no"
                         ? "No parking at the home."
-                        : `${services?.parkingCovered ? "Covered parking" : "Parking"} for ${parkingSpaces} car${parkingSpaces === 1 ? "" : "s"}, ${parking === "free" ? "included in the rent" : Number(parkingPrice) > 0 ? `TZS ${Number(parkingPrice).toLocaleString("en-US")} a month` : "extra each month"}.`}
+                        : `${services?.parkingCovered ? "Covered parking" : "Open parking"} for ${parkingSpaces} car${parkingSpaces === 1 ? "" : "s"}, ${parking === "free" ? "included in the rent" : Number(parkingPrice) > 0 ? `TZS ${Number(parkingPrice).toLocaleString("en-US")} a month` : "extra each month"}.`}
                     </span>
                   </p>
                 </div>

@@ -2,6 +2,7 @@
  * Sales Partner side of long-stay rentals (docs/LONG_STAY_RENTALS.md section 13).
  *
  * GET  /api/sales/long-stay/inspections              homes NoLSAF asked me to inspect
+ * GET  /api/sales/long-stay/inspections/queue        inspection work alongside the lead pipeline
  * POST /api/sales/long-stay/inspections/:ref/report  multipart: photos (4 to 12) + position, checklist, recommendation, note
  * GET  /api/sales/long-stay/visits                   tenants I accompany to view a home
  *
@@ -43,24 +44,61 @@ function parsePhotos(req: Request, res: Response, next: NextFunction) {
 
 const day = (v: Date | string | null | undefined) => (v ? new Date(v).toISOString().slice(0, 10) : null);
 
+router.get("/long-stay/inspections/queue", limitSalesLeadRead as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const partnerId = partnerIdFor(req);
+  if (!partnerId) return res.status(403).json({ error: "Sales partner context required" });
+  const assigned = { salesPartnerId: partnerId, status: "ASSIGNED" };
+  const [toVisit, inReview, upcoming] = await Promise.all([
+    db.longStayInspection.count({ where: assigned }),
+    db.longStayInspection.count({ where: { salesPartnerId: partnerId, status: "SUBMITTED" } }),
+    db.longStayInspection.findMany({
+      where: assigned,
+      orderBy: [{ dueBy: "asc" }, { id: "asc" }],
+      take: 3,
+      select: { publicRef: true, dueBy: true, reviewedAt: true, property: { select: { title: true, district: true, regionName: true } } },
+    }),
+  ]);
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({
+    toVisit,
+    inReview,
+    upcoming: upcoming.map((item: any) => ({
+      ref: item.publicRef,
+      title: item.property?.title ?? null,
+      area: [item.property?.district, item.property?.regionName].filter(Boolean).join(", "),
+      dueBy: item.dueBy,
+      redo: Boolean(item.reviewedAt),
+    })),
+  });
+}));
+
 router.get("/long-stay/inspections", limitSalesLeadRead as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
   const partnerId = partnerIdFor(req);
   if (!partnerId) return res.status(403).json({ error: "Sales partner context required" });
+  const ref = req.query.inspection;
   const since = new Date(Date.now() - 60 * 86_400_000);
-  const rows = await db.longStayInspection.findMany({
-    where: { salesPartnerId: partnerId, OR: [{ status: { in: ["ASSIGNED", "SUBMITTED"] } }, { reviewedAt: { gte: since } }] },
-    orderBy: [{ status: "asc" }, { dueBy: "asc" }],
-    take: 100,
-    include: {
-      property: {
-        select: {
-          title: true, district: true, regionName: true, latitude: true, longitude: true, type: true,
-          owner: { select: { name: true, fullName: true, phone: true } },
-          longStayListing: { select: { monthlyRent: true, currency: true, furnished: true, utilities: true } },
-        },
+  const include = {
+    property: {
+      select: {
+        title: true, district: true, regionName: true, latitude: true, longitude: true, type: true,
+        owner: { select: { name: true, fullName: true, phone: true } },
+        longStayListing: { select: { monthlyRent: true, currency: true, furnished: true, utilities: true } },
       },
     },
+  };
+  const rows = await db.longStayInspection.findMany({
+    where: { salesPartnerId: partnerId, OR: [{ status: { in: ["ASSIGNED", "SUBMITTED"] } }, { status: { in: ["PASSED", "FAILED"] }, reviewedAt: { gte: since } }] },
+    orderBy: [{ status: "asc" }, { dueBy: "asc" }],
+    take: 100,
+    include,
   });
+  if (isInspectionRef(ref) && !rows.some((row: any) => row.publicRef === ref)) {
+    const focused = await db.longStayInspection.findFirst({
+      where: { salesPartnerId: partnerId, publicRef: ref, status: { in: ["ASSIGNED", "SUBMITTED", "PASSED", "FAILED"] } },
+      include,
+    });
+    if (focused) rows.unshift(focused);
+  }
   res.setHeader("Cache-Control", "no-store");
   return res.json({
     checklist: CHECKLIST,
@@ -70,13 +108,14 @@ router.get("/long-stay/inspections", limitSalesLeadRead as any, asyncHandler(asy
       ref: r.publicRef,
       status: r.status,
       reason: r.reason,
+      assignedAt: r.assignedAt,
       dueBy: r.dueBy,
       home: {
         title: r.property?.title ?? null,
         type: r.property?.type ?? null,
         area: [r.property?.district, r.property?.regionName].filter(Boolean).join(", "),
         // The partner goes to the home, so they get the exact pin.
-        pin: r.property?.latitude != null && r.property?.longitude != null ? { lat: Number(r.property.latitude), lng: Number(r.property.longitude) } : null,
+        pin: r.status === "ASSIGNED" && r.property?.latitude != null && r.property?.longitude != null ? { lat: Number(r.property.latitude), lng: Number(r.property.longitude) } : null,
         listing: r.property?.longStayListing ? {
           monthlyRent: Number(r.property.longStayListing.monthlyRent),
           currency: r.property.longStayListing.currency,
@@ -84,8 +123,10 @@ router.get("/long-stay/inspections", limitSalesLeadRead as any, asyncHandler(asy
           utilities: r.property.longStayListing.utilities,
         } : null,
       },
-      landlord: { name: r.property?.owner?.fullName || r.property?.owner?.name || null, phone: r.property?.owner?.phone ?? null },
-      reviewNote: r.status === "ASSIGNED" ? r.reviewNote ?? null : r.reviewNote ?? null,
+      landlord: r.status === "ASSIGNED"
+        ? { name: r.property?.owner?.fullName || r.property?.owner?.name || null, phone: r.property?.owner?.phone ?? null }
+        : { name: null, phone: null },
+      reviewNote: r.status === "SUBMITTED" ? null : r.reviewNote,
       submittedAt: r.submittedAt,
       reviewedAt: r.reviewedAt,
       feeAmount: r.feeAmount != null ? Number(r.feeAmount) : null,
@@ -106,6 +147,7 @@ router.post(
     if (!isInspectionRef(ref)) return res.status(404).json({ error: "Not found" });
     const inspection = await db.longStayInspection.findFirst({ where: { publicRef: ref, salesPartnerId: partnerId } });
     if (!inspection) return res.status(404).json({ error: "Not found" });
+    if (inspection.status !== "ASSIGNED") return res.status(409).json({ error: "This inspection is no longer waiting for a report." });
 
     let checklist: unknown = null;
     try { checklist = JSON.parse(String((req.body ?? {}).checklist || "null")); } catch { checklist = null; }
@@ -117,23 +159,24 @@ router.post(
     if (files.some((f) => !PHOTO_TYPES.has(String(f.mimetype).toLowerCase()))) return res.status(400).json({ error: "Photos must be JPEG, PNG, WebP or HEIC images." });
 
     const uploaded: Array<{ publicId: string; hash: string; bytes: number }> = [];
+    let outcome: Awaited<ReturnType<typeof submitInspection>>;
     try {
       for (const file of files) {
         const hash = createHash("sha256").update(file.buffer).digest("hex");
         const publicId = await uploadVisitPhoto(file.buffer, partnerId);
         uploaded.push({ publicId, hash, bytes: file.size });
       }
-      const outcome = await submitInspection(db, inspection, partnerId, parsed.data, uploaded);
-      await audit(req as any, "LONG_STAY_INSPECTION_REPORT", "PROPERTY", null, { ref, recommendation: parsed.data.recommendation, ...outcome }, inspection.propertyId);
-      const property = await db.property.findUnique({ where: { id: inspection.propertyId }, select: { title: true } });
-      await notifyAdmins("long_stay_inspection_report", { propertyTitle: property?.title ?? null, recommendation: parsed.data.recommendation, flags: outcome.flags }).catch(() => undefined);
-      return res.status(201).json({ ok: true, status: "SUBMITTED", distanceMeters: outcome.distanceMeters, flags: outcome.flags });
+      outcome = await submitInspection(db, inspection, partnerId, parsed.data, uploaded);
     } catch (error) {
       await Promise.all(uploaded.map((p) => deleteVisitPhoto(p.publicId)));
       if (error instanceof InspectionError) return res.status(error.status).json({ error: error.message });
       if ((error as any)?.message === "CLOUDINARY_NOT_CONFIGURED") return res.status(503).json({ error: "Photo storage is unavailable. Try again later." });
       throw error;
     }
+    await audit(req as any, "LONG_STAY_INSPECTION_REPORT", "PROPERTY", null, { ref, recommendation: parsed.data.recommendation, ...outcome }, inspection.propertyId);
+    const property = await db.property.findUnique({ where: { id: inspection.propertyId }, select: { title: true } }).catch(() => null);
+    await notifyAdmins("long_stay_inspection_report", { propertyTitle: property?.title ?? null, recommendation: parsed.data.recommendation, flags: outcome.flags });
+    return res.status(201).json({ ok: true, status: "SUBMITTED", distanceMeters: outcome.distanceMeters, flags: outcome.flags });
   }),
 );
 

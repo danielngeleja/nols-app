@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   accrueInspectionFee, assignInspection, CHECKLIST, checkReport, endInspectionAfterDispute, evaluatePosition, inspectionCurrent,
-  inspectionRefusal, isInspectionRef, newInspectionRef, partnerConflict, publicInspectionView, requestInspection, reviewInspection, submitInspection,
+  inspectionRefusal, isInspectionRef, newInspectionRef, partnerConflict, prepareInspectionForApproval, publicInspectionReport, publicInspectionView, requestInspection, reviewInspection, submitInspection,
 } from "./inspection.js";
 import { checkVisitSlot, createEnquiry } from "./enquiry.js";
 
@@ -30,7 +30,10 @@ function fakeDb(over: Record<string, any> = {}) {
 }
 
 beforeEach(() => { process.env.LONG_STAY_OPEN = "1"; });
-afterEach(() => { delete process.env.LONG_STAY_OPEN; });
+afterEach(() => {
+  delete process.env.LONG_STAY_OPEN;
+  vi.unstubAllEnvs();
+});
 
 describe("references and validity", () => {
   it("uses random li_ references", () => {
@@ -48,11 +51,73 @@ describe("references and validity", () => {
     expect(publicInspectionView({ status: "PASSED", validUntil: new Date("2027-11-21T00:00:00Z"), reviewedAt: new Date("2026-11-21T10:00:00Z") }, TODAY)).toEqual({ inspectedOn: "2026-11-21", validUntil: "2027-11-21" });
   });
 
+  it.each([undefined, "0"])("allows approval and keeps a visit requested with setting %s", async (value) => {
+    vi.stubEnv("LONG_STAY_REQUIRE_INSPECTION", value);
+    const db = fakeDb();
+    expect(await prepareInspectionForApproval(db, 9, TODAY)).toEqual({ refusal: null, opened: true });
+    expect(db.longStayInspection.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ propertyId: 9, status: "REQUESTED" }),
+    });
+    expect(await inspectionRefusal(db, 9, TODAY)).toMatch(/must inspect/);
+  });
+
+  it.each([undefined, "1"])("preserves an assigned visit when the approval setting is %s", async (value) => {
+    vi.stubEnv("LONG_STAY_REQUIRE_INSPECTION", value);
+    const db = fakeDb();
+    db.longStayInspection.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ status: "ASSIGNED" });
+    expect(await prepareInspectionForApproval(db, 9, TODAY)).toEqual({
+      refusal: value === "1" ? expect.stringMatching(/must inspect/) : null,
+      opened: false,
+    });
+    expect(db.longStayInspection.create).not.toHaveBeenCalled();
+  });
+
   it("opens one request per home at a time", async () => {
     const db = fakeDb();
     expect((await requestInspection(db, 9, "FIRST")).created).toBe(true);
     db.longStayInspection.findFirst = vi.fn(async () => ({ id: 1, status: "ASSIGNED" }));
     expect((await requestInspection(db, 9, "YEARLY")).created).toBe(false);
+  });
+});
+
+describe("public inspection report", () => {
+  it("publishes the approved checklist and visit dates without private evidence", async () => {
+    const db = fakeDb();
+    const results: Record<string, string | null> = { ...allPass, ACCESS: "FAIL", FURNISHING: "NA", UTILITIES_AS_LISTED: null };
+    db.longStayInspection.findFirst.mockResolvedValueOnce({
+      status: "PASSED",
+      capturedAt: new Date("2026-11-20T22:00:00Z"),
+      reviewedAt: new Date("2026-11-21T09:00:00Z"),
+      validUntil: new Date("2027-11-21T00:00:00Z"),
+      checklist: { ...results, extra: "private" },
+      note: "Private note",
+      latitude: -6.79,
+      photos,
+    });
+    const { report, inspected } = await publicInspectionReport(db, 9, TODAY);
+    expect(inspected).toEqual({ inspectedOn: "2026-11-21", validUntil: "2027-11-21" });
+    expect(report).toEqual({
+      status: "PASSED",
+      visitedOn: "2026-11-21",
+      reviewedOn: "2026-11-21",
+      validUntil: "2027-11-21",
+      checks: CHECKLIST.map((check) => ({ ...check, result: results[check.key] })),
+    });
+    expect(db.longStayInspection.findFirst).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["REQUESTED", "PENDING"],
+    ["SUBMITTED", "IN_REVIEW"],
+    ["FAILED", "FOLLOW_UP"],
+    ["PASSED", "EXPIRED"],
+  ])("publishes only status when the latest inspection is %s without a current pass", async (status, expected) => {
+    const db = fakeDb();
+    db.longStayInspection.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ status, checklist: allPass });
+    expect(await publicInspectionReport(db, 9, TODAY)).toEqual({
+      inspected: null,
+      report: { status: expected, visitedOn: null, reviewedOn: null, validUntil: null, checks: [] },
+    });
   });
 });
 

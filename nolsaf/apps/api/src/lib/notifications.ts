@@ -1,4 +1,5 @@
 import { prisma } from "@nolsaf/prisma";
+import type { Notification, Prisma } from "@prisma/client";
 import { customerBookingReference } from "./customerBookingReference.js";
 import { adminKindOf } from "./adminNotificationKinds.js";
 
@@ -175,7 +176,7 @@ export async function notifyAdmins(template: string, data: any) {
         },
         long_stay_inspection_needed: {
         title: "Long-stay home to inspect",
-        body: `"${data.propertyTitle || "A long-stay home"}" needs an on-site inspection by a Sales Partner before it can go live. Assign one in Long stays, Inspections.`
+        body: `"${data.propertyTitle || "A long-stay home"}" has an on-site inspection request. Assign a Sales Partner in Long stays, Inspections.`
         },
         long_stay_inspection_report: {
         title: "Inspection report to review",
@@ -798,10 +799,9 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
 }
 
 /**
- * Notify a user (customer) by userId
+ * Persist a user notification, optionally alongside the change that triggered it.
  */
-export async function notifyUser(userId: number, template: string, data: any) {
-  try {
+export async function createUserNotification(db: Pick<Prisma.TransactionClient, "notification">, userId: number, template: string, data: any) {
     const notificationTemplates: Record<string, { title: string; body: string }> = {
       nrms_agent_verification_decided: {
         title: data.decision === "VERIFIED" ? "Agency verified" : "Agency verification needs attention",
@@ -1060,12 +1060,16 @@ export async function notifyUser(userId: number, template: string, data: any) {
         body: `NoLSAF answered your question about "${data.propertyTitle || "a long-stay home"}". Open Long stays to read it.`
       },
       long_stay_inspection_assigned: {
-        title: "Home to inspect",
-        body: `NoLSAF asked you to inspect "${data.propertyTitle || "a long-stay home"}". Arrange the visit with the landlord and report from the home within 5 days.`
+        title: "Home inspection invitation",
+        body: `NoLSAF asked you to inspect "${data.propertyTitle || "a long-stay home"}". Open the inspection for the deadline and landlord contact, then submit your report from the home.`
       },
       long_stay_inspection_redo: {
         title: "Inspection to redo",
         body: `Your inspection of "${data.propertyTitle || "a long-stay home"}" needs another visit.${data.note ? ` ${data.note}` : ""}`
+      },
+      long_stay_inspection_decided: {
+        title: "NoLSAF reviewed your inspection",
+        body: `"${data.propertyTitle || "The long-stay home"}" ${data.status === "PASSED" ? "passed" : "did not pass"} its inspection. Open the inspection for NoLSAF's decision.`
       },
       long_stay_visit_assigned: {
         title: "Tenant visit to accompany",
@@ -1286,7 +1290,7 @@ export async function notifyUser(userId: number, template: string, data: any) {
       body: "You have an update."
     };
 
-    const created = await prisma.notification.create({
+    return db.notification.create({
       data: {
         userId: Number(userId),
         ownerId: null,
@@ -1296,7 +1300,7 @@ export async function notifyUser(userId: number, template: string, data: any) {
         meta: { ...data, notificationKind: template },
         type: template.startsWith("agent_")
           ? "agent"
-          : template.startsWith("sales_partner_")
+          : template.startsWith("sales_partner_") || template.startsWith("long_stay_inspection_")
             ? "sales"
             : template.startsWith("cancellation")
               ? "cancellation"
@@ -1305,16 +1309,24 @@ export async function notifyUser(userId: number, template: string, data: any) {
                 : "system"
       }
     });
+}
 
-    // Best-effort realtime emit
-    try {
-      const io = (global as any).io;
-      if (io && typeof io.to === "function") {
-        io.to(`user:${userId}`).emit("notification:new", { id: created.id, userId, type: created.type, title: created.title, body: created.body, createdAt: created.createdAt });
-      }
-    } catch {
-      // ignore
+export function publishUserNotification(created: Pick<Notification, "id" | "userId" | "type" | "title" | "body" | "createdAt">) {
+  // Publish after commit. The inbox still reads from the database if sockets are unavailable.
+  try {
+    const io = (global as any).io;
+    if (io && typeof io.to === "function") {
+      const { id, userId, type, title, body, createdAt } = created;
+      io.to(`user:${userId}`).emit("notification:new", { id, userId, type, title, body, createdAt });
     }
+  } catch {
+    // Best effort.
+  }
+}
+
+export async function notifyUser(userId: number, template: string, data: any) {
+  try {
+    publishUserNotification(await createUserNotification(prisma, userId, template, data));
   } catch (err: any) {
     console.error("[notify] user failed", err?.message || err);
   }

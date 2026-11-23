@@ -30,7 +30,7 @@ import {
 import { onAssistedPropertyApproved, onAssistedPropertyRejected } from "../lib/salesAssistedListing.js";
 import { longStaySubmitRefusal } from "../lib/longStay/listing.js";
 import { longStayOpen } from "../lib/longStay/fees.js";
-import { inspectionRefusal, requestInspection } from "../lib/longStay/inspection.js";
+import { longStayInspectionRequiredForApproval, prepareInspectionForApproval } from "../lib/longStay/inspection.js";
 import { todayInEat } from "../lib/longStay/listing.js";
 
 export const router = Router();
@@ -1314,11 +1314,12 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
       res.status(409).json({ error: "Long-stay listings cannot go live yet: tenant booking opens in a later release. Review the terms and keep it pending." });
       return;
     }
-    // No long-stay home goes live without a NoLSAF Sales Partner's passed inspection (section 13).
-    const notInspected = await inspectionRefusal(prisma, id, todayInEat());
+    const { refusal: notInspected, opened } = await prepareInspectionForApproval(prisma, id, todayInEat());
+    if (opened) {
+      const { notifyAdmins } = await import("../lib/notifications.js");
+      await notifyAdmins("long_stay_inspection_needed", { propertyTitle: before.title });
+    }
     if (notInspected) {
-      // Listings that reached review another way (assisted listing, relisting) get their request here.
-      await requestInspection(prisma, id, "FIRST").catch(() => null);
       res.status(409).json({ error: `${notInspected} Assign a partner in Long stays, Inspections.` });
       return;
     }
@@ -1368,7 +1369,9 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
     await upsertPropertyVerification(tx as any, id, {
       status: "VERIFIED",
       adminId: req.user!.id,
-      method: DEFAULT_PROPERTY_VERIFICATION_METHOD,
+      method: before.rentalMode === "LONG_STAY" && !longStayInspectionRequiredForApproval()
+        ? "Listing review"
+        : DEFAULT_PROPERTY_VERIFICATION_METHOD,
     });
 
     return property;

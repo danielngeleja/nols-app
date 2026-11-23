@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Building2, ChevronUp, ChevronDown, ChevronRight, BedDouble, Home, Layers, Grid3x3, MousePointerClick } from "lucide-react";
 import { floorUseLabel, type FloorUses } from "./floorUses";
+import PropertyDiagramConnector from "@/components/PropertyDiagramConnector";
 
 interface Room {
   roomType: string;
@@ -348,24 +349,8 @@ export function PropertyVisualizationPreview({
 
         <div ref={gridRef} className="relative grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-stretch lg:gap-10">
           {/* Connector: selected floor → floor card */}
-          {panelPos && (
-            <svg aria-hidden className="pointer-events-none absolute inset-0 z-10 hidden h-full w-full overflow-visible lg:block">
-              {(() => {
-                const { sx, sy, ex, ey } = panelPos;
-                const mid = sx + Math.max(16, (ex - sx) * 0.55);
-                const d = `M ${sx + 6} ${sy} L ${mid - 8} ${sy} Q ${mid} ${sy} ${mid} ${sy + Math.sign(ey - sy) * Math.min(8, Math.abs(ey - sy))} L ${mid} ${ey - Math.sign(ey - sy) * Math.min(8, Math.abs(ey - sy))} Q ${mid} ${ey} ${mid + 8} ${ey} L ${ex - 2} ${ey}`;
-                return (
-                  <g className="motion-safe:transition-all motion-safe:duration-300">
-                    <path d={d} fill="none" stroke="#02665e" strokeOpacity="0.18" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-                    <path d={d} fill="none" stroke="#02665e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 4" className="nols-connector-flow" />
-                    <circle cx={sx + 6} cy={sy} r="5" fill="#ffffff" stroke="#02665e" strokeWidth="2" />
-                    <circle cx={sx + 6} cy={sy} r="2" fill="#02665e" />
-                    <circle cx={ex - 2} cy={ey} r="4" fill="#02665e" />
-                  </g>
-                );
-              })()}
-            </svg>
-          )}
+          {panelPos && <PropertyDiagramConnector connection={panelPos} className="hidden lg:block" />}
+
           {/* Elevation: the building drawn as stacked floors, top floor first */}
           <div
             role="listbox"

@@ -225,7 +225,7 @@ function TenancyCard({ item, onChanged }: { item: Item; onChanged: () => void })
           </label>
           <label className="flex items-start gap-2 text-xs text-slate-700 sm:col-span-2">
             <input type="checkbox" checked={reinspect} onChange={(e) => setReinspect(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#02665e]" />
-            The home itself fell short of its listing: end its inspection now. It takes no new reservations until a Sales Partner inspects it again.
+            End this home’s current inspection and request another visit. New reservations pause until the home passes again.
           </label>
           <div className="flex gap-2 sm:col-span-2">
             <button type="button" disabled={busy || note.trim().length < 10} onClick={() => call("resolve", { to, payout, note: note.trim(), reinspect }, "Decision saved.")} className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}>Save decision</button>

@@ -2,8 +2,8 @@
  * On-site inspection of long-stay homes by NoLSAF Sales Partners
  * (docs/LONG_STAY_RENTALS.md section 13).
  *
- *  - Every long-stay home needs a PASSED inspection to be approved and to take
- *    reservations. It lasts a year (YEARLY re-inspection) and ends at once
+ *  - A current pass is required for reservations. The API can also require it
+ *    for listing approval. A pass lasts a year and ends at once
  *    when NoLSAF upholds a dispute about the home (AFTER_DISPUTE).
  *  - An admin assigns a partner. The partner may not be the owner, nor the
  *    partner who brought the home in (no marking your own homework).
@@ -18,9 +18,11 @@
  *    FAIL), never more for a pass, so passing a bad home pays nothing extra.
  */
 import { randomBytes } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { haversineMeters } from "../salesLeadVisits.js";
 import { isContractEarning } from "../salesPartner.js";
+import { todayInEat } from "./listing.js";
 
 export class InspectionError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -45,6 +47,10 @@ export const LOW_ACCURACY_METERS = 100;
 export const MAX_CAPTURE_DELAY_MS = 48 * 3_600_000;
 
 export const OPEN_INSPECTION_STATUSES = ["REQUESTED", "ASSIGNED", "SUBMITTED"] as const;
+
+export function longStayInspectionRequiredForApproval(): boolean {
+  return process.env.LONG_STAY_REQUIRE_INSPECTION === "1";
+}
 
 /** The standards a long-stay home must meet. `required` items must PASS for a home to pass. */
 export const CHECKLIST: Array<{ key: string; label: string; required: boolean }> = [
@@ -138,19 +144,35 @@ export function inspectionCurrent(row: { status: string; validUntil: Date | stri
 }
 
 /** The latest passed inspection of a home, or null. */
-export async function latestPassedInspection(db: any, propertyId: number) {
+export async function latestPassedInspection(db: any, propertyId: number, includePublicReport = false) {
   return db.longStayInspection.findFirst({
     where: { propertyId, status: "PASSED" },
     orderBy: { reviewedAt: "desc" },
-    select: { status: true, validUntil: true, reviewedAt: true },
+    select: {
+      status: true, validUntil: true, reviewedAt: true,
+      ...(includePublicReport ? { capturedAt: true, checklist: true } : {}),
+    },
   });
 }
 
-/** Why a home cannot be approved or reserved for lack of an inspection, or null. */
+/** Why a home lacks a current inspection, or null. */
 export async function inspectionRefusal(db: any, propertyId: number, today: string): Promise<string | null> {
   const passed = await latestPassedInspection(db, propertyId);
   if (inspectionCurrent(passed, today)) return null;
   return passed ? "This home's NoLSAF inspection has run out. A Sales Partner must inspect it again." : "A NoLSAF Sales Partner must inspect this home first.";
+}
+
+/** Keep the visit in the queue while applying the server's approval policy. */
+export async function prepareInspectionForApproval(db: any, propertyId: number, today: string) {
+  const required = longStayInspectionRequiredForApproval();
+  const refusal = await inspectionRefusal(db, propertyId, today).catch((error) => {
+    if (required) throw error;
+    return null;
+  });
+  if (!refusal) return { refusal: null, opened: false };
+
+  const request = await requestInspection(db, propertyId, "FIRST").catch(() => null);
+  return { refusal: required ? refusal : null, opened: request?.created === true };
 }
 
 /**
@@ -166,20 +188,21 @@ export async function requestInspection(db: any, propertyId: number, reason: "FI
 
 /** Why this partner may not inspect this home, or null. */
 export async function partnerConflict(db: any, partner: { id: number; userId: number }, propertyId: number): Promise<string | null> {
-  const property = await db.property.findUnique({ where: { id: propertyId }, select: { ownerId: true } });
+  const property = await db.property.findUnique({ where: { id: propertyId }, select: { ownerId: true, salesAssistedListing: { select: { salesPartnerId: true } } } });
   if (!property) return "Home not found.";
   if (property.ownerId === partner.userId) return "A partner cannot inspect their own home.";
   const brought = await db.propertySalesAttribution.findFirst({ where: { propertyId, salesPartnerId: partner.id }, select: { id: true } });
-  if (brought) return "This partner brought the home to NoLSAF, so another partner must inspect it.";
+  if (brought || property.salesAssistedListing?.salesPartnerId === partner.id) return "This partner brought the home to NoLSAF, so another partner must inspect it.";
   return null;
 }
 
 export async function assignInspection(db: any, inspection: any, partner: { id: number; userId: number }, adminId: number, now = new Date()) {
   if (!["REQUESTED", "ASSIGNED"].includes(inspection.status)) throw new InspectionError("This inspection is no longer waiting for a partner.", 409);
+  if (inspection.salesPartnerId === partner.id) throw new InspectionError("This partner already has the inspection in their queue.", 409);
   const conflict = await partnerConflict(db, partner, inspection.propertyId);
   if (conflict) throw new InspectionError(conflict, 409);
   const result = await db.longStayInspection.updateMany({
-    where: { id: inspection.id, status: inspection.status },
+    where: { id: inspection.id, status: inspection.status, updatedAt: inspection.updatedAt },
     data: { status: "ASSIGNED", salesPartnerId: partner.id, assignedById: adminId, assignedAt: now, dueBy: new Date(now.getTime() + INSPECTION_DUE_DAYS * 86_400_000) },
   });
   if (result.count !== 1) throw new InspectionError("This inspection changed a moment ago. Refresh.", 409);
@@ -204,12 +227,12 @@ export async function submitInspection(
 
   const property = await db.property.findUnique({ where: { id: inspection.propertyId }, select: { latitude: true, longitude: true } });
   const { distanceMeters, flags } = evaluatePosition(report, property, now);
-  const others = await db.longStayInspection.findMany({ where: { id: { not: inspection.id }, photos: { not: null } }, select: { photos: true }, take: 2000, orderBy: { id: "desc" } });
+  const others = await db.longStayInspection.findMany({ where: { id: { not: inspection.id }, photos: { not: Prisma.DbNull } }, select: { photos: true }, take: 2000, orderBy: { id: "desc" } });
   const seen = new Set<string>(others.flatMap((o: any) => (Array.isArray(o.photos) ? o.photos.map((p: any) => String(p?.hash)) : [])));
   if (photos.some((p) => seen.has(p.hash))) flags.push("DUPLICATE_PHOTO");
 
   const result = await db.longStayInspection.updateMany({
-    where: { id: inspection.id, status: "ASSIGNED", salesPartnerId: partnerId },
+    where: { id: inspection.id, status: "ASSIGNED", salesPartnerId: partnerId, updatedAt: inspection.updatedAt },
     data: {
       status: "SUBMITTED",
       checklist: report.checklist,
@@ -250,7 +273,7 @@ export async function reviewInspection(db: any, inspection: any, adminId: number
   const data = decision === "REDO"
     ? { status: "ASSIGNED", reviewNote: note, reviewedAt: now, reviewedById: adminId, submittedAt: null, dueBy: new Date(now.getTime() + INSPECTION_DUE_DAYS * 86_400_000) }
     : { status: decision === "PASS" ? "PASSED" : "FAILED", reviewNote: note, reviewedAt: now, reviewedById: adminId, feeAmount, validUntil: decision === "PASS" ? new Date(`${addMonthsDay(today, INSPECTION_VALID_MONTHS)}T00:00:00Z`) : null };
-  const result = await db.longStayInspection.updateMany({ where: { id: inspection.id, status: "SUBMITTED" }, data });
+  const result = await db.longStayInspection.updateMany({ where: { id: inspection.id, status: "SUBMITTED", updatedAt: inspection.updatedAt }, data });
   if (result.count !== 1) throw new InspectionError("This inspection was already decided.", 409);
 
   const fee = decision !== "REDO" && feeAmount && inspection.salesPartnerId
@@ -295,8 +318,7 @@ export async function accrueInspectionFee(db: any, inspection: any, amount: numb
 }
 
 /**
- * An upheld dispute about the home itself ends its inspection today and opens
- * a new one, so it takes no new reservations until inspected again.
+ * An upheld dispute about the home itself ends its inspection today and opens a new one.
  */
 export async function endInspectionAfterDispute(db: any, propertyId: number, today: string) {
   // validUntil is inclusive, so yesterday stops it at once.
@@ -306,10 +328,44 @@ export async function endInspectionAfterDispute(db: any, propertyId: number, tod
   return requestInspection(db, propertyId, "AFTER_DISPUTE");
 }
 
-/** What the public may see: when NoLSAF last inspected the home, never the report. */
+/** The verification dates used by the reservation card. */
 export function publicInspectionView(row: { status: string; validUntil: Date | string | null; reviewedAt: Date | string | null } | null, today: string) {
   if (!inspectionCurrent(row as any, today)) return null;
   return { inspectedOn: dayOf(row!.reviewedAt), validUntil: dayOf(row!.validUntil) };
+}
+
+/** Publish the approved checklist. Keep evidence and unreviewed findings in the admin portal. */
+export async function publicInspectionReport(db: any, propertyId: number, today: string) {
+  const passed = await latestPassedInspection(db, propertyId, true);
+  const inspected = publicInspectionView(passed, today);
+  if (inspected) {
+    const checklist = passed.checklist;
+    const visitDate = passed.capturedAt ? todayInEat(new Date(passed.capturedAt)) : null;
+    return {
+      inspected: { ...inspected, inspectedOn: visitDate ?? inspected.inspectedOn },
+      report: {
+        status: "PASSED" as const,
+        visitedOn: visitDate,
+        reviewedOn: passed.reviewedAt ? todayInEat(new Date(passed.reviewedAt)) : null,
+        validUntil: inspected.validUntil,
+        checks: CHECKLIST.map(({ key, label, required }) => {
+          const recorded = checklist?.[key];
+          const result = recorded === "PASS" || recorded === "FAIL" || recorded === "NA" ? recorded : null;
+          return { key, label, required, result };
+        }),
+      },
+    };
+  }
+
+  const latest = await db.longStayInspection.findFirst({
+    where: { propertyId, status: { not: "CANCELLED" } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { status: true },
+  });
+  const status = latest?.status === "SUBMITTED" ? "IN_REVIEW"
+    : latest?.status === "FAILED" ? "FOLLOW_UP"
+    : latest?.status === "PASSED" ? "EXPIRED" : "PENDING";
+  return { inspected: null, report: { status, visitedOn: null, reviewedOn: null, validUntil: null, checks: [] } };
 }
 
 export { addMonthsDay };

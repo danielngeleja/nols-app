@@ -29,8 +29,11 @@ function fakeDb(extra: Record<string, any> = {}) {
   return db;
 }
 
-beforeEach(() => { process.env.LONG_STAY_OPEN = "1"; });
-afterEach(() => { delete process.env.LONG_STAY_OPEN; });
+beforeEach(() => {
+  vi.stubEnv("LONG_STAY_OPEN", "1");
+  vi.stubEnv("LONG_STAY_REQUIRE_INSPECTION", undefined);
+});
+afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("addMonths", () => {
   it("keeps the day, or the last day of a shorter month", () => {

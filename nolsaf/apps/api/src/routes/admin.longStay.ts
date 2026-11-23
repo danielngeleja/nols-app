@@ -28,15 +28,17 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole, type AuthedRequest } from "../middleware/auth.js";
+import { hasWorkspaceAccess, loadSalesPartnerContext } from "../middleware/salesWorkspace.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { audit, auditOrThrow } from "../lib/audit.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { computeLongStayQuote } from "../lib/longStay/fees.js";
 import { currentLongStayRates, landlordGate, rentForTerm, rowToTerms, todayInEat } from "../lib/longStay/listing.js";
-import { assignInspection, CHECKLIST, endInspectionAfterDispute, InspectionError, inspectionCurrent, isInspectionRef, latestPassedInspection, requestInspection, reviewInspection, reviewSchema as inspectionReviewSchema } from "../lib/longStay/inspection.js";
+import { assignInspection, CHECKLIST, endInspectionAfterDispute, InspectionError, inspectionCurrent, isInspectionRef, latestPassedInspection, longStayInspectionRequiredForApproval, requestInspection, reviewInspection, reviewSchema as inspectionReviewSchema } from "../lib/longStay/inspection.js";
 import { answerSchema as enquiryAnswerSchema, isEnquiryRef } from "../lib/longStay/enquiry.js";
 import { signedVisitPhotoUrl } from "../lib/salesVisitPhotos.js";
-import { notifyAdmins, notifyOwner, notifyUser } from "../lib/notifications.js";
+import { createUserNotification, notifyAdmins, notifyOwner, notifyUser, publishUserNotification } from "../lib/notifications.js";
+import { CONTRACT_EARNING_STATUSES, isContractEarning } from "../lib/salesPartner.js";
 import { isTravellerDocumentPublicId, signedTravellerDocumentUrl } from "../lib/travellerDocuments.js";
 import { isTenancyRef, moveTenancy, TenancyError } from "../lib/longStay/tenancyService.js";
 import { approveTenancyPayout, landlordPayoutAccount, landlordPayoutOf, recordManualPayout } from "../lib/longStay/payout.js";
@@ -365,6 +367,7 @@ router.get("/inspections", asyncHandler(async (req: AuthedRequest, res: Response
   res.setHeader("Cache-Control", "private, no-store");
   return res.json({
     counts: Object.fromEntries(counts),
+    inspectionRequiredForApproval: longStayInspectionRequiredForApproval(),
     checklist: CHECKLIST,
     items: rows.map((r: any) => ({
       ref: r.publicRef,
@@ -409,14 +412,26 @@ router.post("/inspections/:ref/assign", asyncHandler(async (req: AuthedRequest, 
   if (!inspection) return res.status(404).json({ error: "Not found" });
   const partner = await partnerByCode(body.data.partnerCode);
   if (!partner) return res.status(404).json({ error: "No Sales Partner has that code." });
+  const [context, hasAccess] = await Promise.all([loadSalesPartnerContext(partner.userId), hasWorkspaceAccess(partner.userId, "SALES")]);
+  if (context?.status !== "ACTIVE" || !hasAccess || !isContractEarning(context.contract)) {
+    return res.status(409).json({ error: "Choose an active partner with access to the Sales workspace and a current contract." });
+  }
+  let invitation;
   try {
-    await assignInspection(prisma, inspection, partner, req.user!.id);
+    const propertyTitle = await propertyTitleOf(inspection.propertyId);
+    invitation = await prisma.$transaction(async (tx) => {
+      await assignInspection(tx, inspection, partner, req.user!.id);
+      return createUserNotification(tx, partner.userId, "long_stay_inspection_assigned", {
+        propertyTitle,
+        actionPath: `/sales/inspections?inspection=${encodeURIComponent(inspection.publicRef)}`,
+      });
+    });
   } catch (error) {
     if (error instanceof InspectionError) return res.status(error.status).json({ error: error.message });
     throw error;
   }
   await audit(req as any, "LONG_STAY_INSPECTION_ASSIGN", "PROPERTY", { status: inspection.status, partnerId: inspection.salesPartnerId }, { partner: partner.agentCode }, inspection.propertyId);
-  await notifyUser(partner.userId, "long_stay_inspection_assigned", { propertyTitle: await propertyTitleOf(inspection.propertyId) }).catch(() => undefined);
+  publishUserNotification(invitation);
   return res.json({ ok: true });
 }) as RequestHandler);
 
@@ -440,22 +455,32 @@ router.post("/inspections/:ref/review", asyncHandler(async (req: AuthedRequest, 
   const property = await prisma.property.findUnique({ where: { id: inspection.propertyId }, select: { ownerId: true } });
   if (property?.ownerId === req.user!.id) return res.status(403).json({ error: "You cannot review your own home." });
   const note = sanitizeText(body.data.note).slice(0, 500);
-  let result;
+  const title = await propertyTitleOf(inspection.propertyId);
+  let review;
   try {
-    result = await reviewInspection(prisma, inspection, req.user!.id, body.data.decision, note, todayInEat());
+    review = await prisma.$transaction(async (tx) => {
+      const result = await reviewInspection(tx, inspection, req.user!.id, body.data.decision, note, todayInEat());
+      const partner = inspection.salesPartnerId
+        ? await tx.salesPartnerProfile.findUnique({ where: { id: inspection.salesPartnerId }, select: { userId: true } })
+        : null;
+      const notification = partner ? await createUserNotification(tx, partner.userId, body.data.decision === "REDO" ? "long_stay_inspection_redo" : "long_stay_inspection_decided", {
+        propertyTitle: title,
+        status: result.status,
+        note,
+        actionPath: `/sales/inspections?inspection=${encodeURIComponent(inspection.publicRef)}`,
+      }) : null;
+      return { result, notification };
+    });
   } catch (error) {
     if (error instanceof InspectionError) return res.status(error.status).json({ error: error.message });
     throw error;
   }
+  const { result, notification } = review;
+  if (notification) publishUserNotification(notification);
   await audit(req as any, "LONG_STAY_INSPECTION_REVIEW", "PROPERTY", { status: inspection.status }, { decision: body.data.decision, note, fee: result.feeAmount, accrued: result.fee }, inspection.propertyId);
-  const title = await propertyTitleOf(inspection.propertyId);
   if (property) {
     if (body.data.decision === "PASS") await notifyOwner(property.ownerId, "long_stay_inspection_passed", { propertyTitle: title }).catch(() => undefined);
     if (body.data.decision === "FAIL") await notifyOwner(property.ownerId, "long_stay_inspection_failed", { propertyTitle: title, note }).catch(() => undefined);
-  }
-  if (body.data.decision === "REDO" && inspection.salesPartnerId) {
-    const partner = await prisma.salesPartnerProfile.findUnique({ where: { id: inspection.salesPartnerId }, select: { userId: true } });
-    if (partner) await notifyUser(partner.userId, "long_stay_inspection_redo", { propertyTitle: title, note }).catch(() => undefined);
   }
   return res.json({ ok: true, status: result.status, fee: result.fee });
 }) as RequestHandler);
@@ -707,7 +732,6 @@ router.post("/tenancies/:ref/resolve", asyncHandler(async (req: AuthedRequest, r
   // A decision can confirm a move-in or send the first month back: keep the ledger in step.
   await syncLongStayRevenue(prisma, tenancy.id).catch((error) => console.error(`[longStay] revenue sync failed for tenancy ${tenancy.id}:`, error?.message ?? error));
   if (body.data.reinspect) {
-    // No new reservations on this home until a Sales Partner inspects it again.
     await endInspectionAfterDispute(prisma, tenancy.propertyId, todayInEat()).catch((error) => console.error("[longStay] reinspection failed:", error?.message ?? error));
     await notifyAdmins("long_stay_inspection_needed", { propertyTitle: await propertyTitleOf(tenancy.propertyId) }).catch(() => undefined);
   }
@@ -799,8 +823,13 @@ async function onboardingPartners(propertyId: number) {
  * owner or a partner who brought the home in.
  */
 async function inspectorCandidates(ownerId: number, regionName: string | null, district: string | null, excluded: Set<number>, assignedId: number | null) {
+  const now = new Date();
   const partners = await prisma.salesPartnerProfile.findMany({
-    where: { status: "ACTIVE", suspendedAt: null, terminatedAt: null, userId: { not: ownerId } },
+    where: {
+      status: "ACTIVE", suspendedAt: null, terminatedAt: null, userId: { not: ownerId },
+      contracts: { some: { status: { in: [...CONTRACT_EARNING_STATUSES] }, startsAt: { lte: now }, expiresAt: { gt: now } } },
+      user: { workspaceAccess: { some: { workspace: "SALES", status: "ACTIVE", OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] } } },
+    },
     select: { id: true, agentCode: true, region: true, territory: true, level: true, user: { select: { name: true, fullName: true } } },
     take: 300,
   });
@@ -851,7 +880,7 @@ function inspectionDetail(r: any, today: string) {
     assignedAt: r.assignedAt,
     dueBy: r.dueBy,
     overdue: r.status === "ASSIGNED" && r.dueBy ? new Date(r.dueBy).getTime() < Date.now() : false,
-    report: r.submittedAt || r.capturedAt ? {
+    report: r.submittedAt ? {
       checklist: r.checklist ?? {},
       photoCount: Array.isArray(r.photos) ? r.photos.length : 0,
       recommendation: r.recommendation,
@@ -907,6 +936,7 @@ router.get("/properties/:id", asyncHandler(async (req: AuthedRequest, res: Respo
   if (typeof servicesObj === "string") { try { servicesObj = JSON.parse(servicesObj); } catch { servicesObj = null; } }
   const rawRules = servicesObj && typeof servicesObj === "object" ? servicesObj.houseRules ?? null : null;
   const longStayExtra = {
+    inspectionRequiredForApproval: longStayInspectionRequiredForApproval(),
     pin: property.latitude != null && property.longitude != null ? { latitude: Number(property.latitude), longitude: Number(property.longitude) } : null,
     checklist: CHECKLIST,
     inspection: latest ? inspectionDetail(latest, today) : null,

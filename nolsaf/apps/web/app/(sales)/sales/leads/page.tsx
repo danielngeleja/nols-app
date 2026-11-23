@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
   ChevronUp,
+  ClipboardCheck,
   Eye,
   Moon,
   Plus,
@@ -30,6 +31,7 @@ import apiClient from "@/lib/apiClient";
 import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
 import SalesPager from "@/components/sales/SalesPager";
+import { inspectionDate, salesInspectionPath } from "@/lib/salesInspection";
 
 type Lead = {
   ref: string;
@@ -46,6 +48,11 @@ type Lead = {
 };
 
 type Focus = "OVERDUE" | "TODAY" | "PROTECTION" | "NONE" | "STALE";
+type InspectionQueue = {
+  toVisit: number;
+  inReview: number;
+  upcoming: Array<{ ref: string; title: string | null; area: string; dueBy: string | null; redo: boolean }>;
+};
 type Pulse = {
   total: number;
   open: number;
@@ -127,6 +134,8 @@ function quiet(updatedAt: string, now: number | null) {
 export default function SalesLeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [pulse, setPulse] = useState<Pulse | null>(null);
+  const [inspections, setInspections] = useState<InspectionQueue | null>(null);
+  const [inspectionError, setInspectionError] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -149,6 +158,16 @@ export default function SalesLeadsPage() {
     }
   }, []);
 
+  const loadInspections = useCallback(async (signal?: AbortSignal) => {
+    setInspectionError(false);
+    try {
+      const { data } = await apiClient.get<InspectionQueue>("/api/sales/long-stay/inspections/queue", { signal });
+      setInspections(data);
+    } catch {
+      if (!signal?.aborted) setInspectionError(true);
+    }
+  }, []);
+
   const loadList = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -167,6 +186,16 @@ export default function SalesLeadsPage() {
 
   useEffect(() => { void loadPulse(); }, [loadPulse]);
   useEffect(() => { void loadList(); }, [loadList]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const refresh = () => { void loadInspections(controller.signal); };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      controller.abort();
+      window.removeEventListener("focus", refresh);
+    };
+  }, [loadInspections]);
   useEffect(() => {
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -223,6 +252,47 @@ export default function SalesLeadsPage() {
             </Link>
           }
         />
+
+        <section className={`${card} overflow-hidden`} aria-labelledby="inspection-queue-title">
+          <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3.5">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#02665e]/10 text-[#02665e]"><ClipboardCheck className="h-4 w-4" aria-hidden /></span>
+              <div>
+                <h2 id="inspection-queue-title" className="m-0 text-sm font-bold text-slate-900">Home inspections</h2>
+                {inspections ? (
+                  <p className="m-0 mt-1 text-xs text-slate-600">
+                    {inspections.toVisit || inspections.inReview ? `${inspections.toVisit} due to visit · ${inspections.inReview} with NoLSAF for review` : "No inspections awaiting a visit or review."}
+                  </p>
+                ) : null}
+                {inspectionError ? <button type="button" onClick={() => void loadInspections()} className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] underline">Retry inspection queue</button> : null}
+              </div>
+            </div>
+            <Link href="/sales/inspections" className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-solid border-slate-200 px-3 text-xs font-semibold text-[#02665e] no-underline hover:bg-emerald-50">
+              Open inspections <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </div>
+          {inspections?.upcoming.length ? (
+            <ul className="m-0 grid list-none gap-px border-0 border-t border-solid border-slate-100 bg-slate-100 p-0 sm:grid-cols-3">
+              {inspections.upcoming.map((item) => {
+                const late = item.dueBy && now !== null && new Date(item.dueBy).getTime() < now;
+                return (
+                  <li key={item.ref} className="min-w-0 bg-white">
+                    <Link href={salesInspectionPath(item.ref)} className="flex h-full items-center justify-between gap-3 px-4 py-3 text-slate-900 no-underline hover:bg-emerald-50/50">
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold">{item.title || "Long-stay home"}</span>
+                        {item.area ? <span className="block truncate text-xs text-slate-500">{item.area}</span> : null}
+                        <span className={`mt-1 block text-xs font-medium ${late ? "text-rose-700" : "text-[#02665e]"}`}>
+                          {item.redo ? "Return visit" : "Inspection invitation"}{item.dueBy ? ` · ${late ? "Overdue since" : "Due"} ${inspectionDate(item.dueBy)}` : ""}
+                        </span>
+                      </span>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </section>
 
         {/* Pipeline by stage: one joined strip, each cell filters the list */}
         <section className={`${card} overflow-hidden`} aria-label="Pipeline by stage">
@@ -350,7 +420,7 @@ export default function SalesLeadsPage() {
                   </button>
                 ) : null}
               </label>
-              <button type="button" onClick={() => { void loadPulse(); void loadList(); }} disabled={loading} aria-label="Refresh" title="Refresh" className="grid h-9 w-9 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50">
+              <button type="button" onClick={() => { void loadPulse(); void loadList(); void loadInspections(); }} disabled={loading} aria-label="Refresh" title="Refresh" className="grid h-9 w-9 place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50">
                 <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
               </button>
             </form>

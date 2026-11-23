@@ -95,6 +95,7 @@ type RawRules ={ smokingPolicy: string | null; overnightGuests: string | null; o
 type Data = {
   rentalMode: string;
   terms: Terms | null;
+  inspectionRequiredForApproval?: boolean;
   quote?: Quote | null;
   landlord?: { granted: boolean; paused: boolean; pauseReason: string | null };
   pin?: Point | null;
@@ -144,9 +145,11 @@ function longStayChecks(data: Data | null): ReviewCheck[] {
   return [
     { label: "Landlord switched on for long stays", ok: Boolean(data.landlord?.granted && !data.landlord?.paused) },
     { label: "Monthly terms saved", ok: Boolean(data.terms) },
-    { label: "Sales Partner assigned to inspect", ok: Boolean(data.inspection?.partner) },
-    { label: "On-site report received", ok: Boolean(data.inspection?.report?.submittedAt) },
-    { label: "Inspection passed and current", ok: Boolean(data.inspection?.current) },
+    ...(data.inspectionRequiredForApproval !== false ? [
+      { label: "Sales Partner assigned to inspect", ok: Boolean(data.inspection?.partner) },
+      { label: "On-site report received", ok: Boolean(data.inspection?.report?.submittedAt) },
+      { label: "Inspection passed and current", ok: Boolean(data.inspection?.current) },
+    ] : []),
     { label: "Living rules set", ok: (data.livingRules?.length ?? 0) > 0 },
   ];
 }
@@ -196,6 +199,7 @@ export default function LongStayReview({ propertyId, expectLongStay, onMode, onC
   const t = data.terms;
   const landlordOk = Boolean(data.landlord?.granted && !data.landlord?.paused);
   const inspection = data.inspection ?? null;
+  const inspectionRequired = data.inspectionRequiredForApproval !== false;
   const rulesCount = data.livingRules?.length ?? 0;
   const checks: Array<{ ok: boolean; label: string; detail: string }> = [
     {
@@ -211,7 +215,7 @@ export default function LongStayReview({ propertyId, expectLongStay, onMode, onC
     },
     { ok: rulesCount > 0, label: "Living rules", detail: rulesCount ? `${rulesCount} set` : "Only the standard lease rules" },
   ];
-  const blockers = checks.slice(0, 3).filter((c) => !c.ok);
+  const blockers = checks.slice(0, inspectionRequired ? 3 : 2).filter((c) => !c.ok);
 
   return (
     <div id="ls-review" className="mb-5 space-y-4">
@@ -227,7 +231,9 @@ export default function LongStayReview({ propertyId, expectLongStay, onMode, onC
             <p className="m-0 mt-0.5 text-[13px] text-slate-500">
               {blockers.length
                 ? `Waiting on: ${blockers.map((b) => b.label.toLowerCase()).join(", ")}. The server refuses approval until these are done.`
-                : "The landlord is switched on, the terms are complete and a NoLSAF Sales Partner inspection is current."}
+                : inspection?.current
+                  ? "The landlord is switched on, the terms are complete and the inspection is current."
+                  : "The listing can be approved while the site visit is pending."}
             </p>
           </div>
           {t ? <span className="text-[12px] text-slate-500">Available from {day(t.availableFrom)}</span> : null}
@@ -235,7 +241,7 @@ export default function LongStayReview({ propertyId, expectLongStay, onMode, onC
         <div className="grid border-0 border-t border-solid border-slate-100 sm:grid-cols-2 lg:grid-cols-4">
           {checks.map((c, i) => (
             <div key={c.label} className={`flex items-start gap-2.5 px-5 py-3 ${i ? "border-0 border-t border-solid border-slate-100 sm:border-t-0 sm:border-l" : ""}`}>
-              {c.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${i === 3 ? "text-slate-400" : "text-amber-600"}`} />}
+              {c.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : i === 2 && !inspectionRequired ? <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" /> : <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${i === 3 ? "text-slate-400" : "text-amber-600"}`} />}
               <span className="min-w-0">
                 <span className="block text-[13px] font-semibold text-slate-800">{c.label}</span>
                 <span className="block truncate text-[12px] text-slate-500">{c.detail}</span>
@@ -431,7 +437,8 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
         <div className="min-w-0 flex-1">
           <h3 className="m-0 text-[15px] font-bold text-slate-900">On-site inspection</h3>
           <p className="m-0 text-[12.5px] text-slate-500">
-            {item ? `${REASON_TEXT[item.reason] || item.reason} · ` : ""}A NoLSAF Sales Partner visits the home before it can go live, then once a year.
+            {item ? `${REASON_TEXT[item.reason] || item.reason} · ` : ""}
+            {data.inspectionRequiredForApproval === false ? "Approval can proceed while the visit is pending. Reservations open after a current pass." : "A current inspection is required for approval and reservations."}
           </p>
         </div>
         {status ? <span className={`rounded-md px-2.5 py-1 text-[12px] font-semibold ring-1 ring-inset ${status.tone}`}>{item?.status === "PASSED" && !item.current ? "Expired" : status.label}</span> : null}
@@ -439,7 +446,7 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
 
       {!item ? (
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-5">
-          <p className="m-0 text-sm text-slate-600">No inspection has been opened for this home. It opens by itself when the landlord submits; you can open one now.</p>
+          <p className="m-0 text-sm text-slate-600">Open an inspection to assign a partner for the site visit.</p>
           <button type="button" disabled={busy !== null} onClick={() => run("open", `/api/admin/long-stay/properties/${propertyId}/inspection`, {})} className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}>
             {busy === "open" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}Open an inspection
           </button>
@@ -457,7 +464,7 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border-2 border-dashed border-amber-300 text-amber-600"><UserRoundCheck className="h-4 w-4" /></span>
                   <div>
                     <p className="m-0 text-[14px] font-bold text-slate-900">Not assigned yet</p>
-                    <p className="m-0 mt-0.5 text-[12.5px] leading-5 text-slate-500">Pick a partner below. They get 5 days to visit and are paid a flat fee for an accepted report.</p>
+                    <p className="m-0 mt-0.5 text-[12.5px] leading-5 text-slate-500">Choose a partner to send an invitation to their Sales inbox. They have 5 days to visit and submit a report.</p>
                   </div>
                 </div>
               )}
@@ -489,9 +496,10 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
             <MiniCard title="Visit timeline" icon={<Clock3 className="h-3.5 w-3.5" />}>
               <ol className="m-0 list-none space-y-2.5 p-0">
                 <TimelineStep done label="Requested" at={eat(item.createdAt) || REASON_TEXT[item.reason] || ""} />
-                <TimelineStep done={Boolean(item.assignedAt)} label="Partner assigned" at={item.assignedAt ? `${eat(item.assignedAt)}${item.assignedBy ? ` by ${item.assignedBy}` : ""}` : "Waiting"} />
-                <TimelineStep done={Boolean(r?.capturedAt)} label="Visited the home" at={r?.capturedAt ? eat(r.capturedAt) : item.dueBy ? `Due ${eat(item.dueBy)}` : "-"} warn={item.overdue} />
-                <TimelineStep done={Boolean(item.reviewedAt && item.status !== "ASSIGNED")} label="NoLSAF decision" at={item.reviewedAt && item.status !== "ASSIGNED" ? eat(item.reviewedAt) : r?.submittedAt ? "Report waiting for you" : "-"} last />
+                <TimelineStep done={Boolean(item.assignedAt)} label="Partner assigned" at={item.assignedAt ? `${eat(item.assignedAt)}${item.assignedBy ? ` by ${item.assignedBy}` : ""}` : "Choose an inspector below"} />
+                <TimelineStep done={Boolean(r?.capturedAt)} label={item.status === "ASSIGNED" && item.reviewedAt ? "Return visit requested" : "Visited the home"} at={r?.capturedAt ? eat(r.capturedAt) : item.dueBy ? `Due ${eat(item.dueBy)}` : "Waiting for assignment"} warn={item.overdue} />
+                <TimelineStep done={Boolean(r?.submittedAt)} label="Report submitted" at={r?.submittedAt ? eat(r.submittedAt) : "Waiting for the partner’s report"} />
+                <TimelineStep done={item.status === "PASSED" || item.status === "FAILED"} label="NoLSAF decision" at={item.status === "PASSED" || item.status === "FAILED" ? eat(item.reviewedAt) : r?.submittedAt ? "Ready for review" : "Waiting for a report"} last />
               </ol>
             </MiniCard>
           </div>
@@ -540,9 +548,9 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
                   onClick={() => run("assign", `/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/assign`, { partnerCode: partnerCode.trim() })}
                   className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}>
                   {busy === "assign" ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundCheck className="h-4 w-4" />}
-                  {item.partner ? "Reassign" : "Assign"}{partnerCode && partnerCode !== item.partner?.code ? ` ${partnerCode}` : ""}
+                  {item.partner ? "Reassign and notify" : "Invite partner"}
                 </button>
-                <span className="text-[12px] text-slate-500">The partner is told at once. The server refuses the owner and any partner who brought the home in.</span>
+                <span className="text-[12px] text-slate-500">The invitation appears in Sales Notifications and the partner’s inspection queue in Leads.</span>
               </div>
             </div>
           ) : null}

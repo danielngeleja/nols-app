@@ -1354,8 +1354,7 @@ export const submitListingProperty = (async (req: AuthedRequest, res) => {
 
     const longStayRefusal = await longStaySubmitRefusal(prisma, p);
     if (longStayRefusal) return res.status(400).json({ error: longStayRefusal, code: "LONG_STAY" });
-    // A long-stay home is inspected on site by a NoLSAF Sales Partner before it can be approved.
-    if ((p as any).rentalMode === "LONG_STAY") {
+    if (p.rentalMode === "LONG_STAY") {
       const opened = await requestInspection(prisma, id, "FIRST").catch(() => null);
       if (opened?.created) await notifyAdmins("long_stay_inspection_needed", { propertyTitle: p.title }).catch(() => undefined);
     }

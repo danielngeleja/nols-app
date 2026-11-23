@@ -57,19 +57,12 @@ import {
 import SectionSeparator from "../../../components/SectionSeparator";
 import { REGIONS } from "@/lib/tzRegions";
 import { REGIONS_FULL_DATA } from "@/lib/tzRegionsFull";
-import PublicApprovedPropertyCard from "../../../components/PublicApprovedPropertyCard";
+import PublicApprovedPropertyCard, { type PublicApprovedPropertyCardData } from "../../../components/PublicApprovedPropertyCard";
 
-type PublicPropertyCard = {
+type PublicPropertyCard = PublicApprovedPropertyCardData & {
   id: number;
-  slug: string;
-  title: string;
   type: string;
-  location: string;
   ward?: string | null;
-  services?: any; // Can be array of strings OR object with commissionPercent and discountRules
-  primaryImage: string | null;
-  basePrice: number | null;
-  currency: string | null;
   maxGuests: number | null;
   totalBedrooms: number | null;
   totalBathrooms: number | null;
@@ -267,6 +260,7 @@ function buildQuery(searchParams: { toString(): string } | null | undefined) {
   const qp = new URLSearchParams(searchParams?.toString() ?? "");
   if (!qp.get("pageSize")) qp.set("pageSize", "24");
   if (!qp.get("page")) qp.set("page", "1");
+  if (!qp.get("rental")) qp.set("rental", "all");
   // Guests are chosen later during booking (dates/adults/children),
   // so we intentionally ignore guests filtering at browse level.
   qp.delete("guests");
@@ -281,6 +275,7 @@ function propertiesUrl(params: URLSearchParams) {
     if (!v) return;
     if (key === "page" && v === "1") return;
     if (key === "pageSize" && v === "24") return;
+    if (key === "rental" && v === "all") return;
     clean.set(key, v);
   });
   const qs = clean.toString();
@@ -495,6 +490,7 @@ export default function PropertiesPage() {
 
   const qp = useMemo(() => buildQuery(sp), [sp]);
   const q = qp.get("q")?.trim() || "";
+  const resultsHref = propertiesUrl(qp);
 
   // Old links and bookmarks can still carry ?pageSize=24&page=1; tidy the
   // address bar in place (no extra history entry, results unchanged).
@@ -511,7 +507,7 @@ export default function PropertiesPage() {
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Recently viewed properties — persisted in localStorage (max 4)
-  type RecentProperty = { title: string; slug: string; location: string; primaryImage: string | null; basePrice: number | null; currency: string | null; services?: any };
+  type RecentProperty = PublicApprovedPropertyCardData;
   const RECENT_KEY = "nolsaf_recent_properties";
   const [recentProperties, setRecentProperties] = useState<RecentProperty[]>([]);
   useEffect(() => {
@@ -936,7 +932,12 @@ export default function PropertiesPage() {
   // One results line for phone and desktop: what is listed, how many, and in
   // what order. The range only appears when there is more than one page.
   const sortNow = getParam(qp, "sort");
-  const sortLabel = sortNow === "price_asc" ? "Lowest price first" : sortNow === "price_desc" ? "Highest price first" : "Newest first";
+  const rentalChoice = getParam(qp, "rental");
+  const rental = rentalChoice === "all" && (getParam(qp, "minPrice") || getParam(qp, "maxPrice") || sortNow === "price_asc" || sortNow === "price_desc")
+    ? "nightly" : rentalChoice;
+  const sortLabel = rental === "long-stay" && ["price_asc", "price_desc"].includes(sortNow)
+    ? `${sortNow === "price_asc" ? "Lowest" : "Highest"} monthly rent by currency`
+    : sortNow === "price_asc" ? "Lowest price first" : sortNow === "price_desc" ? "Highest price first" : "Newest first";
   const firstShown = (page - 1) * pageSize + 1;
   const lastShown = Math.min(page * pageSize, total);
   const resultsHeading = (
@@ -946,7 +947,7 @@ export default function PropertiesPage() {
           {appliedChips.length > 0 || q ? "Matching stays" : "All stays"}
         </h2>
         <p className="m-0 mt-0.5 text-xs text-slate-500">
-          <span className="font-semibold tabular-nums text-slate-700">{total.toLocaleString()}</span> verified {total === 1 ? "stay" : "stays"}
+          <span className="font-semibold tabular-nums text-slate-700">{total.toLocaleString()}</span> approved {total === 1 ? "stay" : "stays"}
           {totalPages > 1 && <> · showing <span className="tabular-nums">{firstShown}–{lastShown}</span></>}
         </p>
       </div>
@@ -1109,6 +1110,32 @@ export default function PropertiesPage() {
 
           <SectionSeparator pillLabel="Browse" className="my-5" />
 
+          <div role="group" aria-label="Stay length" className="mb-4 inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-solid border-slate-200 bg-slate-50 p-1">
+            {[
+              { key: "all", label: "All stays" },
+              { key: "nightly", label: "Nightly" },
+              { key: "long-stay", label: "Long stays" },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={rental === key}
+                onClick={() => {
+                  const next = new URLSearchParams(qp.toString());
+                  next.set("rental", key);
+                  next.set("page", "1");
+                  next.delete("minPrice");
+                  next.delete("maxPrice");
+                  if (sortNow === "price_asc" || sortNow === "price_desc") next.delete("sort");
+                  router.push(propertiesUrl(next));
+                }}
+                className={`cursor-pointer rounded-md border-0 px-3 py-1.5 text-xs font-semibold ${rental === key ? "bg-[#02665e] text-white" : "bg-transparent text-slate-600 hover:bg-slate-100"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* Filters row */}
           <div className="flex flex-col gap-3">
 
@@ -1166,7 +1193,7 @@ export default function PropertiesPage() {
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 {recentProperties.map((rp) => (
                   <div key={rp.slug} className="relative">
-                    <PublicApprovedPropertyCard p={rp} systemCommission={systemCommission} />
+                    <PublicApprovedPropertyCard p={rp} systemCommission={systemCommission} resultsHref={resultsHref} />
                     <button
                       type="button"
                       onClick={() => removeRecentProperty(rp.slug)}
@@ -1400,12 +1427,13 @@ export default function PropertiesPage() {
                       whileInView={{ opacity: 1, y: 0 }}
                       viewport={{ once: true, amount: 0.2 }}
                       transition={{ duration: 0.3, delay: (idx % 2) * 0.04, ease: [0.22, 0.8, 0.32, 1] }}
-                      onClick={() => addRecentProperty({ title: p.title, slug: p.slug, location: p.location, primaryImage: p.primaryImage, basePrice: p.basePrice, currency: p.currency, services: p.services })}
+                      onClick={() => addRecentProperty(p)}
                     >
                       <PublicApprovedPropertyCard
                         p={p}
                         systemCommission={systemCommission}
                         priorityImage={idx === 0}
+                        resultsHref={resultsHref}
                       />
                     </motion.div>
                   ))}
@@ -1423,12 +1451,13 @@ export default function PropertiesPage() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.40, delay: Math.min(idx, 9) * 0.06, ease: [0.2, 0.8, 0.2, 1] }}
-                    onClick={() => addRecentProperty({ title: p.title, slug: p.slug, location: p.location, primaryImage: p.primaryImage, basePrice: p.basePrice, currency: p.currency, services: p.services })}
+                    onClick={() => addRecentProperty(p)}
                   >
                     <PublicApprovedPropertyCard
                       p={p}
                       systemCommission={systemCommission}
                       priorityImage={idx === 0}
+                      resultsHref={resultsHref}
                     />
                   </motion.div>
                 ))}
@@ -1677,7 +1706,7 @@ export default function PropertiesPage() {
 
                 <FilterSection
                   {...acc("price")}
-                  title="Price per night"
+                  title={rental === "long-stay" ? "Monthly rent (TZS)" : "Price per night"}
                   Icon={Wallet}
                   summary={bucketIdx > 0 ? `TZS ${PRICE_BUCKETS[bucketIdx]?.label}` : "Any"}
                   onClear={bucketIdx > 0 ? () => setDraft((d) => ({ ...d, minPrice: "", maxPrice: "" })) : undefined}

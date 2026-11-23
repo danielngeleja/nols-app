@@ -176,6 +176,9 @@ type RoomEntry = {
 type ServicesState = {
   parking: "no"|"free"|"paid";
   parkingPrice: number | "";
+  parkingPeriod?: "month";
+  parkingSpaces?: number;
+  parkingCovered?: boolean;
   breakfastIncluded: boolean;
   breakfastAvailable: boolean;
   restaurant: boolean;
@@ -193,6 +196,8 @@ type ServicesState = {
   socialHall: boolean;
   sportsGames: boolean;
   gym: boolean;
+  playground: boolean;
+  cleaningService: boolean;
   distanceHospital: number | "";
   nearPetrolStation?: boolean;
   petrolStationName?: string;
@@ -456,6 +461,9 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                     setServices({
                       parking: services.parking || "no",
                       parkingPrice: services.parkingPrice || "",
+                      parkingPeriod: services.parkingPeriod === "month" ? "month" : undefined,
+                      parkingSpaces: Number(services.parkingSpaces) || undefined,
+                      parkingCovered: typeof services.parkingCovered === "boolean" ? services.parkingCovered : undefined,
                       breakfastIncluded: services.breakfastIncluded || false,
                       breakfastAvailable: services.breakfastAvailable || false,
                       restaurant: services.restaurant || false,
@@ -473,6 +481,8 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                       socialHall: services.socialHall || false,
                       sportsGames: services.sportsGames || false,
                       gym: services.gym || false,
+                      playground: services.playground || false,
+                      cleaningService: services.cleaningService || false,
                       distanceHospital: services.distanceHospital || "",
                     });
                     // Restore top-level toggles stored inside services
@@ -847,7 +857,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     security24: false, firstAid: false, fireExtinguisher: false,
     onSiteShop: false, nearbyMall: false,
     socialHall: false, sportsGames: false,
-    gym: false,
+    gym: false, playground: false, cleaningService: false,
     distanceHospital: "", // legacy; can keep for compatibility
   });
   const [nearbyFacilities, setNearbyFacilities] = useState<NearbyFacility[]>([]);
@@ -1709,8 +1719,13 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           ...(savedCommissionOverride !== null ? { commissionPercent: savedCommissionOverride } : {}),
           // Include all service properties so they can be displayed in admin view
           // Only include properties that have been explicitly set (not default/empty values)
-          ...(services.parking && services.parking !== 'no' ? { parking: services.parking } : {}),
+          ...(isLongStay || (services.parking && services.parking !== 'no') ? { parking: services.parking || "no" } : {}),
           ...(services.parking === 'paid' && services.parkingPrice ? { parkingPrice: services.parkingPrice } : {}),
+          ...(isLongStay && (services.parking === "free" || services.parking === "paid") ? {
+            parkingPeriod: "month",
+            parkingSpaces: services.parkingSpaces || 1,
+            parkingCovered: services.parkingCovered ?? false,
+          } : {}),
           ...(services.breakfastIncluded ? { breakfastIncluded: true } : {}),
           ...(services.breakfastAvailable ? { breakfastAvailable: true } : {}),
           ...(services.restaurant ? { restaurant: true } : {}),
@@ -1728,6 +1743,8 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           ...(services.socialHall ? { socialHall: true } : {}),
           ...(services.sportsGames ? { sportsGames: true } : {}),
           ...(services.gym ? { gym: true } : {}),
+          ...(isLongStay && services.playground ? { playground: true } : {}),
+          ...(isLongStay && services.cleaningService ? { cleaningService: true } : {}),
           ...(acceptGroupBooking ? { acceptGroupBookings: true } : {}),
           ...(freeCancellation ? { freeCancellation: true } : {}),
         // Service tags array for filtering/searching
@@ -1804,6 +1821,8 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     if (s.socialHall) out.push("Social hall");
     if (s.sportsGames) out.push("Sports & games");
     if (s.gym) out.push("Gym");
+    if (isLongStay && s.playground) out.push("Children's play area");
+    if (isLongStay && s.cleaningService) out.push("Cleaning service");
     if (numOrEmpty(s.distanceHospital)) {
       out.push("Near hospital");
       out.push(`Hospital distance ${numOrEmpty(s.distanceHospital)} km`);
@@ -2048,10 +2067,11 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
       !!s.nearbyMall ||
       !!s.socialHall ||
       !!s.sportsGames ||
-      !!s.gym;
+      !!s.gym ||
+      (isLongStay && (!!s.playground || !!s.cleaningService));
 
     return (anyNearby || anyOnProperty) && parkingPaidOk;
-  }, [services, nearbyFacilities]);
+  }, [services, nearbyFacilities, isLongStay]);
 
   // Check if Totals step is completed
   const totalsCompleted = useMemo(() => {

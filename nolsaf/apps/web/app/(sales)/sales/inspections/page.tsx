@@ -8,17 +8,21 @@
  * and flags anything odd; NoLSAF then passes, fails or asks for a redo.
  * The flat fee is earned for every report NoLSAF accepts, pass or fail.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Camera, CheckCircle2, ClipboardCheck, Clock3, Crosshair, Footprints, Loader2, MapPin, Navigation, Phone, X, XCircle } from "lucide-react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { AlertTriangle, ArrowLeft, Camera, CheckCircle2, ClipboardCheck, Clock3, Crosshair, Footprints, Loader2, MapPin, Navigation, Phone, X, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
+import { inspectionDate } from "@/lib/salesInspection";
 
 type CheckItem = { key: string; label: string; required: boolean };
 type Inspection = {
   ref: string;
   status: "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED";
   reason: string;
+  assignedAt: string | null;
   dueBy: string | null;
   home: { title: string | null; type: string | null; area: string; pin: { lat: number; lng: number } | null; listing: { monthlyRent: number; currency: string; furnished: string; utilities: Record<string, string> } | null };
   landlord: { name: string | null; phone: string | null };
@@ -37,71 +41,102 @@ const STATUS: Record<Inspection["status"], { label: string; tone: string }> = {
   FAILED: { label: "Failed", tone: "bg-red-50 text-red-700" },
 };
 
-function eat(iso: string | null) {
-  return iso ? `${new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT` : "";
-}
 const mapsLink = (pin: { lat: number; lng: number }) => `https://www.google.com/maps/dir/?api=1&destination=${pin.lat},${pin.lng}`;
 
 export default function SalesInspectionsPage() {
+  return (
+    <SalesShell>
+      <Suspense fallback={<LoadingInspections />}>
+        <InspectionQueue />
+      </Suspense>
+    </SalesShell>
+  );
+}
+
+function LoadingInspections() {
+  return <div role="status" aria-label="Loading inspections" className="grid min-h-32 place-items-center text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>;
+}
+
+function InspectionQueue() {
+  const focusedRef = useSearchParams().get("inspection");
   const [data, setData] = useState<Data | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setError("");
     try {
       const [a, b] = await Promise.all([
-        apiClient.get<Data>("/api/sales/long-stay/inspections"),
-        apiClient.get<{ items: Visit[] }>("/api/sales/long-stay/visits").catch(() => ({ data: { items: [] } })),
+        apiClient.get<Data>("/api/sales/long-stay/inspections", { params: { inspection: focusedRef }, signal }),
+        apiClient.get<{ items: Visit[] }>("/api/sales/long-stay/visits", { signal }).catch(() => ({ data: { items: [] } })),
       ]);
+      if (signal?.aborted) return;
       setData(a.data);
       setVisits(b.data.items);
-      setError("");
     } catch (requestError: any) {
+      if (signal?.aborted) return;
       setError(requestError?.response?.data?.error || "Could not load your inspections.");
-      setData({ checklist: [], minPhotos: 4, maxPhotos: 12, items: [] });
     }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  }, [focusedRef]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
 
-  const todo = data?.items.filter((i) => i.status === "ASSIGNED") ?? [];
-  const rest = data?.items.filter((i) => i.status !== "ASSIGNED") ?? [];
+  const focused = data?.items.find((item) => item.ref === focusedRef);
+  const otherItems = data?.items.filter((item) => item.ref !== focusedRef) ?? [];
+  const todo = otherItems.filter((i) => i.status === "ASSIGNED");
+  const rest = otherItems.filter((i) => i.status !== "ASSIGNED");
+  const card = (item: Inspection, emphasized = false) => (
+    <div className={`overflow-hidden rounded-lg border border-solid bg-white ${emphasized ? "border-emerald-300 ring-1 ring-emerald-100" : "border-slate-200"}`}>
+      <InspectionHead item={item} compact={item.status !== "ASSIGNED"} />
+      {item.status === "ASSIGNED" ? (
+        open === item.ref && data ? (
+          <ReportForm key={item.ref} item={item} data={data} onDone={() => { setOpen(null); void load(); }} onCancel={() => setOpen(null)} />
+        ) : (
+          <div className="flex flex-wrap items-center gap-3 border-0 border-t border-solid border-slate-100 px-4 py-3">
+            <button type="button" onClick={() => setOpen(item.ref)} className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-3.5 text-sm font-semibold text-white hover:bg-[#014e47] [font-family:inherit]">
+              <ClipboardCheck className="h-4 w-4" aria-hidden /> Start on-site report
+            </button>
+            <span className="text-xs text-slate-600">Open the form when you arrive at the home.</span>
+          </div>
+        )
+      ) : null}
+    </div>
+  );
 
   return (
-    <SalesShell>
       <div id="sales-inspections" className="w-full space-y-4">
         <style>{`#sales-inspections, #sales-inspections * { box-sizing: border-box; }`}</style>
         <SalesPageHeader
-          title="Inspections"
-          description="Long-stay homes NoLSAF asked you to check on site. Report from the home: the position and photos are checked by NoLSAF."
+          title="Home inspections"
+          description="Arrange each visit with the landlord. Submit your location, photos and findings from the home."
           icon={ClipboardCheck}
+          actions={<Link href="/sales/leads" className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-solid border-slate-200 px-3 text-xs font-semibold text-[#02665e] no-underline hover:bg-emerald-50"><ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Back to Leads</Link>}
         />
-        {error ? <p className="m-0 text-sm text-red-700">{error}</p> : null}
+        {error ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            <p className="m-0">{error}</p>
+            <button type="button" onClick={() => void load()} className="cursor-pointer border-0 bg-transparent p-0 font-semibold text-rose-800 underline">Retry</button>
+          </div>
+        ) : null}
 
-        {data === null ? (
-          <div className="grid min-h-32 place-items-center text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
-        ) : (
+        {!data ? (!error ? <LoadingInspections /> : null) : (
           <>
+            {focusedRef ? focused ? (
+              <section aria-label="Selected inspection">{card(focused, true)}</section>
+            ) : (
+              <p role="status" className="m-0 rounded-lg border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This inspection is no longer available in your workspace. Your current assignments are below.</p>
+            ) : null}
             <section aria-label="To visit">
-              <h2 className="m-0 text-sm font-bold text-slate-900">To visit <span className="font-normal text-slate-500">({todo.length})</span></h2>
+              <h2 className="m-0 text-sm font-bold text-slate-900">{focused?.status === "ASSIGNED" ? "Other visits" : "To visit"} <span className="font-normal text-slate-500">({todo.length})</span></h2>
               {todo.length === 0 ? (
-                <p className="m-0 mt-2 rounded-lg border border-solid border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">No homes to inspect right now. NoLSAF will notify you.</p>
+                <p className="m-0 mt-2 rounded-lg border border-solid border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">{focused?.status === "ASSIGNED" ? "No other visits scheduled." : "No homes to inspect right now. New invitations appear in Sales Notifications."}</p>
               ) : (
                 <ul className="m-0 mt-2 list-none space-y-2 p-0">
-                  {todo.map((item) => (
-                    <li key={item.ref} className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
-                      <InspectionHead item={item} />
-                      {open === item.ref ? (
-                        <ReportForm item={item} data={data} onDone={() => { setOpen(null); void load(); }} onCancel={() => setOpen(null)} />
-                      ) : (
-                        <div className="flex flex-wrap gap-2 border-0 border-t border-solid border-slate-100 px-4 py-3">
-                          <button type="button" onClick={() => setOpen(item.ref)} className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-3.5 text-sm font-semibold text-white hover:bg-[#014e47] [font-family:inherit]">
-                            <ClipboardCheck className="h-4 w-4" />I am at the home: start the report
-                          </button>
-                        </div>
-                      )}
-                    </li>
-                  ))}
+                  {todo.map((item) => <li key={item.ref}>{card(item)}</li>)}
                 </ul>
               )}
             </section>
@@ -115,7 +150,7 @@ export default function SalesInspectionsPage() {
                       <Footprints className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" />
                       <div className="min-w-0 flex-1 text-[13px]">
                         <p className="m-0 font-semibold text-slate-900">{v.home.title} <span className="font-normal text-slate-500">{v.home.area}</span></p>
-                        <p className="m-0 mt-0.5 text-slate-700">{eat(v.visitAt)} · {v.tenant.name || "Tenant"}{v.tenant.phone ? <> · <a href={`tel:${v.tenant.phone}`} className="font-semibold text-[#02665e] no-underline">{v.tenant.phone}</a></> : null}</p>
+                        <p className="m-0 mt-0.5 text-slate-700">{inspectionDate(v.visitAt)} · {v.tenant.name || "Tenant"}{v.tenant.phone ? <> · <a href={`tel:${v.tenant.phone}`} className="font-semibold text-[#02665e] no-underline">{v.tenant.phone}</a></> : null}</p>
                         {v.note ? <p className="m-0 mt-0.5 text-slate-500">{v.note}</p> : null}
                       </div>
                       {v.home.pin ? <a href={mapsLink(v.home.pin)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[#02665e] no-underline"><Navigation className="h-3.5 w-3.5" />Directions</a> : null}
@@ -126,8 +161,8 @@ export default function SalesInspectionsPage() {
             ) : null}
 
             {rest.length ? (
-              <section aria-label="Sent">
-                <h2 className="m-0 text-sm font-bold text-slate-900">Sent</h2>
+              <section aria-label="Submitted reports">
+                <h2 className="m-0 text-sm font-bold text-slate-900">Submitted reports</h2>
                 <ul className="m-0 mt-2 list-none overflow-hidden rounded-lg border border-solid border-slate-200 bg-white p-0">
                   {rest.map((item) => (
                     <li key={item.ref} className="border-0 border-t border-solid border-slate-100 first:border-t-0"><InspectionHead item={item} compact /></li>
@@ -138,7 +173,6 @@ export default function SalesInspectionsPage() {
           </>
         )}
       </div>
-    </SalesShell>
   );
 }
 
@@ -163,10 +197,12 @@ function InspectionHead({ item, compact }: { item: Inspection; compact?: boolean
           </p>
         ) : null}
         {item.reviewNote ? <p className="m-0 mt-1 text-[12.5px] text-slate-600">NoLSAF: {item.reviewNote}</p> : null}
-        {item.dueBy && item.status === "ASSIGNED" ? <p className={`m-0 mt-1 inline-flex items-center gap-1 text-[12px] ${late ? "font-semibold text-red-700" : "text-slate-500"}`}><Clock3 className="h-3.5 w-3.5" />{late ? "Overdue since" : "Visit by"} {eat(item.dueBy)}</p> : null}
-        {item.feeAmount ? <p className="m-0 mt-1 text-[12px] font-semibold text-emerald-700">TZS {item.feeAmount.toLocaleString("en-US")} added to your earnings</p> : null}
+        {item.dueBy && item.status === "ASSIGNED" ? <p className={`m-0 mt-1 inline-flex items-center gap-1 text-[12px] ${late ? "font-semibold text-red-700" : "text-slate-500"}`}><Clock3 className="h-3.5 w-3.5" />{late ? "Overdue since" : "Report due"} {inspectionDate(item.dueBy)}</p> : null}
+        {item.status === "ASSIGNED" && item.assignedAt ? <p className="m-0 mt-0.5 text-xs text-slate-500">Assigned {inspectionDate(item.assignedAt)}</p> : null}
+        {item.status === "SUBMITTED" && item.submittedAt ? <p className="m-0 mt-1 text-xs text-slate-500">Report received {inspectionDate(item.submittedAt)}</p> : null}
+        {item.feeAmount ? <p className="m-0 mt-1 text-[12px] font-semibold text-emerald-700">Report fee TZS {item.feeAmount.toLocaleString("en-US")}</p> : null}
       </div>
-      <span className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold ${s.tone}`}>{s.label}</span>
+      <span className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold ${s.tone}`}>{item.status === "ASSIGNED" && item.reviewedAt ? "Return visit" : s.label}</span>
     </div>
   );
 }
@@ -319,7 +355,7 @@ function ReportForm({ item, data, onDone, onCancel }: { item: Inspection; data: 
         <button type="button" disabled={busy} onClick={submit} className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014e47] disabled:opacity-60 [font-family:inherit]">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}{busy ? "Sending photos" : "Send report"}
         </button>
-        <button type="button" onClick={onCancel} className="inline-flex h-10 cursor-pointer items-center rounded-md border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 [font-family:inherit]">Cancel</button>
+        <button type="button" disabled={busy} onClick={onCancel} className="inline-flex h-10 cursor-pointer items-center rounded-md border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 [font-family:inherit]">Cancel</button>
       </div>
     </div>
   );

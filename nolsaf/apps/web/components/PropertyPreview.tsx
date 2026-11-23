@@ -87,6 +87,7 @@ import type {
   ReviewsData,
   AuditHistoryItem,
   RoomSpec,
+  RoomSpecRow,
   Review,
 } from "../lib/types/property";
 
@@ -239,35 +240,107 @@ function repeatedSentences(text: string): number {
   return parts.length - new Set(parts).size;
 }
 
-/** One unit of a long-stay home: beds and bathroom, the description, and what comes with it, all labelled. */
-function LongStayUnitRow({ row: r }: { row: any }) {
+function comparableRoomText(value: unknown) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function uniqueRoomLabels(labels: string[]) {
+  const seen = new Set<string>();
+  return labels.filter((label) => {
+    const key = comparableRoomText(label);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function roomReviewEntries(rooms: RoomSpec[]) {
+  const seen = new Map<string, number>();
+  const entries = rooms.map((room) => ({
+    code: [room?.code, room?.roomCode].find((value): value is string => typeof value === "string" && Boolean(value.trim()))?.trim(),
+    duplicate: false,
+  }));
+
+  rooms.forEach((room, index) => {
+    const { code } = entries[index];
+    if (!room) return;
+    // Older rows have no code. Compare their full saved data, including floor allocation.
+    const key = code ? `code:${comparableRoomText(code)}` : `spec:${JSON.stringify(room, (_field, value) => (
+      value && typeof value === "object" && !Array.isArray(value)
+        ? Object.fromEntries(Object.keys(value).sort().map((name) => [name, value[name]]))
+        : value
+    ))}`;
+    const first = seen.get(key);
+    if (first === undefined) seen.set(key, index);
+    else {
+      entries[first].duplicate = true;
+      entries[index].duplicate = true;
+    }
+  });
+  return entries;
+}
+
+function RoomReviewRow({ row: r, nightly }: {
+  row: RoomSpecRow;
+  nightly?: { currency?: string | null; code?: string; duplicate: boolean; listingDescription?: string; smoking?: string };
+}) {
   const [open, setOpen] = useState(false);
-  const description = String(r.description || "").trim();
+  const description = r.description.trim();
+  const repeatsListing = Boolean(nightly && description && comparableRoomText(description) === comparableRoomText(nightly.listingDescription));
   const repeats = description ? repeatedSentences(description) : 0;
   const long = description.length > 320;
-  const amenities: string[] = Array.from(new Set((r.amenities || []) as string[]));
-  const bath: string[] = Array.from(new Set((r.bathItems || []) as string[]));
+  const bath = nightly ? uniqueRoomLabels(r.bathItems) : [...new Set(r.bathItems)];
+  const amenities = nightly
+    ? uniqueRoomLabels(r.amenities).filter((label) => !bath.some((item) => comparableRoomText(item) === comparableRoomText(label)))
+    : [...new Set(r.amenities)];
+  const bedDimensions = nightly ? getBedDimensions(r.bedsSummary) : null;
   const groups = [
-    { key: "home", title: "In the home", items: amenities },
+    { key: "room", title: nightly ? "Room amenities" : "In the home", items: amenities },
     { key: "bath", title: "Bathroom", items: bath },
   ].filter((g) => g.items.length);
   return (
     <div className="grid gap-5 border-0 border-t border-solid border-slate-100 px-5 py-5 first:border-t-0 lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
       <div className="min-w-0 space-y-3">
-        <p className="m-0 flex items-center gap-2 text-[15px] font-semibold text-slate-900">
+        <p className="m-0 flex flex-wrap items-center gap-2 break-words text-[15px] font-semibold text-slate-900">
           {r.roomType}
-          {typeof r.roomsCount === "number" && r.roomsCount > 1 ? <span className="rounded-full border border-solid border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">x{r.roomsCount}</span> : null}
+          {typeof r.roomsCount === "number" && r.roomsCount > (nightly ? 0 : 1) ? <span className="shrink-0 rounded-full border border-solid border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{nightly ? `${r.roomsCount} ${r.roomsCount === 1 ? "room" : "rooms"}` : `x${r.roomsCount}`}</span> : null}
         </p>
+        {nightly?.code ? <p className="m-0 break-words text-[11px] text-slate-500">{nightly.code}</p> : null}
+        {nightly ? (
+          <div className="rounded-lg border border-solid border-[#02665e]/10 bg-[#02665e]/5 px-3 py-2.5">
+            <p className="m-0 text-sm font-bold text-[#02665e]">
+              {r.pricePerNight != null && r.pricePerNight > 0 ? <>{fmtMoney(r.pricePerNight, nightly.currency)} <span className="text-xs font-normal text-slate-600">per night</span></> : "Nightly rate missing"}
+            </p>
+            <p className="m-0 mt-1 text-xs text-slate-600">{r.discountLabel || "No discount"}</p>
+          </div>
+        ) : null}
         <dl className="m-0 space-y-2 rounded-lg bg-slate-50 p-3 text-[12.5px]">
-          <div className="flex items-start gap-2"><BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /><span><dt className="text-[11px] font-semibold text-slate-400">Beds</dt><dd className="m-0 text-slate-700">{r.bedsSummary || "Not stated"}</dd></span></div>
-          <div className="flex items-start gap-2"><Bath className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /><span><dt className="text-[11px] font-semibold text-slate-400">Bathroom</dt><dd className="m-0 text-slate-700">{r.bathPrivate === "yes" ? "Private" : r.bathPrivate === "no" ? "Shared" : "Not stated"}</dd></span></div>
-          <div className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /><span><dt className="text-[11px] font-semibold text-slate-400">Comes with</dt><dd className="m-0 text-slate-700">{amenities.length + bath.length} {amenities.length + bath.length === 1 ? "item" : "items"}</dd></span></div>
+          <div className="flex items-start gap-2">
+            <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            <div>
+              <dt className="text-[11px] font-semibold text-slate-500">Beds</dt>
+              <dd className="m-0 text-slate-700">
+                {r.bedsSummary === "—" ? "Not stated" : r.bedsSummary}
+                {bedDimensions ? <ul className="m-0 mt-1 list-none space-y-0.5 p-0 text-[11px] text-slate-500">
+                  {bedDimensions.split(" • ").map((dimensions) => <li key={dimensions}>{dimensions}</li>)}
+                </ul> : null}
+              </dd>
+            </div>
+          </div>
+          <div className="flex items-start gap-2"><Bath className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /><div><dt className="text-[11px] font-semibold text-slate-500">Bathroom</dt><dd className="m-0 text-slate-700">{r.bathPrivate === "yes" ? "Private" : r.bathPrivate === "no" ? "Shared" : "Not stated"}</dd></div></div>
+          {!nightly ? <div className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /><div><dt className="text-[11px] font-semibold text-slate-500">Comes with</dt><dd className="m-0 text-slate-700">{amenities.length + bath.length} {amenities.length + bath.length === 1 ? "item" : "items"}</dd></div></div> : null}
         </dl>
       </div>
       <div className="min-w-0 space-y-4">
+        {nightly?.duplicate ? (
+          <p className="m-0 flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            {nightly.code ? "Another room entry uses this code." : "Another room entry has the same saved details."}
+          </p>
+        ) : null}
         <div>
           <p className="m-0 mb-1 text-[11.5px] font-semibold text-slate-500">Description</p>
-          {description ? (
+          {repeatsListing ? <p className="m-0 text-[13px] text-slate-600">Matches the listing description in About this place.</p> : description ? (
             <>
               <p className={`m-0 whitespace-pre-line text-[13.5px] leading-6 text-slate-700 ${!open && long ? "line-clamp-4" : ""}`}>{description}</p>
               {long ? (
@@ -291,6 +364,17 @@ function LongStayUnitRow({ row: r }: { row: any }) {
             </ul>
           </div>
         )) : <p className="m-0 text-[13px] italic text-slate-400">No amenities ticked</p>}
+        {nightly && r.policies.some((policy) => policy.text !== "—") ? (
+          <div>
+            <p className="m-0 mb-2 text-[11.5px] font-semibold text-slate-500">Room policies</p>
+            <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-[12.5px] text-slate-700">
+              {r.policies.map((policy) => <li key={policy.text} className="inline-flex items-center gap-1.5">
+                {policy.Icon ? <policy.Icon className={`h-3.5 w-3.5 shrink-0 ${policy.iconColor || "text-slate-500"}`} aria-hidden /> : null}
+                {policy.text === "Smoking" && nightly.smoking === "yes" ? "Smoking allowed" : policy.text === "Smoking" && nightly.smoking === "no" ? "Smoke-free" : policy.text}
+              </li>)}
+            </ul>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1839,10 +1923,11 @@ export default function PropertyPreview({
               </section>
             )}
 
-            {/* Long stay: the whole home is let by the month, so show what the tenant gets, not nightly prices */}
-            {rooms.length > 0 && isLongStay && (() => {
+            {/* Admin uses the same room layout for both rental modes. */}
+            {rooms.length > 0 && (isLongStay || mode === "admin") && (() => {
               const rows = normalizeRoomsSpec(rooms, property.currency ?? null, property.basePrice ?? null);
               if (!rows.length) return null;
+              const nightlyRooms = isLongStay ? null : roomReviewEntries(rooms);
               return (
                 <section className="border-b border-gray-200 pb-10">
                   <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
@@ -1850,19 +1935,29 @@ export default function PropertyPreview({
                       <div className="flex items-center gap-2">
                         <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]"><DoorClosed className="h-5 w-5" aria-hidden /></span>
                         <div>
-                          <h2 className="m-0 text-lg font-semibold text-slate-900">The home</h2>
-                          <p className="m-0 text-[12.5px] text-slate-500">Let whole, by the month. Everything the tenant gets for the lease.</p>
+                          <h2 className="m-0 text-lg font-semibold text-slate-900">{isLongStay ? "The home" : "Rooms & Pricing"}</h2>
+                          {isLongStay ? <p className="m-0 text-[12.5px] text-slate-500">Let whole, by the month. Everything the tenant gets for the lease.</p> : null}
                         </div>
                       </div>
                     </div>
-                    {rows.map((r, idx) => <LongStayUnitRow key={`${r.roomType}-${idx}`} row={r} />)}
+                    {rows.map((row, index) => (
+                      <RoomReviewRow
+                        key={`${row.roomType}-${index}`}
+                        row={row}
+                        nightly={nightlyRooms ? {
+                          ...nightlyRooms[index],
+                          currency: property.currency,
+                          listingDescription: about.raw,
+                          smoking: comparableRoomText(rooms[index]?.smoking),
+                        } : undefined}
+                      />
+                    ))}
                   </div>
                 </section>
               );
             })()}
 
-            {/* Rooms Section - Match Public View with Table */}
-            {rooms.length > 0 && !isLongStay && (
+            {rooms.length > 0 && !isLongStay && mode !== "admin" && (
               <section className="border-b border-gray-200 pb-10">
                 <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
                             <div className="flex items-center gap-2">
@@ -2431,7 +2526,7 @@ export default function PropertyPreview({
                   )}
                   {!isLongStay && (property.basePrice !== null && property.basePrice !== undefined && property.basePrice > 0) && (
                     <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-500">
-                      <div className="text-sm sm:text-base text-slate-600 mb-2 font-medium">Base Price</div>
+                      <div className="text-sm sm:text-base text-slate-600 mb-2 font-medium">{mode === "admin" ? "Listing base rate with commission" : "Base Price"}</div>
                       <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#02665e] motion-safe:transition-transform motion-safe:duration-200 hover:scale-[1.02]">
                               {(() => {
                                 const basePrice = Number(property?.basePrice);

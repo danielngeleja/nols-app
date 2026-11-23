@@ -41,7 +41,7 @@ type Item = {
   feeAmount: number | null;
   createdAt: string;
 };
-type Data = { counts: Record<View, number>; checklist: CheckItem[]; items: Item[] };
+type Data = { counts: Record<View, number>; checklist: CheckItem[]; items: Item[]; inspectionRequiredForApproval?: boolean };
 
 const TABS: Array<{ key: View; label: string; Icon: typeof Clock3 }> = [
   { key: "todo", label: "To assign or visit", Icon: Clock3 },
@@ -92,7 +92,11 @@ export default function LongStayInspectionsPage() {
       <SalesAdminHeader<View>
         kicker="Long stays"
         title="Inspections"
-        description="Every long-stay home is checked on site by a NoLSAF Sales Partner before it goes live, then once a year and after any upheld complaint."
+        description={data?.inspectionRequiredForApproval === true
+          ? "This server requires a current inspection for listing approval and reservations."
+          : data?.inspectionRequiredForApproval === false
+            ? "Listings can be approved while the visit is pending. A current pass is required for reservations."
+            : "Assign Sales Partners and review their on-site reports."}
         metrics={[
           { label: "Waiting", value: counts?.todo ?? "-", tone: counts?.todo ? "warn" : "default" },
           { label: "To review", value: counts?.review ?? "-", tone: counts?.review ? "warn" : "default" },
@@ -113,7 +117,7 @@ export default function LongStayInspectionsPage() {
           <div className="rounded-lg border border-solid border-slate-200 bg-white px-5 py-10 text-center">
             <ClipboardCheck className="mx-auto h-7 w-7 text-slate-300" />
             <p className="m-0 mt-2 text-sm font-semibold text-slate-700">{view === "todo" ? "No homes waiting" : view === "review" ? "No reports to review" : "Nothing here yet"}</p>
-            <p className="m-0 mt-0.5 text-[13px] text-slate-500">A request opens when a landlord submits a long-stay home.</p>
+            <p className="m-0 mt-0.5 text-[13px] text-slate-500">A visit request opens when a landlord submits a long-stay home.</p>
           </div>
         ) : (
           data.items.map((item) => <InspectionCard key={item.ref} item={item} checklist={data.checklist} onChanged={load} />)
@@ -178,10 +182,10 @@ function InspectionCard({ item, checklist, onChanged }: { item: Item; checklist:
             <input value={partnerCode} onChange={(e) => setPartnerCode(e.target.value.toUpperCase())} placeholder="NSA-DAR-0042" maxLength={30}
               className="mt-1 block h-9 w-48 rounded-md border border-solid border-slate-300 px-2.5 font-mono text-sm outline-none focus:border-[#02665e]" />
           </label>
-          <button type="button" disabled={partnerCode.trim().length < 3 || busy === "assign"} onClick={() => post("assign", "assign", { partnerCode: partnerCode.trim() })} className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}>
-            {busy === "assign" ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundCheck className="h-4 w-4" />}{item.partner ? "Reassign" : "Assign"}
+          <button type="button" disabled={partnerCode.trim().length < 3 || partnerCode.trim() === item.partner?.code || busy === "assign"} onClick={() => post("assign", "assign", { partnerCode: partnerCode.trim() })} className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}>
+            {busy === "assign" ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserRoundCheck className="h-4 w-4" />}{item.partner ? "Reassign and notify" : "Invite partner"}
           </button>
-          <p className="m-0 w-full text-[12px] text-slate-500">Not the owner, and not the partner who brought the home to NoLSAF. They get 5 days to visit.</p>
+          <p className="m-0 w-full text-[12px] text-slate-500">The invitation appears in Sales Notifications. The partner has 5 days to visit and submit a report.</p>
         </div>
       ) : null}
 

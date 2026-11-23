@@ -8,6 +8,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   FileSignature,
   Mail,
   MailOpen,
@@ -24,12 +25,15 @@ type NotificationItem = {
   body: string;
   createdAt: string;
   unread: boolean;
-  meta?: { actionPath?: string } | null;
+  meta?: { actionPath?: string; notificationKind?: string } | null;
 };
 
 const pageSize = 20;
 
 function getNotificationVisual(item: NotificationItem) {
+  if (item.meta?.notificationKind?.startsWith("long_stay_inspection_")) {
+    return { icon: ClipboardCheck, iconClassName: "bg-emerald-50 text-emerald-700 ring-emerald-100" };
+  }
   const content = `${item.title} ${item.body}`.toLowerCase();
 
   if (content.includes("agreement") || content.includes("contract")) {
@@ -123,7 +127,7 @@ export default function SalesNotificationsPage() {
         <SalesPageHeader
           icon={Bell}
           title="Notifications"
-          description="Agreement, attribution, earnings and payout updates kept separate from your normal account activity."
+          description="Inspection invitations, lead activity, agreements and earnings updates."
         />
 
         {error && (
@@ -260,7 +264,7 @@ export default function SalesNotificationsPage() {
                             href={actionHref}
                             className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 text-xs font-bold text-emerald-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:no-underline"
                           >
-                            View details
+                            {item.meta?.notificationKind?.startsWith("long_stay_inspection_") ? "Open inspection" : "View details"}
                             <ArrowUpRight className="h-3.5 w-3.5" />
                           </Link>
                         )}
