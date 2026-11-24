@@ -156,10 +156,10 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
         {homeHref && <Link href={homeHref} className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-solid border-[#c5ded4] bg-white px-2.5 text-xs font-semibold text-[#215b50] no-underline hover:bg-[#f8fbfa] hover:no-underline">View property <ArrowUpRight className="size-3.5" aria-hidden /></Link>}
       </header>
     ) : undefined}>
-      {!tenant && <header className="flex flex-wrap items-center gap-3 bg-[#f2f7f5] px-4 py-3.5 sm:px-5">
-        <span className="grid size-10 shrink-0 place-items-center rounded-md bg-white text-[#02665e]"><House className="size-5" aria-hidden /></span>
+      {!tenant && <header className="flex flex-wrap items-center gap-3 bg-[#eaf4ef] px-4 py-4 sm:px-6">
+        <span className="grid size-11 shrink-0 place-items-center rounded-md bg-[#02665e] text-white"><House className="size-5" aria-hidden /></span>
         <div className="min-w-0 flex-1 basis-44">
-          <h1 className="m-0 break-words text-lg font-bold tracking-tight text-slate-950">{view.home?.title || "Long stay"}</h1>
+          <h1 className="m-0 break-words text-xl font-bold tracking-tight text-slate-950">{view.home?.title || "Long stay"}</h1>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-600">
             {view.home?.area && <span className="inline-flex items-center gap-1"><MapPin className="size-3.5 shrink-0 text-[#02665e]" aria-hidden />{view.home.area}</span>}
             {view.otherParty.name && <span>Tenant {view.otherParty.name}</span>}
@@ -265,11 +265,11 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
 
 function Shell({ backHref, tenant, heading, children }: { backHref: string; tenant: boolean; heading?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div id="tenancy-detail" className={`w-full py-2 ${tenant ? "mx-auto max-w-5xl" : ""}`}>
+    <div id="tenancy-detail" className="mx-auto w-full max-w-5xl pb-6 pt-2">
       <style>{`#tenancy-detail, #tenancy-detail * { box-sizing: border-box; }`}</style>
       <Link href={backHref} className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 no-underline hover:text-[#02665e]"><ArrowLeft className="h-4 w-4" aria-hidden />{tenant ? "My bookings · Long stays" : "All long stays"}</Link>
       {heading}
-      <section className={`overflow-hidden rounded-lg border border-solid bg-white ${heading ? "mt-3 border-[#d9e7e2]" : "border-slate-200"} ${tenant ? "" : "max-w-2xl"}`}>{children}</section>
+      <section className={`overflow-hidden rounded-lg border border-solid bg-white ${heading ? "mt-3 border-[#d9e7e2]" : "border-slate-200"}`}>{children}</section>
     </div>
   );
 }

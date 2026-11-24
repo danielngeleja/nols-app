@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarRange, Check, CheckCircle2, ChevronDown, Clock3, CreditCard, FileSignature, Loader2, Printer, ShieldCheck } from "lucide-react";
+import { CalendarRange, Check, CheckCircle2, ChevronDown, Clock3, CreditCard, FileSignature, FileText, Loader2, Printer, ShieldCheck, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DocumentViewer from "@/components/admin/DocumentViewer";
 import { LEASE_PDF_FLOW, leaseDocumentHtml } from "@/lib/leaseDocument";
@@ -70,7 +70,7 @@ export default function OfferLeasePanel({ side, view, base, onChanged }: { side:
   let body: React.ReactNode = null;
 
   if (status === "OFFERED" && view.offer) body = <OfferReview side={side} view={view} post={post} busy={busy} />;
-  else if ((status === "ACCEPTED" || status === "AWAITING_PAYMENT") && view.lease) body = <LeaseBlock side={side} view={view} base={base} post={post} busy={busy} />;
+  else if ((status === "ACCEPTED" || status === "AWAITING_PAYMENT") && view.lease && view.money) body = <LeaseBlock key={`${view.ref}:${view.lease.hash}`} side={side} view={view} base={base} post={post} busy={busy} />;
   else if ((status === "RESERVED" || status === "MOVE_IN") && view.money) body = <><ReservedBlock side={side} view={view} /><div className="mt-3"><MoveInPanel side={side} view={view} base={base} onChanged={onChanged} /></div>{status === "RESERVED" ? <div className="mt-3"><StayLifecyclePanel side={side} view={view} base={base} onChanged={onChanged} /></div> : null}</>;
   else if (["ACTIVE", "ENDING", "OVERDUE", "DISPUTED"].includes(status) && view.money) body = <><MoveInPanel side={side} view={view} base={base} onChanged={onChanged} /><div className="mt-3"><StayLifecyclePanel side={side} view={view} base={base} onChanged={onChanged} /></div></>;
   else if ((status === "ENDED" || (status === "CANCELLED" && view.cancellation)) && view.money) body = <StayLifecyclePanel side={side} view={view} base={base} onChanged={onChanged} />;
@@ -194,109 +194,165 @@ function OfferReview({ side, view, post, busy }: { side: Side; view: OfferLeaseV
 }
 
 function LeaseBlock({ side, view, base, post, busy }: { side: Side; view: OfferLeaseView; base: string; post: Post; busy: string | null }) {
-  const [open, setOpen] = useState(false);
+  const landlord = side === "LANDLORD";
+  const agreement = view.lease!;
+  const m = view.money!;
+  const [open, setOpen] = useState(landlord);
   const [lease, setLease] = useState<{ hash: string; text: string; version: string } | null>(null);
   const [read, setRead] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
   const [leaseError, setLeaseError] = useState("");
-  const m = view.money!;
-  const mine = side === "TENANT" ? view.lease!.tenantAcceptedAt : view.lease!.landlordAcceptedAt;
-  const theirs = side === "TENANT" ? view.lease!.landlordAcceptedAt : view.lease!.tenantAcceptedAt;
+  const [retry, setRetry] = useState(0);
+  const mine = landlord ? agreement.landlordAcceptedAt : agreement.tenantAcceptedAt;
+  const theirs = landlord ? agreement.tenantAcceptedAt : agreement.landlordAcceptedAt;
+  const canSign = view.status === "ACCEPTED" && !mine;
 
   useEffect(() => {
     if ((!open && !docOpen) || lease) return;
+    const controller = new AbortController();
     setLeaseError("");
-    apiClient.get(`${base}/tenancies/${encodeURIComponent(view.ref)}/lease`)
-      .then((response) => setLease(response.data))
-      .catch((error) => { setLease(null); setLeaseError(error?.response?.data?.error || "Could not load the lease."); });
-  }, [open, docOpen, lease, base, view.ref]);
+    apiClient.get<{ hash: string; text: string; version: string }>(
+      `${base}/tenancies/${encodeURIComponent(view.ref)}/lease`, { signal: controller.signal },
+    ).then(({ data }) => {
+      if (controller.signal.aborted) return;
+      if (data.hash !== agreement.hash) {
+        setLeaseError("The lease has changed. Reload this booking to review the latest version.");
+        return;
+      }
+      setLease(data);
+    }).catch((error) => {
+      if (!controller.signal.aborted) setLeaseError(error?.response?.data?.error || "Could not load the lease.");
+    });
+    return () => controller.abort();
+  }, [open, docOpen, lease, base, view.ref, agreement.hash, retry]);
 
   const leaseHtml = useMemo(() => (lease ? leaseDocumentHtml({
     text: lease.text,
     version: lease.version,
     reference: view.ref,
     fingerprint: lease.hash,
-    landlordAcceptedAt: view.lease!.landlordAcceptedAt,
-    tenantAcceptedAt: view.lease!.tenantAcceptedAt,
-  }) : ""), [lease, view.ref, view.lease]);
+    landlordAcceptedAt: agreement.landlordAcceptedAt,
+    tenantAcceptedAt: agreement.tenantAcceptedAt,
+  }) : ""), [lease, view.ref, agreement.landlordAcceptedAt, agreement.tenantAcceptedAt]);
+
+  const documentAction = (
+    <button type="button" onClick={() => setDocOpen(true)} className={outline}>
+      <Printer className="size-4" aria-hidden />View, print or save
+    </button>
+  );
+  const inlineReader = open && (
+    lease ? (
+      <>
+        <pre tabIndex={0} aria-label="Lease agreement text"
+          className={`m-0 overflow-auto whitespace-pre-wrap break-words bg-white text-slate-800 [font-family:inherit] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e] ${landlord ? "min-h-40 max-h-[min(34rem,56dvh)] px-4 py-4 text-sm leading-6 sm:px-6" : "mt-2 max-h-80 rounded-md border border-solid border-slate-200 p-3 text-[12.5px] leading-5"}`}>{lease.text}</pre>
+        <p className={`m-0 break-words text-xs text-slate-600 ${landlord ? "border-0 border-t border-solid border-slate-100 bg-slate-50 px-4 py-2.5 sm:px-6" : "mt-1"}`}>Version {lease.version} · fingerprint {lease.hash.slice(0, 12)}</p>
+      </>
+    ) : leaseError ? (
+      <div className="p-4 text-sm">
+        <p role="alert" className="m-0 text-rose-800">{leaseError}</p>
+        <button type="button" onClick={() => setRetry((value) => value + 1)} className={`${outline} mt-2`}>Retry</button>
+      </div>
+    ) : <p role="status" className="m-0 flex items-center gap-2 p-4 text-sm text-slate-600"><Loader2 className="size-4 animate-spin" aria-hidden />Loading the lease</p>
+  );
+
+  const acceptance = canSign && lease ? (
+    <div className={landlord ? "mt-3 space-y-2.5 border-0 border-t border-solid border-[#dce9e4] pt-3" : "mt-2"}>
+      <label className="flex cursor-pointer items-start gap-2 text-sm leading-snug text-slate-800">
+        <input type="checkbox" checked={read} disabled={busy !== null} onChange={(event) => setRead(event.target.checked)} className="m-0 mt-0.5 size-4 shrink-0 accent-[#02665e]" />
+        I have read this lease and accept it.
+      </label>
+      <button type="button" disabled={!read || busy !== null} onClick={() => post("lease", "lease/accept", { leaseHash: lease.hash })}
+        className={`${primary} ${landlord ? "w-full" : "mt-2"} disabled:cursor-not-allowed`}>
+        {busy === "lease" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
+        {busy === "lease" ? "Saving acceptance…" : "Accept the lease"}
+      </button>
+      {!landlord && <p className="m-0 mt-2 text-xs text-slate-600">You need a verified <Link href="/account/long-stay-id" className="font-semibold text-[#02665e] no-underline hover:underline">Long-stay ID</Link> to accept.</p>}
+    </div>
+  ) : null;
+
+  const timing = view.offer && (
+    <p className="m-0 mt-1 text-xs leading-relaxed text-slate-600">
+      {view.offer.termMonths} {view.offer.termMonths === 1 ? "month" : "months"} · {dayLabel(view.offer.moveInDate)}{view.offer.endDate && ` to ${dayLabel(view.offer.endDate)}`} · {money(m.monthlyRent, m.currency)} / month
+    </p>
+  );
 
   return (
-    <div>
-      <p className="m-0 flex items-center gap-2 text-[13px] font-semibold text-slate-800"><FileSignature className="h-4 w-4 text-[#02665e]" />Lease</p>
-      {view.offer ? <p className="m-0 mt-1 text-[13px] text-slate-600">{view.offer.termMonths} months, {dayLabel(view.offer.moveInDate)} to {dayLabel(view.offer.endDate)} · {money(m.monthlyRent, m.currency)} a month</p> : null}
-
-      <dl className="m-0 mt-3 grid gap-1.5 rounded-md bg-slate-50 p-3 text-[13px]">
-        {side === "TENANT" ? (
-          <>
+    <>
+      {landlord ? (
+        <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(17rem,1fr)]">
+          <section aria-label="Lease document" className="min-w-0 overflow-hidden rounded-lg border border-solid border-[#d9e7e2] bg-white">
+            <header className="flex flex-wrap items-start justify-between gap-3 border-0 border-b border-solid border-[#d9e7e2] bg-[#f5f9f7] px-4 py-3.5 sm:px-5">
+              <div className="flex min-w-0 items-start gap-2.5">
+                <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#e1f0e9] text-[#02665e]"><FileText className="size-4" aria-hidden /></span>
+                <div className="min-w-0">
+                  <h2 className="m-0 text-base font-bold tracking-tight text-slate-950">Residential tenancy agreement</h2>
+                  {timing}
+                </div>
+              </div>
+              {documentAction}
+            </header>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-slate-100 px-4 py-2 sm:px-5">
+              <span className="min-w-0 font-mono text-xs text-slate-600 [overflow-wrap:anywhere]">{view.ref}</span>
+              <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded border border-solid border-slate-200 bg-white px-2 text-xs font-semibold text-[#02665e] hover:bg-slate-50">
+                {open ? "Collapse agreement" : "Read agreement"}<ChevronDown className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+              </button>
+            </div>
+            {inlineReader}
+          </section>
+          <aside aria-label="Lease summary and signing" className="min-w-0 space-y-3">
+            <section className="rounded-lg border border-solid border-[#d9e7e2] bg-[#f5f9f7] p-3.5">
+              <h2 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><FileSignature className="size-4 text-[#02665e]" aria-hidden />Signatures</h2>
+              <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
+                <Signed label="You" at={mine} />
+                <Signed label="Tenant" at={theirs} />
+              </div>
+              {view.status === "AWAITING_PAYMENT" ? (
+                <p className="m-0 mt-2.5 text-xs leading-relaxed text-[#215b50]">The tenant pays the first month next{view.paymentDueAt ? `, by ${dueLabel(view.paymentDueAt)}` : ""}.</p>
+              ) : mine && !theirs ? <p className="m-0 mt-2.5 text-xs text-slate-600">Waiting for the tenant to sign.</p> : null}
+              {canSign && !lease && <p className="m-0 mt-2.5 text-xs text-slate-600">Review the agreement to enable acceptance.</p>}
+              {acceptance}
+            </section>
+            <section className="rounded-lg border border-solid border-[#d9e7e2] bg-white p-3.5">
+              <h2 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><Wallet className="size-4 text-[#02665e]" aria-hidden />Payment breakdown</h2>
+              <dl className="m-0 mt-2.5 space-y-2 text-xs">
+                <Row label="Tenant pays you at move-in" value={money(m.balanceDue, m.currency)} />
+                <Row label="First month held by NoLSAF until move-in" value={money(m.firstMonth, m.currency)} />
+                <Row label="Commission from the first month" value={money(m.landlordCommission, m.currency)} />
+                <Row label="NoLSAF sends you after move-in" value={money(m.landlordPayout, m.currency)} strong className="rounded bg-[#edf6f2] px-2 py-2" />
+              </dl>
+            </section>
+          </aside>
+        </div>
+      ) : (
+        <div>
+          <h2 className="m-0 flex items-center gap-2 text-sm font-semibold text-slate-800"><FileSignature className="size-4 text-[#02665e]" aria-hidden />Lease</h2>
+          {timing}
+          <dl className="m-0 mt-3 grid gap-1.5 rounded-md bg-slate-50 p-3 text-[13px]">
             <Row label="You pay NoLSAF by card (first month + fee)" value={money(m.bookingAmount, m.currency)} strong />
             <Row label="You pay the landlord at move-in" value={money(m.balanceDue, m.currency)} />
-          </>
-        ) : (
-          <>
-            <Row label="Tenant pays you at move-in" value={money(m.balanceDue, m.currency)} />
-            <Row label="First month, held by NoLSAF until move-in" value={money(m.firstMonth, m.currency)} />
-            <Row label="NoLSAF commission (from the first month)" value={money(m.landlordCommission, m.currency)} muted />
-            <Row label="NoLSAF sends you after move-in" value={money(m.landlordPayout, m.currency)} strong />
-          </>
-        )}
-      </dl>
-
-      <div className="mt-3 flex flex-wrap gap-2 text-[12px]">
-        <Signed label={side === "TENANT" ? "You" : "Tenant"} at={side === "TENANT" ? view.lease!.tenantAcceptedAt : view.lease!.tenantAcceptedAt} />
-        <Signed label={side === "LANDLORD" ? "You" : "Landlord"} at={view.lease!.landlordAcceptedAt} />
-        <button type="button" onClick={() => setDocOpen(true)} className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:border-[#02665e] hover:text-[#02665e] [font-family:inherit]">
-          <Printer className="h-3.5 w-3.5" />View, print or save
-        </button>
-      </div>
-      {docOpen ? (
-        <DocumentViewer
-          open
-          title="Residential tenancy agreement"
-          subtitle={`${view.ref}${lease ? ` · version ${lease.version}` : ""}`}
-          html={leaseHtml}
-          loading={!lease && !leaseError}
-          error={leaseError || null}
-          filename={`NoLSAF lease ${view.ref}.pdf`}
-          pdfFormat="a4"
-          pdfFlow={LEASE_PDF_FLOW}
-          onClose={() => setDocOpen(false)}
-        />
-      ) : null}
-
-      {view.status === "AWAITING_PAYMENT" ? (
-        side === "TENANT" ? <PayBox view={view} /> : (
-          <p className="m-0 mt-3 rounded-md bg-emerald-50 px-3 py-2 text-[13px] text-emerald-900">
-            Lease signed by both. The tenant pays the first month next{view.paymentDueAt ? `, by ${dueLabel(view.paymentDueAt)}` : ""}.
-          </p>
-        )
-      ) : mine ? (
-        <p className="m-0 mt-3 text-[13px] text-slate-600">You accepted. {theirs ? "" : `Waiting for the ${side === "TENANT" ? "landlord" : "tenant"}.`}</p>
-      ) : (
-        <div className="mt-3">
-          <button type="button" onClick={() => setOpen((v) => !v)} className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[13px] font-semibold text-[#02665e] hover:underline [font-family:inherit]">
-            <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />{open ? "Hide the lease" : "Read the lease"}
-          </button>
-          {open ? (
-            lease ? (
-              <>
-                <pre className="m-0 mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-solid border-slate-200 bg-white p-3 text-[12.5px] leading-5 text-slate-700 [font-family:inherit]">{lease.text}</pre>
-                <p className="m-0 mt-1 text-[11px] text-slate-400">Version {lease.version} · fingerprint {lease.hash.slice(0, 12)}</p>
-                <label className="mt-2 flex items-start gap-2 text-[13px] text-slate-700">
-                  <input type="checkbox" checked={read} onChange={(event) => setRead(event.target.checked)} className="mt-0.5 h-4 w-4" />
-                  I have read this lease and accept it.
-                </label>
-                <button type="button" disabled={!read || busy === "lease"} onClick={() => post("lease", "lease/accept", { leaseHash: lease.hash })} className={`${primary} mt-2`}>
-                  {busy === "lease" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Accept the lease
-                </button>
-                {side === "TENANT" ? <p className="m-0 mt-2 text-[12px] text-slate-500">You need a verified <Link href="/account/long-stay-id" className="font-semibold text-[#02665e] no-underline hover:underline">Long-stay ID</Link> to accept.</p> : null}
-              </>
-            ) : (
-              <div className="mt-2 flex items-center gap-2 text-[13px] text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Loading the lease</div>
-            )
-          ) : null}
+          </dl>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <Signed label="You" at={mine} /><Signed label="Landlord" at={theirs} />{documentAction}
+          </div>
+          {view.status === "AWAITING_PAYMENT" ? <PayBox view={view} /> : mine ? (
+            <p className="m-0 mt-3 text-[13px] text-slate-600">{theirs ? "You accepted the lease." : "Waiting for the landlord to sign."}</p>
+          ) : (
+            <div className="mt-3">
+              <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className={outline}>
+                {open ? "Hide the lease" : "Read the lease"}<ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+              </button>
+              {inlineReader}
+              {open && acceptance}
+            </div>
+          )}
         </div>
       )}
-    </div>
+      {docOpen && <DocumentViewer
+        open title="Residential tenancy agreement" subtitle={`${view.ref}${lease ? ` · version ${lease.version}` : ""}`}
+        html={leaseHtml} loading={!lease && !leaseError} error={leaseError || null}
+        filename={`NoLSAF lease ${view.ref}.pdf`} pdfFormat="a4" pdfFlow={LEASE_PDF_FLOW} onClose={() => setDocOpen(false)}
+      />}
+    </>
   );
 }
 
@@ -363,11 +419,11 @@ function Signed({ label, at }: { label: string; at: string | null }) {
   );
 }
 
-function Row({ label, value, strong, muted }: { label: string; value: string; strong?: boolean; muted?: boolean }) {
+function Row({ label, value, strong, className = "" }: { label: string; value: string; strong?: boolean; className?: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className={muted ? "text-slate-400" : "text-slate-600"}>{label}</dt>
-      <dd className={`m-0 whitespace-nowrap tabular-nums ${strong ? "font-bold text-slate-900" : muted ? "text-slate-500" : "font-semibold text-slate-800"}`}>{value}</dd>
+    <div className={`flex items-baseline justify-between gap-3 ${className}`}>
+      <dt className="text-slate-600">{label}</dt>
+      <dd className={`m-0 shrink-0 whitespace-nowrap tabular-nums ${strong ? "font-bold text-slate-900" : "font-semibold text-slate-800"}`}>{value}</dd>
     </div>
   );
 }
