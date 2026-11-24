@@ -141,8 +141,8 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
 
   return (
     <Shell backHref={backHref} tenant={tenant} heading={tenant ? (
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border border-solid border-[#dce8e3] bg-white px-4 py-3.5 sm:px-5">
-        <span className="grid size-11 shrink-0 place-items-center rounded-md bg-[#e9f4f0] text-[#02665e]"><House className="size-5" aria-hidden /></span>
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border border-solid border-[#cfe2da] bg-[#eaf4ef] px-4 py-4 sm:px-6">
+        <span className="grid size-11 shrink-0 place-items-center rounded-md bg-[#02665e] text-white"><House className="size-5" aria-hidden /></span>
         <div className="min-w-0 flex-1 basis-48">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
             <h1 className="m-0 break-words text-[clamp(1.125rem,3vw,1.5rem)] font-bold leading-tight tracking-tight text-slate-950">{view.home?.title || "Long stay"}</h1>
@@ -153,7 +153,7 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
             <span className="min-w-0">Ref <span className="font-mono font-medium text-slate-800 [overflow-wrap:anywhere]">{view.ref}</span></span>
           </div>
         </div>
-        {homeHref && <Link href={homeHref} className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white px-2.5 text-xs font-semibold text-[#215b50] no-underline hover:bg-[#edf6f2] hover:no-underline">View property <ArrowUpRight className="size-3.5" aria-hidden /></Link>}
+        {homeHref && <Link href={homeHref} className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-solid border-[#c5ded4] bg-white px-2.5 text-xs font-semibold text-[#215b50] no-underline hover:bg-[#f8fbfa] hover:no-underline">View property <ArrowUpRight className="size-3.5" aria-hidden /></Link>}
       </header>
     ) : undefined}>
       {!tenant && <header className="flex flex-wrap items-center gap-3 bg-[#f2f7f5] px-4 py-3.5 sm:px-5">
@@ -269,7 +269,7 @@ function Shell({ backHref, tenant, heading, children }: { backHref: string; tena
       <style>{`#tenancy-detail, #tenancy-detail * { box-sizing: border-box; }`}</style>
       <Link href={backHref} className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 no-underline hover:text-[#02665e]"><ArrowLeft className="h-4 w-4" aria-hidden />{tenant ? "My bookings · Long stays" : "All long stays"}</Link>
       {heading}
-      <section className={`overflow-hidden rounded-lg border border-solid border-slate-200 bg-white ${heading ? "mt-3" : ""} ${tenant ? "" : "max-w-2xl"}`}>{children}</section>
+      <section className={`overflow-hidden rounded-lg border border-solid bg-white ${heading ? "mt-3 border-[#d9e7e2]" : "border-slate-200"} ${tenant ? "" : "max-w-2xl"}`}>{children}</section>
     </div>
   );
 }

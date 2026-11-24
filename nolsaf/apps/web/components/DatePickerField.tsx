@@ -8,6 +8,8 @@ import { Calendar } from "lucide-react";
 
 type Props = {
   label: string;
+  id?: string;
+  placeholder?: string;
   value: string;
   onChangeAction: (nextIso: string) => void;
   min?: string;
@@ -84,6 +86,8 @@ function PopoverPositioner({ open, computePos, measure }: { open: boolean; compu
 
 export default function DatePickerField({
   label,
+  id,
+  placeholder,
   value,
   onChangeAction,
   min,
@@ -172,6 +176,7 @@ export default function DatePickerField({
 
             <Popover.Button
               ref={buttonRef}
+              id={id}
               type="button"
               disabled={disabled}
               className={
@@ -208,7 +213,7 @@ export default function DatePickerField({
                 }
                 aria-hidden
               />
-              <span className={"whitespace-nowrap " + (pretty ? "" : (isDark ? "text-slate-500" : "text-gray-400"))}>{pretty || (display === "month" ? "Mon YYYY" : display === "day-month" ? "DD Mon" : "DD Mon YYYY")}</span>
+              <span className={"whitespace-nowrap " + (pretty ? "" : (isDark ? "text-slate-500" : "text-gray-400"))}>{pretty || placeholder || (display === "month" ? "Mon YYYY" : display === "day-month" ? "DD Mon" : "DD Mon YYYY")}</span>
             </Popover.Button>
 
             {portalContainer && createPortal(

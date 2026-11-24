@@ -146,6 +146,7 @@ export default function DatePicker({
         onCloseAction?.();
         return;
       }
+      if (e.target instanceof HTMLSelectElement) return;
       // arrow navigation
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
         e.preventDefault();
@@ -180,6 +181,20 @@ export default function DatePicker({
   const todayY = today.getFullYear();
   const todayM = today.getMonth();
   const todayD = today.getDate();
+  const minMonth = minDate ? new Date(`${minDate}T00:00:00`) : null;
+  const maxMonth = maxDate ? new Date(`${maxDate}T00:00:00`) : null;
+  const minimumYear = minMonth?.getFullYear() ?? Math.min(view.year, allowPast ? 1920 : todayY);
+  const maximumYear = maxMonth?.getFullYear() ?? Math.max(view.year, allowPast ? todayY : todayY + 20);
+  const years = twoMonths ? [] : Array.from({ length: Math.max(0, maximumYear - minimumYear + 1) }, (_, index) =>
+    allowPast ? maximumYear - index : minimumYear + index,
+  );
+  const monthBounds = (year: number) => ({
+    first: year === minMonth?.getFullYear() ? minMonth.getMonth() : 0,
+    last: year === maxMonth?.getFullYear() ? maxMonth.getMonth() : 11,
+  });
+  const { first: firstMonth, last: lastMonth } = monthBounds(view.year);
+  const previousUnavailable = !twoMonths && Boolean(minMonth) && (view.year < minimumYear || view.year === minimumYear && view.month <= firstMonth);
+  const nextUnavailable = !twoMonths && Boolean(maxMonth) && (view.year > maximumYear || view.year === maximumYear && view.month >= lastMonth);
   const [perDayCounts, setPerDayCounts] = useState<Record<string, { total: number; statuses: Record<string, number> }>>({});
 
   // fetch aggregated counts for the visible month(s)
@@ -308,8 +323,9 @@ export default function DatePicker({
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
         <button
           type="button"
+          disabled={previousUnavailable}
           onClick={() => setView((v) => ({ year: v.month === 0 ? v.year - 1 : v.year, month: (v.month + 11) % 12 }))}
-          className="box-border appearance-none border-0 bg-transparent cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900"
+          className="box-border appearance-none border-0 bg-transparent cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900 disabled:cursor-default disabled:opacity-40"
           aria-label="Previous month"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -325,33 +341,33 @@ export default function DatePicker({
             <select
               value={view.month}
               onChange={(e) => setView((v) => ({ ...v, month: Number(e.target.value) }))}
-              className="text-sm font-semibold text-gray-900 bg-transparent border-0 outline-none cursor-pointer hover:text-emerald-700 focus:ring-0 appearance-none pr-1"
+              className="min-w-0 cursor-pointer rounded-md border border-solid border-slate-200 bg-white px-1.5 py-1 text-sm font-semibold text-slate-900 focus-visible:outline-2 focus-visible:outline-[#02665e]"
               aria-label="Select month"
             >
               {MONTHS.map((m, i) => (
-                <option key={m} value={i}>{m}</option>
+                <option key={m} value={i} disabled={i < firstMonth || i > lastMonth}>{m}</option>
               ))}
             </select>
             <select
               value={view.year}
-              onChange={(e) => setView((v) => ({ ...v, year: Number(e.target.value) }))}
-              className="text-sm font-semibold text-gray-900 bg-transparent border-0 outline-none cursor-pointer hover:text-emerald-700 focus:ring-0 appearance-none pr-1"
+              onChange={(event) => {
+                const year = Number(event.target.value);
+                const { first, last } = monthBounds(year);
+                setView((current) => ({ year, month: Math.min(last, Math.max(first, current.month)) }));
+              }}
+              className="min-w-0 cursor-pointer rounded-md border border-solid border-slate-200 bg-white px-1.5 py-1 text-sm font-semibold tabular-nums text-slate-900 focus-visible:outline-2 focus-visible:outline-[#02665e]"
               aria-label="Select year"
             >
-              {(() => {
-                const endY = allowPast ? new Date().getFullYear() : (maxDate ? new Date(maxDate + 'T00:00:00').getFullYear() : new Date().getFullYear() + 20);
-                const startY = allowPast ? 1920 : (minDate ? new Date(minDate + 'T00:00:00').getFullYear() : new Date().getFullYear());
-                return Array.from({ length: endY - startY + 1 }, (_, i) => startY + i).reverse().map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ));
-              })()}
+              {(view.year < minimumYear || view.year > maximumYear) && <option value={view.year} disabled>{view.year}</option>}
+              {years.map((year) => <option key={year} value={year}>{year}</option>)}
             </select>
           </div>
         )}
         <button
           type="button"
+          disabled={nextUnavailable}
           onClick={() => setView((v) => ({ year: v.month === 11 ? v.year + 1 : v.year, month: (v.month + 1) % 12 }))}
-          className="box-border appearance-none border-0 bg-transparent cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900"
+          className="box-border appearance-none border-0 bg-transparent cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-600 hover:text-gray-900 disabled:cursor-default disabled:opacity-40"
           aria-label="Next month"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

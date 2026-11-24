@@ -76,9 +76,9 @@ function nextStep(item: Item, side: Side): { text: string; urgent: boolean } | n
     if (s === "OVERDUE") return { text: "Confirm the tenant moved out", urgent: true };
     return null;
   }
-  if (s === "OFFERED") return { text: `Landlord answers, ${left(item.confirmBy)}`, urgent: false };
+  if (s === "OFFERED") return { text: item.confirmBy ? `Response window · ${left(item.confirmBy)}` : "The landlord will respond next", urgent: false };
   if (s === "ACCEPTED") return item.leaseSigned?.tenant ? { text: "Waiting for the landlord to sign", urgent: false } : { text: "Read and sign the lease", urgent: true };
-  if (s === "AWAITING_PAYMENT") return { text: `Pay the first month, ${left(item.paymentDueAt)}`, urgent: true };
+  if (s === "AWAITING_PAYMENT") return { text: item.paymentDueAt ? `Pay the first month · ${left(item.paymentDueAt)}` : "Pay the first month", urgent: true };
   if (s === "MOVE_IN") return { text: "Confirm the balance and keys", urgent: true };
   return null;
 }
@@ -118,6 +118,61 @@ export default function TenancyList({ side, detailBase, intro, extra, hideHeadin
   const needle = q.trim().toLowerCase();
   const filtered = needle ? shown.filter((i) => `${i.homeTitle ?? ""} ${i.otherPartyName ?? ""}`.toLowerCase().includes(needle)) : shown;
   const loading = open === null;
+
+  if (side === "TENANT" && hideHeading) {
+    const ordered = [...filtered].sort((a, b) => Number(Boolean(nextStep(b, side)?.urgent)) - Number(Boolean(nextStep(a, side)?.urgent)));
+    return (
+      <section aria-labelledby="tenant-stays-title" className="min-w-0 overflow-hidden rounded-lg border border-solid border-[#d9e7e2] bg-white">
+        <header className="flex flex-wrap items-center justify-between gap-3 bg-[#f8fbfa] px-4 py-3.5 sm:px-5">
+          <h2 id="tenant-stays-title" className="m-0 text-lg font-bold tracking-tight text-slate-950">Reservations</h2>
+          <div role="group" aria-label="Long-stay status" className="inline-flex gap-0.5 rounded-md bg-[#eaf3ef] p-0.5">
+            {(["open", "closed"] as const).map((key) => {
+              const count = (key === "open" ? open : closed)?.length;
+              return (
+                <button key={key} type="button" aria-pressed={scope === key} onClick={() => { setScope(key); setQ(""); }}
+                  className={`inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded border-0 px-2.5 text-xs font-semibold [font-family:inherit] ${scope === key ? "bg-white text-[#165c51] shadow-sm" : "bg-transparent text-slate-600 hover:text-slate-900"}`}>
+                  {key === "open" ? "Current" : "History"}
+                  {count != null && <span className="tabular-nums text-slate-600">{count}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </header>
+        {(shown.length > 5 || needle) && <label className="mx-4 mt-3 flex items-center gap-2 rounded-md border border-solid border-slate-200 px-3 sm:mx-5">
+          <Search className="size-4 shrink-0 text-[#02665e]" aria-hidden />
+          <input type="search" value={q} onChange={(event) => setQ(event.target.value)} aria-label="Search stays" placeholder="Search stays" className="min-h-9 w-full min-w-0 border-0 bg-transparent text-sm focus:outline-none" />
+        </label>}
+        {loading ? <p role="status" className="m-0 flex min-h-24 items-center justify-center gap-2 text-sm text-slate-600"><Loader2 className="size-4 animate-spin" aria-hidden />Loading long stays</p>
+          : error ? <p role="alert" className="m-0 px-5 py-4 text-sm text-red-700">{error}</p>
+          : ordered.length === 0 ? <EmptyState side={side} scope={scope} searching={Boolean(needle)} />
+          : <ul className="m-0 list-none divide-y divide-[#e5efeb] p-0">
+            {ordered.map((item) => {
+              const step = nextStep(item, side);
+              return (
+                <li key={item.ref}>
+                  <Link href={`${detailBase}/${encodeURIComponent(item.ref)}`} className="group flex items-start gap-3 px-4 py-3.5 text-slate-900 no-underline hover:bg-[#f8fbfa] hover:no-underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e] sm:px-5">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#e9f4f0] text-[#02665e]"><Home className="size-4.5" aria-hidden /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <span className="break-words text-sm font-bold text-slate-950">{item.homeTitle || "Long stay"}</span>
+                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${TONE[item.status] ?? "bg-slate-100 text-slate-700"}`}>{LABEL.TENANT[item.status] ?? item.status}</span>
+                      </span>
+                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-600">
+                        {item.moveInDate && <span><time dateTime={item.moveInDate}>{dayLabel(item.moveInDate)}</time>{item.endDate && <> – <time dateTime={item.endDate}>{dayLabel(item.endDate)}</time></>}</span>}
+                        {item.termMonths ? <span>{item.termMonths} {item.termMonths === 1 ? "month" : "months"}</span> : null}
+                        {item.monthlyRent != null && item.currency && <span>{money(item.monthlyRent, item.currency)} / month</span>}
+                      </span>
+                      {step && <span className={`mt-1 block text-xs font-medium ${step.urgent ? "text-amber-900" : "text-slate-600"}`}>{step.text}</span>}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1 self-center text-xs font-semibold text-[#02665e]"><span className="hidden sm:inline">Open booking</span><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden /></span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>}
+      </section>
+    );
+  }
 
   const tiles = side === "LANDLORD"
     ? [
@@ -276,7 +331,7 @@ function EmptyState({ side, scope, searching }: { side: Side; scope: "open" | "c
   );
 }
 
-function HowItWorks({ side }: { side: Side }) {
+export function HowItWorks({ side, compact = false }: { side: Side; compact?: boolean }) {
   const steps = side === "LANDLORD"
     ? [
       { Icon: ClipboardCheck, title: "Inspected", text: "A NoLSAF Sales Partner checks the home once a year." },
@@ -291,9 +346,9 @@ function HowItWorks({ side }: { side: Side }) {
       { Icon: KeyRound, title: "Move in", text: "Pay the balance to the landlord when you get the keys." },
     ];
   return (
-    <section className="mt-5 rounded-lg border border-solid border-slate-200 bg-white px-4 py-3.5" aria-label="How long stays work">
-      <p className="m-0 text-[12px] font-bold uppercase tracking-wide text-slate-400">How it works</p>
-      <ol className="m-0 mt-2 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4">
+    <section className={compact ? "px-3.5 pb-3" : "mt-5 rounded-lg border border-solid border-slate-200 bg-white px-4 py-3.5"} aria-label="How long stays work">
+      {!compact && <p className="m-0 text-[12px] font-bold uppercase tracking-wide text-slate-400">How it works</p>}
+      <ol className={`m-0 grid list-none gap-3 p-0 ${compact ? "" : "mt-2 sm:grid-cols-2 lg:grid-cols-4"}`}>
         {steps.map(({ Icon, title, text }, i) => (
           <li key={title} className="flex items-start gap-2.5">
             <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#02665e]/10 text-[12px] font-bold text-[#02665e]">{i + 1}</span>

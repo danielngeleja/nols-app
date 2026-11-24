@@ -132,24 +132,30 @@ function OfferReview({ side, view, post, busy }: { side: Side; view: OfferLeaseV
     ];
     return (
       <section aria-label="Your reservation" className="space-y-4">
-        <ReservationDates offer={offer} />
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h2 className="m-0 text-base font-semibold tracking-tight text-slate-950">Waiting for the landlord</h2>
-              <p className="m-0 mt-0.5 text-xs leading-5 text-slate-600">You can sign the lease after the landlord confirms. Payment follows signing.</p>
+        <div className="grid items-start gap-3 md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+          <div className="min-w-0 rounded-md border border-solid border-[#d9e7e2] bg-[#f8fbfa] px-3.5 py-3">
+            <div className="flex items-start gap-2.5">
+              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-amber-100 text-amber-900"><Clock3 className="size-4" aria-hidden /></span>
+              <div className="min-w-0">
+                <h2 className="m-0 text-base font-bold tracking-tight text-slate-950">Waiting for the landlord</h2>
+                {view.confirmBy && <p className="m-0 mt-0.5 text-xs font-semibold text-amber-900">Response due <time dateTime={view.confirmBy}>{eatTime(view.confirmBy)}</time></p>}
+              </div>
             </div>
-            {view.confirmBy && <p className="m-0 inline-flex items-center gap-1.5 rounded bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-900"><Clock3 className="size-3.5 shrink-0" aria-hidden />Response due <time dateTime={view.confirmBy}>{eatTime(view.confirmBy)}</time></p>}
+            <p className="m-0 mt-2 text-xs leading-5 text-slate-700">Once the landlord confirms, you can review and sign the lease. Payment follows signing.</p>
           </div>
-          <ol aria-label="Reservation progress" className="m-0 grid list-none grid-cols-2 gap-1.5 p-0 sm:grid-cols-4">
-            {steps.map(({ label, Icon }, index) => (
-              <li key={label} aria-current={index === 1 ? "step" : undefined}
-                className={`flex min-h-10 min-w-0 items-center gap-1.5 rounded border border-solid px-2 py-1.5 text-xs font-semibold ${index === 0 ? "border-[#d8e8e0] bg-[#edf6f2] text-[#215b50]" : index === 1 ? "border-amber-200 bg-amber-50 text-amber-950" : "border-slate-200 bg-white text-slate-600"}`}>
-                <Icon className="size-3.5 shrink-0" aria-hidden />{label}{index === 0 && <span className="sr-only">, complete</span>}
-              </li>
-            ))}
-          </ol>
+          <ReservationDates offer={offer} />
         </div>
+        <ol aria-label="Reservation progress" className="m-0 grid list-none grid-cols-4 gap-1 p-0 sm:gap-2">
+          {steps.map(({ label, Icon }, index) => (
+            <li key={label} aria-current={index === 1 ? "step" : undefined} className="min-w-0">
+              <div className="mb-1.5 flex items-center gap-1 sm:gap-2" aria-hidden>
+                <span className={`grid size-7 shrink-0 place-items-center rounded-full sm:size-8 ${index === 0 ? "bg-[#02665e] text-white" : index === 1 ? "bg-amber-100 text-amber-900 ring-1 ring-inset ring-amber-300" : "bg-slate-100 text-slate-600"}`}><Icon className="size-3.5" /></span>
+                {index < steps.length - 1 && <span className={`h-px flex-1 ${index === 0 ? "bg-[#8eb6a8]" : "bg-slate-200"}`} />}
+              </div>
+              <span className={`block text-[11px] font-semibold leading-snug sm:text-xs ${index === 1 ? "text-amber-900" : index === 0 ? "text-[#215b50]" : "text-slate-600"}`}>{label}{index === 0 && <span className="sr-only">, complete</span>}</span>
+            </li>
+          ))}
+        </ol>
       </section>
     );
   }

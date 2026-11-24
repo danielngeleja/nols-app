@@ -37,13 +37,19 @@ const DOCS: Array<{ key: IdType; title: string; text: string; Icon: typeof IdCar
 const MAX_BYTES = 2 * 1024 * 1024;
 const FOLDER = "traveller-documents/long-stay-id";
 
-function addDays(days: number) {
-  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+function dateOnly(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
-function yearsAgo(years: number) {
-  const d = new Date();
-  d.setFullYear(d.getFullYear() - years);
-  return d.toISOString().slice(0, 10);
+
+function addDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * 86_400_000);
+}
+
+function yearsAgo(date: Date, years: number) {
+  const year = date.getUTCFullYear() - years;
+  const month = date.getUTCMonth();
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(date.getUTCDate(), lastDay)));
 }
 function day(value: string | null) {
   return value ? new Date(`${value}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "";
@@ -64,6 +70,7 @@ export default function LongStayIdPage() {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const countries = useIsoCountries();
+  const today = new Date(Date.now() + 3 * 3_600_000);
 
   useEffect(() => {
     apiClient.get<Identity>("/api/customer/long-stay/identity")
@@ -238,8 +245,24 @@ export default function LongStayIdPage() {
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <DatePickerField label="Date of birth" value={dateOfBirth} allowPast max={yearsAgo(18)} widthClassName="w-full" onChangeAction={(iso) => { setDateOfBirth(String(iso).slice(0, 10)); setError(""); }} />
-                    <DatePickerField label="Expiry date" value={expiresOn} min={addDays(31)} widthClassName="w-full" onChangeAction={(iso) => { setExpiresOn(String(iso).slice(0, 10)); setError(""); }} />
+                    <div className="min-w-0">
+                      <label htmlFor="tenant-id-birth-date" className={labelCls}>Date of birth</label>
+                      <div className="mt-1.5">
+                        <DatePickerField id="tenant-id-birth-date" label={dateOfBirth ? `Date of birth, ${day(dateOfBirth)}` : "Date of birth"}
+                          placeholder="Select birth date" value={dateOfBirth} allowPast twoMonths={false} squared strongBorder disabled={busy}
+                          min={dateOnly(addDays(yearsAgo(today, 121), 1))} max={dateOnly(yearsAgo(today, 18))} size="sm" widthClassName="box-border w-full"
+                          onChangeAction={(iso) => { setDateOfBirth(String(iso).slice(0, 10)); setError(""); }} />
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <label htmlFor="tenant-id-expiry-date" className={labelCls}>Document expiry date</label>
+                      <div className="mt-1.5">
+                        <DatePickerField id="tenant-id-expiry-date" label={expiresOn ? `Document expiry date, ${day(expiresOn)}` : "Document expiry date"}
+                          placeholder="Select expiry date" value={expiresOn} allowPast={false} twoMonths={false} squared strongBorder disabled={busy}
+                          min={dateOnly(addDays(today, 30))} max={dateOnly(addDays(today, 365 * 20))} size="sm" widthClassName="box-border w-full"
+                          onChangeAction={(iso) => { setExpiresOn(String(iso).slice(0, 10)); setError(""); }} />
+                      </div>
+                    </div>
                   </div>
 
                   <div>
