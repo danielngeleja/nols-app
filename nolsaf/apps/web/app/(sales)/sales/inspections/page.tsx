@@ -3,12 +3,12 @@
 /**
  * Long-stay home inspections for a Sales Partner (docs/LONG_STAY_RENTALS.md
  * section 13). The partner goes to the home and reports from there: the
- * phone's position, 4 to 12 photos taken on site, the standards checklist and
+ * phone's position, three photos taken on site, the standards checklist and
  * a recommendation. The server measures the distance from the listing's pin
  * and flags anything odd; NoLSAF then passes, fails or asks for a redo.
  * The flat fee is earned for every report NoLSAF accepts, pass or fail.
  */
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowLeft, Camera, CheckCircle2, ClipboardCheck, Clock3, Crosshair, Footprints, Loader2, MapPin, Navigation, Phone, X, XCircle } from "lucide-react";
@@ -18,6 +18,7 @@ import SalesPageHeader from "@/components/sales/SalesPageHeader";
 import { inspectionDate } from "@/lib/salesInspection";
 
 type CheckItem = { key: string; label: string; required: boolean };
+type Finding = { note: string; photoIndex?: number };
 type Inspection = {
   ref: string;
   status: "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED";
@@ -32,7 +33,7 @@ type Inspection = {
   feeAmount: number | null;
 };
 type Visit = { ref: string; visitAt: string; note: string | null; home: { title: string | null; area: string; pin: { lat: number; lng: number } | null }; tenant: { name: string | null; phone: string | null } };
-type Data = { checklist: CheckItem[]; minPhotos: number; maxPhotos: number; items: Inspection[] };
+type Data = { checklist: CheckItem[]; photoSlots: Array<{ label: string; hint: string }>; items: Inspection[] };
 
 const STATUS: Record<Inspection["status"], { label: string; tone: string }> = {
   ASSIGNED: { label: "To visit", tone: "bg-amber-50 text-amber-800" },
@@ -210,17 +211,17 @@ function InspectionHead({ item, compact }: { item: Inspection; compact?: boolean
 function ReportForm({ item, data, onDone, onCancel }: { item: Inspection; data: Data; onDone: () => void; onCancel: () => void }) {
   const [position, setPosition] = useState<{ lat: number; lng: number; accuracy: number; at: string } | null>(null);
   const [locating, setLocating] = useState(false);
-  const [photos, setPhotos] = useState<File[]>([]);
+  const [photos, setPhotos] = useState<Array<File | null>>(() => data.photoSlots.map(() => null));
   const [checks, setChecks] = useState<Record<string, "PASS" | "FAIL" | "NA">>({});
+  const [findings, setFindings] = useState<Record<string, Finding>>({});
   const [recommendation, setRecommendation] = useState<"PASS" | "FAIL" | "">("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ distanceMeters: number | null; flags: string[] } | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-
   const requiredFailed = data.checklist.filter((c) => c.required && checks[c.key] && checks[c.key] !== "PASS");
   const answered = data.checklist.every((c) => checks[c.key]);
+  const photoCount = photos.filter(Boolean).length;
 
   const locate = () => {
     setError("");
@@ -233,29 +234,36 @@ function ReportForm({ item, data, onDone, onCancel }: { item: Inspection; data: 
     );
   };
 
-  const addPhotos = (list: FileList | null) => {
-    if (!list) return;
-    const next = [...photos, ...Array.from(list)].slice(0, data.maxPhotos);
-    if (next.some((f) => f.size > 8 * 1024 * 1024)) { setError("Each photo must be 8 MB or smaller."); return; }
-    setPhotos(next);
+  const changePhoto = (index: number, file: File | null) => {
+    if (file && file.size > 8 * 1024 * 1024) { setError("Each photo must be 8 MB or smaller."); return; }
+    setPhotos((current) => current.map((photo, n) => n === index ? file : photo));
+    setError("");
+  };
+
+  const updateFinding = (key: string, change: Partial<Finding>) => {
+    setFindings((current) => ({ ...current, [key]: { ...(current[key] ?? { note: "" }), ...change } }));
     setError("");
   };
 
   const submit = async () => {
     setError("");
     if (!position) return setError("Capture your position at the home first.");
-    if (photos.length < data.minPhotos) return setError(`Take at least ${data.minPhotos} photos at the home.`);
+    if (photoCount !== data.photoSlots.length) return setError("Take exactly three photos at the home, one for each slot.");
     if (!answered) return setError("Answer every item on the checklist.");
+    const failedChecks = data.checklist.filter(({ key }) => checks[key] === "FAIL");
+    const missingFinding = failedChecks.find(({ key }) => (findings[key]?.note.trim().length ?? 0) < 3);
+    if (missingFinding) return setError("Add a short finding for every item answered No.");
     if (!recommendation) return setError("Recommend pass or fail.");
     if (recommendation === "PASS" && requiredFailed.length) return setError("A home cannot pass while a required item is not met.");
     if (note.trim().length < 10) return setError("Write a short note of what you saw (10 characters or more).");
     const form = new FormData();
-    photos.forEach((f) => form.append("photos", f));
+    photos.forEach((photo) => { if (photo) form.append("photos", photo); });
     form.append("latitude", String(position.lat));
     form.append("longitude", String(position.lng));
     form.append("accuracyMeters", String(position.accuracy));
     form.append("capturedAt", position.at);
     form.append("checklist", JSON.stringify(checks));
+    form.append("findings", JSON.stringify(Object.fromEntries(failedChecks.map(({ key }) => [key, findings[key]]))));
     form.append("recommendation", recommendation);
     form.append("note", note.trim());
     setBusy(true);
@@ -281,7 +289,13 @@ function ReportForm({ item, data, onDone, onCancel }: { item: Inspection; data: 
   }
 
   const seg = (key: string, value: "PASS" | "FAIL" | "NA", label: string) => (
-    <button type="button" onClick={() => setChecks((c) => ({ ...c, [key]: value }))} aria-pressed={checks[key] === value}
+    <button type="button" onClick={() => {
+      setChecks((c) => ({ ...c, [key]: value }));
+      if (value === "FAIL" && data.checklist.some((item) => item.key === key && item.required)) {
+        setRecommendation((current) => current === "PASS" ? "" : current);
+      }
+      setError("");
+    }} aria-pressed={checks[key] === value}
       className={`h-8 min-w-12 cursor-pointer rounded-md border border-solid px-2 text-[12px] font-semibold [font-family:inherit] ${checks[key] === value
         ? value === "PASS" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : value === "FAIL" ? "border-red-500 bg-red-50 text-red-700" : "border-slate-400 bg-slate-100 text-slate-700"
         : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"}`}>
@@ -302,22 +316,34 @@ function ReportForm({ item, data, onDone, onCancel }: { item: Inspection; data: 
       </div>
 
       <div>
-        <p className="m-0 text-[13px] font-semibold text-slate-800">2. Photos at the home ({photos.length} of {data.minPhotos} to {data.maxPhotos})</p>
-        <p className="m-0 text-[12px] text-slate-500">Outside with the gate or door, each room, the bathroom, the kitchen, the meter.</p>
-        <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }} />
-        <div className="mt-1.5 flex flex-wrap gap-2">
-          {photos.map((f, i) => (
-            <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[12px] text-slate-700">
-              {f.name.slice(0, 18)}
-              <button type="button" aria-label="Remove photo" onClick={() => setPhotos((p) => p.filter((_, j) => j !== i))} className="grid h-4 w-4 cursor-pointer place-items-center border-0 bg-transparent p-0 text-slate-500"><X className="h-3 w-3" /></button>
-            </span>
+        <p className="m-0 text-[13px] font-semibold text-slate-800">2. Photos at the home <span className="ml-1 font-normal text-slate-600">{photoCount} of {data.photoSlots.length}</span></p>
+        <ul className="m-0 mt-2 grid list-none gap-2 p-0 md:grid-cols-3">
+          {data.photoSlots.map(({ label, hint }, index) => (
+            <li key={label} className="flex min-w-0 flex-col rounded-md border border-solid border-slate-200 bg-slate-50 p-3">
+              <p className="m-0 text-[13px] font-semibold text-slate-800">{index + 1}. {label}</p>
+              <p className="m-0 mb-2 mt-1 grow text-xs leading-5 text-slate-600">{hint}</p>
+              {photos[index] ? <p className="m-0 mb-2 flex min-w-0 items-center gap-1 text-xs text-emerald-800"><CheckCircle2 className="size-3.5 shrink-0" aria-hidden /><span className="truncate">{photos[index].name}</span></p> : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-2.5 text-xs font-semibold text-[#02665e] hover:bg-[#02665e]/5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[#02665e]">
+                  <Camera className="size-4" aria-hidden />{photos[index] ? "Replace" : "Take photo"}
+                  <input aria-label={`${photos[index] ? "Replace photo" : "Take photo"} for ${label}`} type="file" accept="image/*" capture="environment" className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) changePhoto(index, file);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+                {photos[index] ? (
+                  <button type="button" aria-label={`Remove photo for ${label}`} onClick={() => changePhoto(index, null)}
+                    className="grid size-8 cursor-pointer place-items-center rounded-md border border-solid border-slate-200 bg-white p-0 text-slate-600 hover:text-red-700">
+                    <X className="size-4" aria-hidden />
+                  </button>
+                ) : null}
+              </div>
+            </li>
           ))}
-          {photos.length < data.maxPhotos ? (
-            <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 text-[12.5px] font-semibold text-slate-600 hover:border-[#02665e] [font-family:inherit]">
-              <Camera className="h-4 w-4" />Take photo
-            </button>
-          ) : null}
-        </div>
+        </ul>
       </div>
 
       <div>
@@ -325,8 +351,26 @@ function ReportForm({ item, data, onDone, onCancel }: { item: Inspection; data: 
         <ul className="m-0 mt-1.5 list-none p-0">
           {data.checklist.map((c) => (
             <li key={c.key} className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-slate-100 py-2 text-[13px] first:border-t-0">
-              <span className="min-w-0 flex-1 text-slate-700">{c.label}{c.required ? <span className="text-red-600"> *</span> : null}</span>
-              <span className="flex gap-1">{seg(c.key, "PASS", "Yes")}{seg(c.key, "FAIL", "No")}{c.required ? null : seg(c.key, "NA", "N/A")}</span>
+              <span id={`inspection-${item.ref}-${c.key}`} className="min-w-0 flex-1 text-slate-700">{c.label}{c.required ? <span className="text-red-600"> *</span> : null}</span>
+              <span role="group" aria-labelledby={`inspection-${item.ref}-${c.key}`} className="flex gap-1">{seg(c.key, "PASS", "Yes")}{seg(c.key, "FAIL", "No")}{c.required ? null : seg(c.key, "NA", "N/A")}</span>
+              {checks[c.key] === "FAIL" ? (
+                <div className="grid w-full min-w-0 gap-2 rounded-md border border-solid border-slate-200 bg-slate-50 p-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,12rem)]">
+                  <label className="grid min-w-0 gap-1 text-xs font-semibold text-slate-700">
+                    What did you find?
+                    <textarea rows={2} required maxLength={300} placeholder="Describe the issue and where you found it."
+                      value={findings[c.key]?.note ?? ""} onChange={(event) => updateFinding(c.key, { note: event.target.value })}
+                      className="box-border w-full resize-y rounded-md border border-solid border-slate-300 bg-white px-2 py-1.5 text-[13px] font-normal text-slate-800" />
+                  </label>
+                  <label className="grid min-w-0 content-start gap-1 text-xs font-semibold text-slate-700">
+                    Link a photo (optional)
+                    <select value={findings[c.key]?.photoIndex ?? ""} onChange={(event) => updateFinding(c.key, { photoIndex: event.target.value === "" ? undefined : Number(event.target.value) })}
+                      className="box-border h-9 w-full min-w-0 rounded-md border border-solid border-slate-300 bg-white px-2 text-xs font-normal text-slate-800">
+                      <option value="">No photo linked</option>
+                      {data.photoSlots.map(({ label }, index) => <option key={label} value={index}>{index + 1}. {label}</option>)}
+                    </select>
+                  </label>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

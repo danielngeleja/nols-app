@@ -269,6 +269,9 @@ function buildAdminPropertyWhere(query: Record<string, unknown>, opts: { ignoreS
   const type = String(query.type || "").trim().toUpperCase();
   if (type) and.push({ type });
 
+  const rentalMode = String(query.rentalMode ?? "").trim().toUpperCase();
+  if (rentalMode === "NIGHTLY" || rentalMode === "LONG_STAY") and.push({ rentalMode });
+
   const ownerIdNum = Number(query.ownerId);
   if (query.ownerId && Number.isFinite(ownerIdNum)) and.push({ ownerId: ownerIdNum });
 
@@ -291,7 +294,7 @@ function buildAdminPropertyWhere(query: Record<string, unknown>, opts: { ignoreS
   return and.length ? { AND: and } : {};
 }
 
-/** GET /admin/properties?status=&q=&region=&type=&ownerId=&page=&pageSize= */
+/** GET /admin/properties?status=&q=&region=&type=&rentalMode=&ownerId=&page=&pageSize= */
 router.get("/", (async (req: AuthedRequest, res) => {
   try {
     // Explicitly set Content-Type to JSON
@@ -318,6 +321,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
             status: true,
             type: true,
             rentalMode: true,
+            longStayListing: { select: { monthlyRent: true, currency: true } },
             owner: { select: { id: true, name: true, email: true } },
             regionName: true,
             district: true,
@@ -380,6 +384,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
       title: string;
       status: string;
       type: string | null;
+      rentalMode?: string | null;
+      longStayListing?: { monthlyRent: unknown; currency: string } | null;
       owner: AdminPropertyOwner | null;
       regionName?: string | null;
       district?: string | null;
@@ -396,6 +402,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
       title: string;
       status: string;
       type: string | null;
+      rentalMode: string;
+      longStay: { monthlyRent: number; currency: string } | null;
       owner: AdminPropertyOwner | null;
       regionName?: string | null;
       district?: string | null;
@@ -482,6 +490,12 @@ router.get("/", (async (req: AuthedRequest, res) => {
     // Serialize items safely
     const serializedItems: AdminPropertyListItem[] = [];
     for (const p of items as AdminPropertyRow[]) {
+      const rentalMode = p?.rentalMode ?? "NIGHTLY";
+      const monthlyTerms = p?.longStayListing;
+      const monthlyRent = Number(monthlyTerms?.monthlyRent);
+      const longStay = rentalMode === "LONG_STAY" && monthlyTerms && Number.isFinite(monthlyRent) && monthlyRent > 0
+        ? { monthlyRent, currency: monthlyTerms.currency }
+        : null;
       try {
         // Manually construct the item to ensure proper serialization
         // Handle owner object safely
@@ -532,6 +546,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
           title: String(p.title || ''),
           status: String(p.status || 'DRAFT'),
           type: p.type ? String(p.type) : null,
+          rentalMode,
+          longStay,
           owner: ownerObj,
           regionName: p.regionName ? String(p.regionName) : null,
           district: p.district ? String(p.district) : null,
@@ -562,6 +578,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
             title: p?.title || '',
             status: p?.status || 'DRAFT',
             type: p?.type || null,
+            rentalMode,
+            longStay,
             owner: p?.owner ? {
               id: p.owner.id,
               name: p.owner.name,

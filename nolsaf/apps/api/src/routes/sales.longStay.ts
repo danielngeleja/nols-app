@@ -3,7 +3,7 @@
  *
  * GET  /api/sales/long-stay/inspections              homes NoLSAF asked me to inspect
  * GET  /api/sales/long-stay/inspections/queue        inspection work alongside the lead pipeline
- * POST /api/sales/long-stay/inspections/:ref/report  multipart: photos (4 to 12) + position, checklist, recommendation, note
+ * POST /api/sales/long-stay/inspections/:ref/report  multipart: three photos, position, checklist, findings, recommendation, note
  * GET  /api/sales/long-stay/visits                   tenants I accompany to view a home
  *
  * A partner only ever sees inspections assigned to them. Photos are uploaded
@@ -23,7 +23,7 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { audit } from "../lib/audit.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { deleteVisitPhoto, uploadVisitPhoto } from "../lib/salesVisitPhotos.js";
-import { CHECKLIST, InspectionError, isInspectionRef, MAX_PHOTOS, MIN_PHOTOS, reportSchema, submitInspection } from "../lib/longStay/inspection.js";
+import { CHECKLIST, checkReport, INSPECTION_PHOTO_COUNT, INSPECTION_PHOTO_SLOTS, InspectionError, isInspectionRef, reportSchema, submitInspection } from "../lib/longStay/inspection.js";
 
 const router = Router();
 const db = prisma as any;
@@ -32,12 +32,12 @@ const PHOTO_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp
 
 router.use(requireAuth as RequestHandler, requireWorkspaceAccess("SALES"), requireActivePartnerContract);
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_PHOTO_BYTES, files: MAX_PHOTOS } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_PHOTO_BYTES, files: INSPECTION_PHOTO_COUNT } });
 function parsePhotos(req: Request, res: Response, next: NextFunction) {
-  upload.array("photos", MAX_PHOTOS)(req, res, (error: any) => {
+  upload.array("photos", INSPECTION_PHOTO_COUNT)(req, res, (error: any) => {
     if (!error) return next();
     if (error?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "A photo is too large. The limit is 8 MB each." });
-    if (error?.code === "LIMIT_FILE_COUNT" || error?.code === "LIMIT_UNEXPECTED_FILE") return res.status(400).json({ error: `Send at most ${MAX_PHOTOS} photos.` });
+    if (error?.code === "LIMIT_FILE_COUNT" || error?.code === "LIMIT_UNEXPECTED_FILE") return res.status(400).json({ error: `Send exactly ${INSPECTION_PHOTO_COUNT} photos.` });
     return res.status(400).json({ error: "The photos could not be read." });
   });
 }
@@ -102,8 +102,9 @@ router.get("/long-stay/inspections", limitSalesLeadRead as any, asyncHandler(asy
   res.setHeader("Cache-Control", "no-store");
   return res.json({
     checklist: CHECKLIST,
-    minPhotos: MIN_PHOTOS,
-    maxPhotos: MAX_PHOTOS,
+    minPhotos: INSPECTION_PHOTO_COUNT,
+    maxPhotos: INSPECTION_PHOTO_COUNT,
+    photoSlots: INSPECTION_PHOTO_SLOTS,
     items: rows.map((r: any) => ({
       ref: r.publicRef,
       status: r.status,
@@ -149,18 +150,31 @@ router.post(
     if (!inspection) return res.status(404).json({ error: "Not found" });
     if (inspection.status !== "ASSIGNED") return res.status(409).json({ error: "This inspection is no longer waiting for a report." });
 
-    let checklist: unknown = null;
-    try { checklist = JSON.parse(String((req.body ?? {}).checklist || "null")); } catch { checklist = null; }
-    const parsed = reportSchema.safeParse({ ...(req.body ?? {}), checklist, note: sanitizeText(String((req.body ?? {}).note || "")) });
-    if (!parsed.success) return res.status(400).json({ error: "Location, every checklist item, your recommendation and a note (10 characters or more) are required." });
+    const body = req.body ?? {};
+    let checklist: unknown;
+    let findings: unknown;
+    try {
+      checklist = JSON.parse(String(body.checklist ?? "null"));
+      findings = JSON.parse(String(body.findings ?? "{}"));
+    } catch {
+      return res.status(400).json({ error: "The checklist or findings could not be read." });
+    }
+    const parsed = reportSchema.safeParse({ ...body, checklist, findings, note: sanitizeText(String(body.note || "")) });
+    if (!parsed.success) {
+      const invalidFindings = parsed.error.issues.some(({ path }) => path[0] === "findings");
+      return res.status(400).json({ error: invalidFindings
+        ? "Findings need a short note and, if linked, one of the three inspection photos."
+        : "Location, every checklist item, your recommendation and a note (10 characters or more) are required." });
+    }
 
     const files = ((req as any).files ?? []) as Array<{ buffer: Buffer; size: number; mimetype: string }>;
-    if (files.length < MIN_PHOTOS) return res.status(400).json({ error: `Take at least ${MIN_PHOTOS} photos at the home.` });
+    if (files.length !== INSPECTION_PHOTO_COUNT) return res.status(400).json({ error: `Take exactly ${INSPECTION_PHOTO_COUNT} photos at the home.` });
     if (files.some((f) => !PHOTO_TYPES.has(String(f.mimetype).toLowerCase()))) return res.status(400).json({ error: "Photos must be JPEG, PNG, WebP or HEIC images." });
 
     const uploaded: Array<{ publicId: string; hash: string; bytes: number }> = [];
     let outcome: Awaited<ReturnType<typeof submitInspection>>;
     try {
+      checkReport(parsed.data);
       for (const file of files) {
         const hash = createHash("sha256").update(file.buffer).digest("hex");
         const publicId = await uploadVisitPhoto(file.buffer, partnerId);

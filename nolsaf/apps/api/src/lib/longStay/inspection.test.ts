@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   accrueInspectionFee, assignInspection, CHECKLIST, checkReport, endInspectionAfterDispute, evaluatePosition, inspectionCurrent,
-  inspectionRefusal, isInspectionRef, newInspectionRef, partnerConflict, prepareInspectionForApproval, publicInspectionReport, publicInspectionView, requestInspection, reviewInspection, submitInspection,
+  inspectionEvidence, inspectionRefusal, isInspectionRef, newInspectionRef, partnerConflict, prepareInspectionForApproval, publicInspectionReport, publicInspectionView, reportSchema, requestInspection, reviewInspection, submitInspection,
 } from "./inspection.js";
 import { checkVisitSlot, createEnquiry } from "./enquiry.js";
 
 const NOW = new Date("2026-11-21T08:00:00Z");
 const TODAY = "2026-11-21";
 const allPass = Object.fromEntries(CHECKLIST.map((c) => [c.key, "PASS"])) as Record<string, "PASS" | "FAIL" | "NA">;
-const report = { latitude: -6.7924, longitude: 39.2083, accuracyMeters: 12, capturedAt: "2026-11-21T07:30:00Z", checklist: allPass, recommendation: "PASS" as const, note: "Home matches the listing, all rooms seen." };
-const photos = [1, 2, 3, 4].map((n) => ({ publicId: `sales-visits/7/p${n}`, hash: `h${n}`, bytes: 1000 }));
+const report = { latitude: -6.7924, longitude: 39.2083, accuracyMeters: 12, capturedAt: "2026-11-21T07:30:00Z", checklist: allPass, findings: {}, recommendation: "PASS" as const, note: "Home matches the listing, all rooms seen." };
+const photos = [1, 2, 3].map((n) => ({ publicId: `sales-visits/7/p${n}`, hash: `h${n}`, bytes: 1000 }));
 
 function fakeDb(over: Record<string, any> = {}) {
   return {
@@ -89,7 +89,7 @@ describe("public inspection report", () => {
       capturedAt: new Date("2026-11-20T22:00:00Z"),
       reviewedAt: new Date("2026-11-21T09:00:00Z"),
       validUntil: new Date("2027-11-21T00:00:00Z"),
-      checklist: { ...results, extra: "private" },
+      checklist: { ...results, findings: { ACCESS: { note: "Private finding", photoIndex: 2 } } },
       note: "Private note",
       latitude: -6.79,
       photos,
@@ -140,10 +140,22 @@ describe("the partner's report", () => {
   it("needs every checklist item, and cannot pass with a required item missed", () => {
     expect(() => checkReport({ ...report, checklist: { WATER: "PASS" } }, NOW)).toThrow(/every item/);
     expect(() => checkReport({ ...report, checklist: { ...allPass, WATER: "FAIL" } }, NOW)).toThrow(/required item/);
-    expect(checkReport({ ...report, checklist: { ...allPass, WATER: "FAIL" }, recommendation: "FAIL" }, NOW).failedRequired).toEqual(["WATER"]);
-    expect(checkReport({ ...report, checklist: { ...allPass, ACCESS: "FAIL" } }, NOW).failedRequired).toEqual([]);
+    expect(() => checkReport({ ...report, checklist: { ...allPass, WATER: "NA" }, recommendation: "FAIL" }, NOW)).toThrow(/Yes or No/);
+    expect(checkReport({ ...report, checklist: { ...allPass, WATER: "FAIL" }, findings: { WATER: { note: "No running water" } }, recommendation: "FAIL" }, NOW).failedRequired).toEqual(["WATER"]);
+    expect(checkReport({ ...report, checklist: { ...allPass, ACCESS: "FAIL" }, findings: { ACCESS: { note: "Road is washed out", photoIndex: 2 } } }, NOW).failedRequired).toEqual([]);
     expect(() => checkReport({ ...report, capturedAt: "2026-11-18T07:00:00Z" }, NOW)).toThrow(/48 hours/);
     expect(() => checkReport({ ...report, capturedAt: "2026-11-21T09:00:00Z" }, NOW)).toThrow(/future/);
+  });
+
+  it("requires findings only for No answers and validates the optional photo link", () => {
+    expect(() => checkReport({ ...report, checklist: { ...allPass, ACCESS: "FAIL" } }, NOW)).toThrow(/every item answered No/);
+    expect(() => checkReport({ ...report, findings: { ACCESS: { note: "Road is washed out" } } }, NOW)).toThrow(/only be recorded/);
+    expect(reportSchema.safeParse({ ...report, findings: { ACCESS: { note: "Road is washed out", photoIndex: 3 } } }).success).toBe(false);
+    expect(reportSchema.safeParse({ ...report, findings: { ACCESS: { note: "<b></b>" } } }).success).toBe(false);
+  });
+
+  it("keeps legacy checklists and photo counts readable in admin review", () => {
+    expect(inspectionEvidence(allPass, [...photos, {}])).toEqual({ checklist: allPass, findings: {}, photoLabels: [], photoCount: 4 });
   });
 
   it("works out the distance from the pin and the warning signs on the server", () => {
@@ -152,12 +164,13 @@ describe("the partner's report", () => {
     expect(evaluatePosition({ ...report, accuracyMeters: 400 }, null, NOW).flags).toEqual(["NO_PIN", "LOW_ACCURACY"]);
   });
 
-  it("is sent only by the assigned partner, with 4 to 12 different photos, and flags reused ones", async () => {
+  it("is sent only by the assigned partner, with exactly three different photos, and flags reused ones", async () => {
     const db = fakeDb();
     const assigned = { id: 1, propertyId: 9, status: "ASSIGNED", salesPartnerId: 7 };
     await expect(submitInspection(db, { ...assigned, salesPartnerId: 8 }, 7, report, photos, NOW)).rejects.toMatchObject({ status: 404 });
-    await expect(submitInspection(db, assigned, 7, report, photos.slice(0, 3), NOW)).rejects.toThrow(/4 to 12/);
-    await expect(submitInspection(db, assigned, 7, report, [...photos.slice(0, 3), { ...photos[0] }], NOW)).rejects.toThrow(/different/);
+    await expect(submitInspection(db, assigned, 7, report, photos.slice(0, 2), NOW)).rejects.toThrow(/exactly 3/);
+    await expect(submitInspection(db, assigned, 7, report, [...photos, { ...photos[0] }], NOW)).rejects.toThrow(/exactly 3/);
+    await expect(submitInspection(db, assigned, 7, report, [...photos.slice(0, 2), { ...photos[0] }], NOW)).rejects.toThrow(/different/);
     db.longStayInspection.findMany = vi.fn(async () => [{ photos: [{ hash: "h2" }] }]);
     const out = await submitInspection(db, assigned, 7, report, photos, NOW);
     expect(out.flags).toContain("DUPLICATE_PHOTO");

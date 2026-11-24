@@ -4,12 +4,14 @@ import apiClient, { clearAuthToken } from "@/lib/apiClient";
 import { io, Socket } from "socket.io-client";
 import Link from "next/link";
 import Image from "next/image";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 import { BadgeCheck as BadgeCheckIcon, AlertTriangle, ArrowLeft, User, Building2, FileText, DollarSign, Mail, Phone, Calendar, CheckCircle2, XCircle, Clock, Eye, Shield, Ban, Copy, MapPin, ImageIcon, Bell, Send, X, History, Activity, Home, Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, FileX, RefreshCw, Check, ExternalLink, Radar, Wallet, Handshake, Briefcase, Users, Printer } from "lucide-react";
 import VerifiedIcon from "@/components/VerifiedIcon";
 import OwnerLongStayCard from "@/components/admin/owners/OwnerLongStayCard";
+import OwnerAccountActivity from "@/components/admin/owners/OwnerAccountActivity";
+import OwnerNotes from "@/components/admin/owners/OwnerNotes";
 import TableRow from "@/components/TableRow";
 
 // Use same-origin calls + secure httpOnly cookie session.
@@ -19,7 +21,7 @@ type Owner = {
   id:number; name:string|null; email:string; phone:string|null;
   suspendedAt:string|null; kycStatus:string|null; createdAt:string;
   profile?: any;
-  _count: { properties:number };
+  _count: { properties:number; adminNotesReceived?: number };
 };
 
 type Snapshot = {
@@ -93,13 +95,14 @@ const PROPERTIES_PAGE_SIZE = 100;
 /** Only used when neither NEXT_PUBLIC_SOCKET_URL nor NEXT_PUBLIC_API_URL is set. */
 const FALLBACK_SOCKET_URL = "http://127.0.0.1:4000";
 
-type TabKey = "overview" | "properties" | "documents" | "bookings" | "notes";
+type TabKey = "overview" | "properties" | "documents" | "bookings" | "activity" | "notes";
 
 const OWNER_TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "properties", label: "Properties" },
   { key: "documents", label: "Documents" },
   { key: "bookings", label: "Bookings" },
+  { key: "activity", label: "Account activity" },
   { key: "notes", label: "Notes" },
 ];
 
@@ -142,13 +145,17 @@ export default function OwnerDetailPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
   return (
     <AdminRecordGate kind="owner" param={routeParams?.id} backHref="/admin/owners">
-      {(ownerId) => <OwnerDetail ownerId={ownerId} />}
+      {(ownerId) => <OwnerDetail key={ownerId} ownerId={ownerId} />}
     </AdminRecordGate>
   );
 }
 
 function OwnerDetail({ ownerId }: { ownerId: number }) {
   const recordHref = useAdminHref();
+  const searchParams = useSearchParams();
+  const activityCategory = searchParams?.get("category");
+  const tabParam = searchParams?.get("tab");
+  const tab = OWNER_TABS.find(({ key }) => key === tabParam)?.key ?? "overview";
   const [owner, setOwner] = useState<Owner|null>(null);
   const [snap, setSnap] = useState<Snapshot|null>(null);
   const [caps, setCaps] = useState<Capabilities|null>(null);
@@ -157,8 +164,17 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [propertiesLoading, setPropertiesLoading] = useState(false);
-  const [tab, setTab] = useState<TabKey>("overview");
-  const [note, setNote] = useState("");
+  function selectTab(next: TabKey) {
+    const url = new URL(window.location.href);
+    if (next === "overview") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", next);
+    if (next !== "activity") url.searchParams.delete("category");
+    window.history.replaceState(null, "", url);
+  }
+  const [noteDraft, setNoteDraft] = useState("");
+  const updateNotesCount = useCallback((total: number) => {
+    setOwner((current) => current ? { ...current, _count: { ...current._count, adminNotesReceived: total } } : current);
+  }, []);
   const [actionLoading, setActionLoading] = useState(false);
   const [showSuspendForm, setShowSuspendForm] = useState(false);
   const [suspendReason, setSuspendReason] = useState("");
@@ -529,19 +545,6 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
       setActionLoading(false);
     }
   }
-  async function addNote(){
-    if(!note.trim()) return;
-    setActionLoading(true);
-    try {
-      await api.post(`/api/admin/owners/${ownerId}/notes`, { text: note.trim() });
-      setNote("");
-      showToast("success", "Note added.");
-    } catch (err: any) {
-      showToast("error", err?.response?.data?.error || "Failed to add note");
-    } finally {
-      setActionLoading(false);
-    }
-  }
   
   async function sendNotification(){
     if (!notificationSubject.trim() || !notificationMessage.trim()) {
@@ -596,7 +599,8 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
     properties: owner._count.properties,
     documents: docs.length,
     bookings: bookingsSeen ? bookingsTotal : null,
-    notes: auditHistory.length,
+    activity: null,
+    notes: owner._count.adminNotesReceived ?? null,
   };
 
   return (
@@ -888,7 +892,7 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
                     type="button"
                     role="tab"
                     aria-selected={isActive}
-                    onClick={() => setTab(key)}
+                    onClick={() => selectTab(key)}
                     className={`relative inline-flex h-11 shrink-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent px-3 text-[13px] font-semibold [font-family:inherit] transition-colors ${isActive ? "text-[#02665e]" : "text-slate-500 hover:text-slate-800"}`}
                   >
                     {label}
@@ -1144,31 +1148,8 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
             );
           })()}
 
-          {tab === "notes" && (
-            <div className="space-y-4">
-              <div className="min-w-0">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Add Note <span className="text-gray-400 font-normal">(visible to admins only)</span>
-                </label>
-                <textarea
-                  className="w-full min-h-[100px] px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-brand focus:border-brand transition-all resize-none text-sm sm:text-base box-border"
-                  placeholder="Write a private note..."
-                  value={note}
-                  onChange={e=>setNote(e.target.value)}
-                />
-          </div>
-              <button
-                className="px-4 py-2.5 bg-brand text-white rounded-lg text-sm sm:text-base font-medium hover:bg-brand/90 active:bg-brand/80 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={addNote}
-                disabled={actionLoading || !note.trim()}
-              >
-                {actionLoading ? "Adding..." : "Add Note"}
-              </button>
-              <div className="text-xs text-gray-500">
-                Notes are logged with your admin ID and timestamp.
-              </div>
-        </div>
-      )}
+          {tab === "activity" && <OwnerAccountActivity key={activityCategory} ownerId={ownerId} initialCategory={activityCategory} />}
+          {tab === "notes" && <OwnerNotes ownerId={ownerId} onTotal={updateNotesCount} draft={noteDraft} onDraftChange={setNoteDraft} />}
         </div>
           )}
       </div>
@@ -1178,7 +1159,7 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
           {/* At a glance. Contact details live in the header above. */}
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-100 lg:grid-cols-4">
             {[
-              { label: "Properties", value: String(owner._count.properties), Icon: Building2, action: () => setTab("properties"), hint: "View all" },
+              { label: "Properties", value: String(owner._count.properties), Icon: Building2, action: () => selectTab("properties"), hint: "View all" },
               { label: "Paid invoices", value: String(snap.revenue.paidCount), Icon: FileText, hint: `of ${snap.invoicesCount} issued` },
               { label: "Bookings value", value: moneyShort(snap.revenue.grossSum), full: moneyWhole(snap.revenue.grossSum), Icon: DollarSign, hint: "Paid by guests" },
               { label: "Joined", value: fmtDay(owner.createdAt), Icon: Calendar, hint: `${new Date(owner.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT` },

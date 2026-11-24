@@ -103,7 +103,7 @@ export async function ownerWeakSignInOutcome(
   user: { id: number; role?: string | null },
   now = new Date(),
 ): Promise<"FULL" | "PASSKEY_REQUIRED" | "SETUP_ONLY"> {
-  const state = await ownerMfaState(user, now).catch(() => NOT_REQUIRED);
+  const state = await ownerMfaState(user, now);
   if (!state.required || !state.signInEnforced) return "FULL";
   if (state.hasAuthenticator) return "FULL"; // challenged for the code before this point
   if (state.hasPasskey) return "PASSKEY_REQUIRED";

@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { encrypt } from "../lib/crypto.js";
 
 const state = vi.hoisted(() => ({
   invoice: { id: 42, ownerId: 7, invoiceNumber: "OINV-202609-0000042", status: "VERIFIED" } as any,
@@ -14,7 +15,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@nolsaf/prisma", () => ({
   prisma: {
-    invoice: { findUnique: vi.fn(async () => state.invoice) },
+    invoice: { findUnique: vi.fn(async () => state.invoice), findFirst: vi.fn(async () => state.invoice), findMany: vi.fn(async () => []) },
     user: { findUnique: vi.fn(async () => state.owner) },
     adminAudit: {
       findFirst: state.auditFindFirst,
@@ -49,6 +50,19 @@ beforeEach(() => {
 });
 
 const endpoint = "/api/admin/revenue/invoices/42/remind-payout";
+
+describe("admin invoice payout display", () => {
+  it("masks a readable account and labels unreadable encrypted data without returning it", async () => {
+    const unreadable = "!".repeat(60);
+    state.owner.payout = { payoutPreferred: "MOBILE_MONEY", bankName: "NMB", bankAccountNumber: encrypt("123456789012"), mobileMoneyNumber: unreadable };
+    const response = await request(app).get("/api/admin/revenue/invoices/by-reference/42").expect(200);
+    expect(response.body.ownerPayout).toMatchObject({
+      bankAccountNumber: "****9012", bankAccountUnreadable: false, mobileMoneyNumber: null, mobileMoneyUnreadable: true,
+    });
+    expect(JSON.stringify(response.body)).not.toContain(unreadable);
+    expect(JSON.stringify(response.body)).not.toContain("123456789012");
+  });
+});
 
 describe("admin owner payout reminder", () => {
   it("sends email to the invoice owner and records the successful channel", async () => {

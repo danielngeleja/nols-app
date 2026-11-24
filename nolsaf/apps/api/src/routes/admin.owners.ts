@@ -13,6 +13,7 @@ import { deliverOwnerNotice, findReachableOwner } from "../lib/ownerNotice.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { audit } from "../lib/audit.js";
+import { ownerActivityActions, ownerActivityCategories, ownerActivityEvent, ownerActivityScope, ownerBehaviourDays, ownerBehaviourEventFilter, ownerBehaviourScore, payoutAccountEnding, type OwnerActivityCategory } from "../lib/ownerAccountActivity.js";
 
 // Support sessions per admin, matching the tour operator limit (10 an hour).
 const limitOwnerSupportSession = rateLimit({
@@ -58,6 +59,75 @@ function capabilityWhere(nrms: unknown, payments: unknown): any[] {
 
   return clauses;
 }
+
+router.get("/:id/account-activity", async (req, res) => {
+  const id = Number(req.params.id);
+  const category = req.query.category ?? "all";
+  const before = req.query.before;
+  const page = req.query.page;
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid owner id" });
+  if (typeof category !== "string" || !ownerActivityCategories.includes(category as OwnerActivityCategory) ||
+    (before != null && (typeof before !== "string" || !/^[1-9]\d{0,18}$/.test(before) || BigInt(before) > 9223372036854775807n)) ||
+    (page != null && (typeof page !== "string" || !/^[1-9]\d{0,8}$/.test(page) || before != null))) {
+    return res.status(400).json({ error: "Invalid activity filter" });
+  }
+  try {
+    const owner = await prisma.user.findFirst({
+      where: { id, role: "OWNER" },
+      select: { id: true, twoFactorEnabled: true, twoFactorMethod: true, _count: { select: { passkeys: true } } },
+    });
+    if (!owner) return res.status(404).json({ error: "Owner not found" });
+    const limit = 25;
+    const scope = ownerActivityScope(id);
+    const recent = {
+      ...scope,
+      createdAt: { gte: new Date(Date.now() - ownerBehaviourDays * 86_400_000) },
+      AND: { OR: [{ actorRole: null }, { actorRole: { not: { endsWith: ":IMP" } } }] },
+    } satisfies Prisma.AuditLogWhereInput;
+    const timelineWhere = {
+      ...scope,
+      action: { in: ownerActivityActions(category as OwnerActivityCategory) },
+      ...(typeof before === "string" ? { id: { lt: BigInt(before) } } : {}),
+    } satisfies Prisma.AuditLogWhereInput;
+    const [timeline, destination, signalCounts, recentActivity] = await Promise.all([
+      (async () => {
+        const total = typeof page === "string" ? await prisma.auditLog.count({ where: timelineWhere }) : null;
+        const current = total == null ? 1 : Math.min(Number(page), Math.max(1, Math.ceil(total / limit)));
+        const rows = await prisma.auditLog.findMany({
+          where: timelineWhere,
+          orderBy: { id: "desc" },
+          ...(total == null ? { take: limit + 1 } : { skip: (current - 1) * limit, take: limit }),
+          select: { id: true, actorId: true, actorRole: true, action: true, afterJson: true, ip: true, ua: true, createdAt: true },
+        });
+        return {
+          items: rows.slice(0, limit).map((row) => ownerActivityEvent(row, id)).filter(Boolean),
+          next: rows.length > limit ? rows[limit - 1].id.toString() : null,
+          ...(total == null ? {} : { pagination: { page: current, pageSize: limit, total } }),
+        };
+      })(),
+      prisma.payoutAccount.findFirst({
+        where: { userId: id, isActive: true, isDefault: true, isVerified: true },
+        select: { type: true, provider: true, accountNumber: true, destinationChangedAt: true },
+      }),
+      prisma.auditLog.groupBy({ by: ["action"], where: { AND: [recent, ownerBehaviourEventFilter] }, _count: { _all: true } }),
+      prisma.auditLog.findFirst({ where: { ...recent, action: { in: ownerActivityActions("all") } }, select: { id: true } }),
+    ]);
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({
+      ...timeline,
+      twoFactorEnabled: owner.twoFactorEnabled,
+      behaviour: ownerBehaviourScore(new Map(signalCounts.map(({ action, _count }) => [action, _count._all])),
+        owner._count.passkeys > 0 || (owner.twoFactorEnabled && owner.twoFactorMethod === "TOTP"), recentActivity != null),
+      destination: destination ? {
+        type: destination.type, provider: destination.provider, ending: payoutAccountEnding(destination.accountNumber),
+        changedAt: destination.destinationChangedAt,
+      } : null,
+    });
+  } catch (error) {
+    console.error("admin.owners.account-activity failed", error);
+    return res.status(500).json({ error: "Could not load owner account activity" });
+  }
+});
 
 /** GET /admin/owners/counts */
 router.get("/counts", async (req, res) => {
@@ -886,7 +956,7 @@ router.get("/:id", async (req, res) => {
       select: {
         id: true, name: true, email: true, phone: true,
         suspendedAt: true, kycStatus: true, createdAt: true,
-        _count: { select: { properties: true } },
+        _count: { select: { properties: true, adminNotesReceived: true } },
       },
     });
     if (!owner) return res.status(404).json({ error: "Owner not found" });
@@ -1414,28 +1484,63 @@ router.post("/:id/impersonate", limitOwnerSupportSession as unknown as RequestHa
   res.json({ ok: true, redirectTo: "/owner", expiresIn: ttlSec });
 });
 
+const ownerNoteSelect = {
+  id: true, text: true, createdAt: true,
+  admin: { select: { id: true, name: true, fullName: true } },
+} as const;
+const ownerNotesPageSize = 10;
+const ownerNoteMaxLength = 2000;
+
+router.get("/:id/notes", async (req, res) => {
+  const id = Number(req.params.id);
+  const requestedPage = req.query.page ?? "1";
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid owner id" });
+  if (typeof requestedPage !== "string" || !/^[1-9]\d{0,8}$/.test(requestedPage)) return res.status(400).json({ error: "Invalid notes page" });
+  try {
+    const owner = await prisma.user.findFirst({
+      where: { id, role: "OWNER" },
+      select: { _count: { select: { adminNotesReceived: true } } },
+    });
+    if (!owner) return res.status(404).json({ error: "Owner not found" });
+    const total = owner._count.adminNotesReceived;
+    const page = Math.min(Number(requestedPage), Math.max(1, Math.ceil(total / ownerNotesPageSize)));
+    const items = await prisma.adminNote.findMany({
+      where: { ownerId: id }, select: ownerNoteSelect,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * ownerNotesPageSize, take: ownerNotesPageSize,
+    });
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.json({ items, page, pageSize: ownerNotesPageSize, total });
+  } catch (error) {
+    console.error("admin.owners.notes.list failed", error);
+    return res.status(500).json({ error: "Could not load owner notes" });
+  }
+});
+
 /** POST /admin/owners/:id/notes {text} */
 router.post("/:id/notes", async (req, res) => {
   const id = Number(req.params.id);
-  const text = String(req.body?.text ?? "");
-  const me = (req.user as any).id;
-  
-  if (!text.trim()) return res.status(400).json({ error: "Note required" });
-  
-  const note = await prisma.adminNote.create({
-    data: { ownerId: id, adminId: me, text },
-  });
-  
-  await prisma.adminAudit.create({
-    data: {
-      adminId: me,
-      targetUserId: id,
-      action: "ADD_NOTE",
-      details: `Note added: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`,
-    },
-  });
-  
-  res.json({ ok: true, note });
+  const adminId = Number(req.user?.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid owner id" });
+  if (!Number.isSafeInteger(adminId) || adminId <= 0) return res.status(403).json({ error: "Admin access required" });
+  const text = typeof req.body?.text === "string" ? sanitizeText(req.body.text).trim() : "";
+  if (!text) return res.status(400).json({ error: "Enter a note before saving." });
+  if (text.length > ownerNoteMaxLength) return res.status(400).json({ error: `Notes can be up to ${ownerNoteMaxLength} characters.` });
+  try {
+    const note = await prisma.$transaction(async (tx) => {
+      const owner = await tx.user.findFirst({ where: { id, role: "OWNER" }, select: { id: true } });
+      if (!owner) return null;
+      const saved = await tx.adminNote.create({ data: { ownerId: id, adminId, text }, select: ownerNoteSelect });
+      await tx.adminAudit.create({ data: { adminId, targetUserId: id, action: "ADD_NOTE", details: { noteId: saved.id } } });
+      return saved;
+    });
+    if (!note) return res.status(404).json({ error: "Owner not found" });
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.json({ ok: true, note });
+  } catch (error) {
+    console.error("admin.owners.notes.create failed", error);
+    return res.status(500).json({ error: "Could not save the note" });
+  }
 });
 
 /**

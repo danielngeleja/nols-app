@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   lookup: vi.fn(),
   audit: vi.fn(),
+  auditOrThrow: vi.fn(),
   txAccountFindUnique: vi.fn(),
   txAccountFindFirst: vi.fn(),
   txAccountCreate: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   sendSms: vi.fn(),
   sendMail: vi.fn(),
   systemSettingFindUnique: vi.fn(),
+  notificationCreate: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
@@ -31,6 +33,7 @@ vi.mock("@nolsaf/prisma", () => ({
     session: { updateMany: mocks.sessionUpdateMany },
     payoutAccount: { findUnique: mocks.accountFindUnique },
     systemSetting: { findUnique: mocks.systemSettingFindUnique },
+    notification: { create: mocks.notificationCreate },
     $transaction: mocks.transaction,
   },
 }));
@@ -51,7 +54,7 @@ vi.mock("../lib/redisRateLimitStore.js", () => ({
 vi.mock("../lib/redis.js", () => ({ getRedis: () => null }));
 
 vi.mock("../services/azampay/disbursement/client.js", () => ({ azamPayNameLookup: mocks.lookup }));
-vi.mock("../lib/audit.js", () => ({ audit: mocks.audit }));
+vi.mock("../lib/audit.js", () => ({ audit: mocks.audit, auditOrThrow: mocks.auditOrThrow }));
 vi.mock("../lib/sms.js", () => ({ sendSms: mocks.sendSms }));
 vi.mock("../lib/mailer.js", () => ({
   sendMail: mocks.sendMail,
@@ -120,6 +123,7 @@ describe("secure payout destination update", () => {
     mocks.txAccountUpdateMany.mockResolvedValue({ count: 2 });
     mocks.txUserUpdate.mockResolvedValue({ id: 44 });
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
+    mocks.auditOrThrow.mockResolvedValue(undefined);
   });
 
   it("refuses the legacy owner account write path before it can bypass confirmation", async () => {
@@ -289,10 +293,42 @@ describe("secure payout destination update", () => {
     const response = await request(app()).put("/account/payouts").send({ challengeToken: lookup.body.data.challengeToken });
 
     expect(response.status).toBe(200);
+    expect(mocks.auditOrThrow).toHaveBeenCalledWith(tx, expect.anything(), "USER_PAYOUT_DESTINATION_VERIFIED", "user:44", null,
+      expect.objectContaining({ change: "changed", accountNumber: expect.stringMatching(/^\*+0001$/), previousAccountNumber: expect.stringMatching(/^\*+0002$/) }), 44);
+    expect(JSON.stringify(mocks.auditOrThrow.mock.calls[0][5])).not.toContain("ASHA MTUMWA");
     expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account changed");
     expect(mocks.sendMail.mock.calls[0][2]).toContain("96-hour security waiting period");
     expect(mocks.sendMail.mock.calls[0][2]).not.toContain("255700000001");
     expect(mocks.sendSms.mock.calls[0][1]).toContain("payout account changed");
+    expect(mocks.notificationCreate).toHaveBeenCalledExactlyOnceWith({ data: expect.objectContaining({
+      userId: null,
+      ownerId: null,
+      title: "Changed the payout destination",
+      unread: true,
+      requiresAction: false,
+      meta: {
+        accountOwnerId: 44,
+        change: "payoutChanged",
+        changeTitle: "Changed the payout destination",
+        href: "/admin/owners/44?tab=activity&category=payout",
+        notificationKind: "owner_account_payout",
+        severity: "info",
+        category: "money",
+      },
+    }) });
+  });
+
+  it("rejects an owner payout confirmation when its transaction cannot write the audit event", async () => {
+    mocks.lookup.mockResolvedValue({ name: "ASHA MTUMWA", status: true, statusCode: 200, accountNumber: "255700000001", bankName: "azampesa" });
+    mocks.txAccountCreate.mockResolvedValue({ id: 10, type: "MOBILE_MONEY", provider: "azampesa", accountNumber: "255700000001" });
+    mocks.auditOrThrow.mockRejectedValueOnce(new Error("Audit unavailable"));
+
+    const lookup = await request(app()).post("/account/payouts/verify").send({ payoutPreferred: "MOBILE_MONEY", mobileMoneyProvider: "azampesa", mobileMoneyNumber: "255700000001" });
+    await request(app()).put("/account/payouts").send({ challengeToken: lookup.body.data.challengeToken }).expect(500);
+    expect(mocks.auditOrThrow).toHaveBeenCalledWith(tx, expect.anything(), "USER_PAYOUT_DESTINATION_VERIFIED", "user:44", null, expect.anything(), 44);
+    expect(mocks.sendMail).not.toHaveBeenCalled();
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(mocks.notificationCreate).not.toHaveBeenCalled();
   });
 
   it("alerts a repeated confirmation as reverified rather than changed", async () => {
@@ -305,6 +341,7 @@ describe("secure payout destination update", () => {
 
     const lookup = await request(app()).post("/account/payouts/verify").send({ payoutPreferred: "MOBILE_MONEY", mobileMoneyProvider: "azampesa", mobileMoneyNumber: "255700000001" });
     const response = await request(app()).put("/account/payouts").send({ challengeToken: lookup.body.data.challengeToken });
+    expect(mocks.notificationCreate).not.toHaveBeenCalled();
 
     expect(response.status).toBe(200);
     expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account reverified");

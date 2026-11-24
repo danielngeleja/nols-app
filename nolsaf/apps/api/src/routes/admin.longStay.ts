@@ -11,7 +11,8 @@
  * GET  /api/admin/long-stay/tenants/:id/document?side=  front | back | selfie, via a 5-minute signed link (audited)
  * POST /api/admin/long-stay/tenants/:id/review          APPROVE (every photo opened, name and face confirmed) | REJECT (reason), once
  * POST /api/admin/long-stay/tenants/:id/bar             BAR (reason required) | UNBAR
- * GET  /api/admin/long-stay/inspections?view=           todo | review | passed | failed (Sales Partner inspections)
+ * GET  /api/admin/long-stay/inspections?view=&page=     paginated inspection queue
+ * GET  /api/admin/long-stay/inspections/:ref           assignment and inspection evidence for one home
  * POST /api/admin/long-stay/inspections/:ref/assign     { partnerCode }
  * GET  /api/admin/long-stay/inspections/:ref/photos/:n  an on-site photo (signed link, audited)
  * POST /api/admin/long-stay/inspections/:ref/review     PASS | FAIL (partner earns the flat fee) | REDO
@@ -27,6 +28,7 @@
 import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
+import type { Prisma } from "@prisma/client";
 import { requireAuth, requireRole, type AuthedRequest } from "../middleware/auth.js";
 import { hasWorkspaceAccess, loadSalesPartnerContext } from "../middleware/salesWorkspace.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
@@ -34,7 +36,7 @@ import { audit, auditOrThrow } from "../lib/audit.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { computeLongStayQuote } from "../lib/longStay/fees.js";
 import { currentLongStayRates, landlordGate, rentForTerm, rowToTerms, todayInEat } from "../lib/longStay/listing.js";
-import { assignInspection, CHECKLIST, endInspectionAfterDispute, InspectionError, inspectionCurrent, isInspectionRef, latestPassedInspection, longStayInspectionRequiredForApproval, requestInspection, reviewInspection, reviewSchema as inspectionReviewSchema } from "../lib/longStay/inspection.js";
+import { assignInspection, CHECKLIST, endInspectionAfterDispute, InspectionError, inspectionCurrent, inspectionEvidence, isInspectionRef, latestPassedInspection, longStayInspectionRequiredForApproval, requestInspection, reviewInspection, reviewSchema as inspectionReviewSchema } from "../lib/longStay/inspection.js";
 import { answerSchema as enquiryAnswerSchema, isEnquiryRef } from "../lib/longStay/enquiry.js";
 import { signedVisitPhotoUrl } from "../lib/salesVisitPhotos.js";
 import { createUserNotification, notifyAdmins, notifyOwner, notifyUser, publishUserNotification } from "../lib/notifications.js";
@@ -347,57 +349,96 @@ async function partnerByCode(code: string) {
   return row;
 }
 
+const inspectionQueueRelations = {
+  property: { select: { title: true, district: true, regionName: true, latitude: true, longitude: true, owner: { select: { name: true, fullName: true } } } },
+  salesPartner: { select: { agentCode: true, user: { select: { name: true, fullName: true } } } },
+} as const;
+const inspectionDetailRelations = {
+  ...inspectionQueueRelations,
+  property: { select: { ...inspectionQueueRelations.property.select, owner: { select: { name: true, fullName: true, phone: true } } } },
+} as const;
+const inspectionQueueSelect = {
+  ...inspectionQueueRelations, publicRef: true, status: true, reason: true, assignedAt: true, dueBy: true,
+  submittedAt: true, reviewedAt: true, validUntil: true, createdAt: true,
+} as const;
+const inspectionPageSize = 25;
+const inspectionSortKeys = ["property", "landlord", "partner", "status", "date"] as const;
+const inspectionDateFields = { todo: "createdAt", review: "submittedAt", passed: "validUntil", failed: "reviewedAt" } as const;
+
+function inspectionQueueRow(r: any, today: string) {
+  return {
+    ref: r.publicRef,
+    status: r.status,
+    reason: r.reason,
+    home: { title: r.property?.title ?? null, area: [r.property?.district, r.property?.regionName].filter(Boolean).join(", "), hasPin: r.property?.latitude != null && r.property?.longitude != null },
+    landlord: { name: r.property?.owner?.fullName || r.property?.owner?.name || null },
+    partner: r.salesPartner ? { code: r.salesPartner.agentCode, name: r.salesPartner.user?.fullName || r.salesPartner.user?.name || null } : null,
+    assignedAt: r.assignedAt,
+    dueBy: r.dueBy,
+    overdue: r.status === "ASSIGNED" && r.dueBy ? new Date(r.dueBy).getTime() < Date.now() : false,
+    submittedAt: r.submittedAt,
+    reviewedAt: r.reviewedAt,
+    validUntil: r.validUntil ? new Date(r.validUntil).toISOString().slice(0, 10) : null,
+    current: inspectionCurrent(r, today),
+    createdAt: r.createdAt,
+  };
+}
+
+function inspectionQueueDetail(r: any, today: string) {
+  const row = inspectionQueueRow(r, today);
+  const detail = inspectionDetail(r, today);
+  return { ...row, landlord: { ...row.landlord, phone: r.property?.owner?.phone ?? null },
+    report: detail.report, reviewNote: detail.reviewNote, feeAmount: detail.feeAmount };
+}
+
 router.get("/inspections", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const view = String(req.query.view || "todo");
+  if (!Object.prototype.hasOwnProperty.call(INSPECTION_VIEWS, view)) return res.status(400).json({ error: "Unknown view" });
+  const pageParam = req.query.page;
+  if (pageParam != null && (typeof pageParam !== "string" || !/^[1-9]\d{0,8}$/.test(pageParam))) {
+    return res.status(400).json({ error: "Invalid page" });
+  }
   const where = INSPECTION_VIEWS[view];
-  if (!where) return res.status(400).json({ error: "Unknown view" });
   const today = todayInEat();
-  const [rows, counts] = await Promise.all([
-    prisma.longStayInspection.findMany({
-      where,
-      orderBy: view === "todo" ? { createdAt: "asc" } : { updatedAt: "desc" },
-      take: 100,
-      include: {
-        property: { select: { title: true, district: true, regionName: true, ownerId: true, latitude: true, longitude: true, owner: { select: { name: true, fullName: true, phone: true } } } },
-        salesPartner: { select: { agentCode: true, user: { select: { name: true, fullName: true } } } },
-      },
-    }),
-    Promise.all(Object.entries(INSPECTION_VIEWS).map(async ([key, w]) => [key, await prisma.longStayInspection.count({ where: w })] as const)),
-  ]);
+  const sort = z.enum(inspectionSortKeys).safeParse(req.query.sort ?? "date");
+  const direction = z.enum(["asc", "desc"]).safeParse(req.query.direction ?? (view === "todo" ? "asc" : "desc"));
+  if (!sort.success || !direction.success) return res.status(400).json({ error: "Invalid inspection sort" });
+  const dir = direction.data;
+  const dateField = inspectionDateFields[view as keyof typeof inspectionDateFields];
+  const sorts: Record<typeof sort.data, Prisma.LongStayInspectionOrderByWithRelationInput[]> = {
+    property: [{ property: { title: dir } }],
+    landlord: [{ property: { owner: { fullName: dir } } }, { property: { owner: { name: dir } } }],
+    partner: [{ salesPartner: { user: { fullName: dir } } }, { salesPartner: { user: { name: dir } } }, { salesPartner: { agentCode: dir } }],
+    status: view === "passed" ? [{ validUntil: dir }] : view === "todo" ? [{ status: dir }, { dueBy: dir }] : [{ status: dir }],
+    date: [{ [dateField]: dir }],
+  };
+  const orderBy: Prisma.LongStayInspectionOrderByWithRelationInput[] =
+    pageParam == null && req.query.sort == null && req.query.direction == null
+      ? view === "todo" ? [{ createdAt: "asc" }, { id: "asc" }] : [{ updatedAt: "desc" }, { id: "desc" }]
+      : [...sorts[sort.data], { id: dir }];
+  const counts = Object.fromEntries(await Promise.all(Object.entries(INSPECTION_VIEWS).map(async ([key, w]) => [key, await prisma.longStayInspection.count({ where: w })] as const)));
+  const total = counts[view];
+  const page = Math.min(Number(pageParam ?? "1"), Math.max(1, Math.ceil(total / inspectionPageSize)));
   res.setHeader("Cache-Control", "private, no-store");
-  return res.json({
-    counts: Object.fromEntries(counts),
-    inspectionRequiredForApproval: longStayInspectionRequiredForApproval(),
-    checklist: CHECKLIST,
-    items: rows.map((r: any) => ({
-      ref: r.publicRef,
-      status: r.status,
-      reason: r.reason,
-      home: { title: r.property?.title ?? null, area: [r.property?.district, r.property?.regionName].filter(Boolean).join(", "), hasPin: r.property?.latitude != null && r.property?.longitude != null },
-      landlord: { name: r.property?.owner?.fullName || r.property?.owner?.name || null, phone: r.property?.owner?.phone ?? null },
-      partner: r.salesPartner ? { code: r.salesPartner.agentCode, name: r.salesPartner.user?.fullName || r.salesPartner.user?.name || null } : null,
-      assignedAt: r.assignedAt,
-      dueBy: r.dueBy,
-      overdue: r.status === "ASSIGNED" && r.dueBy ? new Date(r.dueBy).getTime() < Date.now() : false,
-      report: r.submittedAt ? {
-        checklist: r.checklist,
-        photoCount: Array.isArray(r.photos) ? r.photos.length : 0,
-        recommendation: r.recommendation,
-        note: r.note,
-        distanceMeters: r.distanceMeters,
-        accuracyMeters: r.accuracyMeters,
-        flags: r.flags ?? [],
-        capturedAt: r.capturedAt,
-        submittedAt: r.submittedAt,
-      } : null,
-      reviewNote: r.reviewNote,
-      reviewedAt: r.reviewedAt,
-      validUntil: r.validUntil ? new Date(r.validUntil).toISOString().slice(0, 10) : null,
-      current: inspectionCurrent(r, today),
-      feeAmount: r.feeAmount != null ? Number(r.feeAmount) : null,
-      createdAt: r.createdAt,
-    })),
-  });
+  if (pageParam != null) {
+    const rows = await prisma.longStayInspection.findMany({
+      where, orderBy, skip: (page - 1) * inspectionPageSize, take: inspectionPageSize, select: inspectionQueueSelect,
+    });
+    return res.json({ counts, inspectionRequiredForApproval: longStayInspectionRequiredForApproval(),
+      items: rows.map((row) => inspectionQueueRow(row, today)), pagination: { page, pageSize: inspectionPageSize, total } });
+  }
+  const rows = await prisma.longStayInspection.findMany({ where, orderBy, take: 100, include: inspectionDetailRelations });
+  return res.json({ counts, inspectionRequiredForApproval: longStayInspectionRequiredForApproval(), checklist: CHECKLIST,
+    items: rows.map((row) => inspectionQueueDetail(row, today)) });
+}) as RequestHandler);
+
+router.get("/inspections/:ref", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const ref = String(req.params.ref);
+  if (!isInspectionRef(ref)) return res.status(404).json({ error: "Not found" });
+  const row = await prisma.longStayInspection.findUnique({ where: { publicRef: ref }, include: inspectionDetailRelations });
+  if (!row) return res.status(404).json({ error: "Not found" });
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.json({ item: inspectionQueueDetail(row, todayInEat()), checklist: CHECKLIST });
 }) as RequestHandler);
 
 async function inspectionByRef(ref: string) {
@@ -881,8 +922,7 @@ function inspectionDetail(r: any, today: string) {
     dueBy: r.dueBy,
     overdue: r.status === "ASSIGNED" && r.dueBy ? new Date(r.dueBy).getTime() < Date.now() : false,
     report: r.submittedAt ? {
-      checklist: r.checklist ?? {},
-      photoCount: Array.isArray(r.photos) ? r.photos.length : 0,
+      ...inspectionEvidence(r.checklist, r.photos),
       recommendation: r.recommendation,
       note: r.note,
       position: r.latitude != null && r.longitude != null ? { latitude: Number(r.latitude), longitude: Number(r.longitude) } : null,

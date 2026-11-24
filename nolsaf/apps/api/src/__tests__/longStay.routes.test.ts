@@ -154,6 +154,37 @@ describe("home inspection invitations", () => {
     expect((await request(app).get("/api/admin/long-stay/inspections")).body.inspectionRequiredForApproval).toBe(true);
   });
 
+  it("pages a compact inspection queue and loads evidence only when an admin opens the details", async () => {
+    const submittedAt = new Date();
+    const record = {
+      publicRef: ref, status: "SUBMITTED", reason: "FIRST_LISTING", createdAt: submittedAt, submittedAt,
+      property: { title: "Sea View Flats", district: "Kinondoni", owner: { name: "Landlord", phone: "+255700000009" } },
+      salesPartner: { agentCode: "NSA-DAR-0042", user: { name: "Partner" } },
+      checklist: { ACCESS: "FAIL", findings: { ACCESS: { note: "Road is washed out", photoIndex: 2 } } },
+      photos: [{}, {}, {}], recommendation: "PASS",
+    };
+    h.db.longStayInspection.count.mockResolvedValue(57);
+    h.db.longStayInspection.findMany.mockResolvedValue([record]);
+    h.db.longStayInspection.findUnique.mockResolvedValue(record);
+
+    const queue = await request(app).get("/api/admin/long-stay/inspections").query({ view: "review", page: 2 }).expect(200);
+    expect(queue.body.pagination).toEqual({ page: 2, pageSize: 25, total: 57 });
+    expect(queue.body.items[0]).toMatchObject({ ref, status: "SUBMITTED", home: { title: "Sea View Flats" }, landlord: { name: "Landlord" } });
+    expect(queue.body.items[0]).not.toHaveProperty("report");
+    expect(queue.body.items[0].landlord).not.toHaveProperty("phone");
+    expect(h.db.longStayInspection.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "SUBMITTED" }, skip: 25, take: 25 }));
+    expect(h.db.longStayInspection.findMany.mock.calls[0][0].select).not.toHaveProperty("photos");
+
+    const detailUrl = `/api/admin/long-stay/inspections/${ref}`;
+    const detail = await request(app).get(detailUrl).expect(200);
+    expect(detail.body).toMatchObject({
+      checklist: CHECKLIST,
+      item: { ref, landlord: { phone: "+255700000009" }, report: { photoCount: 3, findings: record.checklist.findings } },
+    });
+    h.session.user = { id: 50, role: "CUSTOMER" };
+    await request(app).get(detailUrl).expect(403);
+  });
+
   it("assigns the home and puts a direct link in the selected partner’s Sales inbox", async () => {
     const assigned = await request(app).post(`/api/admin/long-stay/inspections/${ref}/assign`).send({ partnerCode: "NSA-DAR-0042" });
     expect(assigned.status).toBe(200);
@@ -171,6 +202,26 @@ describe("home inspection invitations", () => {
       where: { userId: 50, type: { in: ["sales"] }, unread: true },
     }));
     expect(inbox.body.items[0]).toMatchObject({ title: "Home inspection invitation", meta: { actionPath: path } });
+  });
+
+  it("sorts inspections before taking a page and uses the date shown in each tab", async () => {
+    h.db.longStayInspection.count.mockResolvedValue(57);
+    h.db.longStayInspection.findMany.mockResolvedValue([]);
+    const list = "/api/admin/long-stay/inspections";
+    await request(app).get(list).query({ view: "todo", page: 2, sort: "property", direction: "desc" }).expect(200);
+    expect(h.db.longStayInspection.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      orderBy: [{ property: { title: "desc" } }, { id: "desc" }], skip: 25, take: 25,
+    }));
+    await request(app).get(list).query({ view: "review", page: 1, sort: "date" }).expect(200);
+    expect(h.db.longStayInspection.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      orderBy: [{ submittedAt: "desc" }, { id: "desc" }],
+    }));
+    await request(app).get(list).query({ view: "todo", page: 1, sort: "status", direction: "asc" }).expect(200);
+    expect(h.db.longStayInspection.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      orderBy: [{ status: "asc" }, { dueBy: "asc" }, { id: "asc" }],
+    }));
+    await request(app).get(list).query({ page: 1, sort: "photos" }).expect(400);
+    await request(app).get(list).query({ page: 1, direction: "invalid" }).expect(400);
   });
 
   it("scopes both the lead queue and deep-linked inspection to the signed-in partner", async () => {
@@ -194,20 +245,32 @@ describe("home inspection invitations", () => {
     h.session.user = { id: 50, role: "CUSTOMER" };
     h.db.longStayInspection.findFirst.mockResolvedValue(assigned);
     h.db.longStayInspection.findMany.mockResolvedValue([]);
-    const report = request(app).post(`/api/sales/long-stay/inspections/${ref}/report`)
-      .field("latitude", "-6.7924")
-      .field("longitude", "39.2083")
-      .field("accuracyMeters", "12")
-      .field("capturedAt", new Date().toISOString())
-      .field("checklist", JSON.stringify(Object.fromEntries(CHECKLIST.map(({ key }) => [key, "PASS"]))))
-      .field("recommendation", "PASS")
-      .field("note", "Rooms and utilities were inspected on site.");
-    for (let i = 1; i <= 4; i++) report.attach("photos", Buffer.from(`photo-${i}`), `photo-${i}.jpg`);
-    const sent = await report;
+    const findings = { ACCESS: { note: "Road is washed out near the gate.", photoIndex: 2 } };
+    function sendReport(photoCount: number, reportFindings: typeof findings | Record<string, never> = findings) {
+      const report = request(app).post(`/api/sales/long-stay/inspections/${ref}/report`)
+        .field("latitude", "-6.7924")
+        .field("longitude", "39.2083")
+        .field("accuracyMeters", "12")
+        .field("capturedAt", new Date().toISOString())
+        .field("checklist", JSON.stringify(Object.fromEntries(CHECKLIST.map(({ key }) => [key, key === "ACCESS" ? "FAIL" : "PASS"]))))
+        .field("findings", JSON.stringify(reportFindings))
+        .field("recommendation", "PASS")
+        .field("note", "Rooms and utilities were inspected on site.");
+      for (let i = 1; i <= photoCount; i++) report.attach("photos", Buffer.from(`photo-${i}`), `photo-${i}.jpg`);
+      return report;
+    }
+    expect((await sendReport(2)).body.error).toMatch(/exactly 3 photos/);
+    expect((await sendReport(4)).body.error).toMatch(/exactly 3 photos/);
+    expect((await sendReport(3, {})).body.error).toMatch(/finding for every item answered No/);
+    const sent = await sendReport(3);
     expect(sent.status).toBe(201);
     expect(h.db.longStayInspection.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ salesPartnerId: 7, status: "ASSIGNED" }),
-      data: expect.objectContaining({ status: "SUBMITTED", submittedAt: expect.any(Date), photos: expect.any(Array) }),
+      data: expect.objectContaining({
+        status: "SUBMITTED", submittedAt: expect.any(Date),
+        checklist: expect.objectContaining({ ACCESS: "FAIL", findings }),
+        photos: [1, 2, 3].map((slot) => expect.objectContaining({ publicId: `sales-visits/7/photo-${slot}` })),
+      }),
     }));
 
     h.session.user = { id: 1, role: "ADMIN" };

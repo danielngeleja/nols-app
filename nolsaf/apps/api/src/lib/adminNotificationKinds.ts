@@ -50,6 +50,7 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   payout_correlation_mismatch: act("critical", "money"),
   owner_payout_withdrawal_review: act("critical", "money"),
   owner_payout_claim_submitted: act("attention", "money"),
+  owner_account_payout: info("money"),
   owner_payout_recovery_overdue: act("attention", "money"),
   payout_claim_submitted: act("attention", "money"),
   transport_payout_claim_submitted: act("attention", "money"),
@@ -118,12 +119,14 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
 
   // People
   partner_account_registered: act("attention", "people"),
+  owner_account_profile: info("people"),
   careers_application_submitted: act("attention", "people"),
   // Tour operators: a profile waiting for review, and a signed agreement.
   operator_profile_submitted: act("attention", "people"),
   operator_contract_signed: info("people"),
 
   // Security and privacy
+  owner_account_security: info("security"),
   security_account_locked: act("critical", "security"),
   security_ip_burst: act("critical", "security"),
   security_admin_mfa_locked: act("critical", "security"),

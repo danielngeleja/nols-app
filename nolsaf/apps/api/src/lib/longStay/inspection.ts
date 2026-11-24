@@ -7,7 +7,7 @@
  *    when NoLSAF upholds a dispute about the home (AFTER_DISPUTE).
  *  - An admin assigns a partner. The partner may not be the owner, nor the
  *    partner who brought the home in (no marking your own homework).
- *  - The partner reports from the home: a fixed checklist, at least 4 photos
+ *  - The partner reports from the home: a fixed checklist, exactly three photos
  *    (private, hashed), the phone's GPS position and a recommendation. The
  *    server works out the distance from the listing's pin and the warning
  *    signs; the phone is never trusted for them.
@@ -22,6 +22,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { haversineMeters } from "../salesLeadVisits.js";
 import { isContractEarning } from "../salesPartner.js";
+import { sanitizeText } from "../sanitize.js";
 import { todayInEat } from "./listing.js";
 
 export class InspectionError extends Error {
@@ -38,8 +39,12 @@ export const isInspectionRef = (v: unknown): v is string => typeof v === "string
 export const INSPECTION_VALID_MONTHS = 12;
 /** A partner gets this long to visit after being assigned. */
 export const INSPECTION_DUE_DAYS = 5;
-export const MIN_PHOTOS = 4;
-export const MAX_PHOTOS = 12;
+export const INSPECTION_PHOTO_SLOTS = [
+  { label: "Property entrance", hint: "Show the gate, building entrance or unit door." },
+  { label: "Inside the home", hint: "Take a wide photo of the main living area." },
+  { label: "Key finding", hint: "Show the most serious issue. If none is visible, show the kitchen or bathroom." },
+] as const;
+export const INSPECTION_PHOTO_COUNT = INSPECTION_PHOTO_SLOTS.length;
 /** Further than this from the listing's pin and the report cannot pass. */
 export const FAR_FROM_PIN_METERS = 300;
 export const LOW_ACCURACY_METERS = 100;
@@ -75,12 +80,40 @@ export type InspectionFlag = (typeof INSPECTION_FLAGS)[number];
 /** Signs that make a report unsafe to pass. */
 export const BLOCKING_FLAGS: InspectionFlag[] = ["FAR_FROM_PIN", "DUPLICATE_PHOTO"];
 
+const checkAnswer = z.enum(["PASS", "FAIL", "NA"]);
+const findingSchema = z.object({
+  note: z.string().transform((text) => sanitizeText(text).trim()).pipe(z.string().min(3).max(300)),
+  photoIndex: z.number().int().min(0).max(INSPECTION_PHOTO_COUNT - 1).optional(),
+}).strict();
+
+export function inspectionEvidence(savedChecklist: unknown, photos: unknown) {
+  const saved = savedChecklist && typeof savedChecklist === "object" ? savedChecklist as Record<string, unknown> : {};
+  const checklist: Record<string, z.infer<typeof checkAnswer>> = {};
+  const findings: Record<string, z.infer<typeof findingSchema>> = {};
+  const savedFindings = saved.findings && typeof saved.findings === "object" ? saved.findings as Record<string, unknown> : {};
+  for (const key of CHECK_KEYS) {
+    const answer = checkAnswer.safeParse(saved[key]);
+    if (!answer.success) continue;
+    checklist[key] = answer.data;
+    if (answer.data === "FAIL") {
+      const finding = findingSchema.safeParse(savedFindings[key]);
+      if (finding.success) findings[key] = finding.data;
+    }
+  }
+  const photoCount = Array.isArray(photos) ? photos.length : 0;
+  return {
+    checklist, findings, photoCount,
+    photoLabels: photoCount === INSPECTION_PHOTO_COUNT ? INSPECTION_PHOTO_SLOTS.map(({ label }) => label) : [],
+  };
+}
+
 export const reportSchema = z.object({
   latitude: z.coerce.number().min(-90).max(90),
   longitude: z.coerce.number().min(-180).max(180),
   accuracyMeters: z.coerce.number().int().min(0).max(5000),
   capturedAt: z.string().datetime({ offset: true }),
-  checklist: z.record(z.string(), z.enum(["PASS", "FAIL", "NA"])),
+  checklist: z.record(z.string(), checkAnswer),
+  findings: z.record(z.string(), findingSchema).default({}),
   recommendation: z.enum(["PASS", "FAIL"]),
   note: z.string().trim().min(10).max(1000),
 }).strict();
@@ -107,8 +140,17 @@ export function checkReport(report: InspectionReport, now = new Date()) {
     throw new InspectionError("Answer every item on the checklist.");
   }
   const failed = REQUIRED.filter((k) => report.checklist[k] !== "PASS");
+  if (REQUIRED.some((k) => report.checklist[k] === "NA")) {
+    throw new InspectionError("Required items must be answered Yes or No.");
+  }
   if (report.recommendation === "PASS" && failed.length) {
     throw new InspectionError("A home cannot pass while a required item is not met. Recommend FAIL, or check again.");
+  }
+  if (Object.keys(report.findings).some((key) => !CHECK_KEYS.includes(key) || report.checklist[key] !== "FAIL")) {
+    throw new InspectionError("Findings can only be recorded for items answered No.");
+  }
+  if (CHECK_KEYS.some((key) => report.checklist[key] === "FAIL" && !report.findings[key])) {
+    throw new InspectionError("Add a short finding for every item answered No.");
   }
   const captured = new Date(report.capturedAt);
   if (captured.getTime() > now.getTime() + 2 * 60_000) throw new InspectionError("The capture time is in the future. Check the phone's clock.");
@@ -221,7 +263,7 @@ export async function submitInspection(
   now = new Date(),
 ) {
   if (inspection.status !== "ASSIGNED" || inspection.salesPartnerId !== partnerId) throw new InspectionError("Not found", 404);
-  if (photos.length < MIN_PHOTOS || photos.length > MAX_PHOTOS) throw new InspectionError(`Add ${MIN_PHOTOS} to ${MAX_PHOTOS} photos taken at the home.`);
+  if (photos.length !== INSPECTION_PHOTO_COUNT) throw new InspectionError(`Add exactly ${INSPECTION_PHOTO_COUNT} photos taken at the home.`);
   if (new Set(photos.map((p) => p.hash)).size !== photos.length) throw new InspectionError("Each photo must be a different picture.");
   checkReport(report, now);
 
@@ -235,7 +277,7 @@ export async function submitInspection(
     where: { id: inspection.id, status: "ASSIGNED", salesPartnerId: partnerId, updatedAt: inspection.updatedAt },
     data: {
       status: "SUBMITTED",
-      checklist: report.checklist,
+      checklist: { ...report.checklist, findings: report.findings },
       photos,
       recommendation: report.recommendation,
       note: report.note,

@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/auth.js";
-import { audit } from "../lib/audit.js";
+import { audit, auditOrThrow } from "../lib/audit.js";
 import { currentLoginDeviceTag, listRecognisedDevices, LOGIN_DEVICE_FORGOTTEN, userAgentsForDevice } from "../lib/loginDevice.js";
 import { requireOwnerStrongSession } from "../lib/ownerMfaPolicy.js";
 import { customerBookingReference, customerRecordReference } from "../lib/customerBookingReference.js";
@@ -22,6 +22,7 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { limitContactChangeOtp, limitContactChangeConfirm, limitDataExportCode } from "../middleware/rateLimit.js";
 import { cancelDataExportChallenge, DATA_EXPORT_REASON_LABEL, DATA_EXPORT_LOCKED_ACTION, DATA_EXPORT_MAX_ATTEMPTS, dataExportLockState, dataExportRequestInput, maskDestination, readDataExportGrant, startDataExportChallenge, verifyDataExportCode } from "../lib/dataExportVerification.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { notifyOwnerAccountChange } from "../lib/ownerAccountNotifications.js";
 
 const DATA_EXPORT_LOCKED_MESSAGE = "Data downloads are locked on your account after too many wrong codes. Contact NoLSAF support at support@nolsaf.com to unlock them.";
 import { sendSms } from "../lib/sms.js";
@@ -969,6 +970,7 @@ const upsertMyDocument: RequestHandler = async (req, res) => {
     // ignore audit errors
   }
 
+  await notifyOwnerAccountChange((req as AuthedRequest).user?.role, userId, "documentUpdated");
   return sendSuccess(res, { doc });
 };
 router.put("/documents", upsertMyDocument as unknown as RequestHandler);
@@ -1151,6 +1153,10 @@ const updateProfile: RequestHandler = async (req, res) => {
       // Best-effort audit
     }
     
+    const hasProfileChange = Object.keys(data).some((field) =>
+      Object.prototype.hasOwnProperty.call(updated, field) && updated[field] !== (user as any)[field],
+    );
+    if (hasProfileChange) await notifyOwnerAccountChange(user.role, userId, "profileUpdated");
     sendSuccess(res, null, "Profile updated successfully");
   } catch (error: any) {
     console.error('account.profile.update failed', error);
@@ -1591,6 +1597,9 @@ const confirmContactChange: RequestHandler = async (req, res) => {
       // best-effort audit
     }
 
+    if (actualChange) {
+      await notifyOwnerAccountChange((req as AuthedRequest).user?.role, userId, field === "email" ? "emailChanged" : "phoneChanged");
+    }
     sendSuccess(res, {
       user: updated,
       securityCooldownUntil: actualChange ? new Date(Date.now() + CONTACT_SECURITY_COOLDOWN_MS).toISOString() : null,
@@ -1809,6 +1818,7 @@ const updatePayouts: RequestHandler = async (req, res) => {
       });
     }
     const before = currentUser.payout || null;
+    const ownerChange = (req as AuthedRequest).user?.role === "OWNER";
 
     const now = new Date();
     const payoutData = isBank
@@ -1826,7 +1836,7 @@ const updatePayouts: RequestHandler = async (req, res) => {
           mobileMoneyAccountName: resolvedName,
         };
 
-    const { account, action } = await prisma.$transaction(async (tx) => {
+    const { account, action, auditDetails } = await prisma.$transaction(async (tx) => {
       const previous = await tx.payoutAccount.findFirst({
         where: { userId, isActive: true },
         orderBy: { isDefault: "desc" },
@@ -1888,17 +1898,25 @@ const updatePayouts: RequestHandler = async (req, res) => {
           payoutAccount: accountNumber,
         },
       });
-      return { account: verified, action };
+      const auditDetails = {
+        change: action,
+        payoutPreferred: data.payoutPreferred,
+        provider,
+        accountNumber: maskSensitiveDestination(accountNumber),
+        previousAccountNumber: previous ? maskSensitiveDestination(previous.accountNumber) : null,
+        payoutAccountId: verified.id,
+        destinationChangedAt: now.toISOString(),
+      };
+      if (ownerChange) {
+        await auditOrThrow(tx, req, "USER_PAYOUT_DESTINATION_VERIFIED", `user:${userId}`, null, auditDetails, userId);
+      }
+      return { account: verified, action, auditDetails };
     });
 
-    await audit(req as AuthedRequest, "USER_PAYOUT_DESTINATION_VERIFIED", `user:${userId}`, before, {
-      payoutPreferred: data.payoutPreferred,
-      provider,
-      accountName: resolvedName,
-      accountNumber: maskSensitiveDestination(accountNumber),
-      payoutAccountId: account.id,
-      destinationChangedAt: account.destinationChangedAt,
-    });
+    if (!ownerChange) await audit(req, "USER_PAYOUT_DESTINATION_VERIFIED", `user:${userId}`, null, auditDetails, userId);
+    if (action !== "reverified") {
+      await notifyOwnerAccountChange((req as AuthedRequest).user?.role, userId, action === "added" ? "payoutAdded" : "payoutChanged");
+    }
     await sendPayoutDestinationSecurityAlerts(currentUser, payoutMethodLabel(isBank, provider), accountNumber, action, now, isBank);
 
     sendSuccess(
@@ -1980,6 +1998,7 @@ const changePassword: RequestHandler = async (req, res) => {
       // Track failure
       attempt.failures += 1;
       attempt.lastFailure = now;
+      if (user.role === "OWNER") await audit(req, "USER_PASSWORD_CHANGE_FAILED", `user:${userId}`, null, null, userId);
       
       // Lock after 3 consecutive failures for 5 minutes
       if (attempt.failures >= 3) {
@@ -2024,7 +2043,15 @@ const changePassword: RequestHandler = async (req, res) => {
 
     // Update password
     const newHash = await hashPassword(newPassword);
-    await prisma.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+    if (user.role === "OWNER") {
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+        await auditOrThrow(tx, req, "USER_PASSWORD_CHANGE", `user:${user.id}`, null, null, user.id);
+      });
+    } else {
+      await prisma.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+    }
+    await notifyOwnerAccountChange(user.role, user.id, "passwordChanged");
     
     // Record the new hash in password history (best-effort)
     try {
@@ -2050,7 +2077,7 @@ const changePassword: RequestHandler = async (req, res) => {
       clearAuthCookie(res);
     }
 
-    await audit(req as AuthedRequest, "USER_PASSWORD_CHANGE", `user:${user.id}`);
+    if (user.role !== "OWNER") await audit(req, "USER_PASSWORD_CHANGE", `user:${user.id}`);
     sendSuccess(res, { forceLogout, cooldownUntil: now + (30 * 60 * 1000) }, "Password changed successfully");
   } catch (error: any) {
     console.error('account.password.change failed', error);
@@ -2153,6 +2180,7 @@ const verifyTotp: RequestHandler = async (req, res) => {
     });
     
     await audit(req as AuthedRequest, "USER_2FA_ENABLED", `user:${user.id}`);
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorEnabled");
     const token = await issueAccountMfaSession(res as Response, user.id);
 
     // Return plaintext codes ONCE
@@ -2270,6 +2298,7 @@ const postSecurity2fa: RequestHandler = async (req, res) => {
       } catch {
         // ignore
       }
+      await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorDisabled");
       return res.json({ ok: true });
     }
 
@@ -2306,6 +2335,7 @@ const postSecurity2fa: RequestHandler = async (req, res) => {
     } catch {
       // ignore
     }
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, fresh.id, "twoFactorEnabled");
     const token = await issueAccountMfaSession(res as Response, (fresh as any).id);
 
     return res.json({ ok: true, backupCodes: plainCodes, ...(token ? { token } : {}) });
@@ -2846,6 +2876,7 @@ const disable2FA: RequestHandler = async (req, res) => {
     });
     
     await audit(req as AuthedRequest, "USER_2FA_DISABLED", `user:${user.id}`);
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorDisabled");
     sendSuccess(res, null, "2FA disabled successfully");
   } catch (error: any) {
     console.error('account.2fa.disable failed', error);
@@ -2881,6 +2912,7 @@ const regenCodes: RequestHandler = async (req, res) => {
     });
     
     await audit(req as AuthedRequest, "USER_2FA_CODES_REGEN", `user:${user.id}`);
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "backupCodesReplaced");
     sendSuccess(res, { backupCodes: plainCodes }, "Backup codes regenerated successfully");
   } catch (error: any) {
     console.error('account.2fa.codes.regenerate failed', error);
@@ -3044,6 +3076,7 @@ const verifySms2FA: RequestHandler = async (req, res) => {
     }
 
     await audit(req as AuthedRequest, "USER_2FA_ENABLED", `user:${user.id}`, null, { method: "SMS" });
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorEnabled");
     sendSuccess(res, null, "SMS 2FA enabled successfully");
   } catch (error: any) {
     console.error('account.2fa.sms.verify failed', error);
@@ -3175,6 +3208,7 @@ const disableSms2FA: RequestHandler = async (req, res) => {
     }
 
     await audit(req as AuthedRequest, "USER_2FA_DISABLED", `user:${user.id}`, null, { method: "SMS" });
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorDisabled");
     sendSuccess(res, null, "SMS 2FA disabled successfully");
   } catch (error: any) {
     console.error('account.2fa.sms.disable failed', error);

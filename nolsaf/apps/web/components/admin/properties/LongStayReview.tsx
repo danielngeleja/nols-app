@@ -49,7 +49,9 @@ type Inspection = {
   overdue: boolean;
   report: {
     checklist: Record<string, "PASS" | "FAIL" | "NA">;
+    findings?: Record<string, { note: string; photoIndex?: number }>;
     photoCount: number;
+    photoLabels?: string[];
     recommendation: "PASS" | "FAIL" | null;
     note: string | null;
     position: Point | null;
@@ -596,7 +598,7 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
                   <p className="m-0 text-[13px] font-bold text-slate-900">Photos taken at the home <span className="font-normal text-slate-500">({photoCount})</span></p>
                   <span className={`text-[12px] ${allSeen ? "text-emerald-700" : "text-slate-500"}`}>{allSeen ? "All photos seen" : `${seen.size} of ${photoCount} loaded`} · each view is recorded</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${photoCount > 3 ? "lg:grid-cols-6" : ""}`}>
                   {Array.from({ length: photoCount }, (_, n) => {
                     const src = `/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/photos/${n}`;
                     return (
@@ -605,12 +607,12 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
                           <span className="grid h-full w-full place-items-center text-[12px] text-slate-500">Photo {n + 1} · open</span>
                         ) : (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={src} alt={`Inspection photo ${n + 1}`} loading="lazy"
+                          <img src={src} alt={r.photoLabels?.[n] ?? `Inspection photo ${n + 1}`} loading="lazy"
                             onLoad={() => setSeen((s) => new Set(s).add(n))}
                             onError={() => setFailedPhotos((s) => new Set(s).add(n))}
                             className="h-full w-full object-cover transition-transform group-hover:scale-105" />
                         )}
-                        <span className="absolute left-1.5 top-1.5 rounded bg-black/55 px-1.5 py-0.5 text-[10.5px] font-semibold text-white">{n + 1}</span>
+                        <span className="absolute left-1.5 right-5 top-1.5 w-fit rounded bg-black/65 px-1.5 py-0.5 text-[10.5px] font-semibold text-white">{r.photoLabels?.[n] ?? n + 1}</span>
                         <ExternalLink className="absolute right-1.5 top-1.5 h-3.5 w-3.5 text-white opacity-0 drop-shadow group-hover:opacity-100" />
                       </a>
                     );
@@ -630,10 +632,21 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
                   <ul className="m-0 list-none p-0">
                     {checklist.map((c) => {
                       const v = r.checklist?.[c.key];
+                      const finding = r.findings?.[c.key];
+                      const photoIndex = finding?.photoIndex;
                       return (
                         <li key={c.key} className="flex items-start gap-2.5 border-0 border-t border-solid border-slate-100 py-2 text-[12.5px] first:border-t-0">
                           {v === "PASS" ? <CheckCircle2 className="mt-px h-4 w-4 shrink-0 text-emerald-600" /> : v === "FAIL" ? <XCircle className="mt-px h-4 w-4 shrink-0 text-red-600" /> : <span className="mt-px grid h-4 w-4 shrink-0 place-items-center rounded bg-slate-100 text-[9px] font-bold text-slate-500">NA</span>}
-                          <span className="min-w-0 flex-1 text-slate-700">{c.label}</span>
+                          <div className="min-w-0 flex-1 text-slate-700">
+                            <span>{c.label}</span>
+                            {finding ? <p className="m-0 mt-1 whitespace-pre-wrap break-words text-slate-600">{finding.note}</p> : null}
+                            {photoIndex != null && photoIndex < photoCount ? (
+                              <a href={`/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/photos/${photoIndex}`} target="_blank" rel="noopener noreferrer"
+                                className="mt-1 inline-flex items-center gap-1 font-semibold text-[#02665e] underline underline-offset-2">
+                                <ExternalLink className="size-3" aria-hidden />Photo {photoIndex + 1} · {r.photoLabels?.[photoIndex] ?? "View evidence"}
+                              </a>
+                            ) : null}
+                          </div>
                           {c.required ? <span className="shrink-0 text-[10.5px] font-semibold text-slate-400">Required</span> : null}
                         </li>
                       );

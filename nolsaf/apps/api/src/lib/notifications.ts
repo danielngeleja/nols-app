@@ -8,6 +8,7 @@ import { adminKindOf } from "./adminNotificationKinds.js";
  */
 export async function notifyAdmins(template: string, data: any) {
   try {
+    const isOwnerAccountChange = template.startsWith("owner_account_");
     const notificationTemplates: Record<string, { title: string; body: string }> = {
       booking_guest_code_overdue: {
         title: "Guest code request still waiting",
@@ -359,7 +360,10 @@ export async function notifyAdmins(template: string, data: any) {
         },
     };
 
-    const templateData = notificationTemplates[template] || {
+    const templateData = isOwnerAccountChange ? {
+      title: data.changeTitle,
+      body: `Owner #${data.accountOwnerId}. Open Account activity to review the change.`,
+    } : notificationTemplates[template] || {
       title: "Admin Notification",
       body: `Update: ${JSON.stringify(data)}`
     };
@@ -377,7 +381,7 @@ export async function notifyAdmins(template: string, data: any) {
           unread: true,
           requiresAction: kind.requiresAction,
           meta: { ...data, notificationKind: template, severity: kind.severity, category: kind.category },
-          type: template.startsWith("security_")
+          type: template.startsWith("security_") || isOwnerAccountChange
             ? "system"
             : template.startsWith("transport") || template.startsWith("driver_")
             ? "ride"
@@ -417,6 +421,11 @@ export async function notifyAdmins(template: string, data: any) {
             category: kind.category,
             requiresAction: kind.requiresAction,
             createdAt: created.createdAt,
+            ...(isOwnerAccountChange ? { meta: {
+              notificationKind: template,
+              accountOwnerId: data.accountOwnerId,
+              href: data.href,
+            } } : {}),
           });
         }
       } catch {
