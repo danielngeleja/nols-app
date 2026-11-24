@@ -7,8 +7,9 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlarmClock, ArrowRight, BadgeCheck, CalendarCheck, CalendarRange, ChevronRight, ClipboardCheck, FileSignature, Home, KeyRound, Loader2, Search, Wallet } from "lucide-react";
+import { AlarmClock, ArrowRight, ArrowUpDown, BadgeCheck, CalendarCheck, CalendarRange, ChevronRight, ClipboardCheck, FileSignature, Home, KeyRound, Loader2, Search, SlidersHorizontal, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import TablePagination from "@/components/TablePagination";
 
 type Side = "TENANT" | "LANDLORD";
 type Item = {
@@ -83,7 +84,137 @@ function nextStep(item: Item, side: Side): { text: string; urgent: boolean } | n
   return null;
 }
 
-export default function TenancyList({ side, detailBase, intro, extra, hideHeading = false }: { side: Side; detailBase: string; intro?: string; extra?: React.ReactNode; hideHeading?: boolean }) {
+type ListProps = { side: Side; detailBase: string; intro?: string; extra?: React.ReactNode; hideHeading?: boolean };
+
+export default function TenancyList(props: ListProps) {
+  if (props.side === "TENANT" && props.hideHeading) return <TenantBookings detailBase={props.detailBase} />;
+  return <TenancyOverview {...props} />;
+}
+
+const bookingFilters = {
+  open: [
+    ["all", "All statuses"], ["action", "Needs my action"], ["waiting", "Waiting for landlord"], ["moving", "Move-in"], ["active", "In progress"],
+  ],
+  closed: [["all", "All statuses"], ["ended", "Ended"], ["cancelled", "Closed"]],
+} as const;
+const bookingSorts = [["priority", "Needs action first"], ["recent", "Recently updated"], ["move-in", "Move-in date"]] as const;
+type BookingScope = keyof typeof bookingFilters;
+type BookingFilter = (typeof bookingFilters)[BookingScope][number][0];
+type BookingSort = (typeof bookingSorts)[number][0];
+type BookingResults = { items: Item[]; pagination: { page: number; pageSize: number; total: number }; counts: Record<BookingScope, number> };
+
+function TenantBookings({ detailBase }: { detailBase: string }) {
+  const [scope, setScope] = useState<BookingScope>("open");
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<BookingFilter>("all");
+  const [sort, setSort] = useState<BookingSort>("priority");
+  const [page, setPage] = useState(1);
+  const [retry, setRetry] = useState(0);
+  const [result, setResult] = useState<BookingResults | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const searching = Boolean(query || filter !== "all");
+  const appliedSort = scope === "closed" && sort === "priority" ? "recent" : sort;
+
+  useEffect(() => {
+    if (search.trim() === query) return;
+    const timer = window.setTimeout(() => { setQuery(search.trim()); setPage(1); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search, query]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    apiClient.get<BookingResults>("/api/customer/long-stay/tenancies", {
+      params: { scope, page, q: query, filter, sort: appliedSort }, signal: controller.signal,
+    }).then(({ data }) => {
+      if (!controller.signal.aborted) setResult(data);
+    }).catch(() => {
+      if (!controller.signal.aborted) setError("Could not load your long stays.");
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [scope, page, query, filter, appliedSort, retry]);
+
+  const control = "box-border flex min-h-9 min-w-0 items-center gap-2 rounded-md border border-solid border-slate-200 bg-white px-2.5 focus-within:border-[#02665e]";
+  return (
+    <section aria-labelledby="tenant-stays-title" className="min-w-0 overflow-hidden rounded-lg border border-solid border-[#d9e7e2] bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 bg-[#f8fbfa] px-4 py-3.5 sm:px-5">
+        <h2 id="tenant-stays-title" className="m-0 text-lg font-bold tracking-tight text-slate-950">Reservations</h2>
+        <div role="group" aria-label="Booking period" className="inline-flex gap-0.5 rounded-md bg-[#eaf3ef] p-0.5">
+          {(["open", "closed"] as const).map((key) => (
+            <button key={key} type="button" aria-pressed={scope === key} onClick={() => {
+              if (key !== scope) { setScope(key); setFilter("all"); setPage(1); }
+            }} className={`inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded border-0 px-2.5 text-xs font-semibold [font-family:inherit] ${scope === key ? "bg-white text-[#165c51] shadow-sm" : "bg-transparent text-slate-600 hover:text-slate-900"}`}>
+              {key === "open" ? "Current" : "History"}
+              {result && <span className="tabular-nums text-slate-600">{result.counts[key]}</span>}
+            </button>
+          ))}
+        </div>
+      </header>
+      <div className="grid grid-cols-2 gap-2 border-0 border-y border-solid border-[#e5efeb] px-4 py-3 sm:px-5">
+        <label className={`${control} col-span-2`}>
+          <Search className="size-4 shrink-0 text-[#02665e]" aria-hidden />
+          <input type="search" value={search} maxLength={100} onChange={(event) => setSearch(event.target.value)} aria-label="Search long-stay bookings" placeholder="Search property or booking reference" className="min-h-9 w-full min-w-0 border-0 bg-transparent p-0 text-sm focus:outline-none" />
+        </label>
+        <label className={control}>
+          <SlidersHorizontal className="size-3.5 shrink-0 text-[#02665e]" aria-hidden />
+          <select aria-label="Filter by booking status" value={filter} onChange={(event) => { setFilter(event.target.value as BookingFilter); setPage(1); }}
+            className="min-h-9 w-full min-w-0 cursor-pointer border-0 bg-transparent text-xs text-slate-800 focus:outline-none">
+            {bookingFilters[scope].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label className={control}>
+          <ArrowUpDown className="size-3.5 shrink-0 text-[#02665e]" aria-hidden />
+          <select aria-label="Sort long-stay bookings" value={appliedSort} onChange={(event) => { setSort(event.target.value as BookingSort); setPage(1); }}
+            className="min-h-9 w-full min-w-0 cursor-pointer border-0 bg-transparent text-xs text-slate-800 focus:outline-none">
+            {bookingSorts.filter(([value]) => scope === "open" || value !== "priority").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        {(search || filter !== "all") && <button type="button" onClick={() => { setSearch(""); setQuery(""); setFilter("all"); setPage(1); }}
+          className="col-span-2 w-fit cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] hover:underline">Clear search and filters</button>}
+      </div>
+      <div aria-busy={loading}>
+        {loading ? <p role="status" className="m-0 flex min-h-24 items-center justify-center gap-2 text-sm text-slate-600"><Loader2 className="size-4 animate-spin" aria-hidden />Loading long stays</p>
+          : error ? <div className="px-5 py-4"><p role="alert" className="m-0 text-sm text-red-700">{error}</p><button type="button" onClick={() => setRetry((value) => value + 1)} className="mt-2 cursor-pointer rounded-md border border-solid border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-[#02665e]">Try again</button></div>
+          : !result?.items.length ? <EmptyState side="TENANT" scope={scope} searching={searching} />
+          : <>
+            <ul className="m-0 list-none divide-y divide-[#e5efeb] p-0">
+              {result.items.map((item) => {
+                const step = nextStep(item, "TENANT");
+                return (
+                  <li key={item.ref}>
+                    <Link href={`${detailBase}/${encodeURIComponent(item.ref)}`} className="group flex items-start gap-3 px-4 py-3.5 text-slate-900 no-underline hover:bg-[#f8fbfa] hover:no-underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e] sm:px-5">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#e9f4f0] text-[#02665e]"><Home className="size-4.5" aria-hidden /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                          <span className="break-words text-sm font-bold text-slate-950">{item.homeTitle || "Long stay"}</span>
+                          <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${TONE[item.status] ?? "bg-slate-100 text-slate-700"}`}>{LABEL.TENANT[item.status] ?? item.status}</span>
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-600">
+                          {item.moveInDate && <span><time dateTime={item.moveInDate}>{dayLabel(item.moveInDate)}</time>{item.endDate && <> – <time dateTime={item.endDate}>{dayLabel(item.endDate)}</time></>}</span>}
+                          {item.termMonths ? <span>{item.termMonths} {item.termMonths === 1 ? "month" : "months"}</span> : null}
+                          {item.monthlyRent != null && item.currency && <span>{money(item.monthlyRent, item.currency)} / month</span>}
+                        </span>
+                        {step && <span className={`mt-1 block text-xs font-medium ${step.urgent ? "text-amber-900" : "text-slate-600"}`}>{step.text}</span>}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1 self-center text-xs font-semibold text-[#02665e]"><span className="sr-only sm:not-sr-only">Open booking</span><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden /></span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+            <TablePagination {...result.pagination} onPageChange={setPage} />
+          </>}
+      </div>
+    </section>
+  );
+}
+
+function TenancyOverview({ side, detailBase, intro, extra, hideHeading = false }: ListProps) {
   const [scope, setScope] = useState<"open" | "closed">("open");
   const [open, setOpen] = useState<Item[] | null>(null);
   const [closed, setClosed] = useState<Item[] | null>(null);
@@ -118,61 +249,6 @@ export default function TenancyList({ side, detailBase, intro, extra, hideHeadin
   const needle = q.trim().toLowerCase();
   const filtered = needle ? shown.filter((i) => `${i.homeTitle ?? ""} ${i.otherPartyName ?? ""}`.toLowerCase().includes(needle)) : shown;
   const loading = open === null;
-
-  if (side === "TENANT" && hideHeading) {
-    const ordered = [...filtered].sort((a, b) => Number(Boolean(nextStep(b, side)?.urgent)) - Number(Boolean(nextStep(a, side)?.urgent)));
-    return (
-      <section aria-labelledby="tenant-stays-title" className="min-w-0 overflow-hidden rounded-lg border border-solid border-[#d9e7e2] bg-white">
-        <header className="flex flex-wrap items-center justify-between gap-3 bg-[#f8fbfa] px-4 py-3.5 sm:px-5">
-          <h2 id="tenant-stays-title" className="m-0 text-lg font-bold tracking-tight text-slate-950">Reservations</h2>
-          <div role="group" aria-label="Long-stay status" className="inline-flex gap-0.5 rounded-md bg-[#eaf3ef] p-0.5">
-            {(["open", "closed"] as const).map((key) => {
-              const count = (key === "open" ? open : closed)?.length;
-              return (
-                <button key={key} type="button" aria-pressed={scope === key} onClick={() => { setScope(key); setQ(""); }}
-                  className={`inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded border-0 px-2.5 text-xs font-semibold [font-family:inherit] ${scope === key ? "bg-white text-[#165c51] shadow-sm" : "bg-transparent text-slate-600 hover:text-slate-900"}`}>
-                  {key === "open" ? "Current" : "History"}
-                  {count != null && <span className="tabular-nums text-slate-600">{count}</span>}
-                </button>
-              );
-            })}
-          </div>
-        </header>
-        {(shown.length > 5 || needle) && <label className="mx-4 mt-3 flex items-center gap-2 rounded-md border border-solid border-slate-200 px-3 sm:mx-5">
-          <Search className="size-4 shrink-0 text-[#02665e]" aria-hidden />
-          <input type="search" value={q} onChange={(event) => setQ(event.target.value)} aria-label="Search stays" placeholder="Search stays" className="min-h-9 w-full min-w-0 border-0 bg-transparent text-sm focus:outline-none" />
-        </label>}
-        {loading ? <p role="status" className="m-0 flex min-h-24 items-center justify-center gap-2 text-sm text-slate-600"><Loader2 className="size-4 animate-spin" aria-hidden />Loading long stays</p>
-          : error ? <p role="alert" className="m-0 px-5 py-4 text-sm text-red-700">{error}</p>
-          : ordered.length === 0 ? <EmptyState side={side} scope={scope} searching={Boolean(needle)} />
-          : <ul className="m-0 list-none divide-y divide-[#e5efeb] p-0">
-            {ordered.map((item) => {
-              const step = nextStep(item, side);
-              return (
-                <li key={item.ref}>
-                  <Link href={`${detailBase}/${encodeURIComponent(item.ref)}`} className="group flex items-start gap-3 px-4 py-3.5 text-slate-900 no-underline hover:bg-[#f8fbfa] hover:no-underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e] sm:px-5">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#e9f4f0] text-[#02665e]"><Home className="size-4.5" aria-hidden /></span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                        <span className="break-words text-sm font-bold text-slate-950">{item.homeTitle || "Long stay"}</span>
-                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${TONE[item.status] ?? "bg-slate-100 text-slate-700"}`}>{LABEL.TENANT[item.status] ?? item.status}</span>
-                      </span>
-                      <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-600">
-                        {item.moveInDate && <span><time dateTime={item.moveInDate}>{dayLabel(item.moveInDate)}</time>{item.endDate && <> – <time dateTime={item.endDate}>{dayLabel(item.endDate)}</time></>}</span>}
-                        {item.termMonths ? <span>{item.termMonths} {item.termMonths === 1 ? "month" : "months"}</span> : null}
-                        {item.monthlyRent != null && item.currency && <span>{money(item.monthlyRent, item.currency)} / month</span>}
-                      </span>
-                      {step && <span className={`mt-1 block text-xs font-medium ${step.urgent ? "text-amber-900" : "text-slate-600"}`}>{step.text}</span>}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1 self-center text-xs font-semibold text-[#02665e]"><span className="hidden sm:inline">Open booking</span><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden /></span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>}
-      </section>
-    );
-  }
 
   const tiles = side === "LANDLORD"
     ? [

@@ -9,7 +9,9 @@ process.env.LONG_STAY_ID_HASH_SECRET = "test-secret";
 const h = vi.hoisted(() => {
   const fn = () => vi.fn();
   const db: any = {
-    user: { findUnique: fn(), findFirst: fn() },
+    user: { findUnique: fn(), findFirst: fn(), findMany: fn() },
+    property: { findMany: fn() },
+    tenancy: { count: fn(), findMany: fn() },
     userDocument: { create: fn(), update: fn() },
     auditLog: { findMany: fn(), create: fn() },
     $transaction: fn(),
@@ -71,6 +73,53 @@ const viewed = (sides: string[]) => sides.map((side) => ({ afterJson: { profileI
 const checks = { nameMatches: true, faceMatches: true };
 const reservationRef = "tn_0123456789abcdefghijkl";
 const reserveBody = { property: "0123456789abcdefghij", moveInDate: "2026-12-10", termMonths: 6 };
+
+describe("traveller long-stay booking list", () => {
+  it("paginates across the action-first boundary within the tenant's own bookings", async () => {
+    h.db.tenancy.count.mockResolvedValueOnce(34).mockResolvedValueOnce(120).mockResolvedValueOnce(34).mockResolvedValueOnce(13);
+    h.db.tenancy.findMany
+      .mockResolvedValueOnce([{ publicRef: "priority", propertyId: 5, landlordId: 44, status: "AWAITING_PAYMENT" }])
+      .mockResolvedValueOnce([{ publicRef: "regular", propertyId: 5, landlordId: 44, status: "OFFERED" }]);
+    h.db.property.findMany.mockResolvedValueOnce([{ id: 5, title: "Sea View" }]);
+    h.db.user.findMany.mockResolvedValueOnce([{ id: 44, fullName: "Private Landlord" }]);
+    const response = await request(app).get("/api/customer/long-stay/tenancies").query({ page: 2 }).expect(200);
+    expect(response.body).toMatchObject({ counts: { open: 34, closed: 120 }, pagination: { page: 2, pageSize: 10, total: 34 } });
+    expect(response.body.items).toMatchObject([
+      { ref: "priority", homeTitle: "Sea View", otherPartyName: null },
+      { ref: "regular", homeTitle: "Sea View", otherPartyName: null },
+    ]);
+    const ownedCurrent = expect.objectContaining({ tenantId: 20, status: { notIn: ["CANCELLED", "ENDED"] } });
+    const action = { OR: [{ status: { in: ["AWAITING_PAYMENT", "MOVE_IN"] } }, { status: "ACCEPTED", tenantLeaseAcceptedAt: null }] };
+    const order = [{ updatedAt: "desc" }, { id: "desc" }];
+    expect(h.db.tenancy.findMany).toHaveBeenNthCalledWith(1, { where: { AND: [ownedCurrent, action] }, orderBy: order, skip: 10, take: 3 });
+    expect(h.db.tenancy.findMany).toHaveBeenNthCalledWith(2, { where: { AND: [ownedCurrent, { NOT: action }] }, orderBy: order, skip: 0, take: 7 });
+  });
+
+  it("searches by property or reference inside the filtered history before clamping pages", async () => {
+    h.db.tenancy.count.mockResolvedValueOnce(3).mockResolvedValueOnce(120).mockResolvedValueOnce(12);
+    h.db.tenancy.findMany.mockResolvedValueOnce([]);
+    const response = await request(app).get("/api/customer/long-stay/tenancies")
+      .query({ page: 100, scope: "closed", filter: "ended", q: "Sea View", sort: "move-in" }).expect(200);
+    expect(response.body.pagination).toEqual({ page: 2, pageSize: 10, total: 12 });
+    expect(h.db.tenancy.findMany).toHaveBeenCalledExactlyOnceWith({
+      where: {
+        tenantId: 20,
+        status: { in: ["CANCELLED", "ENDED"] },
+        AND: [{ status: "ENDED" }, { OR: [{ publicRef: { contains: "Sea View" } }, { property: { is: { title: { contains: "Sea View" } } } }] }],
+      },
+      orderBy: [{ moveInDate: { sort: "asc", nulls: "last" } }, { id: "desc" }],
+      skip: 10, take: 10,
+    });
+  });
+
+  it("rejects an invalid page and preserves the original response for unpaged callers", async () => {
+    h.db.tenancy.findMany.mockResolvedValueOnce([]);
+    await request(app).get("/api/customer/long-stay/tenancies").query({ page: 0 }).expect(400);
+    const legacy = await request(app).get("/api/customer/long-stay/tenancies").expect(200);
+    expect(legacy.body).toEqual({ items: [] });
+    expect(h.db.tenancy.findMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ take: 100 }));
+  });
+});
 
 describe("reservation notifications", () => {
   it("stores the owner alert inside the reservation transaction and publishes after it commits", async () => {

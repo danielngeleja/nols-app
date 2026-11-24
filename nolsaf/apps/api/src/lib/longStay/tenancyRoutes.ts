@@ -23,6 +23,8 @@ import {
   postMessage,
   reasonSchema,
   TenancyError,
+  tenantBookingListQuery,
+  tenantBookingPage,
   tenancyListItems,
   tenancyView,
   type TenancySide,
@@ -61,6 +63,12 @@ function eatLabel(date: Date): string {
 
 export function listTenancies(side: TenancySide): RequestHandler {
   return guard(async (req, res) => {
+    if (side === "TENANT" && req.query.page !== undefined) {
+      const parsed = tenantBookingListQuery.safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid booking search, filter or page." });
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.json(await tenantBookingPage(prisma, req.user!.id, parsed.data));
+    }
     const scope = String(req.query.scope || "open");
     const statusFilter = scope === "closed" ? { in: ["CANCELLED", "ENDED"] } : { notIn: ["CANCELLED", "ENDED"] };
     const where = { ...(side === "TENANT" ? { tenantId: req.user!.id } : { landlordId: req.user!.id }), status: statusFilter };

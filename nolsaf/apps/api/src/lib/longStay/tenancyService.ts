@@ -12,6 +12,7 @@
  *    before that go to NoLSAF (lib/longStay/enquiry.ts).
  */
 import { randomBytes } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { rowToTerms } from "./listing.js";
 import { holdsBookingPayment, isTerminalTenancyStatus, isTenancyStatus, tenancyTransitionUpdate, type TenancyActor, type TenancyStatus } from "./tenancyState.js";
@@ -200,6 +201,71 @@ export async function tenancyView(db: any, tenancy: any, side: TenancySide) {
 /** One line per tenancy for lists. */
 export async function tenancyListItems(db: any, where: Record<string, unknown>, side: TenancySide) {
   const rows = await db.tenancy.findMany({ where, orderBy: { updatedAt: "desc" }, take: 100 });
+  return presentTenancyRows(db, rows, side);
+}
+
+export const tenantBookingListQuery = z.object({
+  scope: z.enum(["open", "closed"]).default("open"),
+  page: z.string().regex(/^[1-9]\d{0,8}$/).transform(Number),
+  q: z.string().trim().max(100).default(""),
+  filter: z.enum(["all", "action", "waiting", "moving", "active", "ended", "cancelled"]).default("all"),
+  sort: z.enum(["priority", "recent", "move-in"]).default("priority"),
+});
+
+export async function tenantBookingPage(db: Pick<Prisma.TransactionClient, "tenancy" | "property" | "user">, tenantId: number, query: z.infer<typeof tenantBookingListQuery>) {
+  const pageSize = 10;
+  const owned = { tenantId };
+  const closed = ["CANCELLED", "ENDED"];
+  const scopeWhere: Prisma.TenancyWhereInput = { ...owned, status: query.scope === "closed" ? { in: closed } : { notIn: closed } };
+  const action: Prisma.TenancyWhereInput = {
+    OR: [{ status: { in: ["AWAITING_PAYMENT", "MOVE_IN"] } }, { status: "ACCEPTED", tenantLeaseAcceptedAt: null }],
+  };
+  const filters: Record<typeof query.filter, Prisma.TenancyWhereInput> = {
+    all: {},
+    action,
+    waiting: { OR: [{ status: "OFFERED" }, { status: "ACCEPTED", tenantLeaseAcceptedAt: { not: null } }] },
+    moving: { status: { in: ["RESERVED", "MOVE_IN"] } },
+    active: { status: { in: ["ACTIVE", "ENDING", "OVERDUE", "DISPUTED"] } },
+    ended: { status: "ENDED" },
+    cancelled: { status: "CANCELLED" },
+  };
+  const where: Prisma.TenancyWhereInput = {
+    ...scopeWhere,
+    AND: [
+      filters[query.filter],
+      ...(query.q ? [{ OR: [{ publicRef: { contains: query.q } }, { property: { is: { title: { contains: query.q } } } }] }] : []),
+    ],
+  };
+  const prioritize = query.scope === "open" && query.filter === "all" && query.sort === "priority";
+  const priorityWhere = { AND: [where, action] };
+  const [current, history, total, priorityCount] = await Promise.all([
+    db.tenancy.count({ where: { ...owned, status: { notIn: closed } } }),
+    db.tenancy.count({ where: { ...owned, status: { in: closed } } }),
+    db.tenancy.count({ where }),
+    prioritize ? db.tenancy.count({ where: priorityWhere }) : 0,
+  ]);
+  const page = Math.min(query.page, Math.max(1, Math.ceil(total / pageSize)));
+  const skip = (page - 1) * pageSize;
+  const orderBy: Prisma.TenancyOrderByWithRelationInput[] = query.sort === "move-in"
+    ? [{ moveInDate: { sort: "asc", nulls: "last" } }, { id: "desc" }]
+    : [{ updatedAt: "desc" }, { id: "desc" }];
+  const priorityTake = Math.min(pageSize, Math.max(0, priorityCount - skip));
+  const regularTake = pageSize - priorityTake;
+  const [priorityRows, regularRows] = await Promise.all([
+    priorityTake ? db.tenancy.findMany({ where: priorityWhere, orderBy, skip, take: priorityTake }) : [],
+    regularTake ? db.tenancy.findMany({
+      where: prioritize ? { AND: [where, { NOT: action }] } : where,
+      orderBy, skip: prioritize ? Math.max(0, skip - priorityCount) : skip, take: regularTake,
+    }) : [],
+  ]);
+  return {
+    items: await presentTenancyRows(db, [...priorityRows, ...regularRows], "TENANT"),
+    pagination: { page, pageSize, total },
+    counts: { open: current, closed: history },
+  };
+}
+
+async function presentTenancyRows(db: any, rows: any[], side: TenancySide) {
   if (!rows.length) return [];
   const propertyIds = Array.from(new Set(rows.map((r: any) => r.propertyId)));
   const userIds = Array.from(new Set(rows.map((r: any) => (side === "TENANT" ? r.landlordId : r.tenantId))));
