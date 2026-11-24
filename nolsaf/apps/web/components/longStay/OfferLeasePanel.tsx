@@ -256,18 +256,24 @@ function LeaseBlock({ side, view, base, post, busy }: { side: Side; view: OfferL
   );
 
   const acceptance = canSign && lease ? (
-    <div className={landlord ? "mt-3 space-y-2.5 border-0 border-t border-solid border-[#dce9e4] pt-3" : "mt-2"}>
-      <label className="flex cursor-pointer items-start gap-2 text-sm leading-snug text-slate-800">
-        <input type="checkbox" checked={read} disabled={busy !== null} onChange={(event) => setRead(event.target.checked)} className="m-0 mt-0.5 size-4 shrink-0 accent-[#02665e]" />
-        I have read this lease and accept it.
+    <section aria-label="Sign the lease" className={`mt-3 rounded-md border border-solid border-[#d9e7e2] bg-[#f5f9f7] p-3 ${landlord ? "" : "sm:p-4"}`}>
+      <label className="flex min-h-12 cursor-pointer items-center justify-between gap-3 rounded-md px-2.5 py-1.5 hover:bg-[#eaf3ef] has-disabled:cursor-not-allowed">
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-slate-950">Agree to the lease</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-slate-600">I have read this lease and accept its terms.</span>
+        </span>
+        <input type="checkbox" role="switch" checked={read} disabled={busy !== null} onChange={(event) => setRead(event.target.checked)} className="peer sr-only" />
+        <span aria-hidden className="relative h-6 w-11 shrink-0 rounded-full bg-slate-500 transition-colors after:absolute after:left-0.5 after:top-0.5 after:size-5 after:rounded-full after:bg-white after:shadow-sm after:transition-transform after:content-[''] peer-checked:bg-[#02665e] peer-checked:after:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-[#02665e] peer-focus-visible:ring-offset-2 peer-disabled:opacity-60 motion-reduce:transition-none motion-reduce:after:transition-none" />
       </label>
-      <button type="button" disabled={!read || busy !== null} onClick={() => post("lease", "lease/accept", { leaseHash: lease.hash })}
-        className={`${primary} ${landlord ? "w-full" : "mt-2"} disabled:cursor-not-allowed`}>
-        {busy === "lease" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
-        {busy === "lease" ? "Saving acceptance…" : "Accept the lease"}
-      </button>
-      {!landlord && <p className="m-0 mt-2 text-xs text-slate-600">You need a verified <Link href="/account/long-stay-id" className="font-semibold text-[#02665e] no-underline hover:underline">Long-stay ID</Link> to accept.</p>}
-    </div>
+      <div className={`mt-2.5 flex flex-col gap-2 ${landlord ? "" : "sm:flex-row sm:items-center sm:justify-between"}`}>
+        {!landlord && <p className="m-0 text-xs leading-relaxed text-slate-600">You need a verified <Link href="/account/long-stay-id" className="font-semibold text-[#02665e] no-underline hover:underline focus-visible:underline">Long-stay ID</Link> to accept.</p>}
+        <button type="button" disabled={!read || busy !== null} onClick={() => post("lease", "lease/accept", { leaseHash: lease.hash })}
+          className={`${primary} justify-center disabled:cursor-not-allowed ${landlord ? "w-full" : "sm:shrink-0"}`}>
+          {busy === "lease" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <ShieldCheck className="size-4" aria-hidden />}
+          {busy === "lease" ? "Saving acceptance…" : "Accept the lease"}
+        </button>
+      </div>
+    </section>
   ) : null;
 
   const timing = view.offer && (
