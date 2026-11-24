@@ -7,6 +7,7 @@ import {
   rentForTerm,
   longStayTypeRefusal,
   parseLongStayTerms,
+  publicLongStayView,
   termsToRow,
   validateRentalMode,
   writeRentalMode,
@@ -26,6 +27,23 @@ const terms = {
   residencyRules: { petsAllowed: false, maxOccupants: 4 },
   availableFrom: "2027-01-01",
 };
+
+describe("public reservation status", () => {
+  it.each(["ACCEPTED", "AWAITING_PAYMENT", "RESERVED", "MOVE_IN"])("shows %s as a reservation hold", (status) => {
+    expect(publicLongStayView(termsToRow(terms as any), [{ status, endDate: new Date("2027-06-10") }], TODAY))
+      .toMatchObject({ reserved: true, availableNow: false, availableFrom: "2027-06-10" });
+  });
+
+  it("keeps pending requests and past reservations from marking the home reserved", () => {
+    expect(publicLongStayView(termsToRow(terms as any), [
+      { status: "OFFERED", endDate: new Date("2027-06-10") },
+      { status: "CANCELLED", endDate: new Date("2027-06-10") },
+      { status: "ENDED", endDate: new Date("2027-06-10") },
+    ], TODAY)).toMatchObject({ reserved: false, availableFrom: "2027-01-01" });
+    expect(publicLongStayView(termsToRow(terms as any), [{ status: "ACTIVE", endDate: new Date("2027-06-10") }], TODAY))
+      .toMatchObject({ reserved: false, availableFrom: "2027-06-10" });
+  });
+});
 
 function fakeDb(opts: { grant?: { pausedAt?: Date | null; pauseReason?: string | null } | null; tenancies?: string[]; listing?: any; bookings?: number; roomsSpec?: unknown } = {}) {
   return {

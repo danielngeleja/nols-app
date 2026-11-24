@@ -6,11 +6,11 @@
  * Every action is checked and audited on the server; TZS payouts continue in
  * Disbursements, USD payouts are paid by bank and recorded here.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AdminNotificationTarget from "@/components/longStay/AdminNotificationTarget";
 import Link from "next/link";
-import { AlertTriangle, CalendarX2, HandCoins, History, Home, Inbox, KeyRound, List, Loader2, Phone, Undo2, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CalendarDays, CalendarX2, HandCoins, History, Home, Inbox, KeyRound, List, Loader2, Phone, Undo2, Users, Wallet, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesAdminHeader from "@/components/admin/sales/SalesAdminHeader";
 
@@ -46,6 +46,14 @@ const TABS: Array<{ key: View; label: string; Icon: typeof Wallet }> = [
   { key: "all", label: "All", Icon: List },
 ];
 const PAYOUT_LABEL: Record<string, string> = { NONE: "Not paid", HELD: "Held", READY: "Ready to approve", REVIEW: "Needs review", APPROVED: "In Disbursements", RELEASED: "Sent", REFUND_DUE: "Refund owed", REFUNDED: "Refunded" };
+const STAY_LABEL: Record<string, string> = { OFFERED: "Awaiting landlord", ACCEPTED: "Lease to sign", AWAITING_PAYMENT: "Awaiting payment", RESERVED: "Reserved", MOVE_IN: "Moving in", ACTIVE: "Active", ENDING: "Ending", ENDED: "Ended", CANCELLED: "Cancelled", DISPUTED: "Problem reported", OVERDUE: "Overdue" };
+const EVENT_TITLE: Record<string, string> = { RESERVATION_REQUESTED: "Reservation requested", ACCEPTED: "Landlord confirmed", LEASE_ACCEPTED: "Lease signed", AWAITING_PAYMENT: "Both signatures received", RESERVED: "Card payment received", MOVE_IN: "Move-in opened", ACTIVE: "Move-in confirmed", PAYOUT_PAID: "Payout sent", PAYOUT_RECORDED: "Bank payout recorded" };
+
+function PayoutStatus({ status }: { status: string }) {
+  const tone = status === "REVIEW" || status === "REFUND_DUE" ? "bg-amber-50 text-amber-900"
+    : status === "RELEASED" ? "bg-emerald-50 text-emerald-800" : status === "NONE" ? "bg-slate-100 text-slate-700" : "bg-sky-50 text-sky-900";
+  return <span className={`inline-flex w-fit rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>{PAYOUT_LABEL[status] ?? status}</span>;
+}
 
 function money(value: number | null | undefined, currency: string) {
   return value == null ? "-" : `${currency} ${Number(value).toLocaleString("en-US", { maximumFractionDigits: currency === "TZS" ? 0 : 2 })}`;
@@ -79,6 +87,7 @@ function TenancyQueue({ initialView, target, claim }: { initialView: View; targe
   const [counts, setCounts] = useState<Partial<Record<View, number>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selected, setSelected] = useState<Item | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,7 +104,19 @@ function TenancyQueue({ initialView, target, claim }: { initialView: View; targe
       setLoading(false);
     }
   }, [view, target]);
-  useEffect(() => { setItems(null); void load(); }, [load]);
+  useEffect(() => { setItems(null); setSelected(null); void load(); }, [load]);
+  const refreshCase = () => {
+    window.dispatchEvent(new Event("nols:admin-long-stay-queue-change"));
+    return load();
+  };
+  const refreshSelected = async (ref: string) => {
+    await Promise.all([
+      refreshCase(),
+      apiClient.get<{ items: Item[] }>("/api/admin/long-stay/tenancies", { params: { view: "all", ref } })
+        .then(({ data }) => setSelected((current) => current?.ref === ref ? data.items[0] ?? null : current))
+        .catch(() => setSelected((current) => current?.ref === ref ? null : current)),
+    ]);
+  };
 
   const attention = (counts.payouts ?? 0) + (counts.disputes ?? 0) + (counts.refunds ?? 0);
   return (
@@ -129,13 +150,62 @@ function TenancyQueue({ initialView, target, claim }: { initialView: View; targe
             <p className="m-0 mt-2 text-sm font-semibold text-slate-700">{target ? "Tenancy unavailable" : EMPTY[view].title}</p>
             {!target && <p className="m-0 mt-0.5 text-[13px] text-slate-500">{EMPTY[view].text}</p>}
           </div>
-        ) : items.map((item) => <TenancyCard key={item.ref} item={item} onChanged={() => { window.dispatchEvent(new Event("nols:admin-long-stay-queue-change")); return load(); }} />)}
+        ) : target ? (
+          <TenancyCard item={items[0]} onChanged={refreshCase} />
+        ) : <TenancyRows items={items} onOpen={setSelected} />}
       </div>
+      {selected && <TenancyDialog item={selected} onClose={() => setSelected(null)} onChanged={() => refreshSelected(selected.ref)} />}
     </div>
   );
 }
 
-function TenancyCard({ item, onChanged }: { item: Item; onChanged: () => void }) {
+function TenancyRows({ items, onOpen }: { items: Item[]; onOpen: (item: Item) => void }) {
+  return (
+    <section aria-label="Tenancy queue" className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
+      <div className="flex items-center justify-between gap-3 px-4 py-3.5 sm:px-5">
+        <h2 className="m-0 text-base font-bold text-slate-950">Tenancy queue</h2>
+        <span className="text-xs font-semibold tabular-nums text-slate-600">{items.length} shown</span>
+      </div>
+      <div className="hidden grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,.85fr)_minmax(0,1fr)_5rem] gap-4 bg-[#f1f6f4] px-5 py-2.5 text-xs font-semibold text-[#215b50] lg:grid" aria-hidden>
+        <span>Property</span><span>Tenant</span><span>Move-in</span><span>Payout</span><span>Details</span>
+      </div>
+      <ul className="m-0 list-none divide-y divide-slate-100 p-0">
+        {items.map((item) => (
+          <li key={item.ref} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,.85fr)_minmax(0,1fr)_5rem]">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#e8f3ef] text-[#02665e]"><Home className="size-4" aria-hidden /></span>
+              <div className="min-w-0">
+                <p className="m-0 break-words text-sm font-bold text-slate-950">{item.home || "Long stay"}</p>
+                <p className="m-0 mt-0.5 text-xs text-slate-600">{STAY_LABEL[item.status] ?? item.status}</p>
+              </div>
+            </div>
+            <p className="m-0 hidden break-words text-sm text-slate-700 lg:block">{item.tenant.name || "—"}</p>
+            <p className="m-0 text-xs text-slate-600 lg:text-sm"><span className="lg:hidden">Move-in · </span>{day(item.moveInDate)}</p>
+            <div className="col-start-2 row-start-1 lg:col-start-auto lg:row-start-auto"><PayoutStatus status={item.payoutStatus} /></div>
+            <button type="button" onClick={() => onOpen(item)} aria-haspopup="dialog" aria-label={`View tenancy for ${item.home || "long stay"}`} className="inline-flex min-h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-solid border-[#cde2d8] bg-white px-2.5 text-xs font-semibold text-[#215b50] hover:bg-[#edf6f2] focus-visible:outline-2 focus-visible:outline-[#02665e]">
+              View <ArrowUpRight className="size-3.5" aria-hidden />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function TenancyDialog({ item, onClose, onChanged }: { item: Item; onClose: () => void; onChanged: () => Promise<void> }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { if (!dialog.current?.open) dialog.current?.showModal(); }, []);
+  return (
+    <dialog ref={dialog} onClose={onClose} aria-label={`Tenancy for ${item.home || "long stay"}`}
+      className="fixed inset-0 m-auto max-h-[calc(100dvh-1.5rem)] w-[min(68rem,calc(100%-1.5rem))] max-w-none overflow-y-auto rounded-xl border-0 bg-white p-0 shadow-2xl backdrop:bg-[#071b17]/65">
+      <TenancyCard item={item} onChanged={onChanged} onClose={() => dialog.current?.close()} />
+    </dialog>
+  );
+}
+
+type TenancyEvent = { actorRole: string; type: string; toStatus?: string | null; createdAt: string; data?: { reason?: string; note?: string } | null };
+
+function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () => Promise<void>; onClose?: () => void }) {
   const [mode, setMode] = useState<"manual" | "resolve" | "history" | "claim" | null>(null);
   const [claimKind, setClaimKind] = useState("UNUSED_RENT");
   const [claimAmount, setClaimAmount] = useState("");
@@ -145,7 +215,8 @@ function TenancyCard({ item, onChanged }: { item: Item; onChanged: () => void })
   const [payout, setPayout] = useState("READY");
   const [note, setNote] = useState("");
   const [reinspect, setReinspect] = useState(false);
-  const [events, setEvents] = useState<any[] | null>(null);
+  const [events, setEvents] = useState<TenancyEvent[] | null>(null);
+  const [historyError, setHistoryError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
@@ -156,7 +227,7 @@ function TenancyCard({ item, onChanged }: { item: Item; onChanged: () => void })
       const response = await apiClient.post(`/api/admin/long-stay/tenancies/${encodeURIComponent(item.ref)}/${path}`, body);
       setMessage({ tone: "ok", text: response.data?.next || done });
       setMode(null);
-      onChanged();
+      await onChanged();
     } catch (requestError: any) {
       setMessage({ tone: "error", text: requestError?.response?.data?.error || "Could not save." });
     } finally {
@@ -164,15 +235,20 @@ function TenancyCard({ item, onChanged }: { item: Item; onChanged: () => void })
     }
   };
 
-  const openHistory = async () => {
-    setMode(mode === "history" ? null : "history");
-    if (events) return;
+  const loadHistory = async () => {
+    setHistoryError(false);
+    setEvents(null);
     try {
-      const response = await apiClient.get(`/api/admin/long-stay/tenancies/${encodeURIComponent(item.ref)}/events`);
+      const response = await apiClient.get<{ events: TenancyEvent[] }>(`/api/admin/long-stay/tenancies/${encodeURIComponent(item.ref)}/events`);
       setEvents(response.data.events);
     } catch {
-      setEvents([]);
+      setHistoryError(true);
     }
+  };
+  const openHistory = () => {
+    if (mode === "history") { setMode(null); return; }
+    setMode("history");
+    void loadHistory();
   };
 
   const payable = ["READY", "REVIEW"].includes(item.payoutStatus) || item.payoutStatus === "APPROVED";
@@ -180,29 +256,45 @@ function TenancyCard({ item, onChanged }: { item: Item; onChanged: () => void })
   const outline = `${btn} border border-solid border-slate-300 bg-white text-slate-700 hover:bg-slate-50`;
 
   return (
-    <article className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
-      <div className="flex flex-wrap items-start gap-3 p-4">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#02665e]/10 text-[#02665e]"><Home className="h-4 w-4" /></span>
-        <div className="min-w-0 flex-1">
-          <p className="m-0 flex flex-wrap items-center gap-2 text-sm font-bold text-slate-900">
-            {item.home || "Long stay"}
-            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">{item.status.replace(/_/g, " ").toLowerCase()}</span>
-            <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${item.payoutStatus === "REVIEW" || item.payoutStatus === "REFUND_DUE" ? "bg-amber-50 text-amber-800" : item.payoutStatus === "RELEASED" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-800"}`}>{PAYOUT_LABEL[item.payoutStatus] ?? item.payoutStatus}</span>
-          </p>
-          <p className="m-0 mt-0.5 font-mono text-[11px] text-slate-400">{item.ref}</p>
-          <dl className="m-0 mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-4">
-            <Fact label="Landlord" value={item.landlord.name || "-"} sub={item.landlord.phone} />
-            <Fact label="Tenant" value={item.tenant.name || "-"} sub={item.tenant.phone} />
-            <Fact label="Move-in" value={day(item.moveInDate)} sub={item.termMonths ? `${item.termMonths} months` : null} />
-            <Fact label="Paid to NoLSAF" value={money(item.paidAmount, item.currency)} />
-            <Fact label="Lease balance" value={money(item.balanceDue, item.currency)} />
-            <Fact label="Landlord says" value={money(item.landlordBalanceAmount, item.currency)} warn={item.balanceMismatch && item.landlordBalanceAmount !== item.balanceDue} />
-            <Fact label="Tenant says" value={money(item.tenantBalanceAmount, item.currency)} warn={item.balanceMismatch && item.tenantBalanceAmount !== item.balanceDue} />
-            <Fact label="Landlord payout" value={money(item.landlordPayout, item.currency)} strong />
-          </dl>
-          {item.balanceMismatch ? <p className="m-0 mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-800"><AlertTriangle className="h-3.5 w-3.5" />A confirmed balance does not match the lease. Call both sides before paying.</p> : null}
-          {item.moveInConfirmedBy && item.moveInConfirmedBy !== "BOTH" ? <p className="m-0 mt-1 text-xs text-slate-500">Move-in confirmed by {item.moveInConfirmedBy === "ADMIN" ? "an admin" : "one side after 72 hours"}.</p> : null}
+    <article className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
+      <header className="relative isolate overflow-hidden bg-[#0b2420] px-4 py-5 text-white sm:px-5">
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,rgba(16,185,129,0.20),transparent_65%)]" aria-hidden />
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-md bg-white/10 text-emerald-200"><Home className="size-4" aria-hidden /></span>
+            <div className="min-w-0">
+              <h2 className="m-0 break-words text-xl font-bold tracking-tight text-white sm:text-2xl">{item.home || "Long stay"}</h2>
+              <p className="m-0 mt-1 font-mono text-xs text-white/75 [overflow-wrap:anywhere]">{item.ref}</p>
+            </div>
+          </div>
+          {onClose && <button type="button" onClick={onClose} aria-label="Close tenancy" className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-md border border-solid border-white/20 bg-white/5 text-white hover:bg-white/15"><X className="size-4" aria-hidden /></button>}
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white">{STAY_LABEL[item.status] ?? item.status}</span>
+          <PayoutStatus status={item.payoutStatus} />
+        </div>
+      </header>
+      <div className="grid gap-3 p-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+        <section className="min-w-0 rounded-lg border border-solid border-slate-200 p-3.5">
+          <h3 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><Users className="size-4 text-[#02665e]" aria-hidden />People and move-in</h3>
+          <dl className="m-0 mt-3 grid grid-cols-2 gap-3">
+            <Fact label="Landlord" value={item.landlord.name || "—"} phone={item.landlord.phone} />
+            <Fact label="Tenant" value={item.tenant.name || "—"} phone={item.tenant.phone} />
+            <Fact label="Move-in" value={day(item.moveInDate)} sub={item.termMonths ? `${item.termMonths} ${item.termMonths === 1 ? "month" : "months"}` : null} />
+            {item.moveInConfirmedBy && <Fact label="Confirmed by" value={item.moveInConfirmedBy === "BOTH" ? "Both parties" : item.moveInConfirmedBy === "ADMIN" ? "NoLSAF" : "One party after 72 hours"} />}
+          </dl>
+        </section>
+        <section className="min-w-0 rounded-lg border border-solid border-[#d9e7e2] bg-[#f5f9f7] p-3.5">
+          <h3 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><Wallet className="size-4 text-[#02665e]" aria-hidden />Payment breakdown</h3>
+          <dl className="m-0 mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Fact label="Paid to NoLSAF" value={money(item.paidAmount, item.currency)} />
+            <Fact label="Rent due at move-in" value={money(item.balanceDue, item.currency)} />
+            <Fact label="Landlord payout" value={money(item.landlordPayout, item.currency)} strong sub={item.payoutReleasedAt ? `Sent ${day(item.payoutReleasedAt)}` : null} />
+            {item.landlordBalanceAmount != null && <Fact label="Landlord confirmed" value={money(item.landlordBalanceAmount, item.currency)} warn={item.balanceMismatch && item.landlordBalanceAmount !== item.balanceDue} />}
+            {item.tenantBalanceAmount != null && <Fact label="Tenant confirmed" value={money(item.tenantBalanceAmount, item.currency)} warn={item.balanceMismatch && item.tenantBalanceAmount !== item.balanceDue} />}
+          </dl>
+          {item.balanceMismatch && <p role="status" className="m-0 mt-3 flex items-start gap-1.5 rounded-md bg-amber-50 p-2 text-xs font-semibold text-amber-900"><AlertTriangle className="size-4 shrink-0" aria-hidden />The reported balance differs from the lease. Check with both parties before paying.</p>}
+        </section>
       </div>
 
       {mode === "manual" ? (
@@ -266,11 +358,36 @@ function TenancyCard({ item, onChanged }: { item: Item; onChanged: () => void })
           </div>
         </div>
       ) : mode === "history" ? (
-        <ol className="m-0 max-h-64 list-none space-y-1 overflow-auto border-0 border-t border-solid border-slate-100 p-4 text-xs text-slate-600">
-          {events === null ? <li><Loader2 className="h-4 w-4 animate-spin" /></li> : events.map((e, i) => (
-            <li key={i}><span className="text-slate-400">{new Date(e.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })}</span> · <b>{e.actorRole.toLowerCase()}</b> · {String(e.type).replace(/_/g, " ").toLowerCase()}{e.data?.reason ? `: ${e.data.reason}` : e.data?.note ? `: ${e.data.note}` : ""}</li>
-          ))}
-        </ol>
+        <section aria-label="Tenancy activity" className="mx-4 mb-4 overflow-hidden rounded-lg border border-solid border-slate-200 sm:mx-5">
+          <h3 className="m-0 flex items-center gap-2 bg-[#f1f6f4] px-3.5 py-3 text-sm font-bold text-slate-950"><History className="size-4 text-[#02665e]" aria-hidden />Tenancy activity</h3>
+          {historyError ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-3">
+              <p role="alert" className="m-0 text-sm text-rose-800">Could not load tenancy activity.</p>
+              <button type="button" onClick={() => void loadHistory()} className={outline}>Retry</button>
+            </div>
+          ) : events === null ? (
+            <p role="status" className="m-0 flex items-center gap-2 p-3.5 text-sm text-slate-700"><Loader2 className="size-4 animate-spin" aria-hidden />Loading activity</p>
+          ) : events.length === 0 ? (
+            <p className="m-0 p-3.5 text-sm text-slate-600">No activity recorded.</p>
+          ) : (
+            <ol className="m-0 max-h-[min(24rem,50dvh)] list-none divide-y divide-slate-100 overflow-auto p-0">
+              {events.map((event, index) => {
+                const statusTitle = event.type.startsWith("STATUS_") && event.toStatus ? EVENT_TITLE[event.toStatus] ?? STAY_LABEL[event.toStatus] : undefined;
+                const title = EVENT_TITLE[event.type] ?? statusTitle ?? event.type.replace(/_/g, " ").toLowerCase();
+                const actor = event.actorRole === "SYSTEM" ? "NoLSAF system" : event.actorRole === "ADMIN" ? "NoLSAF admin" : event.actorRole.toLowerCase();
+                return (
+                  <li key={`${event.createdAt}:${index}`} className="grid gap-x-3 gap-y-1 px-3.5 py-2.5 sm:grid-cols-[minmax(0,1fr)_10rem]">
+                    <div className="min-w-0">
+                      <p className="m-0 text-sm font-semibold text-slate-900 first-letter:uppercase">{title} <span className="ml-1 text-xs font-medium capitalize text-slate-600">· {actor}</span></p>
+                      {(event.data?.reason || event.data?.note) && <p className="m-0 mt-1 break-words text-xs text-slate-600">{event.data.reason || event.data.note}</p>}
+                    </div>
+                    <time dateTime={event.createdAt} className="flex items-center gap-1.5 text-xs tabular-nums text-slate-600"><CalendarDays className="size-3.5 shrink-0 text-[#02665e]" aria-hidden />{new Date(event.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT</time>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-slate-100 px-4 py-2.5">
@@ -282,7 +399,7 @@ function TenancyCard({ item, onChanged }: { item: Item; onChanged: () => void })
         {["READY", "REVIEW"].includes(item.payoutStatus) ? <button type="button" onClick={() => setMode("manual")} className={outline}>Record bank payout</button> : null}
         {item.status === "DISPUTED" || item.status === "MOVE_IN" || item.payoutStatus === "REVIEW" ? <button type="button" onClick={() => setMode("resolve")} className={outline}>Decide</button> : null}
         {["ACTIVE", "ENDING", "ENDED", "OVERDUE", "DISPUTED"].includes(item.status) && item.moveInConfirmedBy ? <button type="button" onClick={() => setMode("claim")} className={outline}>Open claim</button> : null}
-        <button type="button" onClick={openHistory} className={`${btn} ml-auto border-0 bg-transparent text-slate-500 hover:text-slate-800`}><History className="h-4 w-4" />History</button>
+        <button type="button" onClick={openHistory} aria-expanded={mode === "history"} className={`${outline} sm:ml-auto`}><History className="size-4 text-[#02665e]" aria-hidden />{mode === "history" ? "Hide activity" : "View activity"}</button>
         {item.payoutStatus === "APPROVED" ? <Link href="/admin/disbursements" className="text-[13px] font-semibold text-[#02665e] no-underline hover:underline">Open Disbursements</Link> : null}
       </div>
       {message ? <p className={`m-0 px-4 pb-3 text-xs ${message.tone === "ok" ? "text-emerald-700" : "text-red-700"}`}>{message.text}</p> : null}
@@ -290,12 +407,13 @@ function TenancyCard({ item, onChanged }: { item: Item; onChanged: () => void })
   );
 }
 
-function Fact({ label, value, sub, warn, strong }: { label: string; value: string; sub?: string | null; warn?: boolean; strong?: boolean }) {
+function Fact({ label, value, sub, phone, warn, strong }: { label: string; value: string; sub?: string | null; phone?: string | null; warn?: boolean; strong?: boolean }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] text-slate-400">{label}</dt>
-      <dd className={`m-0 truncate ${warn ? "font-semibold text-amber-700" : strong ? "font-bold text-slate-900" : "font-semibold text-slate-800"}`}>{value}</dd>
-      {sub ? <dd className="m-0 flex items-center gap-1 truncate text-[11px] text-slate-500"><Phone className="h-3 w-3" />{sub}</dd> : null}
+      <dt className="text-xs text-slate-600">{label}</dt>
+      <dd className={`m-0 mt-0.5 break-words tabular-nums ${warn ? "text-sm font-semibold text-amber-900" : strong ? "text-base font-bold text-[#215b50]" : "text-sm font-semibold text-slate-900"}`}>{value}</dd>
+      {sub && <dd className="m-0 mt-0.5 text-xs text-slate-600">{sub}</dd>}
+      {phone && <dd className="m-0 mt-0.5"><a href={`tel:${phone}`} className="inline-flex items-center gap-1 break-all text-xs font-medium text-[#02665e] no-underline hover:underline"><Phone className="size-3 shrink-0" aria-hidden />{phone}</a></dd>}
     </div>
   );
 }

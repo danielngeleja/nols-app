@@ -18,7 +18,7 @@ import { rowToTerms } from "./listing.js";
 import { holdsBookingPayment, isTerminalTenancyStatus, isTenancyStatus, tenancyTransitionUpdate, type TenancyActor, type TenancyStatus } from "./tenancyState.js";
 
 export class TenancyError extends Error {
-  constructor(message: string, readonly status = 400) {
+  constructor(message: string, readonly status = 400, readonly code?: "HOME_RESERVED") {
     super(message);
     this.name = "TenancyError";
   }

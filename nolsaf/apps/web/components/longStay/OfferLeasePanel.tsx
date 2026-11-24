@@ -71,7 +71,16 @@ export default function OfferLeasePanel({ side, view, base, onChanged }: { side:
 
   if (status === "OFFERED" && view.offer) body = <OfferReview side={side} view={view} post={post} busy={busy} />;
   else if ((status === "ACCEPTED" || status === "AWAITING_PAYMENT") && view.lease && view.money) body = <LeaseBlock key={`${view.ref}:${view.lease.hash}`} side={side} view={view} base={base} post={post} busy={busy} />;
-  else if ((status === "RESERVED" || status === "MOVE_IN") && view.money) body = <><ReservedBlock side={side} view={view} /><div className="mt-3"><MoveInPanel side={side} view={view} base={base} onChanged={onChanged} /></div>{status === "RESERVED" ? <div className="mt-3"><StayLifecyclePanel side={side} view={view} base={base} onChanged={onChanged} /></div> : null}</>;
+  else if ((status === "RESERVED" || status === "MOVE_IN") && view.money) body = (
+    <>
+      <ReservedBlock side={side} view={view} />
+      <section aria-label={status === "RESERVED" ? "Booking support" : "Move-in confirmation"} className="mt-4 space-y-2 rounded-lg border border-solid border-slate-200 bg-slate-50 p-3.5">
+        {status === "RESERVED" && <h3 className="m-0 text-sm font-bold text-slate-900">Booking support</h3>}
+        <MoveInPanel side={side} view={view} base={base} onChanged={onChanged} />
+        {status === "RESERVED" && <StayLifecyclePanel side={side} view={view} base={base} onChanged={onChanged} />}
+      </section>
+    </>
+  );
   else if (["ACTIVE", "ENDING", "OVERDUE", "DISPUTED"].includes(status) && view.money) body = <><MoveInPanel side={side} view={view} base={base} onChanged={onChanged} /><div className="mt-3"><StayLifecyclePanel side={side} view={view} base={base} onChanged={onChanged} /></div></>;
   else if ((status === "ENDED" || (status === "CANCELLED" && view.cancellation)) && view.money) body = <StayLifecyclePanel side={side} view={view} base={base} onChanged={onChanged} />;
   if (!body) return null;
@@ -366,46 +375,31 @@ function LeaseBlock({ side, view, base, post, busy }: { side: Side; view: OfferL
 function ReservedBlock({ side, view }: { side: Side; view: OfferLeaseView }) {
   const m = view.money!;
   const moveInDay = view.status === "MOVE_IN";
-  if (side === "TENANT") {
-    const steps = [
-      { Icon: ClipboardCheck, title: "Walk through the home", description: "Inspect it with the landlord and take condition photos." },
-      { Icon: Wallet, title: "Pay the landlord", description: `Pay the remaining rent of ${money(m.balanceDue, m.currency)} after the walkthrough.` },
-      { Icon: KeyRound, title: "Get the keys", description: "Both of you confirm the handover in this booking." },
-    ];
-    return (
-      <section aria-label="Move-in plan" className="space-y-4">
-        <div>
-          <h2 className="m-0 text-lg font-bold tracking-tight text-slate-950">{moveInDay ? "Move-in day" : "Prepare for move-in"}</h2>
-          {!moveInDay && <p className="m-0 mt-1 text-sm text-slate-600">NoLSAF holds the first month’s rent until move-in is confirmed.</p>}
-        </div>
-        {view.offer && <ReservationDates offer={view.offer} />}
-        <ol aria-label="Move-in steps" className="m-0 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-          {steps.map(({ Icon, title, description }) => (
-            <li key={title} className="flex min-w-0 items-start gap-2.5 rounded-md border border-solid border-slate-200 p-3">
-              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-[#edf6f2] text-[#02665e]"><Icon className="size-4" aria-hidden /></span>
-              <div className="min-w-0">
-                <p className="m-0 text-sm font-semibold text-slate-900">{title}</p>
-                <p className="m-0 mt-1 text-xs leading-relaxed text-slate-600">{description}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </section>
-    );
-  }
+  const landlord = side === "LANDLORD";
+  const steps = [
+    { Icon: ClipboardCheck, title: "Walk through the home", description: landlord ? "Inspect it with the tenant and take condition photos." : "Inspect it with the landlord and take condition photos." },
+    { Icon: Wallet, title: landlord ? "Collect the remaining rent" : "Pay the landlord", description: landlord ? `Collect ${money(m.balanceDue, m.currency)} from the tenant after the walkthrough.` : `Pay the remaining rent of ${money(m.balanceDue, m.currency)} after the walkthrough.` },
+    { Icon: KeyRound, title: landlord ? "Hand over the keys" : "Get the keys", description: "Both of you confirm the handover in this booking." },
+  ];
   return (
-    <div>
-      <p className="m-0 flex items-center gap-2 text-[13px] font-semibold text-emerald-800"><CheckCircle2 className="h-4 w-4" />{moveInDay ? "Move-in day" : "Reserved"}</p>
-      <p className="m-0 mt-1 text-[13px] text-slate-700">
-        {view.offer ? `${view.offer.termMonths} months from ${dayLabel(view.offer.moveInDate)}. ` : ""}
-        The tenant paid the first month. NoLSAF holds it until move-in is confirmed.
-      </p>
-      <ol className="m-0 mt-3 list-none space-y-1.5 p-0 text-[13px] text-slate-700">
-        <li className="flex gap-2"><span className="font-semibold text-slate-400">1</span>Walk through the home together and take condition photos.</li>
-        <li className="flex gap-2"><span className="font-semibold text-slate-400">2</span>The tenant then pays you the balance ({money(m.balanceDue, m.currency)}).</li>
-        <li className="flex gap-2"><span className="font-semibold text-slate-400">3</span>Keys are handed over, and both of you confirm here.</li>
+    <section aria-label="Move-in plan" className="@container space-y-4">
+      <div>
+        <h2 className="m-0 text-lg font-bold tracking-tight text-slate-950">{moveInDay ? "Move-in day" : "Prepare for move-in"}</h2>
+        {!moveInDay && <p className="m-0 mt-1 text-sm text-slate-600">{landlord ? "Arrange the walkthrough and key handover with your tenant." : "NoLSAF holds the first month’s rent until move-in is confirmed."}</p>}
+      </div>
+      {view.offer && <ReservationDates offer={view.offer} />}
+      <ol aria-label="Move-in steps" className="m-0 grid list-none grid-cols-1 gap-2 p-0 @2xl:grid-cols-3">
+        {steps.map(({ Icon, title, description }) => (
+          <li key={title} className="flex min-w-0 items-start gap-2.5 rounded-md border border-solid border-slate-200 p-3">
+            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-[#edf6f2] text-[#02665e]"><Icon className="size-4" aria-hidden /></span>
+            <div className="min-w-0">
+              <p className="m-0 text-sm font-semibold text-slate-900">{title}</p>
+              <p className="m-0 mt-1 text-xs leading-relaxed text-slate-600">{description}</p>
+            </div>
+          </li>
+        ))}
       </ol>
-    </div>
+    </section>
   );
 }
 

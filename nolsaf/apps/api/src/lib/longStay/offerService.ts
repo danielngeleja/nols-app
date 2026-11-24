@@ -18,16 +18,13 @@ import { buildLease, addMonths, leaseHash, leaseRulesFrom, LEASE_VERSION, type L
 import { currentLongStayRates, discountForTerm, landlordGate, landlordGateRefusal, rentForTerm, rowToTerms, todayInEat } from "./listing.js";
 import { tenantPaymentRefusal } from "./tenantIdentity.js";
 import { CONFIRM_WITHIN_HOURS, logEvent, MAX_OPEN_REQUESTS_PER_TENANT, moveTenancy, newTenancyRef, TenancyError } from "./tenancyService.js";
-import { isTenancyStatus } from "./tenancyState.js";
+import { isTenancyStatus, RESERVATION_HOLD_STATUSES, TENANCY_DATE_HOLD_STATUSES } from "./tenancyState.js";
 import { isLongStayPropertyType } from "./fees.js";
 import { inspectionRefusal } from "./inspection.js";
 
 /** Payment is allowed up to 60 days before move-in, so an offer cannot reach further out. */
 export const MAX_DAYS_TO_MOVE_IN = 60;
 export const PAYMENT_WINDOW_HOURS = 48;
-/** Statuses that hold the home for their dates. */
-const HOLDS_DATES = ["ACCEPTED", "AWAITING_PAYMENT", "RESERVED", "MOVE_IN", "ACTIVE", "ENDING", "OVERDUE", "DISPUTED"];
-
 export const offerSchema = z.object({
   moveInDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   termMonths: z.coerce.number().int().min(1).max(LONG_STAY_MAX_TERM_MONTHS),
@@ -65,11 +62,14 @@ export function checkOfferTerms(terms: { minTermMonths: number; maxTermMonths?: 
 }
 
 async function assertDatesFree(db: any, tenancy: { id: number; propertyId: number }, moveIn: string, end: string) {
-  const others = await db.tenancy.findMany({
-    where: { propertyId: tenancy.propertyId, id: { not: tenancy.id }, status: { in: HOLDS_DATES } },
-    select: { moveInDate: true, endDate: true },
+  const others: Array<{ status: string; moveInDate: Date | null; endDate: Date | null }> = await db.tenancy.findMany({
+    where: { propertyId: tenancy.propertyId, id: { not: tenancy.id }, status: { in: TENANCY_DATE_HOLD_STATUSES } },
+    select: { status: true, moveInDate: true, endDate: true },
   });
-  const clash = others.some((t: any) => {
+  if (others.some((t) => RESERVATION_HOLD_STATUSES.includes(t.status))) {
+    throw new TenancyError("This home is reserved and isn’t taking new reservations.", 409, "HOME_RESERVED");
+  }
+  const clash = others.some((t) => {
     const a = isoDay(t.moveInDate);
     const b = isoDay(t.endDate);
     return a && b && a < end && moveIn < b;

@@ -23,6 +23,10 @@ export const TENANCY_STATUSES = [
 ] as const;
 export type TenancyStatus = (typeof TENANCY_STATUSES)[number];
 
+/** The landlord has committed the home and the tenant has yet to finish moving in. */
+export const RESERVATION_HOLD_STATUSES: readonly string[] = ["ACCEPTED", "AWAITING_PAYMENT", "RESERVED", "MOVE_IN"];
+export const TENANCY_DATE_HOLD_STATUSES = [...RESERVATION_HOLD_STATUSES, "ACTIVE", "ENDING", "OVERDUE", "DISPUTED"];
+
 export type TenancyActor = "TENANT" | "LANDLORD" | "ADMIN" | "SYSTEM";
 
 const ANY: TenancyActor[] = ["TENANT", "LANDLORD", "ADMIN", "SYSTEM"];

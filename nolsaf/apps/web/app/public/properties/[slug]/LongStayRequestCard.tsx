@@ -30,6 +30,7 @@ export type PublicLongStay = {
   depositAmount?: number;
   availableFrom: string | null;
   availableNow: boolean;
+  reserved: boolean;
   inspected: { inspectedOn: string | null; validUntil: string | null } | null;
   inspectionReport?: PublicInspectionReport | null;
   open: boolean;
@@ -66,6 +67,7 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
   const [pricing, setPricing] = useState<{ propertySlug: string; term: number; quote: Quote | null } | null>(null);
   const [quoteAttempt, setQuoteAttempt] = useState(0);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [reservedProperty, setReservedProperty] = useState<string | null>(null);
   const [mode, setMode] = useState<"reserve" | "ask" | "visit">("reserve");
   const [text, setText] = useState("");
   const [slots, setSlots] = useState<Array<{ day: string; time: string }>>([{ day: "", time: "10:00" }]);
@@ -85,7 +87,9 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
     : longStay.securityDepositMonths === 1 ? "1 month’s rent" : `${longStay.securityDepositMonths} months’ rent`;
   const earliest = [longStay.availableFrom ?? addDays(2), addDays(2)].sort().pop() as string;
   const latest = addDays(60);
-  const canReserve = longStay.open && Boolean(longStay.availableFrom) && earliest <= latest && terms.length > 0;
+  const reserved = longStay.reserved || reservedProperty === propertySlug;
+  const nextAvailable = longStay.reserved && longStay.availableFrom && longStay.availableFrom > addDays(0) ? longStay.availableFrom : null;
+  const canReserve = !reserved && longStay.open && Boolean(longStay.availableFrom) && earliest <= latest && terms.length > 0;
   const validMoveIn = moveIn >= earliest && moveIn <= latest;
   const stayLength = longStay.maxTermMonths && longStay.maxTermMonths !== longStay.minTermMonths
     ? `${longStay.minTermMonths}–${longStay.maxTermMonths} months`
@@ -124,6 +128,12 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
       review.current?.close();
     } catch (requestError: any) {
       if (requestError?.response?.status === 401) return signIn();
+      if (requestError?.response?.data?.code === "HOME_RESERVED") {
+        review.current?.close();
+        setReviewOpen(false);
+        setReservedProperty(propertySlug);
+        return;
+      }
       setError(requestError?.response?.data?.error || "Could not reserve. Try again.");
     } finally {
       submittingReservation.current = false;
@@ -174,10 +184,21 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
   return (
     <section id="booking-card" aria-label="Long-stay terms and reservations" className="box-border min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
       <header className="px-4 pb-4 pt-5 sm:px-5">
-        <p className={`m-0 flex items-center gap-2 text-xs font-semibold ${longStay.availableFrom ? "text-[#02665e]" : "text-slate-600"}`}>
-          <span className={`size-1.5 shrink-0 rounded-full ${longStay.availableFrom ? "bg-[#02665e]" : "bg-slate-400"}`} aria-hidden />
-          {longStay.availableFrom ? (longStay.availableNow ? "Available now" : `Available from ${dayLabel(longStay.availableFrom)}`) : "Currently let"}
-        </p>
+        {reserved ? (
+          <div role="status" className="flex items-start gap-3 rounded-md border border-solid border-[#cfe2da] bg-[#edf6f2] px-3 py-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-white text-[#02665e]"><CalendarCheck className="size-4" aria-hidden /></span>
+            <div className="min-w-0">
+              <p className="m-0 text-sm font-bold text-[#164c44]">Reserved</p>
+              <p className="m-0 mt-0.5 text-xs leading-relaxed text-slate-700">This home is held for a reservation. New bookings are closed for now.</p>
+              {nextAvailable && <p className="m-0 mt-1.5 text-xs font-semibold text-[#215b50]">Expected availability from <time dateTime={nextAvailable}>{dayLabel(nextAvailable)}</time></p>}
+            </div>
+          </div>
+        ) : (
+          <p className={`m-0 flex items-center gap-2 text-xs font-semibold ${longStay.availableFrom ? "text-[#02665e]" : "text-slate-600"}`}>
+            <span className={`size-1.5 shrink-0 rounded-full ${longStay.availableFrom ? "bg-[#02665e]" : "bg-slate-400"}`} aria-hidden />
+            {longStay.availableFrom ? (longStay.availableNow ? "Available now" : `Available from ${dayLabel(longStay.availableFrom)}`) : "Currently let"}
+          </p>
+        )}
         <div className="mt-2.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <h2 className="m-0 min-w-0 text-[clamp(1.75rem,5vw,2.375rem)] font-bold leading-tight tracking-tight text-slate-950 tabular-nums [overflow-wrap:anywhere]">{money(longStay.monthlyRent, longStay.currency)}</h2>
           <span className="text-sm text-slate-600">per month</span>
@@ -232,12 +253,12 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
         ) : (
           <div>
             <div className="flex gap-1 rounded-md border border-solid border-slate-200 bg-slate-50 p-1" role="group" aria-label="What would you like to do?">
-              {tab("reserve", "Reserve", CalendarCheck)}
+              {!reserved && tab("reserve", "Reserve", CalendarCheck)}
               {tab("ask", "Ask NoLSAF", MessageCircleQuestion)}
               {tab("visit", "Visit", Footprints)}
             </div>
 
-            {mode === "reserve" ? (
+            {mode === "reserve" ? reserved ? null : (
               <div className="mt-3 space-y-2">
                 {canReserve ? (
                   <button type="button" aria-haspopup="dialog" disabled={busy} onClick={openReview} className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] text-sm font-semibold text-white hover:bg-[#014e47] disabled:opacity-60 [font-family:inherit]">
@@ -290,7 +311,7 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
           </div>
         )}
 
-        {longStay.open && mode === "reserve" && !done ? (
+        {canReserve && mode === "reserve" && !done ? (
           <p className="m-0 flex items-start gap-1.5 text-xs leading-5 text-slate-600">
             <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />
             Reserving is free. Pay the landlord on move-in day once you have the keys.
@@ -337,7 +358,7 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
           </ul>
         </section>
       </div>
-      <dialog ref={review} aria-labelledby={`${reviewId}-title`} aria-describedby={`${reviewId}-next`}
+      {!reserved && <dialog ref={review} aria-labelledby={`${reviewId}-title`} aria-describedby={`${reviewId}-next`}
         onClose={() => { setReviewOpen(false); setError(""); }}
         onCancel={(event) => { if (submittingReservation.current) event.preventDefault(); }}
         className="fixed inset-0 m-auto box-border max-h-[90dvh] w-[calc(100%_-_1.5rem)] max-w-2xl overflow-visible rounded-lg border border-solid border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/55">
@@ -423,7 +444,7 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
               </button>
             </footer>
           </div>
-      </dialog>
+      </dialog>}
     </section>
   );
 }

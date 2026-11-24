@@ -136,8 +136,9 @@ export function drawCode128Barcode(
   y: number,
   width: number,
   height: number,
+  options?: { preserveCase?: boolean },
 ): void {
-  const values = code128BValues(value);
+  const values = code128BValues(value, options);
   const quietZoneModules = 10;
   const symbolModules = values.reduce(
     (sum, code) => sum + Array.from(CODE128_PATTERNS[code], Number).reduce((a, b) => a + b, 0),
@@ -419,6 +420,8 @@ export interface CustomerBookingReceiptData {
     referenceLabel?: string;
     hideBalance?: boolean;
     watermark?: string;
+    showBarcode?: boolean;
+    qrLabel?: string;
   };
 }
 
@@ -541,8 +544,15 @@ export async function generateCustomerBookingReceiptPdf(data: CustomerBookingRec
       try {
         doc.image(data.qrPng, M + W - 68, y - 2, { fit: [62, 62] });
         doc.font(fonts.bold).fontSize(5.5).fillColor(TEXT_MUTED)
-          .text("VERIFY", M + W - 68, y + 62, { width: 62, align: "center", lineBreak: false });
+          .text(d.qrLabel || "VERIFY", M + W - 68, y + 62, { width: 62, align: "center", lineBreak: false });
       } catch { /* QR remains optional. */ }
+    }
+
+    if (d.showBarcode) {
+      const barcodeY = A5_H - 107;
+      drawCode128Barcode(doc, data.receiptNumber, (A5_W - 218) / 2, barcodeY, 218, 24, { preserveCase: true });
+      doc.font("Courier-Bold").fontSize(7).fillColor(TEXT_MAIN)
+        .text(data.receiptNumber, M, barcodeY + 29, { width: W, align: "center", lineBreak: false });
     }
 
     doc.page.margins.bottom = 0;

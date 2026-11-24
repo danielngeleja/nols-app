@@ -4,6 +4,7 @@
  */
 
 import { makeQR } from "./qr.js";
+import { code128Svg } from "./code128.js";
 
 export interface BookingDetails {
   bookingId: number;
@@ -25,6 +26,7 @@ export interface BookingDetails {
   rooms?: number;
   nights?: number;
   totalAmount: number;
+  qrPng?: Buffer;
   services?: any;
   invoice?: {
     invoiceNumber?: string;
@@ -60,8 +62,9 @@ export interface BookingDetails {
     amountLabel?: string;
     referenceLabel?: string;
     hideBalance?: boolean;
-    hideVerificationQr?: boolean;
     watermark?: string;
+    showBarcode?: boolean;
+    qrLabel?: string;
   };
 }
 
@@ -117,7 +120,7 @@ async function generateBookingQRCode(details: BookingDetails): Promise<string> {
  */
 export async function generateBookingReservationHTML(details: BookingDetails): Promise<string> {
   // Generate QR code
-  const qrCodeDataUrl = details.document?.hideVerificationQr ? "" : await generateBookingQRCode(details);
+  const qrCodeDataUrl = details.qrPng ? `data:image/png;base64,${details.qrPng.toString("base64")}` : await generateBookingQRCode(details);
 
   // HTML-escape all guest/property-controlled fields. This HTML is served directly
   // (receipt.html) and rendered in an iframe, so unescaped values would be an XSS vector.
@@ -648,7 +651,7 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
       font-size: 7pt;
       line-height: 1.5;
     }
-    .sheet--watermarked { position: relative; }
+    .sheet--marked { position: relative; }
     .receipt-watermark {
       position: absolute;
       top: 72%;
@@ -662,6 +665,16 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
       user-select: none;
     }
     .document-qr { text-align: center; }
+    .receipt-barcode {
+      position: absolute;
+      left: 50%;
+      bottom: 23mm;
+      width: 77mm;
+      transform: translateX(-50%);
+      text-align: center;
+    }
+    .receipt-barcode svg { display: block; width: 100%; height: 8.5mm; }
+    .receipt-barcode-reference { margin-top: 1.7mm; font: 700 7pt Consolas, monospace; }
     .document-qr img, .document-qr .qr-empty {
       width: 20mm;
       height: 20mm;
@@ -686,7 +699,7 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
   </style>
 </head>
 <body>
-<div class="sheet${doc.watermark ? " sheet--watermarked" : ""}">
+<div class="sheet${doc.watermark || doc.showBarcode ? " sheet--marked" : ""}">
   ${doc.watermark ? `<span class="receipt-watermark" aria-hidden="true">${esc(doc.watermark)}</span>` : ""}
   <header class="document-header">
     <div class="document-brand">
@@ -745,18 +758,22 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
     ${doc.hideBalance ? "" : `<div class="total-row final"><span>Balance</span><span>${balanceDue.toLocaleString("en-US")} ${esc(currency)}</span></div>`}
   </section>
 
-  <section class="confirmation-row"${doc.hideVerificationQr ? ' style="grid-template-columns:1fr"' : ""}>
+  <section class="confirmation-row">
       <div>
         <div class="confirmation-title">${esc(confirmationTitle)}</div>
         <div class="confirmation-copy">${esc(confirmationCopy)}</div>
       </div>
-      ${doc.hideVerificationQr ? "" : `<div class="document-qr">
+      <div class="document-qr">
         ${qrCodeDataUrl
-          ? `<img src="${qrCodeDataUrl}" alt="Booking verification QR code" /><div class="document-qr-label">Verify</div>`
+          ? `<img src="${qrCodeDataUrl}" alt="${esc(doc.qrLabel ? `${doc.qrLabel} QR code` : "Booking verification QR code")}" /><div class="document-qr-label">${esc(doc.qrLabel || "Verify")}</div>`
           : `<div class="qr-empty">QR unavailable</div>`}
-      </div>`}
+      </div>
   </section>
 
+  ${doc.showBarcode ? `<div class="receipt-barcode">
+    ${code128Svg(receiptReference, { preserveCase: true })}
+    <div class="receipt-barcode-reference">${esc(receiptReference)}</div>
+  </div>` : ""}
   <footer class="document-footer">
     ${esc(supportEmail)}${supportPhone ? ` | ${esc(supportPhone)}` : ""} | ${esc(supportWebsite)} | Generated ${esc(generatedAt)}
   </footer>

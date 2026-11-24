@@ -6,7 +6,7 @@
  * freezes the tenancy for NoLSAF. The server decides what counts as let.
  */
 import { useRef, useState } from "react";
-import { AlertTriangle, Camera, CheckCircle2, Clock3, Home, Loader2, ShieldCheck, Wallet } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, Clock3, Home, Loader2, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type Side = "TENANT" | "LANDLORD";
@@ -16,16 +16,6 @@ export type MoveInView = {
   money: { currency: string; balanceDue: number } | null;
   moveIn?: { landlordConfirmedAt: string | null; tenantConfirmedAt: string | null; landlordBalanceAmount: number | null; tenantBalanceAmount: number | null; confirmedAt: string | null; confirmedBy: string | null; balanceMismatch: boolean };
   payout?: { status: string; releasedAt: string | null } | null;
-};
-
-const PAYOUT_LABEL: Record<string, string> = {
-  HELD: "Held by NoLSAF until move-in is confirmed",
-  READY: "Waiting for NoLSAF to approve",
-  REVIEW: "NoLSAF is reviewing it",
-  APPROVED: "Approved, on its way",
-  RELEASED: "Sent to you",
-  REFUND_DUE: "Being refunded to the tenant",
-  REFUNDED: "Refunded to the tenant",
 };
 
 function money(value: number | null | undefined, currency: string) {
@@ -122,12 +112,6 @@ export default function MoveInPanel({ side, view, base, onChanged }: { side: Sid
       ) : view.status === "DISPUTED" ? (
         <p className="m-0 flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2.5 text-[13px] text-amber-900">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />A problem was reported. Everything is on hold while NoLSAF talks to both of you.
-        </p>
-      ) : null}
-
-      {side === "LANDLORD" && view.payout ? (
-        <p className="m-0 flex items-center gap-2 text-[13px] text-slate-700">
-          <Wallet className="h-4 w-4 text-[#02665e]" />First-month payout: <b>{PAYOUT_LABEL[view.payout.status] ?? view.payout.status}</b>{view.payout.releasedAt ? ` on ${day(view.payout.releasedAt)}` : ""}
         </p>
       ) : null}
 

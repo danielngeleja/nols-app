@@ -4,6 +4,7 @@ import type { AuthedRequest } from "../../middleware/auth.js";
 import { asyncHandler } from "../../middleware/errorHandler.js";
 import { generateCustomerBookingReceiptPdf } from "../pdfDocuments.js";
 import { generateBookingPDF } from "../pdfGenerator.js";
+import { makeQR } from "../qr.js";
 import { loadOwnTenancy, TenancyError, tenancyReceiptAmount } from "./tenancyService.js";
 
 export function longStayReceipt(format: "html" | "pdf"): RequestHandler {
@@ -20,6 +21,7 @@ export function longStayReceipt(format: "html" | "pdf"): RequestHandler {
       ]);
       const filename = `Long-Stay-Receipt-${tenancy.publicRef}.pdf`;
       const receiptNumber = tenancy.paymentRef || tenancy.publicRef;
+      const { png: qrPng } = await makeQR(JSON.stringify({ type: "NOLSAF_LONG_STAY_RECEIPT", receiptNumber }));
       const guestName = tenant?.fullName || tenant?.name || "Tenant";
       const propertyName = home?.title || "Long-stay home";
       const propertyLocation = [home?.district, home?.regionName].filter(Boolean).join(", ");
@@ -37,13 +39,15 @@ export function longStayReceipt(format: "html" | "pdf"): RequestHandler {
         referenceLabel: "Ref",
         hideBalance: true,
         watermark: "NoLSAF",
+        showBarcode: true,
+        qrLabel: "Receipt reference",
       };
 
       if (format === "pdf") {
         const pdf = await generateCustomerBookingReceiptPdf({
           receiptNumber, bookingCode: tenancy.publicRef, paidAt: tenancy.paidAt,
           guestName, propertyName, propertyLocation,
-          checkIn, checkOut, totalAmount: amount, currency: tenancy.currency,
+          checkIn, checkOut, totalAmount: amount, currency: tenancy.currency, qrPng,
           document: { ...document, reservationLabel: "LONG-STAY RESERVATION", periodLabel: "LEASE TERM", periodText: leaseLength },
         });
         res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -53,9 +57,9 @@ export function longStayReceipt(format: "html" | "pdf"): RequestHandler {
       const { html } = await generateBookingPDF({
         bookingId: tenancy.id, bookingCode: tenancy.publicRef, guestName,
         property: { title: propertyName, type: "Long stay", district: home?.district ?? undefined, regionName: home?.regionName ?? undefined },
-        checkIn, checkOut, totalAmount: amount,
+        checkIn, checkOut, totalAmount: amount, qrPng,
         invoice: { receiptNumber, paidAt: tenancy.paidAt },
-        document: { ...document, periodColumn: "Lease term", periodTitle: leaseLength, periodSub: "", currency: tenancy.currency, hideVerificationQr: true },
+        document: { ...document, periodColumn: "Lease term", periodTitle: leaseLength, periodSub: "", currency: tenancy.currency },
       });
       res.setHeader("X-NoLSAF-Filename", filename);
       res.setHeader("Content-Security-Policy", "script-src 'none'; object-src 'none'; base-uri 'none'");

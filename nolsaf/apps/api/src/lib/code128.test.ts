@@ -14,6 +14,10 @@ describe("code 128", () => {
     expect(svg).toContain('<rect x="10" y="0" width="2" height="40"/>');
   });
 
+  it("preserves case for receipt references that need an exact match", () => {
+    expect(code128BValues("ab", { preserveCase: true })).toEqual([104, 65, 66, 95, 106]);
+  });
+
   it("refuses characters outside printable ASCII", () => {
     expect(() => code128Svg("ÄB")).toThrow();
   });

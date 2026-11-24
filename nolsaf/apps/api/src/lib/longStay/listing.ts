@@ -19,7 +19,7 @@ import {
   LongStayQuoteError,
   normalizeLongStayRates,
 } from "./fees.js";
-import { isTerminalTenancyStatus, isTenancyStatus } from "./tenancyState.js";
+import { isTerminalTenancyStatus, isTenancyStatus, RESERVATION_HOLD_STATUSES, TENANCY_DATE_HOLD_STATUSES } from "./tenancyState.js";
 
 export const RENTAL_MODES = ["NIGHTLY", "LONG_STAY"] as const;
 export type RentalMode = (typeof RENTAL_MODES)[number];
@@ -236,11 +236,12 @@ export function publicLongStayView(row: any, tenancies: Array<{ status: string; 
   if (!terms) return null;
   // A reserved or let home is free again the day its tenancy ends.
   const busyUntil = tenancies
-    .filter((t) => isTenancyStatus(t.status) && ["AWAITING_PAYMENT", "RESERVED", "MOVE_IN", "ACTIVE", "ENDING", "OVERDUE", "DISPUTED"].includes(t.status))
+    .filter((t) => TENANCY_DATE_HOLD_STATUSES.includes(t.status))
     .map((t) => (t.endDate ? new Date(t.endDate).toISOString().slice(0, 10) : "9999-12-31"))
     .sort()
     .pop();
   const earliest = [terms.availableFrom, today, busyUntil].filter(Boolean).sort().pop() as string;
+  const reserved = tenancies.some((t) => RESERVATION_HOLD_STATUSES.includes(t.status));
   return {
     monthlyRent: terms.monthlyRent,
     currency: terms.currency,
@@ -256,7 +257,8 @@ export function publicLongStayView(row: any, tenancies: Array<{ status: string; 
     billEstimates: terms.billEstimates ?? null,
     depositAmount: terms.securityDepositMonths ? rentForTerm(terms, terms.minTermMonths) * terms.securityDepositMonths : 0,
     availableFrom: earliest === "9999-12-31" ? null : earliest,
-    availableNow: earliest === today,
+    availableNow: !reserved && earliest === today,
+    reserved,
   };
 }
 

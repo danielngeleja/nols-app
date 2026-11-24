@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowUpRight, CheckCircle2, ChevronDown, House, Loader2, Lock, MapPin, MessageCircle, Phone, ReceiptText, Send, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, CheckCircle2, ChevronDown, House, Loader2, Lock, MapPin, MessageCircle, Phone, ReceiptText, Send, Wallet, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import OfferLeasePanel, { type OfferLeaseView } from "./OfferLeasePanel";
 
@@ -57,6 +57,16 @@ const EVENT_LABEL: Record<string, string> = {
   STATUS_OVERDUE: "Lease ended, move-out not confirmed",
   RENEWAL_REQUESTED: "Renewal requested",
   RENEWAL_REMINDER: "Renewal window open",
+};
+
+const OWNER_PAYOUT: Record<string, { label: string; detail: string }> = {
+  HELD: { label: "Held by NoLSAF", detail: "Released after move-in is confirmed and the payout is approved." },
+  READY: { label: "Awaiting approval", detail: "NoLSAF will approve the payout before it is sent." },
+  REVIEW: { label: "Under review", detail: "NoLSAF is reviewing this payout." },
+  APPROVED: { label: "Approved", detail: "The payout is queued for disbursement." },
+  RELEASED: { label: "Sent", detail: "NoLSAF sent the first-month payout." },
+  REFUND_DUE: { label: "Refund pending", detail: "The tenant is due a refund." },
+  REFUNDED: { label: "Refunded", detail: "The payment was refunded to the tenant." },
 };
 
 export function eatDateTime(iso: string | null) {
@@ -143,7 +153,8 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
   const primary = `${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`;
   const homeHref = view.home?.key ? `/public/properties/${encodeURIComponent(view.home.key)}` : null;
   const receiptHref = tenant && view.receiptAmount != null ? `/account/bookings/long-stays/${encodeURIComponent(view.ref)}/receipt` : null;
-  const paidWorkspace = tenant && Boolean(receiptHref || view.contactsShared);
+  const ownerPayout = !tenant && view.payout ? OWNER_PAYOUT[view.payout.status] : undefined;
+  const paidWorkspace = Boolean(receiptHref || view.contactsShared || (!openBeforeLease && ownerPayout));
   const compactActivity = tenant && !view.contactsShared;
   const Activity = compactActivity ? "details" : "div";
   const statusLabel = TENANCY_STATUS_LABEL[view.status] || view.status;
@@ -156,13 +167,11 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
   const history = events.filter((event) => event.type !== "MESSAGE");
   const contactPanel = (
     <div className={paidWorkspace ? "rounded-lg border border-solid border-[#d9e7e2] bg-white p-4" : "border-0 border-t border-solid border-slate-100 px-5 py-3 text-[13px]"}>
-      {tenant && view.contactsShared ? (
+      {view.contactsShared ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0"><p className="m-0 text-xs font-semibold text-slate-600">Your landlord</p><p className="m-0 mt-0.5 break-words text-sm font-bold text-slate-900">{view.otherParty.name || "Landlord"}</p></div>
+          <div className="min-w-0"><p className="m-0 text-xs font-semibold text-slate-600">{tenant ? "Your landlord" : "Your tenant"}</p><p className="m-0 mt-0.5 break-words text-sm font-bold text-slate-900">{view.otherParty.name || (tenant ? "Landlord" : "Tenant")}</p></div>
           {view.otherParty.phone && <a href={`tel:${view.otherParty.phone}`} className="inline-flex items-center gap-2 font-semibold text-[#02665e] no-underline"><Phone className="size-4" aria-hidden />{view.otherParty.phone}</a>}
         </div>
-      ) : view.contactsShared && view.otherParty.phone ? (
-        <a href={`tel:${view.otherParty.phone}`} className="inline-flex items-center gap-2 font-semibold text-[#02665e] no-underline"><Phone className="h-4 w-4" />{view.otherParty.phone}</a>
       ) : ownerReviewsOffer ? (
         <p className="m-0 flex items-start gap-2 text-slate-600"><Lock className="mt-0.5 size-3.5 shrink-0 text-[#02665e]" aria-hidden />Tenant contact details and messaging open after the first payment.</p>
       ) : tenant ? (
@@ -241,32 +250,42 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
           {receiptHref && <Link href={receiptHref} className="inline-flex min-h-10 items-center gap-2 rounded-md bg-[#02665e] px-3 text-sm font-semibold text-white no-underline hover:bg-[#014e47] hover:text-white hover:no-underline"><ReceiptText className="size-4" aria-hidden />View receipt</Link>}
         </div>
       </header>
-    ) : undefined}>
-      {!tenant && <header className="flex flex-wrap items-center gap-3 bg-[#eaf4ef] px-4 py-4 sm:px-6">
-        <span className="grid size-11 shrink-0 place-items-center rounded-md bg-[#02665e] text-white"><House className="size-5" aria-hidden /></span>
-        <div className="min-w-0 flex-1 basis-44">
-          <h1 className="m-0 break-words text-xl font-bold tracking-tight text-slate-950">{view.home?.title || "Long stay"}</h1>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-600">
-            {view.home?.area && <span className="inline-flex items-center gap-1"><MapPin className="size-3.5 shrink-0 text-[#02665e]" aria-hidden />{view.home.area}</span>}
-            {view.otherParty.name && <span>Tenant {view.otherParty.name}</span>}
+    ) : (
+      <header className="relative isolate overflow-hidden rounded-xl bg-[#0b2420] px-5 py-5 text-white sm:px-6 sm:py-6">
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,rgba(16,185,129,0.20),transparent_65%)]" aria-hidden />
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-white/10 text-emerald-200"><House className="size-5" aria-hidden /></span>
+            <div className="min-w-0">
+              <p className="m-0 text-xs font-semibold text-emerald-300">Long-stay reservation</p>
+              <h1 className="m-0 mt-0.5 break-words text-2xl font-bold leading-tight tracking-tight text-white sm:text-3xl">{view.home?.title || "Long stay"}</h1>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/75">
+                {view.home?.area && <span className="inline-flex items-center gap-1"><MapPin className="size-3.5 shrink-0 text-emerald-300" aria-hidden />{view.home.area}</span>}
+                <span className="font-mono [overflow-wrap:anywhere]">{view.ref}</span>
+              </div>
+            </div>
           </div>
+          <span className={`rounded-md px-2.5 py-1.5 text-xs font-semibold ${statusTone}`}>{view.status === "OFFERED" ? "Your response needed" : statusLabel}</span>
         </div>
-        <span className={`shrink-0 rounded px-2.5 py-1 text-xs font-semibold ${statusTone}`}>{view.status === "OFFERED" ? "Your response needed" : statusLabel}</span>
-      </header>}
+      </header>
+    )}>
 
       {paidWorkspace ? (
         <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,32%)]">
-          <div className="min-w-0 space-y-4">
-            <section aria-label="Stay details" className="rounded-lg border border-solid border-[#d9e7e2] bg-white">
-              <OfferLeasePanel side={side} view={view} base={base} onChanged={load} />
-              {view.cancelReason && view.status === "CANCELLED" && <p className="m-4 rounded-md bg-slate-50 p-3 text-sm text-slate-700">Closed: {view.cancelReason}</p>}
-            </section>
-            {view.contactsShared && <div className="rounded-lg border border-solid border-[#d9e7e2] bg-white">
-              <h2 className="m-0 flex items-center gap-2 bg-[#f4f8f6] px-4 py-3.5 text-base font-bold text-slate-950"><MessageCircle className="size-4 text-[#02665e]" aria-hidden />Messages with your landlord</h2>
-              {messagesPanel(true)}
-            </div>}
-          </div>
-          <aside aria-label="Payment and booking activity" className="min-w-0 space-y-4">
+          <section aria-label="Stay details" className="min-w-0 rounded-lg border border-solid border-[#d9e7e2] bg-white lg:col-start-1 lg:row-start-1">
+            <OfferLeasePanel side={side} view={view} base={base} onChanged={load} />
+            {view.cancelReason && view.status === "CANCELLED" && <p className="m-4 rounded-md bg-slate-50 p-3 text-sm text-slate-700">Closed: {view.cancelReason}</p>}
+          </section>
+          <aside aria-label="Payment and booking activity" className={`min-w-0 space-y-4 lg:col-start-2 lg:row-start-1 ${view.contactsShared ? "lg:row-span-2" : ""}`}>
+            {ownerPayout && <section aria-label="First-month payout" className="rounded-xl border border-solid border-[#d5e6df] bg-white p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><Wallet className="size-4 text-[#02665e]" aria-hidden />First-month payout</h2>
+                <span className={`rounded-md px-2 py-1 text-xs font-semibold ${view.payout?.status === "REVIEW" || view.payout?.status === "REFUND_DUE" ? "bg-amber-50 text-amber-900" : "bg-[#edf6f2] text-[#215b50]"}`}>{ownerPayout.label}</span>
+              </div>
+              {view.money?.landlordPayout != null && !view.payout?.status.startsWith("REFUND") && <p className="m-0 mt-3 text-2xl font-bold tabular-nums tracking-tight text-slate-950">{view.money.currency} {view.money.landlordPayout.toLocaleString("en-US", { maximumFractionDigits: 2 })}</p>}
+              <p className="m-0 mt-2 text-sm leading-relaxed text-slate-600">{ownerPayout.detail}</p>
+              {view.payout?.releasedAt && <p className="m-0 mt-2 text-xs text-slate-600">{eatDateTime(view.payout.releasedAt)}</p>}
+            </section>}
             {receiptHref && view.money && view.receiptAmount != null && <section aria-label="NoLSAF payment" className="rounded-lg border border-solid border-[#d9e7e2] bg-white p-4 sm:p-5">
               <h2 className="m-0 flex items-center gap-2 text-sm font-bold text-[#215b50]"><CheckCircle2 className="size-4" aria-hidden />Paid to NoLSAF</h2>
               <p className="m-0 mt-2 text-2xl font-bold tracking-tight text-slate-950">{view.money.currency} {view.receiptAmount.toLocaleString("en-US", { maximumFractionDigits: 2 })}</p>
@@ -279,6 +298,10 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
               <ol className="m-0 list-none space-y-3 px-4 pb-4">{history.map(renderHistoryEvent)}</ol>
             </details>}
           </aside>
+          {view.contactsShared && <section aria-label="Messages" className="min-w-0 rounded-lg border border-solid border-[#d9e7e2] bg-white lg:col-start-1 lg:row-start-2">
+            <h2 className="m-0 flex items-center gap-2 rounded-t-lg bg-[#f4f8f6] px-4 py-3.5 text-base font-bold text-slate-950"><MessageCircle className="size-4 text-[#02665e]" aria-hidden />{tenant ? "Messages with your landlord" : "Messages with your tenant"}</h2>
+            {messagesPanel(true)}
+          </section>}
         </div>
       ) : (
         <>
@@ -323,7 +346,7 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
 
 function Shell({ backHref, tenant, workspace = false, heading, children }: { backHref: string; tenant: boolean; workspace?: boolean; heading?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div id="tenancy-detail" className={tenant ? "w-full min-w-0 pb-6 pt-2" : "mx-auto w-full max-w-5xl pb-6 pt-2"}>
+    <div id="tenancy-detail" className="w-full min-w-0 pb-6 pt-2">
       <style>{`#tenancy-detail, #tenancy-detail * { box-sizing: border-box; }`}</style>
       <Link href={backHref} className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 no-underline hover:text-[#02665e]"><ArrowLeft className="h-4 w-4" aria-hidden />{tenant ? "My bookings · Long stays" : "All long stays"}</Link>
       {heading}

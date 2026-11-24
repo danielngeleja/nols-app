@@ -183,7 +183,7 @@ router.post("/reservations", blockImpersonated as RequestHandler, limitReservati
         tenancyRef: tenancy.publicRef, propertyTitle: property.title, moveInDate: body.data.moveInDate, termMonths: body.data.termMonths,
       });
       return { tenancy, notification, propertyTitle: property.title };
-    });
+    }, { isolationLevel: "Serializable" });
     publishUserNotification(notification, LONG_STAY_RESERVATION_RECEIVED);
     await notifyAdmins("long_stay_reservation_created", { tenancyRef: tenancy.publicRef, propertyTitle });
     return res.status(201).json({ ref: tenancy.publicRef, status: tenancy.status });

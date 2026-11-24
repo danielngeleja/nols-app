@@ -183,7 +183,8 @@ describe("long-stay receipts", () => {
     expect(html.text).toContain("LST-0011223344556677");
     expect(html.text).toContain("&lt;Example Apartment&gt;");
     expect(html.text).not.toContain("20,000");
-    expect(html.text).not.toContain("Booking verification QR code");
+    expect(html.text).toContain('alt="Receipt reference QR code"');
+    expect(html.text).toContain('aria-label="Code 128 barcode LST-0011223344556677"');
     const pdf = await request(app).get(`${path}/pdf`).expect(200).expect("Content-Type", /application\/pdf/);
     expect(pdf.body.subarray(0, 5).toString()).toBe("%PDF-");
     expect(h.db.tenancy.findFirst).toHaveBeenCalledWith({ where: { publicRef: reservationRef, tenantId: 20 } });

@@ -32,8 +32,12 @@ import {
 import { acceptLease, acceptOffer, cancelClashingReservations, leaseAcceptSchema, leaseTextOf, PAYMENT_WINDOW_HOURS } from "./offerService.js";
 
 export function sendTenancyError(res: Response, error: unknown): boolean {
+  if (error && typeof error === "object" && "code" in error && error.code === "P2034") {
+    res.status(409).json({ error: "The reservation changed while this was being saved. Try again." });
+    return true;
+  }
   if (!(error instanceof TenancyError)) return false;
-  res.status(error.status).json({ error: error.message });
+  res.status(error.status).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
   return true;
 }
 
@@ -120,8 +124,11 @@ export function closeRequest(side: TenancySide): RequestHandler {
 // ---------- Reservation and lease ----------
 
 export const acceptOfferRoute: RequestHandler = guard(async (req, res) => {
-  const tenancy = await loadOwnTenancy(prisma, String(req.params.ref), "LANDLORD", req.user!.id);
-  const result = await acceptOffer(prisma, tenancy, req.user!.id);
+  const landlordId = req.user!.id;
+  const { tenancy, result } = await prisma.$transaction(async (tx) => {
+    const tenancy = await loadOwnTenancy(tx, String(req.params.ref), "LANDLORD", landlordId);
+    return { tenancy, result: await acceptOffer(tx, tenancy, landlordId) };
+  }, { isolationLevel: "Serializable" });
   const title = await propertyTitle(tenancy.propertyId);
   await notifyUser(tenancy.tenantId, "long_stay_offer_accepted", { propertyTitle: title }).catch(() => undefined);
   // Other reservations for the same dates can no longer be confirmed: close them now.

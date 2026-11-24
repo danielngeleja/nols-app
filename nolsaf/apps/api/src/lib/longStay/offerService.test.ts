@@ -77,6 +77,16 @@ describe("createReservation", () => {
     await expect(createReservation(fakeDb(), input, TODAY, NOW)).rejects.toMatchObject({ status: 403 });
   });
 
+  it("blocks a new booking during a confirmed hold and allows future dates after an active lease", async () => {
+    const db = fakeDb();
+    const current = { moveInDate: new Date("2026-01-01"), endDate: new Date("2027-01-01") };
+    db.tenancy.findMany.mockResolvedValueOnce([{ ...current, status: "ACCEPTED" }]);
+    await expect(createReservation(db, input, TODAY, NOW)).rejects.toMatchObject({ status: 409, code: "HOME_RESERVED" });
+    expect(db.tenancy.create).not.toHaveBeenCalled();
+    db.tenancy.findMany.mockResolvedValueOnce([{ ...current, status: "ACTIVE" }]);
+    await expect(createReservation(db, input, TODAY, NOW)).resolves.toMatchObject({ tenancy: { status: "OFFERED" } });
+  });
+
   it("refuses the landlord's own home, a paused landlord, a duplicate, too many, and taken dates", async () => {
     await expect(createReservation(fakeDb(), { ...input, tenantId: 3 }, TODAY, NOW)).rejects.toMatchObject({ status: 403 });
     await expect(createReservation(fakeDb({ longStayLandlordGrant: { findUnique: vi.fn(async () => ({ pausedAt: new Date() })) } }), input, TODAY, NOW)).rejects.toMatchObject({ status: 409 });
