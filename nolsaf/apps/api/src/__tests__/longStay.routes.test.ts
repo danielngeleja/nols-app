@@ -16,6 +16,7 @@ const h = vi.hoisted(() => {
     userWorkspaceAccess: { findUnique: fn() },
     propertySalesAttribution: { findFirst: fn() },
     longStayInspection: { findUnique: fn(), findFirst: fn(), findMany: fn(), create: fn(), updateMany: fn(), count: fn() },
+    longStayEnquiry: { findMany: fn(), count: fn() },
     notification: { create: fn(), findMany: fn(), count: fn() },
     $transaction: vi.fn(async (operation: (tx: any) => unknown) => operation(db)),
   };
@@ -62,6 +63,28 @@ beforeEach(() => {
   h.db.systemSetting.findUnique.mockResolvedValue(null);
 });
 afterEach(() => { vi.unstubAllEnvs(); });
+
+describe("admin long-stay enquiry queue", () => {
+  it("paginates by status with a stable order and clamps a page after the queue shrinks", async () => {
+    h.db.longStayEnquiry.count.mockImplementation(async ({ where }: { where: { status: string } }) => where.status === "OPEN" ? 8 : 51);
+    h.db.longStayEnquiry.findMany.mockResolvedValue([]);
+    const response = await request(app).get("/api/admin/long-stay/enquiries").query({ view: "answered", page: 9 }).expect(200);
+    expect(response.body).toEqual({ openCount: 8, items: [], pagination: { page: 3, pageSize: 25, total: 51 } });
+    expect(h.db.longStayEnquiry.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: "ANSWERED" }, skip: 50, take: 25, orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    }));
+  });
+
+  it("rejects invalid views and pages and leaves the original unpaged response available", async () => {
+    h.db.longStayEnquiry.count.mockResolvedValue(4);
+    h.db.longStayEnquiry.findMany.mockResolvedValue([]);
+    await request(app).get("/api/admin/long-stay/enquiries").query({ view: "constructor" }).expect(400);
+    await request(app).get("/api/admin/long-stay/enquiries").query({ page: 0 }).expect(400);
+    const response = await request(app).get("/api/admin/long-stay/enquiries").expect(200);
+    expect(response.body).toEqual({ openCount: 4, items: [] });
+    expect(h.db.longStayEnquiry.findMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ take: 100 }));
+  });
+});
 
 describe("admin landlord switch", () => {
   it("is refused to anyone but an admin", async () => {

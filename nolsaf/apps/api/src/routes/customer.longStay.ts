@@ -20,7 +20,7 @@ import { blockImpersonated, requireAuth, type AuthedRequest } from "../middlewar
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { audit } from "../lib/audit.js";
-import { notifyAdmins, notifyOwner } from "../lib/notifications.js";
+import { createOwnerReservationNotification, LONG_STAY_RESERVATION_RECEIVED, notifyAdmins, publishUserNotification } from "../lib/notifications.js";
 import { isTrustedUserDocumentUrl } from "../lib/userDocumentSecurity.js";
 import { canReplaceApprovedId, isTenantRole, prepareIdentity, TenantIdentityError, tenantIdentityView, type IdUpload } from "../lib/longStay/tenantIdentity.js";
 import { reserveSchema } from "../lib/longStay/tenancyService.js";
@@ -176,8 +176,14 @@ router.post("/reservations", blockImpersonated as RequestHandler, limitReservati
   if (!propertyKey) return res.status(404).json({ error: "This home is not available for long stays." });
   if (!(await tenantGate(req, res))) return;
   try {
-    const { tenancy, property } = await createReservation(prisma, { tenantId: req.user!.id, propertyKey, moveInDate: body.data.moveInDate, termMonths: body.data.termMonths });
-    await notifyOwner(property.ownerId, "long_stay_reservation_received", { propertyTitle: property.title, moveInDate: body.data.moveInDate, termMonths: body.data.termMonths }).catch(() => undefined);
+    const { tenancy, notification } = await prisma.$transaction(async (tx) => {
+      const { tenancy, property } = await createReservation(tx, { tenantId: req.user!.id, propertyKey, moveInDate: body.data.moveInDate, termMonths: body.data.termMonths });
+      const notification = await createOwnerReservationNotification(tx, property.ownerId, {
+        tenancyRef: tenancy.publicRef, propertyTitle: property.title, moveInDate: body.data.moveInDate, termMonths: body.data.termMonths,
+      });
+      return { tenancy, notification };
+    });
+    publishUserNotification(notification, LONG_STAY_RESERVATION_RECEIVED);
     return res.status(201).json({ ref: tenancy.publicRef, status: tenancy.status });
   } catch (error) {
     if (sendTenancyError(res, error)) return;

@@ -25,3 +25,12 @@ test("known record destinations use their identifiers", () => {
   assert.equal(notificationDestination({ notificationKind: "property_rejected", propertyId: 9 })?.href, "/owner/properties/9");
   assert.equal(notificationDestination({ actionUrl: "/owner/revenue/receipts/42" })?.href, "/owner/revenue/receipts/42");
 });
+
+test("long-stay alerts open the reservation and fall back to the list for legacy alerts", () => {
+  const ref = "tn_0123456789abcdefghijkl";
+  assert.deepEqual(notificationDestination({ notificationKind: "long_stay_reservation_received", tenancyRef: ref }), {
+    href: `/owner/long-stays/${ref}`, label: "Review reservation",
+  });
+  assert.equal(notificationDestination({ notificationKind: "long_stay_reservation_received" })?.href, "/owner/long-stays");
+  assert.equal(notificationDestination({ notificationKind: "long_stay_reservation_received", tenancyRef: "../settings" })?.href, "/owner/long-stays");
+});

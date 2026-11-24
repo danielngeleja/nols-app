@@ -340,8 +340,8 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
       <dialog ref={review} aria-labelledby={`${reviewId}-title`} aria-describedby={`${reviewId}-next`}
         onClose={() => { setReviewOpen(false); setError(""); }}
         onCancel={(event) => { if (submittingReservation.current) event.preventDefault(); }}
-        className="fixed inset-0 m-auto box-border max-h-[90dvh] w-[calc(100%_-_1.5rem)] max-w-2xl overflow-hidden rounded-lg border border-solid border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/55">
-          <div className="flex max-h-[inherit] min-w-0 flex-col">
+        className="fixed inset-0 m-auto box-border max-h-[90dvh] w-[calc(100%_-_1.5rem)] max-w-2xl overflow-visible rounded-lg border border-solid border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/55">
+          <div className="flex max-h-[inherit] min-w-0 flex-col overflow-hidden rounded-[inherit]">
             <header className="flex shrink-0 items-start gap-3 border-0 border-b border-solid border-slate-200 bg-[#f2f7f5] px-4 py-3.5 sm:px-5">
               <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#02665e] text-white"><CalendarCheck className="size-4" aria-hidden /></span>
               <div className="min-w-0 flex-1">
@@ -353,7 +353,7 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
             </header>
             <div className="min-h-0 overflow-y-auto overscroll-y-contain px-4 py-4 sm:px-5">
               <div className="grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-                <div className="min-w-0 space-y-3">
+                <div className="min-w-0 space-y-4">
                   <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
                     <legend className="p-0 text-sm font-semibold text-slate-900">Lease length</legend>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -361,23 +361,25 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
                         <button key={months} type="button" aria-pressed={term === months} onClick={() => {
                           if (term !== months) { setTerm(months); setPricing(null); setError(""); }
                         }}
-                          className={`min-h-9 flex-1 cursor-pointer whitespace-nowrap rounded-md border border-solid px-2 text-xs font-semibold [font-family:inherit] ${term === months ? "border-[#8ab8ab] bg-[#e8f4ef] text-[#215b50]" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>
-                          {months} months
+                          className={`inline-flex min-h-10 flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-solid px-2 text-sm font-semibold [font-family:inherit] ${term === months ? "border-[#86b3a7] bg-[#edf6f2] text-[#215b50]" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                          {term === months && <Check className="size-3.5 shrink-0" aria-hidden />}{months} months
                         </button>
                       ))}
                     </div>
                   </fieldset>
                   <div>
-                    <label htmlFor={`${reviewId}-move-in`} className="block text-sm font-semibold text-slate-900">Move-in date</label>
-                    <input id={`${reviewId}-move-in`} type="date" min={earliest} max={latest} value={moveIn} disabled={busy}
-                      onChange={(event) => { setMoveIn(event.target.value); setError(""); }}
-                      aria-describedby={`${reviewId}-dates`}
-                      className="mt-1.5 block min-h-10 w-full min-w-0 box-border rounded-md border border-solid border-slate-300 bg-white px-2.5 text-sm text-slate-900 [font-family:inherit]" />
-                    <p id={`${reviewId}-dates`} className="m-0 mt-1 text-xs text-slate-600">{dayLabel(earliest)} to {dayLabel(latest)}</p>
+                    <p className="m-0 text-sm font-semibold text-slate-900">Move-in date</p>
+                    {reviewOpen && <div className="mt-1.5">
+                      <DatePickerField label={validMoveIn ? `Move-in date, ${dayLabel(moveIn)}` : "Move-in date"} value={moveIn}
+                        min={earliest} max={latest} allowPast={false} twoMonths={false} size="sm" widthClassName="box-border w-full"
+                        strongBorder squared disabled={busy} portalContainerRef={review} descriptionId={`${reviewId}-dates`}
+                        onChangeAction={(date) => { setMoveIn(date.slice(0, 10)); setError(""); }} />
+                    </div>}
+                    <p id={`${reviewId}-dates`} className="m-0 mt-1.5 text-xs leading-5 text-slate-600">Choose a date from {dayLabel(earliest)} to {dayLabel(latest)}.</p>
                     {moveIn && !validMoveIn && <p role="alert" className="m-0 mt-1 text-xs text-rose-800">Choose a date within the available range.</p>}
                   </div>
                 </div>
-                <section aria-label="Payment breakdown" className="min-w-0 rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2.5">
+                <section aria-label="Payment breakdown" className="min-w-0 rounded-lg border border-solid border-slate-200 bg-slate-50/70 p-3.5">
                   {quote ? (
                     <>
                       <h3 className="m-0 text-xs font-bold text-slate-900">Pay NoLSAF after signing</h3>
@@ -386,11 +388,11 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
                         <Row label="First month’s rent" value={money(quote.monthlyRent, quote.currency)} />
                         <Row label="Service fee" value={money(quote.tenantFee, quote.currency)} />
                       </dl>
-                      <p className="m-0 mt-2 flex flex-wrap items-baseline justify-between gap-1 border-0 border-t border-solid border-slate-200 pt-2 text-xs font-semibold text-[#02665e]">
-                        <span>Total after signing</span><strong className="text-sm tabular-nums">{money(quote.bookingAmount, quote.currency)}</strong>
+                      <p className="m-0 mt-2.5 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 rounded-md bg-[#e8f4ef] px-2.5 py-2 text-xs font-semibold text-[#215b50]">
+                        <span>Total after signing</span><strong className="text-base font-bold tabular-nums">{money(quote.bookingAmount, quote.currency)}</strong>
                       </p>
                       {quote.balanceDue || longStay.securityDepositMonths ? (
-                        <div className="mt-2 border-0 border-t border-solid border-slate-200 pt-2">
+                        <div className="mt-3 border-0 border-t border-solid border-slate-200 pt-2.5">
                           <h3 className="m-0 text-xs font-bold text-slate-900">Pay the landlord on move-in day</h3>
                           <dl className="m-0 mt-1.5 space-y-1 text-xs">
                             {quote.balanceDue ? <Row label="Remaining upfront rent" value={money(quote.balanceDue, quote.currency)} /> : null}
@@ -407,9 +409,9 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
                   ) : <p role="status" className="m-0 flex items-center gap-1.5 text-xs text-slate-600"><Loader2 className="size-3.5 animate-spin" aria-hidden />Calculating your payment breakdown…</p>}
                 </section>
               </div>
-              <p id={`${reviewId}-next`} className="m-0 mt-4 flex items-start gap-2 rounded-md bg-[#edf6f2] px-3 py-2.5 text-xs leading-5 text-slate-700">
-                <Lock className="mt-0.5 size-3.5 shrink-0 text-[#02665e]" aria-hidden />
-                <span><strong className="text-slate-900">Nothing is charged now.</strong> The landlord has 24 hours to confirm. You sign the lease and pay NoLSAF after they confirm.</span>
+              <p id={`${reviewId}-next`} className="m-0 mt-4 flex items-start gap-2.5 rounded-md border border-solid border-[#d8e8e0] bg-[#f2f8f5] px-3 py-2.5 text-xs leading-5 text-slate-700">
+                <span className="grid size-7 shrink-0 place-items-center rounded bg-[#e3f1eb] text-[#02665e]"><Lock className="size-3.5" aria-hidden /></span>
+                <span><strong className="block text-slate-900">Nothing is charged now</strong>The landlord has 24 hours to confirm. You can then sign the lease and pay NoLSAF.</span>
               </p>
             </div>
             <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-0 border-t border-solid border-slate-200 px-4 py-3 sm:px-5">

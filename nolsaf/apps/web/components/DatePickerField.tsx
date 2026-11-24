@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Popover, Transition } from "@headlessui/react";
 import DatePicker from "@/components/ui/DatePicker";
@@ -15,6 +15,10 @@ type Props = {
   widthClassName?: string;
   size?: "sm" | "md";
   allowPast?: boolean;
+  disabled?: boolean;
+  descriptionId?: string;
+  /** Use a container inside a native modal so the calendar stays in its top layer. */
+  portalContainerRef?: RefObject<HTMLElement | null>;
   twoMonths?: boolean;
   variant?: "light" | "dark";
   display?: "date" | "month" | "day-month";
@@ -87,6 +91,9 @@ export default function DatePickerField({
   widthClassName = "sm:w-[220px]",
   size = "md",
   allowPast,
+  disabled,
+  descriptionId,
+  portalContainerRef,
   twoMonths: twoMonthsProp,
   variant = "light",
   display = "date",
@@ -157,6 +164,8 @@ export default function DatePickerField({
   return (
     <Popover className="relative">
       {({ open, close }) => {
+        const portalContainer = typeof document === "undefined" ? null
+          : portalContainerRef ? portalContainerRef.current : document.body;
         return (
           <>
             <PopoverPositioner open={open} computePos={computePos} measure={measure} />
@@ -164,18 +173,20 @@ export default function DatePickerField({
             <Popover.Button
               ref={buttonRef}
               type="button"
+              disabled={disabled}
               className={
                 (isSm ? "h-10" : "h-12") +
                 " w-full " +
                 widthClassName +
                 " relative " + (squared ? "rounded-lg" : "rounded-xl") + " border text-sm shadow-sm " +
                 (isSm ? "px-3 pl-10" : "px-4 pl-11") +
-                " text-left focus:outline-none transition " +
+                " text-left focus:outline-none transition disabled:opacity-60 " +
                 (isDark
                   ? "border-white/[0.12] bg-white/[0.07] text-white hover:bg-white/[0.12] focus:ring-2 focus:ring-white/20"
                   : `${strongBorder ? "border-solid border-slate-300 hover:border-slate-400" : "border-gray-200"} bg-white text-gray-900 hover:bg-brand/5 focus:ring-2 focus:ring-brand/25 focus:border-brand`)
               }
               aria-label={label}
+              aria-describedby={descriptionId}
               title={label}
               onClick={() => {
                 if (typeof window !== "undefined") {
@@ -200,7 +211,7 @@ export default function DatePickerField({
               <span className={"whitespace-nowrap " + (pretty ? "" : (isDark ? "text-slate-500" : "text-gray-400"))}>{pretty || (display === "month" ? "Mon YYYY" : display === "day-month" ? "DD Mon" : "DD Mon YYYY")}</span>
             </Popover.Button>
 
-            {typeof document !== 'undefined' && createPortal(
+            {portalContainer && createPortal(
                   <Transition
                     as={Fragment}
                     show={open}
@@ -215,6 +226,13 @@ export default function DatePickerField({
                       ref={panelRef}
                       static
                       className="fixed z-[10000] nolsaf-date-popper"
+                      onKeyDown={(event) => {
+                        if (portalContainerRef && event.key === "Escape") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          close();
+                        }
+                      }}
                       style={{
                         ...(panelPos
                           ? { top: panelPos.top, left: panelPos.left, width: panelPos.width }
@@ -244,7 +262,7 @@ export default function DatePickerField({
                       />
                     </Popover.Panel>
                   </Transition>,
-                  document.body
+                  portalContainer
                 )}
           </>
         );

@@ -544,23 +544,33 @@ const ENQUIRY_VIEWS: Record<string, any> = { open: { status: "OPEN" }, answered:
 router.get("/enquiries", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const view = String(req.query.view || "open");
   const where = ENQUIRY_VIEWS[view];
-  if (!where) return res.status(400).json({ error: "Unknown view" });
-  const [rows, open] = await Promise.all([
-    prisma.longStayEnquiry.findMany({
-      where,
-      orderBy: { createdAt: view === "open" ? "asc" : "desc" },
-      take: 100,
-      include: {
-        property: { select: { title: true, district: true, regionName: true, owner: { select: { name: true, fullName: true, phone: true } } } },
-        user: { select: { name: true, fullName: true, phone: true } },
-        salesPartner: { select: { agentCode: true } },
-      },
-    }),
-    prisma.longStayEnquiry.count({ where: { status: "OPEN" } }),
+  if (!Object.prototype.hasOwnProperty.call(ENQUIRY_VIEWS, view)) return res.status(400).json({ error: "Unknown view" });
+  const pageParam = req.query.page;
+  if (pageParam != null && (typeof pageParam !== "string" || !/^[1-9]\d{0,8}$/.test(pageParam))) {
+    return res.status(400).json({ error: "Invalid page" });
+  }
+  const pageSize = 25;
+  const openCountQuery = prisma.longStayEnquiry.count({ where: ENQUIRY_VIEWS.open });
+  const [open, total] = await Promise.all([
+    openCountQuery,
+    pageParam == null ? null : view === "open" ? openCountQuery : prisma.longStayEnquiry.count({ where }),
   ]);
+  const page = total == null ? 1 : Math.min(Number(pageParam), Math.max(1, Math.ceil(total / pageSize)));
+  const direction = view === "open" ? "asc" : "desc";
+  const rows = await prisma.longStayEnquiry.findMany({
+    where,
+    orderBy: [{ createdAt: direction }, { id: direction }],
+    ...(total == null ? { take: 100 } : { skip: (page - 1) * pageSize, take: pageSize }),
+    include: {
+      property: { select: { title: true, district: true, regionName: true, owner: { select: { name: true, fullName: true, phone: true } } } },
+      user: { select: { name: true, fullName: true, phone: true } },
+      salesPartner: { select: { agentCode: true } },
+    },
+  });
   res.setHeader("Cache-Control", "private, no-store");
   return res.json({
     openCount: open,
+    ...(total == null ? {} : { pagination: { page, pageSize, total } }),
     items: rows.map((r: any) => ({
       ref: r.publicRef,
       kind: r.kind,

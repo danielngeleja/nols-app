@@ -12,14 +12,21 @@ const h = vi.hoisted(() => {
     user: { findUnique: fn(), findFirst: fn() },
     userDocument: { create: fn(), update: fn() },
     auditLog: { findMany: fn(), create: fn() },
+    $transaction: fn(),
     longStayTenantProfile: { findUnique: fn(), upsert: fn(), findMany: fn(), findFirst: fn(), count: fn(), groupBy: fn(), updateMany: fn(), update: fn() },
   };
-  return { db, session: { user: { id: 20, role: "CUSTOMER" } as any } };
+  return { db, tx: { notification: { create: fn() } }, createReservation: fn(), publish: fn(), session: { user: { id: 20, role: "CUSTOMER" } as any } };
 });
 
 vi.mock("@nolsaf/prisma", () => ({ prisma: h.db }));
 vi.mock("../lib/audit.js", () => ({ audit: vi.fn(async () => undefined), auditOrThrow: vi.fn(async () => undefined) }));
-vi.mock("../lib/notifications.js", () => ({ notifyAdmins: vi.fn(async () => undefined), notifyUser: vi.fn(async () => undefined) }));
+vi.mock("../lib/notifications.js", async (original) => ({
+  ...await original<typeof import("../lib/notifications.js")>(),
+  notifyAdmins: vi.fn(async () => undefined), notifyUser: vi.fn(async () => undefined), publishUserNotification: h.publish,
+}));
+vi.mock("../lib/longStay/offerService.js", async (original) => ({
+  ...await original<typeof import("../lib/longStay/offerService.js")>(), createReservation: h.createReservation,
+}));
 vi.mock("../lib/redisRateLimitStore.js", () => ({ rateLimitWithRedis: () => (_req: any, _res: any, next: any) => next() }));
 vi.mock("../lib/userDocumentSecurity.js", () => ({ isTrustedUserDocumentUrl: (url: string) => url.startsWith("https://res.cloudinary.com/") }));
 vi.mock("../lib/travellerDocuments.js", () => ({
@@ -62,12 +69,44 @@ const body = {
 const pending = { id: 1, userId: 20, status: "PENDING", documentId: 5, documentBackId: 6, selfieDocumentId: 7, barredAt: null, submittedAt: new Date("2026-11-20T00:00:00Z"), idExpiresOn: new Date("2035-01-01T00:00:00Z") };
 const viewed = (sides: string[]) => sides.map((side) => ({ afterJson: { profileId: 1, side } }));
 const checks = { nameMatches: true, faceMatches: true };
+const reservationRef = "tn_0123456789abcdefghijkl";
+const reserveBody = { property: "0123456789abcdefghij", moveInDate: "2026-12-10", termMonths: 6 };
+
+describe("reservation notifications", () => {
+  it("stores the owner alert inside the reservation transaction and publishes after it commits", async () => {
+    const commit = vi.fn();
+    h.db.$transaction.mockImplementationOnce(async (operation: (tx: typeof h.tx) => unknown) => {
+      const result = await operation(h.tx);
+      commit();
+      return result;
+    });
+    const response = await request(app).post("/api/customer/long-stay/reservations").send(reserveBody).expect(201);
+    expect(response.body).toEqual({ ref: reservationRef, status: "OFFERED" });
+    expect(h.createReservation).toHaveBeenCalledWith(h.tx, expect.objectContaining({ tenantId: 20, termMonths: 6 }));
+    expect(h.tx.notification.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      userId: 44, ownerId: 44, type: "booking", unread: true,
+      meta: expect.objectContaining({ tenancyRef: reservationRef, notificationKind: "long_stay_reservation_received" }),
+    }) });
+    expect(h.publish).toHaveBeenCalledWith(expect.objectContaining({ id: 9, userId: 44 }), "long_stay_reservation_received");
+    expect(h.tx.notification.create.mock.invocationCallOrder[0]).toBeLessThan(commit.mock.invocationCallOrder[0]);
+    expect(commit.mock.invocationCallOrder[0]).toBeLessThan(h.publish.mock.invocationCallOrder[0]);
+  });
+
+  it("fails the transaction without broadcasting if the owner alert cannot be saved", async () => {
+    h.tx.notification.create.mockRejectedValueOnce(new Error("Could not save notification"));
+    await request(app).post("/api/customer/long-stay/reservations").send(reserveBody).expect(500);
+    expect(h.publish).not.toHaveBeenCalled();
+  });
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
   h.session.user = { id: 20, role: "CUSTOMER" };
   h.db.user.findUnique.mockResolvedValue({ phoneVerifiedAt: new Date(), suspendedAt: null });
   h.db.longStayTenantProfile.findUnique.mockResolvedValue(null);
+  h.db.$transaction.mockImplementation(async (operation: (tx: typeof h.tx) => unknown) => operation(h.tx));
+  h.createReservation.mockResolvedValue({ tenancy: { publicRef: reservationRef, status: "OFFERED" }, property: { ownerId: 44, title: "Example Apartment" } });
+  h.tx.notification.create.mockResolvedValue({ id: 9, ownerId: 44, userId: 44, unread: true });
   let nextDoc = 5;
   h.db.userDocument.create.mockImplementation(async () => ({ id: nextDoc++ }));
   h.db.auditLog.findMany.mockResolvedValue(viewed(["front", "back", "selfie"]));

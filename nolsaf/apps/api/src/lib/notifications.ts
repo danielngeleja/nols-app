@@ -447,10 +447,6 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       : typeof data?.bookingReference === "string" ? data.bookingReference : null;
     // Create notification in database if Notification model exists
     const notificationTemplates: Record<string, { title: string; body: string }> = {
-      long_stay_reservation_received: {
-        title: "New long-stay reservation",
-        body: `A verified tenant reserved "${data.propertyTitle || "your home"}" for ${data.termMonths || ""} months from ${data.moveInDate || "the chosen date"}. Confirm or decline within 24 hours in Long stays, or it lapses.`
-      },
       long_stay_reservation_lapsed_owner: {
         title: "Reservation lapsed",
         body: `A reservation for "${data.propertyTitle || "your home"}" lapsed because it was not confirmed within 24 hours.`
@@ -1320,13 +1316,31 @@ export async function createUserNotification(db: Pick<Prisma.TransactionClient, 
     });
 }
 
-export function publishUserNotification(created: Pick<Notification, "id" | "userId" | "type" | "title" | "body" | "createdAt">) {
+export const LONG_STAY_RESERVATION_RECEIVED = "long_stay_reservation_received";
+
+export function createOwnerReservationNotification(db: Pick<Prisma.TransactionClient, "notification">, ownerId: number, reservation: {
+  tenancyRef: string; propertyTitle: string | null; moveInDate: string; termMonths: number;
+}) {
+  return db.notification.create({
+    data: {
+      ownerId,
+      userId: ownerId,
+      unread: true,
+      type: "booking",
+      title: "New long-stay reservation",
+      body: `A tenant requested "${reservation.propertyTitle || "your home"}" for ${reservation.termMonths} months from ${reservation.moveInDate}. Review the request within 24 hours.`,
+      meta: { notificationKind: LONG_STAY_RESERVATION_RECEIVED, ...reservation },
+    },
+  });
+}
+
+export function publishUserNotification(created: Pick<Notification, "id" | "userId" | "type" | "title" | "body" | "createdAt">, notificationKind?: string) {
   // Publish after commit. The inbox still reads from the database if sockets are unavailable.
   try {
     const io = (global as any).io;
     if (io && typeof io.to === "function") {
       const { id, userId, type, title, body, createdAt } = created;
-      io.to(`user:${userId}`).emit("notification:new", { id, userId, type, title, body, createdAt });
+      io.to(`user:${userId}`).emit("notification:new", { id, userId, type, title, body, createdAt, ...(notificationKind ? { notificationKind } : {}) });
     }
   } catch {
     // Best effort.

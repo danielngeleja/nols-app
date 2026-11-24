@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarRange, CheckCircle2, ChevronDown, Clock3, FileSignature, Loader2, Printer, ShieldCheck } from "lucide-react";
+import { CalendarRange, Check, CheckCircle2, ChevronDown, Clock3, CreditCard, FileSignature, Loader2, Printer, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DocumentViewer from "@/components/admin/DocumentViewer";
 import { LEASE_PDF_FLOW, leaseDocumentHtml } from "@/lib/leaseDocument";
@@ -79,7 +79,7 @@ export default function OfferLeasePanel({ side, view, base, onChanged }: { side:
   return (
     <div className="border-0 border-t border-solid border-slate-100 px-5 py-4">
       {body}
-      {error ? <p className="m-0 mt-2 text-[13px] text-red-700">{error}</p> : null}
+      {error ? <p role="alert" className="m-0 mt-2 text-[13px] text-red-700">{error}</p> : null}
     </div>
   );
 }
@@ -91,66 +91,99 @@ function eatTime(iso: string | null | undefined) {
   return `${new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT`;
 }
 
+function ReservationDates({ offer }: { offer: NonNullable<OfferLeaseView["offer"]> }) {
+  return (
+    <div className="rounded-md bg-[#f0f6f4] px-3.5 py-3">
+      <h2 className="m-0 flex items-center gap-1.5 text-xs font-semibold text-[#215b50]"><CalendarRange className="size-4" aria-hidden />Stay dates</h2>
+      <dl className="m-0 mt-2.5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-2 sm:gap-x-4">
+        <div className="min-w-0">
+          <dt className="text-xs text-slate-600">Move-in</dt>
+          <dd className="m-0 mt-0.5 text-sm font-bold leading-snug tabular-nums text-slate-950 sm:text-lg"><time dateTime={offer.moveInDate}>{dayLabel(offer.moveInDate)}</time></dd>
+        </div>
+        <div className="flex items-center gap-1.5 text-[#215b50] sm:gap-2">
+          <span aria-hidden className="hidden h-px w-6 bg-[#9abdb2] sm:block md:w-10" />
+          <div className="rounded border border-solid border-[#c9ded7] bg-white px-2 py-1 text-center">
+            <dt className="sr-only">Lease length</dt>
+            <dd className="m-0 whitespace-nowrap text-xs font-semibold">{offer.termMonths} {offer.termMonths === 1 ? "month" : "months"}</dd>
+          </div>
+          <span aria-hidden className="hidden h-px w-6 bg-[#9abdb2] sm:block md:w-10" />
+        </div>
+        <div className="min-w-0 text-right">
+          <dt className="text-xs text-slate-600">Lease ends</dt>
+          <dd className="m-0 mt-0.5 text-sm font-bold leading-snug tabular-nums text-slate-950 sm:text-lg">
+            {offer.endDate ? <time dateTime={offer.endDate}>{dayLabel(offer.endDate)}</time> : "Pending"}
+          </dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
 function OfferReview({ side, view, post, busy }: { side: Side; view: OfferLeaseView; post: Post; busy: string | null }) {
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState("");
   const offer = view.offer!;
   if (side === "TENANT") {
-    const dates = [
-      { label: "Move-in", value: dayLabel(offer.moveInDate) || "Pending" },
-      { label: "Lease ends", value: dayLabel(offer.endDate) || "Pending" },
-      { label: "Lease length", value: `${offer.termMonths} ${offer.termMonths === 1 ? "month" : "months"}` },
+    const steps = [
+      { label: "Request sent", Icon: Check },
+      { label: "Landlord response", Icon: Clock3 },
+      { label: "Sign lease", Icon: FileSignature },
+      { label: "First payment", Icon: CreditCard },
     ];
     return (
-      <section aria-label="Your reservation" className="grid items-start gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <div className="min-w-0 rounded-md border border-solid border-slate-200 bg-white p-3.5">
-          <h2 className="m-0 flex items-center gap-2 text-sm font-semibold text-slate-900"><CalendarRange className="size-4 text-[#02665e]" aria-hidden />Your reservation</h2>
-          <dl className="m-0 mt-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            {dates.map(({ label, value }) => (
-              <div key={label} className="min-w-0 rounded bg-slate-50 px-2.5 py-2">
-                <dt className="text-xs text-slate-600">{label}</dt>
-                <dd className="m-0 mt-0.5 text-sm font-semibold leading-snug tabular-nums text-slate-900">{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-        <div className="flex min-w-0 items-start gap-2.5 rounded-md border border-solid border-amber-200 bg-amber-50/70 p-3.5">
-          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-amber-100 text-amber-900"><Clock3 className="size-4" aria-hidden /></span>
-          <div className="min-w-0">
-            <h2 className="m-0 text-sm font-semibold text-slate-900">Waiting for the landlord</h2>
-            {view.confirmBy && <p className="m-0 mt-0.5 text-xs font-semibold text-amber-900">Response due <time dateTime={view.confirmBy}>{eatTime(view.confirmBy)}</time></p>}
-            <p className="m-0 mt-1.5 text-xs leading-5 text-slate-700">Once the landlord confirms, you can review and sign the lease. Payment follows signing.</p>
+      <section aria-label="Your reservation" className="space-y-4">
+        <ReservationDates offer={offer} />
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="m-0 text-base font-semibold tracking-tight text-slate-950">Waiting for the landlord</h2>
+              <p className="m-0 mt-0.5 text-xs leading-5 text-slate-600">You can sign the lease after the landlord confirms. Payment follows signing.</p>
+            </div>
+            {view.confirmBy && <p className="m-0 inline-flex items-center gap-1.5 rounded bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-900"><Clock3 className="size-3.5 shrink-0" aria-hidden />Response due <time dateTime={view.confirmBy}>{eatTime(view.confirmBy)}</time></p>}
           </div>
+          <ol aria-label="Reservation progress" className="m-0 grid list-none grid-cols-2 gap-1.5 p-0 sm:grid-cols-4">
+            {steps.map(({ label, Icon }, index) => (
+              <li key={label} aria-current={index === 1 ? "step" : undefined}
+                className={`flex min-h-10 min-w-0 items-center gap-1.5 rounded border border-solid px-2 py-1.5 text-xs font-semibold ${index === 0 ? "border-[#d8e8e0] bg-[#edf6f2] text-[#215b50]" : index === 1 ? "border-amber-200 bg-amber-50 text-amber-950" : "border-slate-200 bg-white text-slate-600"}`}>
+                <Icon className="size-3.5 shrink-0" aria-hidden />{label}{index === 0 && <span className="sr-only">, complete</span>}
+              </li>
+            ))}
+          </ol>
         </div>
       </section>
     );
   }
   return (
-    <div>
-      <p className="m-0 flex items-center gap-2 text-[13px] font-semibold text-slate-800"><CalendarRange className="h-4 w-4 text-[#02665e]" />New reservation</p>
-      <p className="m-0 mt-1.5 text-sm text-slate-800"><b>{offer.termMonths} months</b> from <b>{dayLabel(offer.moveInDate)}</b>{offer.endDate ? ` to ${dayLabel(offer.endDate)}` : ""}, at the listed terms</p>
-      {declining ? (
-        <div className="mt-3">
-          <label htmlFor="decline-reason" className="block text-xs font-semibold text-slate-700">Why? The tenant sees this.</label>
-          <input id="decline-reason" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={300} autoFocus placeholder="The home is no longer free on these dates"
-            className="mt-1 h-9 w-full rounded-md border border-solid border-slate-300 px-2.5 text-sm outline-none focus:border-[#02665e]" />
-          <div className="mt-2 flex gap-2">
-            <button type="button" disabled={reason.trim().length < 5 || busy === "decline"} onClick={async () => { if (await post("decline", "offer/decline", { reason: reason.trim() })) setDeclining(false); }} className={`${btn} border-0 bg-red-600 text-white hover:bg-red-700`}>Decline</button>
-            <button type="button" onClick={() => setDeclining(false)} className={outline}>Back</button>
-          </div>
+    <section aria-label="Review reservation" className="space-y-3">
+      <ReservationDates offer={offer} />
+      <div className="rounded-md border border-solid border-slate-200 px-3.5 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="m-0 text-base font-semibold tracking-tight text-slate-950">Review the request</h2>
+          {view.confirmBy && <p className="m-0 inline-flex flex-wrap items-center gap-1.5 rounded bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-900"><Clock3 className="size-3.5" aria-hidden />Respond by <time dateTime={view.confirmBy}>{eatTime(view.confirmBy)}</time></p>}
         </div>
-      ) : (
-        <>
-          <p className="m-0 mt-2 text-[12.5px] text-slate-500">The tenant's ID is checked by NoLSAF before they can sign. Confirm by {eatTime(view.confirmBy)} or the reservation lapses.</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" disabled={busy === "accept"} onClick={() => post("accept", "offer/accept")} className={primary}>
-              {busy === "accept" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Confirm and prepare the lease
-            </button>
-            <button type="button" onClick={() => setDeclining(true)} className={outline}>Decline</button>
+        {declining ? (
+          <div className="mt-3">
+            <label htmlFor="decline-reason" className="block text-xs font-semibold text-slate-700">Why? The tenant sees this.</label>
+            <input id="decline-reason" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={300} autoFocus placeholder="The home is no longer free on these dates"
+              className="mt-1 h-9 w-full min-w-0 rounded-md border border-solid border-slate-300 px-2.5 text-sm outline-none focus:border-[#02665e]" />
+            <div className="mt-2 flex gap-2">
+              <button type="button" disabled={reason.trim().length < 5 || busy !== null} onClick={async () => { if (await post("decline", "offer/decline", { reason: reason.trim() })) setDeclining(false); }} className={`${btn} border-0 bg-red-600 text-white hover:bg-red-700`}>{busy === "decline" ? "Declining…" : "Decline reservation"}</button>
+              <button type="button" disabled={busy !== null} onClick={() => setDeclining(false)} className={outline}>Back</button>
+            </div>
           </div>
-        </>
-      )}
-    </div>
+        ) : (
+          <>
+            <p className="m-0 mt-2 text-sm leading-5 text-slate-600">Confirm to prepare the lease at the listed terms. NoLSAF checks the tenant’s ID before signing, and payment follows signing.{view.confirmBy ? " Unanswered requests expire at the deadline." : ""}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" disabled={busy !== null} onClick={() => post("accept", "offer/accept")} className={primary}>
+                {busy === "accept" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <CheckCircle2 className="h-4 w-4" aria-hidden />} Confirm and prepare lease
+              </button>
+              <button type="button" disabled={busy !== null} onClick={() => setDeclining(true)} className={outline}>Decline</button>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
