@@ -155,7 +155,7 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
       {!tenant && <div className="flex flex-wrap items-start justify-between gap-3 p-5">
         <div className="min-w-0">
           <p className="m-0 truncate text-[17px] font-bold text-slate-900">{view.home?.title || "Long stay"}</p>
-          <p className="m-0 mt-0.5 text-[13px] text-slate-500">{view.home?.area}{view.otherParty.name ? `${view.home?.area ? " · " : ""}${side === "TENANT" ? "Landlord" : "Tenant"}: ${view.otherParty.name}` : ""}</p>
+          <p className="m-0 mt-0.5 text-[13px] text-slate-500">{view.home?.area}{view.otherParty.name ? `${view.home?.area ? " · " : ""}Tenant: ${view.otherParty.name}` : ""}</p>
         </div>
         <span className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold ${closed ? "bg-slate-100 text-slate-600" : ["RESERVED", "MOVE_IN", "ACTIVE"].includes(view.status) ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
           {statusLabel}
