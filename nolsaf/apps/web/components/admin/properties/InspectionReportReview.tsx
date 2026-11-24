@@ -1,7 +1,7 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, Camera, Check, ChevronDown, ClipboardCheck, Crosshair, ExternalLink, Loader2, MapPin, RotateCcw, ShieldCheck, X } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { AlertTriangle, ArrowDown, Camera, Check, ChevronDown, ChevronUp, ClipboardCheck, Crosshair, ExternalLink, FileText, Loader2, MapPin, Minus, RotateCcw, ShieldCheck, X } from "lucide-react";
 
 export type InspectionPoint = { latitude: number; longitude: number };
 export type InspectionCheck = { key: string; label: string; required: boolean };
@@ -32,6 +32,7 @@ const flagLabels: Record<string, string> = {
 const photoLabels = ["Property entrance", "Inside the home", "Key finding"];
 const sectionHeading = "m-0 flex items-center gap-2 text-sm font-semibold text-slate-950";
 const actionClass = "inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-solid px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 [font-family:inherit]";
+const utilityAction = "inline-flex min-h-8 items-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white px-2.5 text-xs font-semibold text-[#245c52] no-underline transition hover:border-[#a5cbbf] hover:bg-[#edf6f2] hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#02665e]";
 const metres = (value: number) => `${value.toLocaleString("en-US")} m`;
 const coordinates = ({ latitude, longitude }: InspectionPoint) => `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
 const mapPoint = ({ latitude, longitude }: InspectionPoint) => `${latitude},${longitude}`;
@@ -49,11 +50,15 @@ export default function InspectionReportReview({ inspectionRef, report, checklis
   const id = useId();
   const gallery = useRef<HTMLElement>(null);
   const decisionPanel = useRef<HTMLElement>(null);
+  const checklistScroll = useRef<HTMLDivElement>(null);
+  const checklistRows = useRef<HTMLUListElement>(null);
   const [opened, setOpened] = useState<Set<number>>(new Set());
   const [photo, setPhoto] = useState<number | null>(null);
   const [load, setLoad] = useState<"loading" | "ready" | "failed">("loading");
   const [attempt, setAttempt] = useState(0);
   const [note, setNote] = useState("");
+  const [checksFilter, setChecksFilter] = useState<"all" | "findings">("all");
+  const [scrollEdges, setScrollEdges] = useState({ above: false, below: false });
   const required = checklist.filter((item) => item.required);
   const requiredMet = required.filter((item) => report.checklist[item.key] === "PASS").length;
   const hasBlockingFlag = report.flags.some((flag) => blockingFlags.has(flag));
@@ -70,6 +75,36 @@ export default function InspectionReportReview({ inspectionRef, report, checklis
   const needsAttention = (item: InspectionCheck) => report.checklist[item.key] === "FAIL" || (item.required && report.checklist[item.key] !== "PASS");
   const issues = checklist.filter(needsAttention);
   const orderedChecks = [...issues, ...checklist.filter((item) => !needsAttention(item))];
+  const shownChecks = checksFilter === "findings" ? issues : orderedChecks;
+  const metrics = [
+    { label: "Required checks met", value: required.length ? `${requiredMet} / ${required.length}` : "Unavailable", Icon: ClipboardCheck, tone: requiredMet < required.length ? "text-rose-800" : "text-[#215b4e]" },
+    { label: "Evidence flags", value: report.flags.length ? `${report.flags.length} · ${hasBlockingFlag ? "Blocks pass" : "To review"}` : "None flagged", Icon: ShieldCheck, tone: hasBlockingFlag ? "text-rose-800" : "text-slate-950" },
+    { label: "Photos reviewed", value: `${opened.size} / ${report.photoCount}`, Icon: Camera, tone: allPhotosOpened ? "text-[#215b4e]" : "text-slate-950" },
+  ];
+
+  useEffect(() => {
+    const viewport = checklistScroll.current;
+    const rows = checklistRows.current;
+    if (!viewport || !rows) return;
+    const update = () => {
+      const above = viewport.scrollTop > 1;
+      const below = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 1;
+      setScrollEdges((current) => current.above === above && current.below === below ? current : { above, below });
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    observer.observe(rows);
+    viewport.addEventListener("scroll", update, { passive: true });
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener("scroll", update);
+    };
+  }, []);
+
+  function scrollChecks(direction: -1 | 1) {
+    const viewport = checklistScroll.current;
+    if (viewport) viewport.scrollBy({ top: direction * viewport.clientHeight * 0.75 });
+  }
 
   function openPhoto(index: number, fromFinding = false) {
     if (photo !== index || load === "failed") {
@@ -85,25 +120,33 @@ export default function InspectionReportReview({ inspectionRef, report, checklis
 
   return (
     <section aria-labelledby={`${id}-report`} className="min-w-0 space-y-4 border-0 border-t border-solid border-slate-200 bg-[#f5f8f7] p-3 sm:p-5">
-      <div className="rounded-lg border border-solid border-[#d8e5e1] bg-white p-4 sm:p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
+      <div className="overflow-hidden rounded-lg border border-solid border-[#d8e5e1] bg-white">
+        <header className="flex flex-wrap items-center gap-3 bg-[#f1f7f4] px-4 py-3.5 sm:px-5">
+          <span className="grid size-10 shrink-0 place-items-center rounded-md bg-[#02665e] text-white"><FileText className="size-5" aria-hidden /></span>
+          <div className="min-w-0 flex-1">
             <h3 id={`${id}-report`} className="m-0 text-lg font-semibold tracking-tight text-slate-950">Partner inspection report</h3>
             {report.submittedAt && <p className="m-0 mt-1 text-xs text-slate-600">Submitted {visitTime(report.submittedAt)}</p>}
           </div>
-          <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold ${report.recommendation === "PASS" ? "bg-[#e8f4ef] text-[#215b4e]" : report.recommendation === "FAIL" ? "bg-rose-50 text-rose-800" : "bg-slate-100 text-slate-700"}`}>
+          <span className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-semibold ring-1 ring-inset ${report.recommendation === "PASS" ? "bg-white text-[#215b4e] ring-[#bddbd0]" : report.recommendation === "FAIL" ? "bg-rose-50 text-rose-800 ring-rose-200" : "bg-white text-slate-700 ring-slate-200"}`}>
             {report.recommendation === "PASS" ? <Check className="size-4" aria-hidden /> : report.recommendation === "FAIL" ? <X className="size-4" aria-hidden /> : null}
             {report.recommendation === "PASS" ? "Partner recommends pass" : report.recommendation === "FAIL" ? "Partner recommends fail" : "Recommendation missing"}
           </span>
-        </div>
-        <dl className="m-0 mt-4 grid grid-cols-2 gap-3 border-0 border-t border-solid border-slate-100 pt-3 sm:grid-cols-3">
-          <div><dt className="text-xs text-slate-600">Required checks met</dt><dd className="m-0 mt-0.5 text-base font-semibold tabular-nums text-slate-950">{required.length ? `${requiredMet} of ${required.length}` : "Unavailable"}</dd></div>
-          <div><dt className="text-xs text-slate-600">Evidence flags</dt><dd className={`m-0 mt-0.5 text-base font-semibold ${hasBlockingFlag ? "text-rose-800" : "text-slate-950"}`}>{report.flags.length ? `${report.flags.length}${hasBlockingFlag ? " · Pass blocked" : " · Review"}` : "None flagged"}</dd></div>
-          <div><dt className="text-xs text-slate-600">Photos opened in this review</dt><dd aria-live="polite" className="m-0 mt-0.5 text-base font-semibold tabular-nums text-slate-950">{opened.size} of {report.photoCount}</dd></div>
+          {onDecision && <button type="button" onClick={() => {
+            decisionPanel.current?.focus({ preventScroll: true });
+            decisionPanel.current?.scrollIntoView({ block: "nearest" });
+          }} className={`${utilityAction} cursor-pointer [font-family:inherit]`}>Go to decision <ArrowDown className="size-3.5" aria-hidden /></button>}
+        </header>
+        <dl className="m-0 grid grid-cols-2 gap-px border-0 border-t border-solid border-[#d8e5e1] bg-[#d8e5e1] sm:grid-cols-3">
+          {metrics.map(({ label, value, Icon, tone }, index) => (
+            <div key={label} className={`min-w-0 bg-white px-4 py-3 sm:px-5 ${index === 2 ? "col-span-2 sm:col-span-1" : ""}`}>
+              <dt className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600"><Icon className="size-3.5 shrink-0 text-[#39796d]" aria-hidden />{label}</dt>
+              <dd aria-live={index === 2 ? "polite" : undefined} className={`m-0 mt-1 text-lg font-bold tabular-nums ${tone}`}>{value}</dd>
+            </div>
+          ))}
         </dl>
-        {report.note && <div className="mt-4 rounded-md bg-slate-50 px-3 py-2.5"><p className="m-0 text-xs font-semibold text-slate-700">Partner’s notes</p><p className="m-0 mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-800">{report.note}</p></div>}
+        {report.note && <div className="flex items-start gap-3 border-0 border-t border-solid border-slate-100 bg-slate-50/70 px-4 py-3.5 sm:px-5"><FileText className="mt-0.5 size-4 shrink-0 text-[#39796d]" aria-hidden /><div className="min-w-0"><p className="m-0 text-xs font-semibold text-slate-700">Partner’s notes</p><p className="m-0 mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-800">{report.note}</p></div></div>}
         {report.flags.length > 0 && (
-          <ul aria-label="Evidence flags" className="m-0 mt-3 list-none space-y-2 p-0">
+          <ul aria-label="Evidence flags" className="m-0 list-none space-y-2 border-0 border-t border-solid border-slate-100 p-3 sm:px-5">
             {report.flags.map((flag) => (
               <li key={flag} className={`flex items-start gap-2 rounded-md px-3 py-2 text-sm ${blockingFlags.has(flag) ? "bg-rose-50 text-rose-900" : "bg-amber-50 text-amber-900"}`}>
                 <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -112,12 +155,6 @@ export default function InspectionReportReview({ inspectionRef, report, checklis
             ))}
           </ul>
         )}
-        {onDecision && <button type="button" onClick={() => {
-          decisionPanel.current?.focus({ preventScroll: true });
-          decisionPanel.current?.scrollIntoView({ block: "start" });
-        }} className="mt-3 inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] underline underline-offset-2">
-          Go to decision <ArrowDown className="size-3.5" aria-hidden />
-        </button>}
       </div>
 
       <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2">
@@ -134,14 +171,14 @@ export default function InspectionReportReview({ inspectionRef, report, checklis
             )}
           </div>
           <EvidenceMap pin={pin} position={report.position} />
-          <div className="space-y-3 p-4">
-            <dl className="m-0 space-y-2">
+          <div className="space-y-3 border-0 border-t border-solid border-slate-200 p-4">
+            <dl className="m-0 grid gap-1.5">
               <Coordinate label="Listing pin" point={pin} color="bg-[#02665e]" />
               <Coordinate label="Partner’s phone" point={report.position} color="bg-orange-600" />
             </dl>
             {pin && report.position && (
               <a href={`https://www.google.com/maps/dir/?api=1&origin=${mapPoint(report.position)}&destination=${mapPoint(pin)}`} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#02665e] underline underline-offset-2">
+                className={utilityAction}>
                 Compare in Google Maps <ExternalLink className="size-3" aria-hidden />
               </a>
             )}
@@ -170,38 +207,71 @@ export default function InspectionReportReview({ inspectionRef, report, checklis
                   )}
                   {!photoSrc && <p className="m-0 px-4 text-center text-sm text-slate-600">Choose a photo to inspect it at full frame.</p>}
                   {photoSrc && load === "loading" && <span role="status" className="relative inline-flex items-center gap-2 text-sm text-slate-700"><Loader2 className="size-4 animate-spin" aria-hidden />Loading photo</span>}
-                  {photo !== null && load === "failed" && <div role="status" className="px-3 text-center text-sm text-slate-700">This photo could not load. <button type="button" onClick={() => openPhoto(photo)} className="cursor-pointer border-0 bg-transparent font-semibold text-[#02665e] underline">Try again</button></div>}
+                  {photo !== null && load === "failed" && <div role="status" className="flex flex-col items-center gap-2 px-3 text-center text-sm text-slate-700">This photo could not load.<button type="button" onClick={() => openPhoto(photo)} className={`${utilityAction} cursor-pointer`}>Try again</button></div>}
                 </div>
-                {photo !== null && <figcaption className="flex flex-wrap items-center justify-between gap-2 bg-white px-3 py-2 text-xs text-slate-700"><span>{photo + 1} of {photos.length} · {photos[photo]}</span>{photoSrc && load === "ready" && <a href={photoSrc} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-[#02665e] underline underline-offset-2">Open full size <ExternalLink className="size-3" aria-hidden /></a>}</figcaption>}
+                {photo !== null && <figcaption className="flex flex-wrap items-center justify-between gap-2 bg-white px-3 py-2 text-xs text-slate-700"><span>{photo + 1} of {photos.length} · {photos[photo]}</span>{photoSrc && load === "ready" && <a href={photoSrc} target="_blank" rel="noopener noreferrer" className={utilityAction}>Open full size <ExternalLink className="size-3" aria-hidden /></a>}</figcaption>}
               </figure>
             </>
           ) : <p className="m-0 mt-2 text-sm text-slate-600">No photos were attached.</p>}
         </section>
       </div>
 
-      <details className="group overflow-hidden rounded-lg border border-solid border-slate-200 bg-white" open={issues.length > 0}>
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 p-4 [&::-webkit-details-marker]:hidden">
-          <span className={sectionHeading}><ClipboardCheck className="size-4 text-[#28645a]" aria-hidden />Inspection checklist</span>
-          <span className="flex items-center gap-2 text-xs text-slate-600">{checklist.length} checks <ChevronDown className="size-4 group-open:rotate-180" aria-hidden /></span>
-        </summary>
-        <ul className="m-0 list-none divide-y divide-slate-100 border-0 border-t border-solid border-slate-100 p-0">
-          {orderedChecks.map((item) => {
-            const result = report.checklist[item.key];
-            const finding = report.findings?.[item.key];
-            const index = finding?.photoIndex;
-            const issue = needsAttention(item);
-            return (
-              <li key={item.key} className={`flex items-start justify-between gap-2 px-4 py-2.5 text-sm ${issue ? "bg-rose-50/60" : ""}`}>
-                <div className="min-w-0"><p className="m-0 font-medium text-slate-900">{item.label} {item.required && <span className="ml-1 text-xs font-normal text-slate-600">Required</span>}</p>
-                  {finding?.note && <p className="m-0 mt-1 whitespace-pre-wrap break-words text-slate-700">{finding.note}</p>}
-                  {index != null && index >= 0 && index < photos.length && <button type="button" onClick={() => openPhoto(index, true)} className="mt-1 inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] underline underline-offset-2"><Camera className="size-3.5" aria-hidden />Open photo {index + 1} · {photos[index]}</button>}
-                </div>
-                <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold ${issue ? "bg-rose-100 text-rose-900" : result === "PASS" ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{result === "PASS" ? "Met" : result === "FAIL" ? "Not met" : result === "NA" ? "N/A" : "Unanswered"}</span>
-              </li>
-            );
-          })}
-        </ul>
-      </details>
+      <section aria-labelledby={`${id}-checklist`} className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 px-4 py-3">
+          <h4 id={`${id}-checklist`} className={sectionHeading}><span className="grid size-8 place-items-center rounded-md bg-[#edf5f2] text-[#28645a]"><ClipboardCheck className="size-4" aria-hidden /></span>Inspection checklist</h4>
+          <div className="inline-flex max-w-full rounded-md border border-solid border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="Filter inspection checks">
+            {([{ key: "all", label: "All checks", count: checklist.length }, { key: "findings", label: "Needs attention", count: issues.length }] as const).map(({ key, label, count }) => (
+              <button key={key} type="button" aria-pressed={checksFilter === key} aria-controls={`${id}-checks`} onClick={() => {
+                setChecksFilter(key);
+                if (checklistScroll.current) checklistScroll.current.scrollTop = 0;
+              }} className={`inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded border-0 px-2.5 text-xs font-semibold transition [font-family:inherit] ${checksFilter === key ? "bg-white text-[#215b4e] shadow-sm" : "bg-transparent text-slate-600 hover:text-slate-900"}`}>
+                {label}<span className={`rounded px-1 tabular-nums ${key === "findings" && count ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>{count}</span>
+              </button>
+            ))}
+          </div>
+        </header>
+        <div ref={checklistScroll} id={`${id}-checks`} role="region" aria-label="Inspection check results" tabIndex={0}
+          className="max-h-[min(23rem,55dvh)] overflow-y-auto [scrollbar-color:#86a89f_#edf3f1] [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e]">
+          <div aria-hidden className="sticky top-0 z-[1] hidden grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] gap-3 border-0 border-b border-solid border-slate-200 bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600 sm:grid">
+            <span className="pl-9">Check</span><span>Priority</span><span>Result</span>
+          </div>
+          {shownChecks.length === 0 && <p className="m-0 px-4 py-5 text-sm text-slate-600">{checksFilter === "findings" ? "No checks need attention." : "No checklist results were supplied."}</p>}
+          <ul ref={checklistRows} className="m-0 list-none divide-y divide-slate-100 p-0">
+            {shownChecks.map((item) => {
+              const result = report.checklist[item.key];
+              const finding = report.findings?.[item.key];
+              const index = finding?.photoIndex;
+              const issue = needsAttention(item);
+              return (
+                <li key={item.key} className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-4 py-2.5 text-sm sm:grid-cols-[minmax(0,1fr)_6.5rem_6.5rem] ${issue ? "bg-amber-50/65" : "hover:bg-slate-50/70"}`}>
+                  <div className="flex min-w-0 items-start gap-2">
+                    <span className={`grid size-7 shrink-0 place-items-center rounded ${issue ? "bg-amber-100 text-amber-900" : result === "PASS" ? "bg-[#e8f4ef] text-[#215b4e]" : "bg-slate-100 text-slate-500"}`}>
+                      {issue ? <AlertTriangle className="size-3.5" aria-hidden /> : result === "PASS" ? <Check className="size-3.5" aria-hidden /> : <Minus className="size-3.5" aria-hidden />}
+                    </span>
+                    <div className="min-w-0 pt-1">
+                      <p className="m-0 font-medium leading-snug text-slate-900">{item.label}</p>
+                      <span className="text-xs text-slate-500 sm:hidden">{item.required ? "Required" : "Optional"}</span>
+                      {finding?.note && <p className="m-0 mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{finding.note}</p>}
+                      {index != null && index >= 0 && index < photos.length && <button type="button" onClick={() => openPhoto(index, true)} className={`${utilityAction} mt-2 max-w-full cursor-pointer text-left`}><Camera className="size-3.5 shrink-0" aria-hidden /><span>Photo {index + 1} · {photos[index]}</span></button>}
+                    </div>
+                  </div>
+                  <span className="mt-1 hidden text-xs text-slate-600 sm:block">{item.required ? "Required" : "Optional"}</span>
+                  <span className={`mt-0.5 justify-self-start rounded px-1.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${issue ? "bg-amber-100 text-amber-950 ring-amber-200" : result === "PASS" ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : "bg-slate-100 text-slate-700 ring-slate-200"}`}>{result === "PASS" ? "Met" : result === "FAIL" ? "Not met" : result === "NA" ? "N/A" : "Unanswered"}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        {(scrollEdges.above || scrollEdges.below) && (
+          <footer className="flex items-center justify-between gap-2 border-0 border-t border-solid border-slate-200 bg-slate-50 px-4 py-1.5">
+            <span className="text-xs font-medium text-slate-600">{shownChecks.length} checks · scroll to review</span>
+            <div className="flex gap-1" role="group" aria-label="Scroll checklist">
+              <button type="button" aria-label="Scroll checks up" disabled={!scrollEdges.above} onClick={() => scrollChecks(-1)} className={`${utilityAction} min-h-7 cursor-pointer px-1.5 disabled:cursor-default disabled:opacity-40`}><ChevronUp className="size-4" aria-hidden /></button>
+              <button type="button" aria-label="Scroll checks down" disabled={!scrollEdges.below} onClick={() => scrollChecks(1)} className={`${utilityAction} min-h-7 cursor-pointer px-1.5 disabled:cursor-default disabled:opacity-40`}><ChevronDown className="size-4" aria-hidden /></button>
+            </div>
+          </footer>
+        )}
+      </section>
 
       {onDecision && (
         <section ref={decisionPanel} tabIndex={-1} aria-labelledby={`${id}-decision`} className="scroll-mt-16 space-y-3 rounded-lg border border-solid border-[#d8e5e1] bg-white p-4 focus-visible:outline-2 focus-visible:outline-[#02665e] sm:p-5">
@@ -234,9 +304,9 @@ export default function InspectionReportReview({ inspectionRef, report, checklis
 
 function Coordinate({ label, point, color }: { label: string; point: InspectionPoint | null; color: string }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs">
       <dt className="flex items-center gap-2 text-slate-700"><span className={`size-2 rounded-full ${color}`} aria-hidden />{label}</dt>
-      <dd className="m-0 text-slate-700">{point ? <a href={`https://www.google.com/maps/search/?api=1&query=${mapPoint(point)}`} target="_blank" rel="noopener noreferrer" className="font-mono text-inherit underline underline-offset-2">{coordinates(point)}</a> : "Unavailable"}</dd>
+      <dd className="m-0 text-slate-700">{point ? <a href={`https://www.google.com/maps/search/?api=1&query=${mapPoint(point)}`} aria-label={`Open ${label} in Google Maps, ${coordinates(point)}`} target="_blank" rel="noopener noreferrer" className={`${utilityAction} min-h-7 font-mono font-medium tabular-nums`}>{coordinates(point)}<ExternalLink className="size-3 shrink-0" aria-hidden /></a> : "Unavailable"}</dd>
     </div>
   );
 }

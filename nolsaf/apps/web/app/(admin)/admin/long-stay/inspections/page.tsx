@@ -239,15 +239,19 @@ function InspectionDialog({ row, onClose, onChanged }: { row: QueueRow; onClose:
 
   return (
     <dialog ref={dialog} onClose={onClose} aria-labelledby="inspection-dialog-title"
-      className="fixed inset-0 m-auto max-h-[85dvh] w-[calc(100%_-_1.5rem)] max-w-[72rem] overflow-y-auto rounded-lg border border-solid border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/45">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-0 border-b border-solid border-slate-200 bg-white px-4 py-2.5">
-        <h2 id="inspection-dialog-title" className="m-0 text-base font-semibold">Inspection details</h2>
-        <button type="button" onClick={() => dialog.current?.close()} aria-label="Close inspection details"
-          className="grid size-8 cursor-pointer place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-600 hover:bg-slate-50"><X className="size-4" aria-hidden /></button>
-      </header>
-      {detail ? <InspectionCard item={detail.item} checklist={detail.checklist} onChanged={() => { reload(); onChanged(); }} /> : error ? (
-        <div className="p-4"><p role="alert" className="m-0 text-sm text-red-700">{error}</p><button type="button" onClick={reload} className="mt-2 cursor-pointer border-0 bg-transparent p-0 text-sm font-semibold text-[#02665e] underline">Try again</button></div>
-      ) : <p role="status" className="m-0 p-4 text-sm text-slate-600">Loading inspection details</p>}
+      className="fixed inset-0 m-auto max-h-[88dvh] w-[calc(100%_-_1.5rem)] max-w-[72rem] overflow-hidden rounded-lg border border-solid border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/45">
+      <div className="flex max-h-[inherit] flex-col">
+        <header className="flex shrink-0 items-center justify-between gap-2 border-0 border-b border-solid border-slate-200 bg-white px-4 py-2.5">
+          <h2 id="inspection-dialog-title" className="m-0 text-base font-semibold">Inspection details</h2>
+          <button type="button" onClick={() => dialog.current?.close()} aria-label="Close inspection details"
+            className="grid size-8 cursor-pointer place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-600 hover:bg-slate-50"><X className="size-4" aria-hidden /></button>
+        </header>
+        <div className="min-h-0 overflow-y-auto overscroll-y-contain [scrollbar-color:#86a89f_#edf3f1] [scrollbar-gutter:stable]">
+          {detail ? <InspectionCard item={detail.item} checklist={detail.checklist} onChanged={() => { reload(); onChanged(); }} /> : error ? (
+            <div className="p-4"><p role="alert" className="m-0 text-sm text-red-700">{error}</p><button type="button" onClick={reload} className="mt-2 min-h-8 cursor-pointer rounded-md border border-solid border-slate-200 bg-white px-2.5 text-sm font-semibold text-[#02665e] hover:bg-slate-50">Try again</button></div>
+          ) : <p role="status" className="m-0 p-4 text-sm text-slate-600">Loading inspection details</p>}
+        </div>
+      </div>
     </dialog>
   );
 }
