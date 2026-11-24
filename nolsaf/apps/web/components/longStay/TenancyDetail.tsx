@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Lock, Phone, Send, XCircle } from "lucide-react";
+import { ArrowLeft, ChevronDown, House, Loader2, Lock, MapPin, Phone, Send, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import OfferLeasePanel, { type OfferLeaseView } from "./OfferLeasePanel";
 
@@ -120,27 +120,47 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
     if (await act("close", side === "TENANT" ? "cancel" : "decline", { reason: reason.trim() })) { setClosing(false); setReason(""); }
   };
 
-  if (loadError) return <Shell backHref={backHref}><p className="m-0 p-5 text-sm text-red-700">{loadError}</p></Shell>;
-  if (!view) return <Shell backHref={backHref}><div className="grid min-h-40 place-items-center text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div></Shell>;
+  const tenant = side === "TENANT";
+  if (loadError) return <Shell backHref={backHref} tenant={tenant}><p role="alert" className="m-0 p-5 text-sm text-red-700">{loadError}</p></Shell>;
+  if (!view) return <Shell backHref={backHref} tenant={tenant}><div role="status" aria-label="Loading reservation" className="grid min-h-40 place-items-center text-slate-400"><Loader2 className="h-5 w-5 animate-spin" aria-hidden /></div></Shell>;
 
   const closed = view.status === "CANCELLED" || view.status === "ENDED";
   const openBeforeLease = ["OFFERED", "ACCEPTED", "AWAITING_PAYMENT"].includes(view.status);
   const btn = "inline-flex h-9 items-center justify-center gap-1.5 rounded-md px-3.5 text-sm font-semibold disabled:opacity-60 [font-family:inherit] cursor-pointer";
   const outline = `${btn} border border-solid border-slate-300 bg-white text-slate-700 hover:bg-slate-50`;
   const primary = `${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`;
+  const homeHref = view.home?.key ? `/public/properties/${encodeURIComponent(view.home.key)}` : null;
+  const compactActivity = tenant && !view.contactsShared;
+  const Activity = compactActivity ? "details" : "div";
+  const statusLabel = TENANCY_STATUS_LABEL[view.status] || view.status;
 
   return (
-    <Shell backHref={backHref}>
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3 p-5">
+    <Shell backHref={backHref} tenant={tenant} heading={tenant ? (
+      <header className="relative isolate overflow-hidden rounded-xl bg-[#0a1110] px-5 py-5 text-white sm:px-6">
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-28 -z-10 h-72 w-72 rounded-full" style={{ background: "radial-gradient(closest-side, rgba(2,102,94,0.6), rgba(2,102,94,0))" }} />
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="m-0 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[#5ec8bb]"><House className="size-3.5" aria-hidden />Long-stay booking</p>
+            <h1 className="m-0 mt-1 break-words text-[clamp(1.35rem,4vw,1.75rem)] font-bold leading-tight text-white">{view.home?.title || "Long stay"}</h1>
+            {view.home?.area && <p className="m-0 mt-1.5 flex items-center gap-1.5 text-sm text-white/75"><MapPin className="size-3.5 shrink-0 text-[#5ec8bb]" aria-hidden />{view.home.area}</p>}
+          </div>
+          <span className={`rounded px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${closed ? "bg-white/10 text-white/80 ring-white/20" : view.status === "OFFERED" || view.status === "AWAITING_PAYMENT" ? "bg-amber-200/15 text-amber-100 ring-amber-200/30" : "bg-emerald-200/15 text-emerald-100 ring-emerald-200/30"}`}>{statusLabel}</span>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-white/15 pt-3">
+          <p className="m-0 text-xs text-white/70">Reservation <span className="ml-1 font-mono font-semibold text-white">{view.ref}</span></p>
+          {homeHref && <Link href={homeHref} className="inline-flex min-h-8 items-center rounded-md border border-solid border-white/20 bg-white/5 px-2.5 text-xs font-semibold text-white no-underline hover:bg-white/10 hover:no-underline">View property</Link>}
+        </div>
+      </header>
+    ) : undefined}>
+      {!tenant && <div className="flex flex-wrap items-start justify-between gap-3 p-5">
         <div className="min-w-0">
           <p className="m-0 truncate text-[17px] font-bold text-slate-900">{view.home?.title || "Long stay"}</p>
           <p className="m-0 mt-0.5 text-[13px] text-slate-500">{view.home?.area}{view.otherParty.name ? `${view.home?.area ? " · " : ""}${side === "TENANT" ? "Landlord" : "Tenant"}: ${view.otherParty.name}` : ""}</p>
         </div>
         <span className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold ${closed ? "bg-slate-100 text-slate-600" : ["RESERVED", "MOVE_IN", "ACTIVE"].includes(view.status) ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
-          {TENANCY_STATUS_LABEL[view.status] || view.status}
+          {statusLabel}
         </span>
-      </div>
+      </div>}
 
       {cardReturn && side === "TENANT" ? (
         <p className={`m-0 border-0 border-t border-solid border-slate-100 px-5 py-2.5 text-[13px] ${view.status === "RESERVED" || cardReturn === "success" ? "bg-emerald-50 text-emerald-900" : cardReturn === "failed" ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-900"}`}>
@@ -153,16 +173,25 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
 
       {/* Contact */}
       <div className="border-0 border-t border-solid border-slate-100 px-5 py-3 text-[13px]">
-        {view.contactsShared && view.otherParty.phone ? (
+        {tenant && view.contactsShared ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="m-0 font-semibold text-slate-900">{view.otherParty.name || "Landlord"}</p>
+            {view.otherParty.phone && <a href={`tel:${view.otherParty.phone}`} className="inline-flex items-center gap-2 font-semibold text-[#02665e] no-underline"><Phone className="size-4" aria-hidden />{view.otherParty.phone}</a>}
+          </div>
+        ) : view.contactsShared && view.otherParty.phone ? (
           <a href={`tel:${view.otherParty.phone}`} className="inline-flex items-center gap-2 font-semibold text-[#02665e] no-underline"><Phone className="h-4 w-4" />{view.otherParty.phone}</a>
-        ) : (
-          <p className="m-0 flex items-start gap-2 text-slate-500"><Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />Names, phone numbers and messages open once the first month is paid. Until then NoLSAF is your contact: ask from the home's page.</p>
-        )}
+        ) : tenant ? (
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className="m-0 flex items-start gap-2 text-slate-600"><Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />NoLSAF handles questions until the first month is paid.</p>
+            {tenant && homeHref && <Link href={homeHref} className="rounded-md border border-solid border-slate-200 px-2.5 py-1 text-xs font-semibold text-[#02665e] no-underline hover:bg-slate-50 hover:no-underline">Ask from the listing</Link>}
+          </div>
+        ) : <p className="m-0 flex items-start gap-2 text-slate-500"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />Names, phone numbers and messages open once the first month is paid. Until then NoLSAF is your contact: ask from the home&apos;s page.</p>}
       </div>
 
       {/* Messages */}
-      <div className="border-0 border-t border-solid border-slate-100 px-5 py-4">
-        <ol className="m-0 list-none space-y-2.5 p-0">
+      {view.events.length || view.contactsShared ? <Activity className="group border-0 border-t border-solid border-slate-100 px-5 py-3">
+        {compactActivity && <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-sm font-semibold text-slate-700 [&::-webkit-details-marker]:hidden">Reservation activity <ChevronDown className="size-4 group-open:rotate-180" aria-hidden /></summary>}
+        <ol className={`m-0 list-none space-y-2.5 p-0 ${compactActivity ? "mt-3" : ""}`}>
           {view.events.map((event, index) => (
             event.type === "MESSAGE" ? (
               <li key={index} className={`flex ${event.by === "YOU" ? "justify-end" : "justify-start"}`}>
@@ -188,7 +217,6 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
             )
           ))}
         </ol>
-        {view.status === "CANCELLED" && view.cancelReason ? <p className="m-0 mt-3 rounded-md bg-slate-50 px-3 py-2 text-[13px] text-slate-600">Closed: {view.cancelReason}</p> : null}
 
         {!closed && view.contactsShared ? (
           <div className="mt-3 flex gap-2">
@@ -199,7 +227,8 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
             </button>
           </div>
         ) : null}
-      </div>
+      </Activity> : null}
+      {view.status === "CANCELLED" && view.cancelReason ? <p className="mx-5 my-3 rounded-md bg-slate-50 px-3 py-2 text-[13px] text-slate-600">Closed: {view.cancelReason}</p> : null}
 
       {/* Close */}
       {openBeforeLease ? (
@@ -215,7 +244,7 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
               </div>
             </div>
           ) : (
-            <button type="button" onClick={() => setClosing(true)} className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-[13px] font-semibold text-red-700 hover:underline [font-family:inherit]">
+            <button type="button" onClick={() => setClosing(true)} className={tenant ? `${btn} border border-solid border-rose-200 bg-white text-rose-800 hover:bg-rose-50` : "inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-[13px] font-semibold text-red-700 hover:underline [font-family:inherit]"}>
               <XCircle className="h-4 w-4" />{side === "TENANT" ? "Withdraw this reservation" : "Decline this reservation"}
             </button>
           )}
@@ -226,12 +255,13 @@ export default function TenancyDetail({ side, tenancyRef, backHref }: { side: Si
   );
 }
 
-function Shell({ backHref, children }: { backHref: string; children: React.ReactNode }) {
+function Shell({ backHref, tenant, heading, children }: { backHref: string; tenant: boolean; heading?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div id="tenancy-detail" className="w-full py-2">
+    <div id="tenancy-detail" className={`w-full py-2 ${tenant ? "mx-auto max-w-5xl" : ""}`}>
       <style>{`#tenancy-detail, #tenancy-detail * { box-sizing: border-box; }`}</style>
-      <Link href={backHref} className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-slate-600 no-underline hover:text-[#02665e]"><ArrowLeft className="h-4 w-4" /> All long stays</Link>
-      <section className="max-w-2xl overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">{children}</section>
+      <Link href={backHref} className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-slate-600 no-underline hover:text-[#02665e]"><ArrowLeft className="h-4 w-4" aria-hidden />{tenant ? "My bookings · Long stays" : "All long stays"}</Link>
+      {heading}
+      <section className={`overflow-hidden rounded-lg border border-solid border-slate-200 bg-white ${heading ? "mt-3" : ""} ${tenant ? "" : "max-w-2xl"}`}>{children}</section>
     </div>
   );
 }

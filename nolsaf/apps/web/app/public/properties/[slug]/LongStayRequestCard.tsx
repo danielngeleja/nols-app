@@ -7,7 +7,7 @@
  * landlord confirms within 24 hours. Questions and visits go to NoLSAF, never
  * straight to the landlord, until the booking is paid.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Armchair, BadgeCheck, CalendarCheck, CalendarRange, Check, CheckCircle2, Footprints, Loader2, Lock, MessageCircleQuestion, PawPrint, Plus, Timer, UsersRound, X, type LucideIcon } from "lucide-react";
 import apiClient from "@/lib/apiClient";
@@ -55,12 +55,17 @@ function eatInstant(day: string, time: string) {
   return new Date(`${day}T${time}:00+03:00`).toISOString();
 }
 
-export default function LongStayRequestCard({ propertySlug, longStay }: { propertySlug: string; longStay: PublicLongStay }) {
+export default function LongStayRequestCard({ propertySlug, propertyTitle, longStay }: { propertySlug: string; propertyTitle: string; longStay: PublicLongStay }) {
   const router = useRouter();
+  const reviewId = useId();
+  const review = useRef<HTMLDialogElement>(null);
+  const submittingReservation = useRef(false);
   const terms = TERMS.filter((t) => t >= longStay.minTermMonths && t <= (longStay.maxTermMonths ?? 24));
   const [term, setTerm] = useState<number>(terms[0] ?? longStay.minTermMonths);
   const [moveIn, setMoveIn] = useState("");
   const [pricing, setPricing] = useState<{ propertySlug: string; term: number; quote: Quote | null } | null>(null);
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [mode, setMode] = useState<"reserve" | "ask" | "visit">("reserve");
   const [text, setText] = useState("");
   const [slots, setSlots] = useState<Array<{ day: string; time: string }>>([{ day: "", time: "10:00" }]);
@@ -80,7 +85,8 @@ export default function LongStayRequestCard({ propertySlug, longStay }: { proper
     : longStay.securityDepositMonths === 1 ? "1 month’s rent" : `${longStay.securityDepositMonths} months’ rent`;
   const earliest = [longStay.availableFrom ?? addDays(2), addDays(2)].sort().pop() as string;
   const latest = addDays(60);
-  const canReserve = longStay.open && Boolean(longStay.availableFrom) && earliest <= latest;
+  const canReserve = longStay.open && Boolean(longStay.availableFrom) && earliest <= latest && terms.length > 0;
+  const validMoveIn = moveIn >= earliest && moveIn <= latest;
   const stayLength = longStay.maxTermMonths && longStay.maxTermMonths !== longStay.minTermMonths
     ? `${longStay.minTermMonths}–${longStay.maxTermMonths} months`
     : `${longStay.minTermMonths} months${longStay.maxTermMonths ? "" : " minimum"}`;
@@ -88,27 +94,39 @@ export default function LongStayRequestCard({ propertySlug, longStay }: { proper
   const quote = matchingPricing?.quote ?? null;
 
   useEffect(() => {
-    if (!longStay.open) return;
+    if (!reviewOpen || !canReserve) return;
     const controller = new AbortController();
     apiClient.get<{ quote: Quote }>(`/api/customer/long-stay/quote?property=${encodeURIComponent(propertySlug)}&termMonths=${term}`, { signal: controller.signal })
       .then((r) => { if (!controller.signal.aborted) setPricing({ propertySlug, term, quote: r.data.quote }); })
       .catch(() => { if (!controller.signal.aborted) setPricing({ propertySlug, term, quote: null }); });
     return () => controller.abort();
-  }, [propertySlug, term, longStay.open]);
+  }, [propertySlug, term, reviewOpen, canReserve, quoteAttempt]);
 
   const signIn = () => router.push(`/login?next=${encodeURIComponent(`/public/properties/${propertySlug}`)}`);
 
-  const reserve = async () => {
+  function openReview() {
+    const dialog = review.current;
+    if (!canReserve || busy || !dialog || dialog.open) return;
+    setPricing(null);
     setError("");
-    if (!moveIn) { setError("Choose your move-in date."); return; }
+    setReviewOpen(true);
+    dialog.showModal();
+  }
+
+  const confirmReservation = async () => {
+    if (!review.current?.open || !canReserve || !validMoveIn || !quote || !terms.includes(term) || submittingReservation.current) return;
+    submittingReservation.current = true;
+    setError("");
     setBusy(true);
     try {
       const response = await apiClient.post<{ ref: string }>("/api/customer/long-stay/reservations", { property: propertySlug, moveInDate: moveIn, termMonths: term });
       setDone({ kind: "reserved", ref: response.data.ref });
+      review.current?.close();
     } catch (requestError: any) {
       if (requestError?.response?.status === 401) return signIn();
       setError(requestError?.response?.data?.error || "Could not reserve. Try again.");
     } finally {
+      submittingReservation.current = false;
       setBusy(false);
     }
   };
@@ -135,13 +153,23 @@ export default function LongStayRequestCard({ propertySlug, longStay }: { proper
     }
   };
 
-  const tab = (key: typeof mode, label: string, Icon: LucideIcon) => (
-    <button type="button" onClick={() => { setMode(key); setError(""); }} aria-pressed={mode === key}
-      className={`inline-flex min-h-10 min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-sm border border-solid px-1.5 py-1 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#02665e] [font-family:inherit] ${mode === key ? "border-[#d4e6df] bg-[#eaf4f0] text-[#215b50]" : "border-transparent bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}>
-      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      {label}
-    </button>
-  );
+  const tab = (key: typeof mode, label: string, Icon: LucideIcon) => {
+    const selected = mode === key;
+    const tone = key === "ask"
+      ? selected ? "border-sky-300 bg-sky-100 text-sky-900" : "border-transparent bg-transparent text-sky-800 hover:bg-sky-50"
+      : selected ? "border-[#d4e6df] bg-[#eaf4f0] text-[#215b50]" : "border-transparent bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900";
+    return (
+      <button type="button" onClick={() => {
+        setMode(key);
+        setError("");
+        if (key === "reserve") openReview();
+      }} aria-pressed={selected} aria-haspopup={key === "reserve" && canReserve ? "dialog" : undefined}
+        className={`inline-flex min-h-10 min-w-0 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-sm border border-solid px-1.5 py-1 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#02665e] [font-family:inherit] ${tone}`}>
+        <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {label}
+      </button>
+    );
+  };
 
   return (
     <section id="booking-card" aria-label="Long-stay terms and reservations" className="box-border min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
@@ -182,9 +210,9 @@ export default function LongStayRequestCard({ propertySlug, longStay }: { proper
 
         {done?.kind === "reserved" ? (
           <div className="rounded-md border border-solid border-emerald-200 bg-emerald-50/60 p-3 text-[13px] text-emerald-900">
-            <p className="m-0 flex items-center gap-2 font-semibold"><CheckCircle2 className="h-4 w-4" />Reserved, waiting for the landlord</p>
+            <p role="status" className="m-0 flex items-center gap-2 font-semibold"><CheckCircle2 className="h-4 w-4" aria-hidden />Reservation requested</p>
             <p className="m-0 mt-1 text-emerald-800">The landlord confirms within 24 hours. Then you sign the lease and pay the first month through NoLSAF. Nothing is charged yet.</p>
-            <button type="button" onClick={() => router.push(`/account/long-stays/${done.ref}`)} className="mt-2 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-semibold text-[#02665e] hover:underline [font-family:inherit]">Open my reservation</button>
+            <button type="button" onClick={() => router.push(`/account/bookings/long-stays/${encodeURIComponent(done.ref)}`)} className="mt-2 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-semibold text-[#02665e] hover:underline [font-family:inherit]">Open my reservation</button>
           </div>
         ) : done?.kind === "asked" ? (
           <div className="rounded-md border border-solid border-emerald-200 bg-emerald-50/60 p-3 text-[13px] text-emerald-900">
@@ -210,55 +238,14 @@ export default function LongStayRequestCard({ propertySlug, longStay }: { proper
             </div>
 
             {mode === "reserve" ? (
-              <div className="mt-3 space-y-3">
-                <fieldset className="m-0 min-w-0 border-0 p-0">
-                  <legend className="p-0 text-[12.5px] font-semibold text-slate-700">Lease length</legend>
-                  <div className="mt-1.5 flex gap-2">
-                    {terms.map((t) => (
-                      <button key={t} type="button" onClick={() => setTerm(t)} aria-pressed={term === t}
-                        className={`h-9 flex-1 cursor-pointer rounded-sm border border-solid text-[13px] font-semibold [font-family:inherit] ${term === t ? "border-[#02665e] bg-[#02665e]/5 text-[#02665e]" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>
-                        {t} months
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
+              <div className="mt-3 space-y-2">
                 {canReserve ? (
-                  <div>
-                    <span className="block text-[12.5px] font-semibold text-slate-700">Move-in date</span>
-                    <div className="mt-1.5"><DatePickerField label="Move-in date" value={moveIn} min={earliest} max={latest} size="sm" widthClassName="w-full" onChangeAction={(iso) => { setMoveIn(String(iso).slice(0, 10)); setError(""); }} /></div>
-                  </div>
+                  <button type="button" aria-haspopup="dialog" disabled={busy} onClick={openReview} className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] text-sm font-semibold text-white hover:bg-[#014e47] disabled:opacity-60 [font-family:inherit]">
+                    <CalendarCheck className="size-4" aria-hidden />Reserve
+                  </button>
                 ) : (
-                  <p className="m-0 rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">{longStay.availableFrom ? "Reservations can be made up to 60 days before move-in." : "There are no move-in dates available yet."} Ask NoLSAF about availability.</p>
+                  <p className="m-0 rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">{longStay.availableFrom && terms.length > 0 ? "Reservations can be made up to 60 days before move-in." : "There are no reservation options available yet."} Ask NoLSAF about availability.</p>
                 )}
-                {quote ? (
-                  <section aria-label="Payment breakdown" className="border-0 border-y border-solid border-slate-200">
-                    <div className="py-2.5">
-                      <h3 className="m-0 text-xs font-bold text-slate-900">Pay NoLSAF after signing</h3>
-                      <dl className="m-0 mt-1.5 space-y-1 text-xs">
-                        {quote.discountPercent ? <Row label={`${term}-month offer`} value={`${quote.discountPercent}% off the listed rent`} /> : null}
-                        <Row label="First month’s rent" value={money(quote.monthlyRent, quote.currency)} />
-                        <Row label="Service fee" value={money(quote.tenantFee, quote.currency)} />
-                      </dl>
-                      <p className="m-0 mt-2 flex flex-wrap items-center justify-between gap-x-2 border-0 border-t border-solid border-slate-200 pt-2 text-xs font-semibold text-[#02665e]">
-                        <span>Total after signing</span>
-                        <strong className="text-sm tabular-nums">{money(quote.bookingAmount, quote.currency)}</strong>
-                      </p>
-                    </div>
-                    {quote.balanceDue || longStay.securityDepositMonths ? (
-                      <div className="border-0 border-t border-solid border-slate-200 py-2.5">
-                        <h3 className="m-0 text-xs font-bold text-slate-900">Pay the landlord on move-in day</h3>
-                        <dl className="m-0 mt-1.5 space-y-1 text-xs">
-                          {quote.balanceDue ? <Row label="Remaining upfront rent" value={money(quote.balanceDue, quote.currency)} /> : null}
-                          {longStay.securityDepositMonths ? <Row label="Security deposit" value={money(quote.monthlyRent * longStay.securityDepositMonths, quote.currency)} /> : null}
-                        </dl>
-                      </div>
-                    ) : null}
-                  </section>
-                ) : <p role="status" className="m-0 text-xs text-slate-500">{matchingPricing ? "The payment breakdown is temporarily unavailable." : "Calculating your payment breakdown…"}</p>}
-                {error ? <p className="m-0 text-[13px] text-red-700">{error}</p> : null}
-                <button type="button" disabled={busy || !canReserve} onClick={reserve} className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-sm border-0 bg-[#02665e] text-sm font-semibold text-white hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-60 [font-family:inherit]">
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarCheck className="h-4 w-4" />} Reserve
-                </button>
               </div>
             ) : (
               <div className="mt-3 space-y-3">
@@ -266,7 +253,7 @@ export default function LongStayRequestCard({ propertySlug, longStay }: { proper
                   <label htmlFor="ls-ask" className="block text-[12.5px] font-semibold text-slate-700">{mode === "visit" ? "Who is coming, and anything to check" : "Your question to NoLSAF"}</label>
                   <textarea id="ls-ask" value={text} onChange={(event) => { setText(event.target.value); setError(""); }} maxLength={1000}
                     placeholder={mode === "visit" ? "Two of us; we want to see the water pressure and parking" : "Is there parking? Is the road passable in the rains?"}
-                    className="mt-1.5 min-h-20 w-full resize-y rounded-sm border border-solid border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#02665e] [font-family:inherit]" />
+                    className={`mt-1.5 block box-border min-h-20 w-full min-w-0 max-w-full resize-y rounded-sm border border-solid border-slate-300 px-3 py-2 text-sm outline-none [font-family:inherit] ${mode === "ask" ? "focus:border-sky-600" : "focus:border-[#02665e]"}`} />
                 </div>
                 {mode === "visit" ? (
                   <div>
@@ -294,7 +281,7 @@ export default function LongStayRequestCard({ propertySlug, longStay }: { proper
                   </div>
                 ) : null}
                 {error ? <p className="m-0 text-[13px] text-red-700">{error}</p> : null}
-                <button type="button" disabled={busy} onClick={ask} className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-sm border border-solid border-[#02665e] bg-white text-sm font-semibold text-[#02665e] hover:bg-[#02665e]/5 disabled:opacity-60 [font-family:inherit]">
+                <button type="button" disabled={busy} onClick={ask} className={`flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-sm border border-solid text-sm font-semibold disabled:opacity-60 [font-family:inherit] ${mode === "ask" ? "border-sky-800 bg-sky-800 text-white hover:border-sky-900 hover:bg-sky-900" : "border-[#02665e] bg-white text-[#02665e] hover:bg-[#02665e]/5"}`}>
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === "visit" ? <Footprints className="h-4 w-4" /> : <MessageCircleQuestion className="h-4 w-4" />}
                   {mode === "visit" ? "Ask for a visit" : "Send to NoLSAF"}
                 </button>
@@ -350,6 +337,91 @@ export default function LongStayRequestCard({ propertySlug, longStay }: { proper
           </ul>
         </section>
       </div>
+      <dialog ref={review} aria-labelledby={`${reviewId}-title`} aria-describedby={`${reviewId}-next`}
+        onClose={() => { setReviewOpen(false); setError(""); }}
+        onCancel={(event) => { if (submittingReservation.current) event.preventDefault(); }}
+        className="fixed inset-0 m-auto box-border max-h-[90dvh] w-[calc(100%_-_1.5rem)] max-w-2xl overflow-hidden rounded-lg border border-solid border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/55">
+          <div className="flex max-h-[inherit] min-w-0 flex-col">
+            <header className="flex shrink-0 items-start gap-3 border-0 border-b border-solid border-slate-200 bg-[#f2f7f5] px-4 py-3.5 sm:px-5">
+              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#02665e] text-white"><CalendarCheck className="size-4" aria-hidden /></span>
+              <div className="min-w-0 flex-1">
+                <h2 id={`${reviewId}-title`} className="m-0 text-lg font-semibold tracking-tight">Review your reservation</h2>
+                <p className="m-0 mt-0.5 break-words text-sm text-slate-600">{propertyTitle}</p>
+              </div>
+              <button type="button" aria-label="Close reservation review" onClick={() => review.current?.close()} disabled={busy}
+                className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"><X className="size-4" aria-hidden /></button>
+            </header>
+            <div className="min-h-0 overflow-y-auto overscroll-y-contain px-4 py-4 sm:px-5">
+              <div className="grid items-start gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+                <div className="min-w-0 space-y-3">
+                  <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
+                    <legend className="p-0 text-sm font-semibold text-slate-900">Lease length</legend>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {terms.map((months) => (
+                        <button key={months} type="button" aria-pressed={term === months} onClick={() => {
+                          if (term !== months) { setTerm(months); setPricing(null); setError(""); }
+                        }}
+                          className={`min-h-9 flex-1 cursor-pointer whitespace-nowrap rounded-md border border-solid px-2 text-xs font-semibold [font-family:inherit] ${term === months ? "border-[#8ab8ab] bg-[#e8f4ef] text-[#215b50]" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                          {months} months
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+                  <div>
+                    <label htmlFor={`${reviewId}-move-in`} className="block text-sm font-semibold text-slate-900">Move-in date</label>
+                    <input id={`${reviewId}-move-in`} type="date" min={earliest} max={latest} value={moveIn} disabled={busy}
+                      onChange={(event) => { setMoveIn(event.target.value); setError(""); }}
+                      aria-describedby={`${reviewId}-dates`}
+                      className="mt-1.5 block min-h-10 w-full min-w-0 box-border rounded-md border border-solid border-slate-300 bg-white px-2.5 text-sm text-slate-900 [font-family:inherit]" />
+                    <p id={`${reviewId}-dates`} className="m-0 mt-1 text-xs text-slate-600">{dayLabel(earliest)} to {dayLabel(latest)}</p>
+                    {moveIn && !validMoveIn && <p role="alert" className="m-0 mt-1 text-xs text-rose-800">Choose a date within the available range.</p>}
+                  </div>
+                </div>
+                <section aria-label="Payment breakdown" className="min-w-0 rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2.5">
+                  {quote ? (
+                    <>
+                      <h3 className="m-0 text-xs font-bold text-slate-900">Pay NoLSAF after signing</h3>
+                      <dl className="m-0 mt-1.5 space-y-1 text-xs">
+                        {quote.discountPercent ? <Row label="Lease discount" value={`${quote.discountPercent}% off listed rent`} /> : null}
+                        <Row label="First month’s rent" value={money(quote.monthlyRent, quote.currency)} />
+                        <Row label="Service fee" value={money(quote.tenantFee, quote.currency)} />
+                      </dl>
+                      <p className="m-0 mt-2 flex flex-wrap items-baseline justify-between gap-1 border-0 border-t border-solid border-slate-200 pt-2 text-xs font-semibold text-[#02665e]">
+                        <span>Total after signing</span><strong className="text-sm tabular-nums">{money(quote.bookingAmount, quote.currency)}</strong>
+                      </p>
+                      {quote.balanceDue || longStay.securityDepositMonths ? (
+                        <div className="mt-2 border-0 border-t border-solid border-slate-200 pt-2">
+                          <h3 className="m-0 text-xs font-bold text-slate-900">Pay the landlord on move-in day</h3>
+                          <dl className="m-0 mt-1.5 space-y-1 text-xs">
+                            {quote.balanceDue ? <Row label="Remaining upfront rent" value={money(quote.balanceDue, quote.currency)} /> : null}
+                            {longStay.securityDepositMonths ? <Row label="Security deposit" value={money(quote.monthlyRent * longStay.securityDepositMonths, quote.currency)} /> : null}
+                          </dl>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : matchingPricing ? (
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-700">
+                      <p role="status" className="m-0">The payment breakdown is temporarily unavailable.</p>
+                      <button type="button" onClick={() => { setPricing(null); setQuoteAttempt((current) => current + 1); }} className="cursor-pointer rounded-md border border-solid border-slate-300 bg-white px-2 py-1 font-semibold text-[#02665e]">Retry</button>
+                    </div>
+                  ) : <p role="status" className="m-0 flex items-center gap-1.5 text-xs text-slate-600"><Loader2 className="size-3.5 animate-spin" aria-hidden />Calculating your payment breakdown…</p>}
+                </section>
+              </div>
+              <p id={`${reviewId}-next`} className="m-0 mt-4 flex items-start gap-2 rounded-md bg-[#edf6f2] px-3 py-2.5 text-xs leading-5 text-slate-700">
+                <Lock className="mt-0.5 size-3.5 shrink-0 text-[#02665e]" aria-hidden />
+                <span><strong className="text-slate-900">Nothing is charged now.</strong> The landlord has 24 hours to confirm. You sign the lease and pay NoLSAF after they confirm.</span>
+              </p>
+            </div>
+            <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-0 border-t border-solid border-slate-200 px-4 py-3 sm:px-5">
+              {error && <p role="alert" className="m-0 w-full rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
+              <button type="button" onClick={() => review.current?.close()} disabled={busy} className="min-h-10 cursor-pointer rounded-md border border-solid border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={confirmReservation} disabled={busy || !canReserve || !validMoveIn || !quote || !terms.includes(term)}
+                className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-3.5 text-sm font-semibold text-white hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-50">
+                {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}{busy ? "Sending request…" : "Confirm reservation"}
+              </button>
+            </footer>
+          </div>
+      </dialog>
     </section>
   );
 }

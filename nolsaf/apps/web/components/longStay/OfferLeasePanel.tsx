@@ -95,13 +95,41 @@ function OfferReview({ side, view, post, busy }: { side: Side; view: OfferLeaseV
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState("");
   const offer = view.offer!;
+  if (side === "TENANT") {
+    const dates = [
+      { label: "Move-in", value: dayLabel(offer.moveInDate) || "Pending" },
+      { label: "Lease ends", value: dayLabel(offer.endDate) || "Pending" },
+      { label: "Lease length", value: `${offer.termMonths} ${offer.termMonths === 1 ? "month" : "months"}` },
+    ];
+    return (
+      <section aria-label="Your reservation" className="grid items-start gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+        <div className="min-w-0 rounded-md border border-solid border-slate-200 bg-white p-3.5">
+          <h2 className="m-0 flex items-center gap-2 text-sm font-semibold text-slate-900"><CalendarRange className="size-4 text-[#02665e]" aria-hidden />Your reservation</h2>
+          <dl className="m-0 mt-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+            {dates.map(({ label, value }) => (
+              <div key={label} className="min-w-0 rounded bg-slate-50 px-2.5 py-2">
+                <dt className="text-xs text-slate-600">{label}</dt>
+                <dd className="m-0 mt-0.5 text-sm font-semibold leading-snug tabular-nums text-slate-900">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+        <div className="flex min-w-0 items-start gap-2.5 rounded-md border border-solid border-amber-200 bg-amber-50/70 p-3.5">
+          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-amber-100 text-amber-900"><Clock3 className="size-4" aria-hidden /></span>
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-semibold text-slate-900">Waiting for the landlord</h2>
+            {view.confirmBy && <p className="m-0 mt-0.5 text-xs font-semibold text-amber-900">Response due <time dateTime={view.confirmBy}>{eatTime(view.confirmBy)}</time></p>}
+            <p className="m-0 mt-1.5 text-xs leading-5 text-slate-700">Once the landlord confirms, you can review and sign the lease. Payment follows signing.</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
   return (
     <div>
-      <p className="m-0 flex items-center gap-2 text-[13px] font-semibold text-slate-800"><CalendarRange className="h-4 w-4 text-[#02665e]" />{side === "TENANT" ? "Your reservation" : "New reservation"}</p>
+      <p className="m-0 flex items-center gap-2 text-[13px] font-semibold text-slate-800"><CalendarRange className="h-4 w-4 text-[#02665e]" />New reservation</p>
       <p className="m-0 mt-1.5 text-sm text-slate-800"><b>{offer.termMonths} months</b> from <b>{dayLabel(offer.moveInDate)}</b>{offer.endDate ? ` to ${dayLabel(offer.endDate)}` : ""}, at the listed terms</p>
-      {side === "TENANT" ? (
-        <p className="m-0 mt-2 inline-flex items-center gap-1.5 text-[13px] text-slate-500"><Clock3 className="h-4 w-4" />The landlord confirms by {eatTime(view.confirmBy)}. Nothing is charged until you sign.</p>
-      ) : declining ? (
+      {declining ? (
         <div className="mt-3">
           <label htmlFor="decline-reason" className="block text-xs font-semibold text-slate-700">Why? The tenant sees this.</label>
           <input id="decline-reason" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={300} autoFocus placeholder="The home is no longer free on these dates"

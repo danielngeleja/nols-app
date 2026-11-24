@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import DatePicker from "@/components/ui/DatePicker";
+import BookingTypeNav from "@/components/longStay/BookingTypeNav";
 
 const api = apiClient;
 const PAGE_SIZE = 10;
@@ -448,6 +449,7 @@ export default function MyBookingsPage() {
   if (loading) {
     return (
       <div className="w-full space-y-4" aria-busy="true">
+        <BookingTypeNav current="nightly" />
         <span role="status" className="sr-only">Loading bookings</span>
         <div className="rounded-2xl bg-[#0a1110] px-5 py-5 sm:px-6">
           <div className="h-3 w-24 rounded bg-white/10" />
@@ -479,6 +481,7 @@ export default function MyBookingsPage() {
 
   return (
     <div className={["w-full space-y-4 transition-all duration-300 ease-out", entered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"].join(" ")}>
+      <BookingTypeNav current="nightly" />
       {/* ── Header band ── */}
       <div className="relative overflow-hidden rounded-2xl bg-[#0a1110] text-white shadow-[0_18px_40px_-26px_rgba(0,0,0,0.8)]" style={{ isolation: "isolate" }}>
         <div aria-hidden className="pointer-events-none absolute -right-20 -top-28 -z-10 h-72 w-72 rounded-full" style={{ background: "radial-gradient(closest-side, rgba(2,102,94,0.6), rgba(2,102,94,0))" }} />

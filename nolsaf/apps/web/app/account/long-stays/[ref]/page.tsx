@@ -1,13 +1,17 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useParams } from "next/navigation";
-import TenancyDetail from "@/components/longStay/TenancyDetail";
+type LegacyDetailProps = {
+  params: Promise<{ ref: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-export default function AccountLongStayPage() {
-  const params = useParams<{ ref: string }>();
-  return (
-    <div className="w-full py-6 sm:py-8">
-      <TenancyDetail side="TENANT" tenancyRef={String(params?.ref || "")} backHref="/account/long-stays" />
-    </div>
-  );
+export default async function LegacyLongStayDetailPage({ params, searchParams }: LegacyDetailProps) {
+  const [{ ref }, query] = await Promise.all([params, searchParams]);
+  const suffix = new URLSearchParams();
+  for (const [key, values] of Object.entries(query)) {
+    for (const value of Array.isArray(values) ? values : values === undefined ? [] : [values]) {
+      suffix.append(key, value);
+    }
+  }
+  redirect(`/account/bookings/long-stays/${encodeURIComponent(ref)}${suffix.size ? `?${suffix}` : ""}`);
 }

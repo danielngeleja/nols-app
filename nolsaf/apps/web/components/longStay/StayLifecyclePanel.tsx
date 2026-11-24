@@ -168,7 +168,7 @@ export default function StayLifecyclePanel({ side, view, base, onChanged }: { si
           {view.status === "RESERVED" ? <button type="button" onClick={openCancel} className={`${btn} border-0 bg-transparent px-0 text-red-700 hover:underline`}><XCircle className="h-4 w-4" />Cancel the booking</button> : null}
           {view.status === "ACTIVE" ? <button type="button" onClick={() => { setMode("notice"); setReason(""); }} className={outline}><CalendarX2 className="h-4 w-4" />Give notice</button> : null}
           {side === "TENANT" && view.status === "ACTIVE" && daysToEnd != null && daysToEnd <= 60 ? (
-            <button type="button" disabled={busy === "renew"} onClick={async () => { const data = await post("renew", "renew"); if (data?.ref) router.push(`/account/long-stays/${data.ref}`); }} className={primary}>
+            <button type="button" disabled={busy === "renew"} onClick={async () => { const data = await post("renew", "renew"); if (data?.ref) router.push(`/account/bookings/long-stays/${encodeURIComponent(data.ref)}`); }} className={primary}>
               {busy === "renew" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}Renew my stay
             </button>
           ) : null}

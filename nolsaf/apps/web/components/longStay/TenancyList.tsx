@@ -83,7 +83,7 @@ function nextStep(item: Item, side: Side): { text: string; urgent: boolean } | n
   return null;
 }
 
-export default function TenancyList({ side, detailBase, intro, extra }: { side: Side; detailBase: string; intro: string; extra?: React.ReactNode }) {
+export default function TenancyList({ side, detailBase, intro, extra, hideHeading = false }: { side: Side; detailBase: string; intro?: string; extra?: React.ReactNode; hideHeading?: boolean }) {
   const [scope, setScope] = useState<"open" | "closed">("open");
   const [open, setOpen] = useState<Item[] | null>(null);
   const [closed, setClosed] = useState<Item[] | null>(null);
@@ -139,9 +139,11 @@ export default function TenancyList({ side, detailBase, intro, extra }: { side: 
 
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#02665e]">{side === "LANDLORD" ? "Monthly rentals" : "Your monthly stays"}</p>
-          <h1 className="m-0 mt-1 text-2xl font-bold tracking-tight text-slate-900">Long stays</h1>
-          <p className="m-0 mt-1 max-w-2xl text-sm text-slate-600">{intro}</p>
+          {!hideHeading && <>
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#02665e]">{side === "LANDLORD" ? "Monthly rentals" : "Your monthly stays"}</p>
+            <h1 className="m-0 mt-1 text-2xl font-bold tracking-tight text-slate-900">Long stays</h1>
+            {intro && <p className="m-0 mt-1 max-w-2xl text-sm text-slate-600">{intro}</p>}
+          </>}
           {extra}
         </div>
         {side === "LANDLORD" ? (
@@ -171,7 +173,7 @@ export default function TenancyList({ side, detailBase, intro, extra }: { side: 
           <ul className="m-0 list-none p-0">
             {needsYou.map((item) => (
               <li key={item.ref} className="border-0 border-t border-solid border-amber-100 first:border-t-0">
-                <Link href={`${detailBase}/${item.ref}`} className="flex items-center gap-3 px-4 py-2.5 text-slate-900 no-underline hover:bg-amber-50">
+                <Link href={`${detailBase}/${encodeURIComponent(item.ref)}`} className="flex items-center gap-3 px-4 py-2.5 text-slate-900 no-underline hover:bg-amber-50">
                   <AlarmClock className="h-4 w-4 shrink-0 text-amber-600" />
                   <span className="min-w-0 flex-1 truncate text-[13.5px]"><b>{item.homeTitle || "Long stay"}</b><span className="text-slate-600"> · {nextStep(item, side)?.text}</span></span>
                   <ArrowRight className="h-4 w-4 shrink-0 text-amber-700" />
@@ -220,7 +222,7 @@ export default function TenancyList({ side, detailBase, intro, extra }: { side: 
                 const step = nextStep(item, side);
                 return (
                   <li key={item.ref} className="border-0 border-t border-solid border-slate-100 first:border-t-0">
-                    <Link href={`${detailBase}/${item.ref}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 text-slate-900 no-underline hover:bg-slate-50 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_20px]">
+                    <Link href={`${detailBase}/${encodeURIComponent(item.ref)}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 text-slate-900 no-underline hover:bg-slate-50 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_20px]">
                       <span className="col-start-1 row-start-1 min-w-0">
                         <span className="block truncate text-sm font-semibold">{item.homeTitle || "Long stay"}</span>
                         <span className="block truncate text-[12px] text-slate-500">

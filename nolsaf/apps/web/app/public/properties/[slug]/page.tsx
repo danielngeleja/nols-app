@@ -3552,7 +3552,7 @@ export default function PublicPropertyDetailPage() {
           <aside className="lg:sticky lg:top-24 h-fit space-y-6">
             {/* Booking card: price, dates, live availability and the next step, in reading order */}
             {property.rentalMode === "LONG_STAY" && property.longStay ? (
-              <LongStayRequestCard propertySlug={property.slug} longStay={property.longStay} />
+              <LongStayRequestCard propertySlug={property.slug} propertyTitle={displayTitle(property.title)} longStay={property.longStay} />
             ) : (() => {
               const { checkIn: ci, checkOut: co } = selectedDates;
               const hasDates = Boolean(ci && co);
