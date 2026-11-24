@@ -7,15 +7,15 @@
  * then review the report: PASS for a year, FAIL, or REDO with no fee.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ClipboardCheck, Clock3, ExternalLink, Eye, Loader2, MapPin, Phone, RotateCcw, UserRoundCheck, X, XCircle } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ClipboardCheck, Clock3, Eye, Loader2, MapPin, Phone, UserRoundCheck, X, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesAdminHeader from "@/components/admin/sales/SalesAdminHeader";
 import TablePagination from "@/components/TablePagination";
+import InspectionReportReview, { type InspectionCheck, type InspectionPoint, type InspectionReport } from "@/components/admin/properties/InspectionReportReview";
 
 type View = "todo" | "review" | "passed" | "failed";
 type SortKey = "property" | "landlord" | "partner" | "status" | "date";
 type Sort = { key: SortKey; direction: "asc" | "desc" };
-type CheckItem = { key: string; label: string; required: boolean };
 type QueueRow = {
   ref: string;
   status: "REQUESTED" | "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED" | "CANCELLED";
@@ -34,24 +34,13 @@ type QueueRow = {
 };
 type Item = QueueRow & {
   landlord: { name: string | null; phone: string | null };
-  report: {
-    checklist: Record<string, "PASS" | "FAIL" | "NA">;
-    findings?: Record<string, { note: string; photoIndex?: number }>;
-    photoCount: number;
-    photoLabels?: string[];
-    recommendation: "PASS" | "FAIL";
-    note: string;
-    distanceMeters: number | null;
-    accuracyMeters: number | null;
-    flags: string[];
-    capturedAt: string;
-    submittedAt: string;
-  } | null;
+  pin: InspectionPoint | null;
+  report: InspectionReport | null;
   reviewNote: string | null;
   feeAmount: number | null;
 };
 type Data = { counts: Record<View, number>; items: QueueRow[]; pagination: { page: number; pageSize: number; total: number }; inspectionRequiredForApproval?: boolean };
-type Detail = { item: Item; checklist: CheckItem[] };
+type Detail = { item: Item; checklist: InspectionCheck[] };
 const dateColumns = {
   todo: { label: "Requested", field: "createdAt" },
   review: { label: "Submitted", field: "submittedAt" },
@@ -65,14 +54,6 @@ const TABS: Array<{ key: View; label: string; Icon: typeof Clock3 }> = [
   { key: "passed", label: "Passed", Icon: CheckCircle2 },
   { key: "failed", label: "Failed", Icon: XCircle },
 ];
-const FLAG_TEXT: Record<string, string> = {
-  NO_PIN: "The listing has no map pin",
-  FAR_FROM_PIN: "Reported more than 300 m from the pin",
-  LOW_ACCURACY: "Phone location was imprecise",
-  DUPLICATE_PHOTO: "A photo was used on another inspection",
-  LATE_UPLOAD: "Sent more than 6 hours after capture",
-};
-const BLOCKING = ["FAR_FROM_PIN", "DUPLICATE_PHOTO"];
 
 function eat(iso: string | null) {
   return iso ? `${new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT` : "";
@@ -258,7 +239,7 @@ function InspectionDialog({ row, onClose, onChanged }: { row: QueueRow; onClose:
 
   return (
     <dialog ref={dialog} onClose={onClose} aria-labelledby="inspection-dialog-title"
-      className="fixed inset-0 m-auto max-h-[85dvh] w-[calc(100%_-_1.5rem)] max-w-[52rem] overflow-y-auto rounded-lg border border-solid border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/45">
+      className="fixed inset-0 m-auto max-h-[85dvh] w-[calc(100%_-_1.5rem)] max-w-[72rem] overflow-y-auto rounded-lg border border-solid border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/45">
       <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-0 border-b border-solid border-slate-200 bg-white px-4 py-2.5">
         <h2 id="inspection-dialog-title" className="m-0 text-base font-semibold">Inspection details</h2>
         <button type="button" onClick={() => dialog.current?.close()} aria-label="Close inspection details"
@@ -271,12 +252,10 @@ function InspectionDialog({ row, onClose, onChanged }: { row: QueueRow; onClose:
   );
 }
 
-function InspectionCard({ item, checklist, onChanged }: { item: Item; checklist: CheckItem[]; onChanged: () => void }) {
+function InspectionCard({ item, checklist, onChanged }: { item: Item; checklist: InspectionCheck[]; onChanged: () => void }) {
   const [partnerCode, setPartnerCode] = useState(item.partner?.code ?? "");
-  const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [opened, setOpened] = useState<Set<number>>(new Set());
 
   const post = async (key: string, path: string, body: unknown) => {
     setBusy(key);
@@ -293,9 +272,8 @@ function InspectionCard({ item, checklist, onChanged }: { item: Item; checklist:
 
   const r = item.report;
   const status = statusOf(item);
-  const blocking = (r?.flags ?? []).filter((f) => BLOCKING.includes(f));
+  const canReview = item.status === "SUBMITTED" && Boolean(r);
   const btn = "inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md px-3.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 [font-family:inherit]";
-  const outline = `${btn} border border-solid border-slate-300 bg-white text-slate-700 hover:bg-slate-50`;
 
   return (
     <article className="bg-white">
@@ -332,83 +310,15 @@ function InspectionCard({ item, checklist, onChanged }: { item: Item; checklist:
         </div>
       ) : null}
 
-      {r ? (
-        <div className="grid gap-4 border-0 border-t border-solid border-slate-100 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <div>
-            <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Evidence</p>
-            <p className="m-0 mt-1 text-[13px] text-slate-700">
-              {r.distanceMeters != null ? `${r.distanceMeters} m from the pin` : "No pin to compare"}, accurate to about {r.accuracyMeters ?? "?"} m · captured {eat(r.capturedAt)}
-            </p>
-            {r.flags.length ? (
-              <ul className="m-0 mt-2 list-none space-y-1 p-0">
-                {r.flags.map((f) => (
-                  <li key={f} className={`flex items-center gap-1.5 text-[12.5px] ${BLOCKING.includes(f) ? "font-semibold text-red-700" : "text-amber-800"}`}><AlertTriangle className="h-3.5 w-3.5" />{FLAG_TEXT[f] || f}</li>
-                ))}
-              </ul>
-            ) : <p className="m-0 mt-2 flex items-center gap-1.5 text-[12.5px] text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />No warning signs</p>}
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {Array.from({ length: r.photoCount }, (_, n) => (
-                <a key={n} href={`/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/photos/${n}`} target="_blank" rel="noopener noreferrer"
-                  onClick={() => setOpened((s) => new Set(s).add(n))}
-                  className={`inline-flex h-8 items-center gap-1 rounded-md border border-solid px-2.5 text-[12px] font-semibold no-underline ${opened.has(n) ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-slate-300 bg-white text-slate-700 hover:border-[#02665e]"}`}>
-                  {opened.has(n) ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ExternalLink className="h-3.5 w-3.5" />}{r.photoLabels?.[n] ?? `Photo ${n + 1}`}
-                </a>
-              ))}
-            </div>
-            <p className="m-0 mt-3 rounded-md bg-slate-50 px-3 py-2 text-[13px] text-slate-700"><b>Partner:</b> {r.note}</p>
-          </div>
-          <div>
-            <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Checklist · recommends <span className={r.recommendation === "PASS" ? "text-emerald-700" : "text-red-700"}>{r.recommendation === "PASS" ? "pass" : "fail"}</span></p>
-            <ul className="m-0 mt-1 list-none p-0">
-              {checklist.map((c) => {
-                const v = r.checklist?.[c.key];
-                const finding = r.findings?.[c.key];
-                const photoIndex = finding?.photoIndex;
-                return (
-                  <li key={c.key} className="flex items-start gap-2 border-0 border-t border-solid border-slate-100 py-1.5 text-[12.5px] first:border-t-0">
-                    {v === "PASS" ? <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-emerald-600" /> : v === "FAIL" ? <XCircle className="mt-px h-3.5 w-3.5 shrink-0 text-red-600" /> : <span className="mt-px h-3.5 w-3.5 shrink-0 text-center text-[10px] text-slate-400">NA</span>}
-                    <div className="min-w-0 text-slate-700">
-                      <span>{c.label}{c.required ? "" : " (optional)"}</span>
-                      {finding ? <p className="m-0 mt-1 whitespace-pre-wrap break-words text-slate-600">{finding.note}</p> : null}
-                      {photoIndex != null && photoIndex < r.photoCount ? (
-                        <a href={`/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/photos/${photoIndex}`} target="_blank" rel="noopener noreferrer"
-                          onClick={() => setOpened((s) => new Set(s).add(photoIndex))}
-                          className="mt-1 inline-flex items-center gap-1 font-semibold text-[#02665e] underline underline-offset-2">
-                          <ExternalLink className="size-3" aria-hidden />Photo {photoIndex + 1} · {r.photoLabels?.[photoIndex] ?? "View evidence"}
-                        </a>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </div>
-      ) : null}
+      {r && (
+        <InspectionReportReview key={r.submittedAt ?? item.ref} inspectionRef={item.ref} report={r} checklist={checklist} pin={item.pin ?? null}
+          busy={busy !== null} error={error} onDecision={canReview ? (decision, note) => post(decision, "review", { decision, note }) : undefined} />
+      )}
 
-      {item.status === "SUBMITTED" ? (
-        <div className="border-0 border-t border-solid border-slate-100 px-4 py-3">
-          <label htmlFor={`note-${item.ref}`} className="block text-xs font-semibold text-slate-700">Decision note (the landlord sees it on a fail; the partner on a redo)</label>
-          <input id={`note-${item.ref}`} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500}
-            className="mt-1 h-9 w-full rounded-md border border-solid border-slate-300 px-2.5 text-sm outline-none focus:border-[#02665e]" />
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <button type="button" disabled={note.trim().length < 5 || busy !== null || blocking.length > 0 || r?.recommendation !== "PASS" || opened.size < (r?.photoCount ?? 0)}
-              onClick={() => post("PASS", "review", { decision: "PASS", note: note.trim() })} className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}>
-              {busy === "PASS" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}Pass for a year
-            </button>
-            <button type="button" disabled={note.trim().length < 5 || busy !== null} onClick={() => post("FAIL", "review", { decision: "FAIL", note: note.trim() })} className={`${btn} border-0 bg-red-600 text-white hover:bg-red-700`}>
-              <XCircle className="h-4 w-4" />Fail
-            </button>
-            <button type="button" disabled={note.trim().length < 5 || busy !== null} onClick={() => post("REDO", "review", { decision: "REDO", note: note.trim() })} className={outline}>
-              <RotateCcw className="h-4 w-4" />Redo (no fee)
-            </button>
-            {opened.size < (r?.photoCount ?? 0) ? <span className="text-xs text-slate-400">Open every photo before passing.</span> : blocking.length ? <span className="text-xs text-red-700">Cannot pass with these warnings. Redo it.</span> : null}
-          </div>
-        </div>
-      ) : item.reviewNote ? (
+      {!canReview && item.reviewNote ? (
         <p className="m-0 border-0 border-t border-solid border-slate-100 px-4 py-2.5 text-[12.5px] text-slate-600">NoLSAF: {item.reviewNote} · {eat(item.reviewedAt)}</p>
       ) : null}
-      {error ? <p className="m-0 px-4 pb-3 text-xs text-red-700">{error}</p> : null}
+      {error && !canReview ? <p role="alert" className="m-0 px-4 pb-3 text-xs text-red-700">{error}</p> : null}
     </article>
   );
 }

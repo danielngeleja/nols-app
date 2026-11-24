@@ -158,7 +158,8 @@ describe("home inspection invitations", () => {
     const submittedAt = new Date();
     const record = {
       publicRef: ref, status: "SUBMITTED", reason: "FIRST_LISTING", createdAt: submittedAt, submittedAt,
-      property: { title: "Sea View Flats", district: "Kinondoni", owner: { name: "Landlord", phone: "+255700000009" } },
+      property: { title: "Sea View Flats", district: "Kinondoni", latitude: "-6.80", longitude: "39.23", owner: { name: "Landlord", phone: "+255700000009" } },
+      latitude: "-6.81", longitude: "39.24",
       salesPartner: { agentCode: "NSA-DAR-0042", user: { name: "Partner" } },
       checklist: { ACCESS: "FAIL", findings: { ACCESS: { note: "Road is washed out", photoIndex: 2 } } },
       photos: [{}, {}, {}], recommendation: "PASS",
@@ -171,6 +172,7 @@ describe("home inspection invitations", () => {
     expect(queue.body.pagination).toEqual({ page: 2, pageSize: 25, total: 57 });
     expect(queue.body.items[0]).toMatchObject({ ref, status: "SUBMITTED", home: { title: "Sea View Flats" }, landlord: { name: "Landlord" } });
     expect(queue.body.items[0]).not.toHaveProperty("report");
+    expect(queue.body.items[0]).not.toHaveProperty("pin");
     expect(queue.body.items[0].landlord).not.toHaveProperty("phone");
     expect(h.db.longStayInspection.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: "SUBMITTED" }, skip: 25, take: 25 }));
     expect(h.db.longStayInspection.findMany.mock.calls[0][0].select).not.toHaveProperty("photos");
@@ -179,7 +181,10 @@ describe("home inspection invitations", () => {
     const detail = await request(app).get(detailUrl).expect(200);
     expect(detail.body).toMatchObject({
       checklist: CHECKLIST,
-      item: { ref, landlord: { phone: "+255700000009" }, report: { photoCount: 3, findings: record.checklist.findings } },
+      item: {
+        ref, pin: { latitude: -6.8, longitude: 39.23 }, landlord: { phone: "+255700000009" },
+        report: { position: { latitude: -6.81, longitude: 39.24 }, photoCount: 3, findings: record.checklist.findings },
+      },
     });
     h.session.user = { id: 50, role: "CUSTOMER" };
     await request(app).get(detailUrl).expect(403);

@@ -388,6 +388,7 @@ function inspectionQueueDetail(r: any, today: string) {
   const row = inspectionQueueRow(r, today);
   const detail = inspectionDetail(r, today);
   return { ...row, landlord: { ...row.landlord, phone: r.property?.owner?.phone ?? null },
+    pin: row.home.hasPin ? { latitude: Number(r.property.latitude), longitude: Number(r.property.longitude) } : null,
     report: detail.report, reviewNote: detail.reviewNote, feeAmount: detail.feeAmount };
 }
 

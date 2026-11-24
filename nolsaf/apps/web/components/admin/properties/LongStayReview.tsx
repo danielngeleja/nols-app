@@ -9,16 +9,16 @@
  *   4. The Sales Partner's on-site inspection: who went, where the phone stood
  *      against the listing pin, the photos taken there, the checklist and the
  *      partner's note, with the pass / fail / redo decision.
- * Renders nothing for nightly listings. Photos load through the audited,
- * signed-link endpoint, so every photo shown is recorded as seen.
+ * Renders nothing for nightly listings.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  AlertTriangle, BadgeCheck, CalendarRange, CheckCircle2, CigaretteOff, ClipboardCheck, Clock3, Crosshair, ExternalLink,
-  FileText, History, Loader2, MapPin, MoonStar, Navigation, Phone, RotateCcw, ShieldAlert, ShieldCheck, Tag, UserRoundCheck, Users, Wallet, XCircle,
+  AlertTriangle, BadgeCheck, CalendarRange, CheckCircle2, CigaretteOff, ClipboardCheck, Clock3,
+  FileText, History, Loader2, MoonStar, Phone, ShieldAlert, ShieldCheck, Tag, UserRoundCheck, Users, Wallet,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DocumentViewer from "@/components/admin/DocumentViewer";
+import InspectionReportReview, { type InspectionCheck, type InspectionPoint, type InspectionReport } from "./InspectionReportReview";
 import { LEASE_PDF_FLOW, leaseDocumentHtml } from "@/lib/leaseDocument";
 
 type Terms = {
@@ -36,8 +36,6 @@ type Terms = {
   availableFrom: string;
 };
 type Quote = { tenantFee: number; landlordCommission: number; bookingAmount: number; balanceDue: number; landlordPayout: number };
-type CheckItem = { key: string; label: string; required: boolean };
-type Point = { latitude: number; longitude: number };
 type Inspection = {
   ref: string;
   status: "REQUESTED" | "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED" | "CANCELLED";
@@ -47,20 +45,7 @@ type Inspection = {
   assignedAt: string | null;
   dueBy: string | null;
   overdue: boolean;
-  report: {
-    checklist: Record<string, "PASS" | "FAIL" | "NA">;
-    findings?: Record<string, { note: string; photoIndex?: number }>;
-    photoCount: number;
-    photoLabels?: string[];
-    recommendation: "PASS" | "FAIL" | null;
-    note: string | null;
-    position: Point | null;
-    accuracyMeters: number | null;
-    distanceMeters: number | null;
-    flags: string[];
-    capturedAt: string | null;
-    submittedAt: string | null;
-  } | null;
+  report: InspectionReport | null;
   reviewNote: string | null;
   reviewedAt: string | null;
   reviewedBy: string | null;
@@ -100,8 +85,8 @@ type Data = {
   inspectionRequiredForApproval?: boolean;
   quote?: Quote | null;
   landlord?: { granted: boolean; paused: boolean; pauseReason: string | null };
-  pin?: Point | null;
-  checklist?: CheckItem[];
+  pin?: InspectionPoint | null;
+  checklist?: InspectionCheck[];
   inspection?: Inspection | null;
   history?: HistoryRow[];
   onboardedBy?: OnboardedBy[];
@@ -112,14 +97,6 @@ type Data = {
 
 const UTILITY_LABEL: Record<string, string> = { water: "Water", electricity: "Electricity", internet: "Internet", security: "Security", serviceCharge: "Service charge" };
 const FURNISHED_LABEL = { FURNISHED: "Furnished", SEMI: "Semi-furnished", UNFURNISHED: "Unfurnished" } as const;
-const FLAG_TEXT: Record<string, string> = {
-  NO_PIN: "The listing has no map pin to compare with",
-  FAR_FROM_PIN: "Reported more than 300 m from the listing pin",
-  LOW_ACCURACY: "The phone's location was imprecise (over 100 m)",
-  DUPLICATE_PHOTO: "A photo was already used on another inspection",
-  LATE_UPLOAD: "Sent more than 6 hours after it was captured",
-};
-const BLOCKING = ["FAR_FROM_PIN", "DUPLICATE_PHOTO"];
 const REASON_TEXT: Record<string, string> = { FIRST: "First inspection", YEARLY: "Yearly check", AFTER_DISPUTE: "After an upheld complaint", RELISTED: "Relisted home" };
 const STATUS_TEXT: Record<string, { label: string; tone: string }> = {
   REQUESTED: { label: "No partner yet", tone: "bg-amber-50 text-amber-800 ring-amber-200" },
@@ -135,8 +112,6 @@ const eat = (iso: string | null | undefined) =>
   iso ? `${new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT` : "";
 const day = (iso: string | null | undefined) =>
   iso ? new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "";
-const coords = (p: Point) => `${p.latitude.toFixed(6)}, ${p.longitude.toFixed(6)}`;
-const mapsLink = (p: Point) => `https://www.google.com/maps/search/?api=1&query=${p.latitude},${p.longitude}`;
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("") || "SP";
 
 /** The long-stay steps that count toward the review progress bar. */
@@ -403,13 +378,9 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
   const item = data.inspection ?? null;
   const checklist = data.checklist ?? [];
   const [partnerCode, setPartnerCode] = useState(item?.partner?.code ?? "");
-  const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [seen, setSeen] = useState<Set<number>>(new Set());
-  const [failedPhotos, setFailedPhotos] = useState<Set<number>>(new Set());
-
-  useEffect(() => { setSeen(new Set()); setFailedPhotos(new Set()); setNote(""); setPartnerCode(item?.partner?.code ?? ""); }, [item?.ref, item?.status, item?.partner?.code]);
+  useEffect(() => { setPartnerCode(item?.partner?.code ?? ""); }, [item?.ref, item?.status, item?.partner?.code]);
 
   const run = async (key: string, url: string, body: unknown) => {
     setBusy(key);
@@ -427,10 +398,7 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
   const btn = "inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-md px-3.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 [font-family:inherit]";
   const status = item ? STATUS_TEXT[item.status] : null;
   const r = item?.report ?? null;
-  const blocking = (r?.flags ?? []).filter((f) => BLOCKING.includes(f));
-  const photoCount = r?.photoCount ?? 0;
-  const allSeen = seen.size >= photoCount;
-  const failedRequired = r ? checklist.filter((c) => c.required && r.checklist[c.key] !== "PASS").length : 0;
+  const canReview = item?.status === "SUBMITTED" && Boolean(r);
 
   return (
     <section className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
@@ -557,144 +525,12 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
             </div>
           ) : null}
 
-          {r ? (
-            <>
-              {/* Where the phone was */}
-              <div className="grid gap-px border-0 border-t border-solid border-slate-100 bg-slate-100 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-                <LocationMap pin={data.pin ?? null} position={r.position} />
-                <div className="space-y-3 bg-white px-5 py-4">
-                  <p className="m-0 flex items-center gap-2 text-[13px] font-bold text-slate-900"><Crosshair className="h-4 w-4 text-[#02665e]" />Location evidence</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Chip tone={r.distanceMeters == null ? "muted" : r.distanceMeters <= 300 ? "good" : "bad"}>
-                      {r.distanceMeters == null ? "No pin to compare" : `${r.distanceMeters.toLocaleString("en-US")} m from the pin`}
-                    </Chip>
-                    <Chip tone={r.accuracyMeters == null ? "muted" : r.accuracyMeters <= 100 ? "good" : "warn"}>GPS accurate to {r.accuracyMeters ?? "?"} m</Chip>
-                  </div>
-                  <dl className="m-0 space-y-1.5 text-[12.5px]">
-                    <PointRow color="#02665e" label="Listing pin" point={data.pin ?? null} />
-                    <PointRow color="#ea580c" label="Partner's phone" point={r.position} />
-                  </dl>
-                  {r.flags.length ? (
-                    <ul className="m-0 list-none space-y-1 p-0">
-                      {r.flags.map((f) => (
-                        <li key={f} className={`flex items-start gap-1.5 text-[12.5px] ${BLOCKING.includes(f) ? "font-semibold text-red-700" : "text-amber-800"}`}>
-                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{FLAG_TEXT[f] || f}{BLOCKING.includes(f) ? " (blocks a pass)" : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : <p className="m-0 flex items-center gap-1.5 text-[12.5px] text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />No warning signs</p>}
-                  {data.pin && r.position ? (
-                    <a href={`https://www.google.com/maps/dir/?api=1&origin=${r.position.latitude},${r.position.longitude}&destination=${data.pin.latitude},${data.pin.longitude}`} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[#02665e] no-underline hover:underline">
-                      <Navigation className="h-3.5 w-3.5" />Compare both points in Google Maps
-                    </a>
-                  ) : null}
-                </div>
-              </div>
+          {r && (
+            <InspectionReportReview key={r.submittedAt ?? item.ref} inspectionRef={item.ref} report={r} checklist={checklist} pin={data.pin ?? null}
+              busy={busy !== null} error={error} onDecision={canReview ? (decision, note) => run(decision, `/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/review`, { decision, note }) : undefined} />
+          )}
 
-              {/* Photos taken at the home */}
-              <div className="border-0 border-t border-solid border-slate-100 px-5 py-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="m-0 text-[13px] font-bold text-slate-900">Photos taken at the home <span className="font-normal text-slate-500">({photoCount})</span></p>
-                  <span className={`text-[12px] ${allSeen ? "text-emerald-700" : "text-slate-500"}`}>{allSeen ? "All photos seen" : `${seen.size} of ${photoCount} loaded`} · each view is recorded</span>
-                </div>
-                <div className={`grid grid-cols-2 gap-2 sm:grid-cols-3 ${photoCount > 3 ? "lg:grid-cols-6" : ""}`}>
-                  {Array.from({ length: photoCount }, (_, n) => {
-                    const src = `/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/photos/${n}`;
-                    return (
-                      <a key={n} href={src} target="_blank" rel="noopener noreferrer" className={`group relative block aspect-[4/3] overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-100 ${seen.has(n) || failedPhotos.has(n) ? "" : "animate-pulse"}`}>
-                        {failedPhotos.has(n) ? (
-                          <span className="grid h-full w-full place-items-center text-[12px] text-slate-500">Photo {n + 1} · open</span>
-                        ) : (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={src} alt={r.photoLabels?.[n] ?? `Inspection photo ${n + 1}`} loading="lazy"
-                            onLoad={() => setSeen((s) => new Set(s).add(n))}
-                            onError={() => setFailedPhotos((s) => new Set(s).add(n))}
-                            className="h-full w-full object-cover transition-transform group-hover:scale-105" />
-                        )}
-                        <span className="absolute left-1.5 right-5 top-1.5 w-fit rounded bg-black/65 px-1.5 py-0.5 text-[10.5px] font-semibold text-white">{r.photoLabels?.[n] ?? n + 1}</span>
-                        <ExternalLink className="absolute right-1.5 top-1.5 h-3.5 w-3.5 text-white opacity-0 drop-shadow group-hover:opacity-100" />
-                      </a>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Checklist and the partner's word */}
-              <div className="grid gap-px border-0 border-t border-solid border-slate-100 bg-slate-100 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-                <div className="bg-white px-5 py-4">
-                  <p className="m-0 mb-1 flex flex-wrap items-center justify-between gap-2 text-[13px] font-bold text-slate-900">
-                    Checklist
-                    <span className={`text-[12px] font-semibold ${failedRequired ? "text-red-700" : "text-emerald-700"}`}>
-                      {failedRequired ? `${failedRequired} required ${failedRequired === 1 ? "item" : "items"} not met` : "Every required item met"}
-                    </span>
-                  </p>
-                  <ul className="m-0 list-none p-0">
-                    {checklist.map((c) => {
-                      const v = r.checklist?.[c.key];
-                      const finding = r.findings?.[c.key];
-                      const photoIndex = finding?.photoIndex;
-                      return (
-                        <li key={c.key} className="flex items-start gap-2.5 border-0 border-t border-solid border-slate-100 py-2 text-[12.5px] first:border-t-0">
-                          {v === "PASS" ? <CheckCircle2 className="mt-px h-4 w-4 shrink-0 text-emerald-600" /> : v === "FAIL" ? <XCircle className="mt-px h-4 w-4 shrink-0 text-red-600" /> : <span className="mt-px grid h-4 w-4 shrink-0 place-items-center rounded bg-slate-100 text-[9px] font-bold text-slate-500">NA</span>}
-                          <div className="min-w-0 flex-1 text-slate-700">
-                            <span>{c.label}</span>
-                            {finding ? <p className="m-0 mt-1 whitespace-pre-wrap break-words text-slate-600">{finding.note}</p> : null}
-                            {photoIndex != null && photoIndex < photoCount ? (
-                              <a href={`/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/photos/${photoIndex}`} target="_blank" rel="noopener noreferrer"
-                                className="mt-1 inline-flex items-center gap-1 font-semibold text-[#02665e] underline underline-offset-2">
-                                <ExternalLink className="size-3" aria-hidden />Photo {photoIndex + 1} · {r.photoLabels?.[photoIndex] ?? "View evidence"}
-                              </a>
-                            ) : null}
-                          </div>
-                          {c.required ? <span className="shrink-0 text-[10.5px] font-semibold text-slate-400">Required</span> : null}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-                <div className="space-y-3 bg-white px-5 py-4">
-                  <p className="m-0 text-[13px] font-bold text-slate-900">The partner recommends</p>
-                  <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[13px] font-bold ${r.recommendation === "PASS" ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>
-                    {r.recommendation === "PASS" ? <BadgeCheck className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}{r.recommendation === "PASS" ? "Pass" : "Fail"}
-                  </span>
-                  {r.note ? <blockquote className="m-0 rounded-md border-0 border-l-2 border-solid border-slate-300 bg-slate-50 px-3 py-2 text-[13px] leading-6 text-slate-700">{r.note}</blockquote> : null}
-                </div>
-              </div>
-            </>
-          ) : null}
-
-          {/* The decision */}
-          {item.status === "SUBMITTED" && r ? (
-            <div className="border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-5 py-4">
-              <label htmlFor={`ls-note-${item.ref}`} className="block text-[12.5px] font-semibold text-slate-700">Decision note <span className="font-normal text-slate-500">(the landlord sees it on a fail; the partner on a redo)</span></label>
-              <textarea id={`ls-note-${item.ref}`} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2}
-                className="mt-1.5 w-full resize-y rounded-md border border-solid border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#02665e] [font-family:inherit]" />
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                <button type="button" disabled={note.trim().length < 5 || busy !== null || blocking.length > 0 || r.recommendation !== "PASS" || !allSeen}
-                  onClick={() => run("PASS", `/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/review`, { decision: "PASS", note: note.trim() })}
-                  className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}>
-                  {busy === "PASS" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}Pass for a year
-                </button>
-                <button type="button" disabled={note.trim().length < 5 || busy !== null}
-                  onClick={() => run("FAIL", `/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/review`, { decision: "FAIL", note: note.trim() })}
-                  className={`${btn} border-0 bg-red-600 text-white hover:bg-red-700`}>
-                  {busy === "FAIL" ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}Fail
-                </button>
-                <button type="button" disabled={note.trim().length < 5 || busy !== null}
-                  onClick={() => run("REDO", `/api/admin/long-stay/inspections/${encodeURIComponent(item.ref)}/review`, { decision: "REDO", note: note.trim() })}
-                  className={`${btn} border border-solid border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}>
-                  {busy === "REDO" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}Send back to redo (no fee)
-                </button>
-                <span className="text-[12px] text-slate-500">
-                  {r.recommendation !== "PASS" ? "The partner recommended fail: fail it or send it back."
-                    : blocking.length ? "Cannot pass with these warnings. Send it back."
-                    : !allSeen ? "Every photo must load before passing."
-                    : "Passing makes the home inspected for 12 months; pass and fail both pay the partner's fee."}
-                </span>
-              </div>
-            </div>
-          ) : item.reviewedAt ? (
+          {!canReview && item.reviewedAt ? (
             <div className="flex flex-wrap items-start gap-3 border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-5 py-3.5 text-[12.5px] text-slate-600">
               {item.status === "PASSED" ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : item.status === "FAILED" ? <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-600" /> : <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
               <span className="min-w-0 flex-1">
@@ -726,7 +562,7 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
         </div>
       ) : null}
 
-      {error ? <p className="m-0 border-0 border-t border-solid border-red-100 bg-red-50 px-5 py-2.5 text-[12.5px] text-red-700">{error}</p> : null}
+      {error && !canReview ? <p role="alert" className="m-0 border-0 border-t border-solid border-red-100 bg-red-50 px-5 py-2.5 text-[12.5px] text-red-700">{error}</p> : null}
     </section>
   );
 }
@@ -769,56 +605,5 @@ function TimelineStep({ done, label, at, warn, last }: { done: boolean; label: s
         <span className={`block truncate text-[11.5px] ${warn ? "font-semibold text-red-700" : "text-slate-500"}`}>{warn ? `${at} (overdue)` : at}</span>
       </span>
     </li>
-  );
-}
-
-function Chip({ tone, children }: { tone: "good" | "warn" | "bad" | "muted"; children: ReactNode }) {
-  const cls = { good: "bg-emerald-50 text-emerald-800 ring-emerald-200", warn: "bg-amber-50 text-amber-800 ring-amber-200", bad: "bg-red-50 text-red-700 ring-red-200", muted: "bg-slate-100 text-slate-600 ring-slate-200" }[tone];
-  return <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-[12.5px] font-semibold ring-1 ring-inset ${cls}`}>{children}</span>;
-}
-
-function PointRow({ color, label, point }: { color: string; label: string; point: Point | null }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} aria-hidden />
-      <dt className="w-28 shrink-0 text-slate-500">{label}</dt>
-      <dd className="m-0 min-w-0 truncate font-mono text-[12px] text-slate-700">
-        {point ? <a href={mapsLink(point)} target="_blank" rel="noopener noreferrer" className="text-slate-700 no-underline hover:text-[#02665e] hover:underline">{coords(point)}</a> : "None"}
-      </dd>
-    </div>
-  );
-}
-
-/** Both points on one map: the listing pin (teal) and where the partner's phone was (orange). */
-function LocationMap({ pin, position }: { pin: Point | null; position: Point | null }) {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
-  const [failed, setFailed] = useState(false);
-  const markers = [
-    pin ? `pin-l+02665e(${pin.longitude},${pin.latitude})` : null,
-    position ? `pin-l+ea580c(${position.longitude},${position.latitude})` : null,
-  ].filter(Boolean);
-  if (token && markers.length && !failed) {
-    // `padding` is only valid with `auto`; Mapbox refuses it next to a fixed centre.
-    const both = markers.length > 1;
-    const view = both ? "auto" : `${(position || pin)!.longitude},${(position || pin)!.latitude},15,0`;
-    const src = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${markers.join(",")}/${view}/900x420@2x?${both ? "padding=70&" : ""}access_token=${encodeURIComponent(token)}`;
-    return (
-      <div className="relative min-h-[240px] bg-slate-100">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt="Listing pin and the partner's position" onError={() => setFailed(true)} className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute bottom-2 left-2 flex gap-1.5 text-[11px] font-semibold">
-          <span className="inline-flex items-center gap-1 rounded bg-white/95 px-2 py-0.5 text-slate-700 shadow-sm"><MapPin className="h-3 w-3 text-[#02665e]" />Listing pin</span>
-          <span className="inline-flex items-center gap-1 rounded bg-white/95 px-2 py-0.5 text-slate-700 shadow-sm"><Phone className="h-3 w-3 text-orange-600" />Partner&apos;s phone</span>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="grid min-h-[200px] place-items-center bg-slate-50 px-5 py-6 text-center">
-      <div>
-        <MapPin className="mx-auto h-7 w-7 text-slate-300" />
-        <p className="m-0 mt-2 text-[13px] text-slate-600">{position ? "Map preview is not configured. Use the coordinates to open the points." : "The partner sent no position."}</p>
-      </div>
-    </div>
   );
 }
