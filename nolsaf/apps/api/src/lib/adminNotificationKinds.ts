@@ -77,6 +77,7 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   // Properties and NRMS
   property_submitted: act("attention", "properties"),
   long_stay_tenant_id_submitted: act("attention", "people"),
+  long_stay_reservation_created: info("bookings"),
   long_stay_inspection_needed: act("attention", "support"),
   long_stay_inspection_report: act("attention", "support"),
   long_stay_enquiry: act("attention", "support"),

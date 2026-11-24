@@ -8,6 +8,8 @@
  * server refuses an approval until this admin has opened every photo.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import AdminNotificationTarget from "@/components/longStay/AdminNotificationTarget";
 import {
   AlertTriangle, BadgeCheck, Ban, CalendarClock, CheckCircle2, Circle, Clock3, ExternalLink, IdCard, Loader2,
   Phone, Search, ShieldCheck, ShieldX, UserRound, XCircle,
@@ -81,6 +83,11 @@ function initials(name: string | null) {
 }
 
 export default function LongStayTenantIdsPage() {
+  const target = useSearchParams()?.get("id");
+  return <TenantIdQueue key={target ?? ""} target={target} />;
+}
+
+function TenantIdQueue({ target }: { target: string | null | undefined }) {
   const [tab, setTab] = useState<Status>("PENDING");
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,6 +109,7 @@ export default function LongStayTenantIdsPage() {
     setError("");
     try {
       const params = new URLSearchParams({ status: tab });
+      if (target) params.set("id", target);
       if (query) params.set("q", query);
       if (idType) params.set("idType", idType);
       if (country) params.set("country", country);
@@ -114,7 +122,7 @@ export default function LongStayTenantIdsPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, query, idType, country]);
+  }, [tab, query, idType, country, target]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -138,12 +146,12 @@ export default function LongStayTenantIdsPage() {
         ]}
         onRefresh={load}
         loading={loading}
-        tabs={TABS.map((t) => ({ ...t, count: counts?.[t.key] }))}
+        tabs={target ? undefined : TABS.map((t) => ({ ...t, count: counts?.[t.key] }))}
         activeTab={tab}
         onTab={(key) => { setTab(key); setSelected(null); }}
       />
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      {target ? <AdminNotificationTarget href="/admin/long-stay/tenants">Tenant ID from Notifications</AdminNotificationTarget> : <div className="mt-3 flex flex-wrap items-center gap-2">
         <label className="relative flex h-9 min-w-[200px] flex-1 items-center sm:max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 h-4 w-4 text-slate-400" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, phone, email or last 4" aria-label="Search"
@@ -162,22 +170,22 @@ export default function LongStayTenantIdsPage() {
           {countries.map((c) => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
         </select>
         {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-400" /> : null}
-      </div>
+      </div>}
 
       {error ? <p className="m-0 mt-3 text-sm text-red-700">{error}</p> : null}
 
       <div className="mt-3 grid items-start gap-3 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white" aria-label="Queue">
           <p className="m-0 border-0 border-b border-solid border-slate-100 px-3.5 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-            {tab === "PENDING" ? "Oldest first" : tab === "EXPIRING" ? "Soonest expiry first" : "Newest first"}
+            {target ? "Tenant ID" : tab === "PENDING" ? "Oldest first" : tab === "EXPIRING" ? "Soonest expiry first" : "Newest first"}
           </p>
           {data === null ? (
             <div className="grid min-h-32 place-items-center text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
           ) : items.length === 0 ? (
             <div className="px-5 py-10 text-center">
               <ShieldCheck className="mx-auto h-7 w-7 text-slate-300" />
-              <p className="m-0 mt-2 text-sm font-semibold text-slate-700">{tab === "PENDING" && !query && !idType && !country ? "All caught up" : "No IDs match"}</p>
-              <p className="m-0 mt-0.5 text-[13px] text-slate-500">{tab === "PENDING" && !query && !idType && !country ? "New IDs show here as tenants send them." : "Try another search or filter."}</p>
+              <p className="m-0 mt-2 text-sm font-semibold text-slate-700">{target ? "Tenant ID unavailable" : tab === "PENDING" && !query && !idType && !country ? "All caught up" : "No IDs match"}</p>
+              {!target && <p className="m-0 mt-0.5 text-[13px] text-slate-500">{tab === "PENDING" && !query && !idType && !country ? "New IDs show here as tenants send them." : "Try another search or filter."}</p>}
             </div>
           ) : (
             <ul className="m-0 list-none p-0">
@@ -203,7 +211,7 @@ export default function LongStayTenantIdsPage() {
           )}
         </section>
 
-        {current ? <ReviewPanel key={current.id} item={current} today={data?.today ?? ""} onChanged={load} /> : (
+        {current ? <ReviewPanel key={current.id} item={current} today={data?.today ?? ""} onChanged={() => { window.dispatchEvent(new Event("nols:admin-long-stay-queue-change")); return load(); }} /> : (
           <section className="hidden rounded-lg border border-dashed border-slate-300 bg-white px-5 py-16 text-center text-sm text-slate-400 xl:block">Choose an ID from the list.</section>
         )}
       </div>

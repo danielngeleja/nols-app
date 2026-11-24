@@ -7,6 +7,8 @@
  * ever hears from NoLSAF until the booking is paid.
  */
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import AdminNotificationTarget from "@/components/longStay/AdminNotificationTarget";
 import { ArrowUpRight, CalendarClock, CheckCircle2, Inbox, Loader2, Lock, MessageCircleQuestion, Phone, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesAdminHeader from "@/components/admin/sales/SalesAdminHeader";
@@ -41,6 +43,11 @@ function eat(iso: string | null) {
 }
 
 export default function LongStayEnquiriesPage() {
+  const target = useSearchParams()?.get("ref");
+  return <EnquiryQueue key={target ?? ""} target={target} />;
+}
+
+function EnquiryQueue({ target }: { target: string | null | undefined }) {
   const [view, setView] = useState<View>("open");
   const [page, setPage] = useState(1);
   const [version, setVersion] = useState(0);
@@ -49,6 +56,7 @@ export default function LongStayEnquiriesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const openedFromNotification = useRef(false);
 
   function refresh() {
     setLoading(true);
@@ -57,14 +65,21 @@ export default function LongStayEnquiriesPage() {
   }
   useEffect(() => {
     const controller = new AbortController();
-    void apiClient.get<EnquiryPage>("/api/admin/long-stay/enquiries", { params: { view, page }, signal: controller.signal })
-      .then(({ data: result }) => { if (!controller.signal.aborted) setData(result); })
+    void apiClient.get<EnquiryPage>("/api/admin/long-stay/enquiries", { params: { view, page, ref: target }, signal: controller.signal })
+      .then(({ data: result }) => {
+        if (controller.signal.aborted) return;
+        setData(result);
+        if (target && result.items[0] && !openedFromNotification.current) {
+          openedFromNotification.current = true;
+          setSelected(result.items[0]);
+        }
+      })
       .catch((requestError) => {
         if (!controller.signal.aborted) setError(requestError?.response?.data?.error || "Could not load enquiries.");
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [view, page, version]);
+  }, [view, page, version, target]);
   const openCount = data?.openCount;
 
   return (
@@ -77,7 +92,7 @@ export default function LongStayEnquiriesPage() {
         metrics={[{ label: "Waiting for an answer", value: openCount ?? "-", tone: openCount ? "warn" : "default" }]}
         onRefresh={refresh}
         loading={loading}
-        tabs={[
+        tabs={target ? undefined : [
           { key: "open", label: "Waiting", Icon: Inbox, count: openCount ?? undefined },
           { key: "answered", label: "Answered", Icon: CheckCircle2 },
           { key: "closed", label: "Closed", Icon: MessageCircleQuestion },
@@ -85,6 +100,7 @@ export default function LongStayEnquiriesPage() {
         activeTab={view}
         onTab={(next) => { if (next !== view) { setPage(1); setView(next); setLoading(true); setError(""); setNotice(""); } }}
       />
+      {target && <AdminNotificationTarget href="/admin/long-stay/enquiries">Enquiry from Notifications</AdminNotificationTarget>}
       {notice && <p role="status" className="m-0 mt-3 flex items-center gap-2 rounded-md border border-solid border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900"><CheckCircle2 className="size-4" aria-hidden />{notice}</p>}
       <section aria-label="Enquiry queue" aria-busy={loading} className="mt-3 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
         {loading ? <p role="status" className="m-0 flex min-h-32 items-center justify-center gap-2 text-sm text-slate-600"><Loader2 className="size-4 animate-spin" aria-hidden />Loading enquiries</p>
@@ -135,9 +151,9 @@ export default function LongStayEnquiriesPage() {
               </div>
               <TablePagination {...data.pagination} onPageChange={(next) => { setPage(next); setLoading(true); setError(""); }} />
             </>
-          ) : <p className="m-0 px-5 py-10 text-center text-sm text-slate-600">{view === "open" ? "No enquiries waiting for an answer." : "No enquiries in this view."}</p>}
+          ) : <p className="m-0 px-5 py-10 text-center text-sm text-slate-600">{target ? "Enquiry unavailable." : view === "open" ? "No enquiries waiting for an answer." : "No enquiries in this view."}</p>}
       </section>
-      {selected && <EnquiryCard key={selected.ref} item={selected} onDismiss={() => setSelected(null)} onChanged={(message) => { setNotice(message); refresh(); }} />}
+      {selected && <EnquiryCard key={selected.ref} item={selected} onDismiss={() => setSelected(null)} onChanged={(message) => { setNotice(message); refresh(); window.dispatchEvent(new Event("nols:admin-long-stay-queue-change")); }} />}
     </div>
   );
 }

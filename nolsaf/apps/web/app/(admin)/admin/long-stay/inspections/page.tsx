@@ -7,6 +7,8 @@
  * then review the report: PASS for a year, FAIL, or REDO with no fee.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import AdminNotificationTarget from "@/components/longStay/AdminNotificationTarget";
 import { ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, ClipboardCheck, Clock3, Eye, Loader2, MapPin, Phone, UserRoundCheck, X, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesAdminHeader from "@/components/admin/sales/SalesAdminHeader";
@@ -78,7 +80,14 @@ function statusOf(item: QueueRow) {
 }
 
 export default function LongStayInspectionsPage() {
-  const [view, setView] = useState<View>("todo");
+  const params = useSearchParams();
+  const target = params?.get("ref");
+  const view = params?.get("view") === "review" ? "review" : "todo";
+  return <InspectionQueue key={`${view}:${target ?? ""}`} target={target} initialView={view} />;
+}
+
+function InspectionQueue({ target, initialView }: { target: string | null | undefined; initialView: View }) {
+  const [view, setView] = useState<View>(initialView);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<Sort | null>(null);
   const [data, setData] = useState<Data | null>(null);
@@ -86,6 +95,7 @@ export default function LongStayInspectionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const request = useRef<AbortController | null>(null);
+  const openedFromNotification = useRef(false);
   const sortKey = sort?.key ?? "date";
   const sortDirection = sort?.direction ?? (view === "todo" ? "asc" : "desc");
   const dateColumn = dateColumns[view];
@@ -101,14 +111,19 @@ export default function LongStayInspectionsPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await apiClient.get<Data>("/api/admin/long-stay/inspections", { params: { view, page, sort: sortKey, direction: sortDirection }, signal: controller.signal });
-      if (!controller.signal.aborted) setData(response.data);
+      const response = await apiClient.get<Data>("/api/admin/long-stay/inspections", { params: { view, page, sort: sortKey, direction: sortDirection, ref: target }, signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setData(response.data);
+      if (target && response.data.items[0] && !openedFromNotification.current) {
+        openedFromNotification.current = true;
+        setSelected(response.data.items[0]);
+      }
     } catch (requestError: any) {
       if (!controller.signal.aborted) setError(requestError?.response?.data?.error || "Could not load inspections.");
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [view, page, sortKey, sortDirection]);
+  }, [view, page, sortKey, sortDirection, target]);
   useEffect(() => { void load(); return () => request.current?.abort(); }, [load]);
 
   const counts = data?.counts;
@@ -137,7 +152,7 @@ export default function LongStayInspectionsPage() {
         ]}
         onRefresh={load}
         loading={loading}
-        tabs={TABS.map((t) => ({ ...t, count: counts?.[t.key] }))}
+        tabs={target ? undefined : TABS.map((t) => ({ ...t, count: counts?.[t.key] }))}
         activeTab={view}
         onTab={(next) => {
           if (next === view) return;
@@ -147,6 +162,7 @@ export default function LongStayInspectionsPage() {
           setView(next);
         }}
       />
+      {target && <AdminNotificationTarget href={`/admin/long-stay/inspections?view=${view}`}>Inspection from Notifications</AdminNotificationTarget>}
       {error ? <p className="m-0 mt-3 text-sm text-red-700">{error}</p> : null}
       <div className="mt-3 space-y-3">
         {loading && !data?.items.length ? (
@@ -154,8 +170,8 @@ export default function LongStayInspectionsPage() {
         ) : data && data.items.length === 0 && !error ? (
           <div className="rounded-lg border border-solid border-slate-200 bg-white px-5 py-10 text-center">
             <ClipboardCheck className="mx-auto h-7 w-7 text-slate-300" />
-            <p className="m-0 mt-2 text-sm font-semibold text-slate-700">{view === "todo" ? "No homes waiting" : view === "review" ? "No reports to review" : "Nothing here yet"}</p>
-            <p className="m-0 mt-0.5 text-[13px] text-slate-500">A visit request opens when a landlord submits a long-stay home.</p>
+            <p className="m-0 mt-2 text-sm font-semibold text-slate-700">{target ? "Inspection unavailable" : view === "todo" ? "No homes waiting" : view === "review" ? "No reports to review" : "Nothing here yet"}</p>
+            {!target && <p className="m-0 mt-0.5 text-[13px] text-slate-500">A visit request opens when a landlord submits a long-stay home.</p>}
           </div>
         ) : data?.items.length ? (
           <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white" aria-label="Inspection queue" aria-busy={loading}>
@@ -217,7 +233,7 @@ export default function LongStayInspectionsPage() {
           </section>
         ) : null}
       </div>
-      {selected ? <InspectionDialog key={selected.ref} row={selected} onClose={() => setSelected(null)} onChanged={load} /> : null}
+      {selected ? <InspectionDialog key={selected.ref} row={selected} onClose={() => setSelected(null)} onChanged={() => { window.dispatchEvent(new Event("nols:admin-long-stay-queue-change")); return load(); }} /> : null}
     </div>
   );
 }

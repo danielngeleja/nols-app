@@ -54,7 +54,9 @@ describe("references and validity", () => {
   it.each([undefined, "0"])("allows approval and keeps a visit requested with setting %s", async (value) => {
     vi.stubEnv("LONG_STAY_REQUIRE_INSPECTION", value);
     const db = fakeDb();
-    expect(await prepareInspectionForApproval(db, 9, TODAY)).toEqual({ refusal: null, opened: true });
+    expect(await prepareInspectionForApproval(db, 9, TODAY)).toEqual({
+      refusal: null, opened: expect.objectContaining({ status: "REQUESTED" }),
+    });
     expect(db.longStayInspection.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ propertyId: 9, status: "REQUESTED" }),
     });
@@ -67,7 +69,7 @@ describe("references and validity", () => {
     db.longStayInspection.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ status: "ASSIGNED" });
     expect(await prepareInspectionForApproval(db, 9, TODAY)).toEqual({
       refusal: value === "1" ? expect.stringMatching(/must inspect/) : null,
-      opened: false,
+      opened: null,
     });
     expect(db.longStayInspection.create).not.toHaveBeenCalled();
   });

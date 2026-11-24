@@ -96,6 +96,11 @@ export async function moveTenancy(db: any, tenancy: { id: number; status: string
 
 export type TenancySide = "TENANT" | "LANDLORD";
 
+export function tenancyReceiptAmount(tenancy: { paidAt?: unknown; paidAmount?: unknown }) {
+  const amount = Number(tenancy.paidAmount);
+  return tenancy.paidAt && Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
 export async function loadOwnTenancy(db: any, ref: string, side: TenancySide, userId: number) {
   if (!isTenancyRef(ref)) throw new TenancyError("Not found", 404);
   const tenancy = await db.tenancy.findFirst({
@@ -169,6 +174,7 @@ export async function tenancyView(db: any, tenancy: any, side: TenancySide) {
     } : null,
     paymentDueAt: tenancy.paymentDueAt,
     paidAt: tenancy.paidAt ?? null,
+    receiptAmount: side === "TENANT" ? tenancyReceiptAmount(tenancy) : null,
     notice: tenancy.noticeGivenAt ? { givenBy: tenancy.noticeGivenBy, givenAt: tenancy.noticeGivenAt } : null,
     endDate: tenancy.endDate ? new Date(tenancy.endDate).toISOString().slice(0, 10) : null,
     cancellation: (tenancy.termsSnapshot as any)?.cancellation ?? null,
@@ -289,6 +295,7 @@ async function presentTenancyRows(db: any, rows: any[], side: TenancySide) {
     leaseSigned: r.status === "ACCEPTED" ? { tenant: Boolean(r.tenantLeaseAcceptedAt), landlord: Boolean(r.landlordLeaseAcceptedAt) } : null,
     currency: r.currency ?? null,
     monthlyRent: r.monthlyRent != null ? Number(r.monthlyRent) : null,
+    ...(side === "TENANT" ? { receiptAvailable: tenancyReceiptAmount(r) != null } : {}),
     updatedAt: r.updatedAt,
   }));
 }

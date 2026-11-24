@@ -6,6 +6,7 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 import { sanitizeText } from '../lib/sanitize.js';
 import { ADMIN_NOTIFICATION_RETENTION_DAYS, adminKindOf, rowRequiresAction } from '../lib/adminNotificationKinds.js';
 import { sweepAutoSettle } from '../lib/adminNotificationSettle.js';
+import { longStayAdminNotificationHref } from '../lib/longStay/adminNotificationHref.js';
 
 // Close alerts whose matter was decided elsewhere before showing the inbox.
 // At most once a minute per server, so opening the drawer stays fast.
@@ -149,6 +150,9 @@ router.get('/', asyncHandler(async (req, res) => {
           : null,
       };
 
+      const longStayHref = longStayAdminNotificationHref(kind.key, i.meta ?? {});
+      if (longStayHref) baseDto.meta = { ...baseDto.meta, href: longStayHref };
+
       // If meta contains propertyId, fetch property details
       if (i.meta && typeof i.meta === 'object' && (i.meta as any).propertyId) {
         const propertyId = Number((i.meta as any).propertyId);
@@ -157,7 +161,7 @@ router.get('/', asyncHandler(async (req, res) => {
         if (property) {
           // Enhance meta with property and owner info
           baseDto.meta = {
-            ...(i.meta as any),
+            ...baseDto.meta,
             propertyTitle: property.title,
             propertyId: property.id,
             ownerId: property.ownerId,

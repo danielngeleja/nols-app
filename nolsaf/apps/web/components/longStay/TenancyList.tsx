@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlarmClock, ArrowRight, ArrowUpDown, BadgeCheck, CalendarCheck, CalendarRange, ChevronRight, ClipboardCheck, FileSignature, Home, KeyRound, Loader2, Search, SlidersHorizontal, Wallet } from "lucide-react";
+import { AlarmClock, ArrowRight, ArrowUpDown, BadgeCheck, CalendarCheck, CalendarRange, ChevronRight, ClipboardCheck, FileSignature, Home, KeyRound, Loader2, ReceiptText, Search, SlidersHorizontal, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import TablePagination from "@/components/TablePagination";
 
@@ -25,6 +25,7 @@ type Item = {
   leaseSigned: { tenant: boolean; landlord: boolean } | null;
   currency: string | null;
   monthlyRent: number | null;
+  receiptAvailable?: boolean;
   updatedAt: string;
 };
 
@@ -141,7 +142,7 @@ function TenantBookings({ detailBase }: { detailBase: string }) {
 
   const control = "box-border flex min-h-9 min-w-0 items-center gap-2 rounded-md border border-solid border-slate-200 bg-white px-2.5 focus-within:border-[#02665e]";
   return (
-    <section aria-labelledby="tenant-stays-title" className="min-w-0 overflow-hidden rounded-lg border border-solid border-[#d9e7e2] bg-white">
+    <section aria-labelledby="tenant-stays-title" className="@container min-w-0 overflow-hidden rounded-lg border border-solid border-[#d9e7e2] bg-white">
       <header className="flex flex-wrap items-center justify-between gap-3 bg-[#f8fbfa] px-4 py-3.5 sm:px-5">
         <h2 id="tenant-stays-title" className="m-0 text-lg font-bold tracking-tight text-slate-950">Reservations</h2>
         <div role="group" aria-label="Booking period" className="inline-flex gap-0.5 rounded-md bg-[#eaf3ef] p-0.5">
@@ -155,8 +156,8 @@ function TenantBookings({ detailBase }: { detailBase: string }) {
           ))}
         </div>
       </header>
-      <div className="grid grid-cols-2 gap-2 border-0 border-y border-solid border-[#e5efeb] px-4 py-3 sm:px-5">
-        <label className={`${control} col-span-2`}>
+      <div className="grid grid-cols-2 gap-2 border-0 border-y border-solid border-[#e5efeb] px-4 py-3 @2xl:grid-cols-[minmax(0,1fr)_auto_auto] sm:px-5">
+        <label className={`${control} col-span-2 @2xl:col-span-1`}>
           <Search className="size-4 shrink-0 text-[#02665e]" aria-hidden />
           <input type="search" value={search} maxLength={100} onChange={(event) => setSearch(event.target.value)} aria-label="Search long-stay bookings" placeholder="Search property or booking reference" className="min-h-9 w-full min-w-0 border-0 bg-transparent p-0 text-sm focus:outline-none" />
         </label>
@@ -185,24 +186,26 @@ function TenantBookings({ detailBase }: { detailBase: string }) {
             <ul className="m-0 list-none divide-y divide-[#e5efeb] p-0">
               {result.items.map((item) => {
                 const step = nextStep(item, "TENANT");
+                const href = `${detailBase}/${encodeURIComponent(item.ref)}`;
                 return (
-                  <li key={item.ref}>
-                    <Link href={`${detailBase}/${encodeURIComponent(item.ref)}`} className="group flex items-start gap-3 px-4 py-3.5 text-slate-900 no-underline hover:bg-[#f8fbfa] hover:no-underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e] sm:px-5">
+                  <li key={item.ref} className="grid min-w-0 @2xl:grid-cols-[minmax(0,1fr)_auto]">
+                    <Link href={href} className="group grid min-w-0 grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 text-slate-900 no-underline hover:bg-[#f8fbfa] hover:no-underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e] @2xl:grid-cols-[2.25rem_minmax(0,1fr)_minmax(0,0.85fr)_auto] sm:px-5">
                       <span className="grid size-9 shrink-0 place-items-center rounded-md bg-[#e9f4f0] text-[#02665e]"><Home className="size-4.5" aria-hidden /></span>
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                           <span className="break-words text-sm font-bold text-slate-950">{item.homeTitle || "Long stay"}</span>
                           <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${TONE[item.status] ?? "bg-slate-100 text-slate-700"}`}>{LABEL.TENANT[item.status] ?? item.status}</span>
                         </span>
-                        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-600">
-                          {item.moveInDate && <span><time dateTime={item.moveInDate}>{dayLabel(item.moveInDate)}</time>{item.endDate && <> – <time dateTime={item.endDate}>{dayLabel(item.endDate)}</time></>}</span>}
-                          {item.termMonths ? <span>{item.termMonths} {item.termMonths === 1 ? "month" : "months"}</span> : null}
-                          {item.monthlyRent != null && item.currency && <span>{money(item.monthlyRent, item.currency)} / month</span>}
-                        </span>
                         {step && <span className={`mt-1 block text-xs font-medium ${step.urgent ? "text-amber-900" : "text-slate-600"}`}>{step.text}</span>}
                       </span>
-                      <span className="flex shrink-0 items-center gap-1 self-center text-xs font-semibold text-[#02665e]"><span className="sr-only sm:not-sr-only">Open booking</span><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden /></span>
+                      <span className="col-start-2 row-start-2 -mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-600 @2xl:col-start-3 @2xl:row-start-1 @2xl:mt-0">
+                        {item.moveInDate && <span><time dateTime={item.moveInDate}>{dayLabel(item.moveInDate)}</time>{item.endDate && <> – <time dateTime={item.endDate}>{dayLabel(item.endDate)}</time></>}</span>}
+                        {item.termMonths ? <span>{item.termMonths} {item.termMonths === 1 ? "month" : "months"}</span> : null}
+                        {item.monthlyRent != null && item.currency && <span>{money(item.monthlyRent, item.currency)} / month</span>}
+                      </span>
+                      <span className="col-start-3 row-start-1 flex items-center gap-1 text-xs font-semibold text-[#02665e] @2xl:col-start-4"><span className="sr-only">Open booking</span><ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden /></span>
                     </Link>
+                    {item.receiptAvailable && <Link href={`${href}/receipt`} aria-label={`View receipt for ${item.homeTitle || "long stay"}`} className="mb-3 ml-[3.9rem] inline-flex min-h-8 w-fit items-center gap-1.5 self-center rounded-md border border-solid border-[#c5ded4] px-2.5 text-xs font-semibold text-[#02665e] no-underline hover:bg-[#edf6f2] @2xl:my-0 @2xl:ml-0 @2xl:mr-4 sm:ml-[4.25rem]"><ReceiptText className="size-3.5" aria-hidden />Receipt</Link>}
                   </li>
                 );
               })}

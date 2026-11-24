@@ -10,8 +10,8 @@ const h = vi.hoisted(() => {
   const fn = () => vi.fn();
   const db: any = {
     user: { findUnique: fn(), findFirst: fn(), findMany: fn() },
-    property: { findMany: fn() },
-    tenancy: { count: fn(), findMany: fn() },
+    property: { findMany: fn(), findUnique: fn() },
+    tenancy: { count: fn(), findMany: fn(), findFirst: fn() },
     userDocument: { create: fn(), update: fn() },
     auditLog: { findMany: fn(), create: fn() },
     $transaction: fn(),
@@ -43,7 +43,7 @@ vi.mock("../middleware/auth.js", () => ({
 
 import customerRouter from "../routes/customer.longStay.js";
 import adminRouter from "../routes/admin.longStay.js";
-import { notifyUser } from "../lib/notifications.js";
+import { notifyAdmins, notifyUser } from "../lib/notifications.js";
 import { auditOrThrow } from "../lib/audit.js";
 
 const app = express();
@@ -122,7 +122,7 @@ describe("traveller long-stay booking list", () => {
 });
 
 describe("reservation notifications", () => {
-  it("stores the owner alert inside the reservation transaction and publishes after it commits", async () => {
+  it("stores the owner alert in the transaction and notifies both audiences after commit", async () => {
     const commit = vi.fn();
     h.db.$transaction.mockImplementationOnce(async (operation: (tx: typeof h.tx) => unknown) => {
       const result = await operation(h.tx);
@@ -137,8 +137,10 @@ describe("reservation notifications", () => {
       meta: expect.objectContaining({ tenancyRef: reservationRef, notificationKind: "long_stay_reservation_received" }),
     }) });
     expect(h.publish).toHaveBeenCalledWith(expect.objectContaining({ id: 9, userId: 44 }), "long_stay_reservation_received");
+    expect(notifyAdmins).toHaveBeenCalledWith("long_stay_reservation_created", expect.objectContaining({ tenancyRef: reservationRef }));
     expect(h.tx.notification.create.mock.invocationCallOrder[0]).toBeLessThan(commit.mock.invocationCallOrder[0]);
     expect(commit.mock.invocationCallOrder[0]).toBeLessThan(h.publish.mock.invocationCallOrder[0]);
+    expect(commit.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(notifyAdmins).mock.invocationCallOrder[0]);
   });
 
   it("fails the transaction without broadcasting if the owner alert cannot be saved", async () => {
@@ -161,6 +163,40 @@ beforeEach(() => {
   h.db.auditLog.findMany.mockResolvedValue(viewed(["front", "back", "selfie"]));
   h.db.userDocument.update.mockResolvedValue({ id: 5 });
   h.db.longStayTenantProfile.upsert.mockImplementation(async ({ create }: any) => ({ id: 1, ...create }));
+});
+
+describe("long-stay receipts", () => {
+  const path = `/api/customer/long-stay/tenancies/${reservationRef}`;
+  const paid = {
+    id: 33, publicRef: reservationRef, tenantId: 20, propertyId: 5, status: "ENDED", termMonths: 6,
+    moveInDate: new Date("2026-12-10"), endDate: new Date("2027-06-10"),
+    bookingAmount: 4960, paidAmount: 4960, paidAt: new Date("2026-11-24T21:43:00Z"),
+    paymentRef: "LST-0011223344556677", currency: "USD", balanceDue: 20000,
+  };
+
+  it("serves the existing HTML and PDF receipt formats for a confirmed historical payment", async () => {
+    h.db.tenancy.findFirst.mockResolvedValueOnce(paid).mockResolvedValueOnce(paid);
+    h.db.property.findUnique.mockResolvedValueOnce({ title: "<Example Apartment>" }).mockResolvedValueOnce({ title: "Example Apartment" });
+    const html = await request(app).get(`${path}/receipt.html`).expect(200).expect("Cache-Control", "private, no-store");
+    expect(html.text).toContain("LONG-STAY PAYMENT RECEIPT");
+    expect(html.text).toContain("4,960 USD");
+    expect(html.text).toContain("LST-0011223344556677");
+    expect(html.text).toContain("&lt;Example Apartment&gt;");
+    expect(html.text).not.toContain("20,000");
+    expect(html.text).not.toContain("Booking verification QR code");
+    const pdf = await request(app).get(`${path}/pdf`).expect(200).expect("Content-Type", /application\/pdf/);
+    expect(pdf.body.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(h.db.tenancy.findFirst).toHaveBeenCalledWith({ where: { publicRef: reservationRef, tenantId: 20 } });
+  });
+
+  it("returns no receipt for another account, a pending card payment, or a support session", async () => {
+    h.db.tenancy.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...paid, paidAt: null });
+    await request(app).get(`${path}/receipt.html`).expect(404);
+    await request(app).get(`${path}/pdf`).expect(404);
+    h.session.user = { id: 20, role: "CUSTOMER", imp: true };
+    await request(app).get(`${path}/receipt.html`).expect(403);
+    expect(h.db.property.findUnique).not.toHaveBeenCalled();
+  });
 });
 
 describe("tenant submits an ID", () => {

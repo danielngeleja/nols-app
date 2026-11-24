@@ -164,6 +164,9 @@ function tenantListWhere(status: string, today: string) {
 router.get("/tenants", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const status = String(req.query.status || "PENDING").toUpperCase();
   if (!(TENANT_STATUSES as readonly string[]).includes(status)) return res.status(400).json({ error: "Unknown status" });
+  const target = idParam.optional().safeParse(req.query.id == null ? undefined : { id: req.query.id });
+  if (!target.success) return res.status(400).json({ error: "Invalid tenant ID check" });
+  const targetId = target.data?.id;
   const today = eatToday(new Date());
   const filters: any[] = [tenantListWhere(status, today)];
 
@@ -187,7 +190,7 @@ router.get("/tenants", asyncHandler(async (req: AuthedRequest, res: Response) =>
 
   const [rows, pending, approved, expiring, rejected, barred, oldest] = await Promise.all([
     prisma.longStayTenantProfile.findMany({
-      where: { AND: filters } as any,
+      where: targetId == null ? { AND: filters } as any : { id: targetId },
       orderBy: status === "EXPIRING" ? { idExpiresOn: "asc" } : { submittedAt: status === "PENDING" ? "asc" : "desc" },
       take: 100,
       include: { user: { select: { id: true, name: true, fullName: true, email: true, phone: true, phoneVerifiedAt: true, createdAt: true } } },
@@ -399,7 +402,9 @@ router.get("/inspections", asyncHandler(async (req: AuthedRequest, res: Response
   if (pageParam != null && (typeof pageParam !== "string" || !/^[1-9]\d{0,8}$/.test(pageParam))) {
     return res.status(400).json({ error: "Invalid page" });
   }
-  const where = INSPECTION_VIEWS[view];
+  const ref = req.query.ref;
+  if (ref != null && !isInspectionRef(ref)) return res.status(400).json({ error: "Invalid inspection reference" });
+  const where = ref == null ? INSPECTION_VIEWS[view] : { publicRef: ref };
   const today = todayInEat();
   const sort = z.enum(inspectionSortKeys).safeParse(req.query.sort ?? "date");
   const direction = z.enum(["asc", "desc"]).safeParse(req.query.direction ?? (view === "todo" ? "asc" : "desc"));
@@ -418,7 +423,7 @@ router.get("/inspections", asyncHandler(async (req: AuthedRequest, res: Response
       ? view === "todo" ? [{ createdAt: "asc" }, { id: "asc" }] : [{ updatedAt: "desc" }, { id: "desc" }]
       : [...sorts[sort.data], { id: dir }];
   const counts = Object.fromEntries(await Promise.all(Object.entries(INSPECTION_VIEWS).map(async ([key, w]) => [key, await prisma.longStayInspection.count({ where: w })] as const)));
-  const total = counts[view];
+  const total = ref == null ? counts[view] : await prisma.longStayInspection.count({ where });
   const page = Math.min(Number(pageParam ?? "1"), Math.max(1, Math.ceil(total / inspectionPageSize)));
   res.setHeader("Cache-Control", "private, no-store");
   if (pageParam != null) {
@@ -531,11 +536,14 @@ router.post("/inspections/:ref/review", asyncHandler(async (req: AuthedRequest, 
 router.post("/properties/:id/inspection", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const params = idParam.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: "Invalid property" });
-  const property = await prisma.property.findFirst({ where: { id: params.data.id, rentalMode: "LONG_STAY" }, select: { id: true } });
+  const property = await prisma.property.findFirst({ where: { id: params.data.id, rentalMode: "LONG_STAY" }, select: { id: true, title: true } });
   if (!property) return res.status(404).json({ error: "Not a long-stay home" });
   const passed = await latestPassedInspection(prisma, property.id);
   const { inspection, created } = await requestInspection(prisma, property.id, passed ? "YEARLY" : "FIRST");
-  if (created) await audit(req as any, "LONG_STAY_INSPECTION_REQUEST", "PROPERTY", null, { ref: inspection.publicRef }, property.id);
+  if (created) {
+    await audit(req as any, "LONG_STAY_INSPECTION_REQUEST", "PROPERTY", null, { ref: inspection.publicRef }, property.id);
+    await notifyAdmins("long_stay_inspection_needed", { inspectionId: inspection.id, inspectionRef: inspection.publicRef, propertyTitle: property.title });
+  }
   return res.json({ ok: true, ref: inspection.publicRef, created });
 }) as RequestHandler);
 
@@ -543,7 +551,9 @@ const ENQUIRY_VIEWS: Record<string, any> = { open: { status: "OPEN" }, answered:
 
 router.get("/enquiries", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const view = String(req.query.view || "open");
-  const where = ENQUIRY_VIEWS[view];
+  const ref = req.query.ref;
+  if (ref != null && !isEnquiryRef(ref)) return res.status(400).json({ error: "Invalid enquiry reference" });
+  const where = ref == null ? ENQUIRY_VIEWS[view] : { publicRef: ref };
   if (!Object.prototype.hasOwnProperty.call(ENQUIRY_VIEWS, view)) return res.status(400).json({ error: "Unknown view" });
   const pageParam = req.query.page;
   if (pageParam != null && (typeof pageParam !== "string" || !/^[1-9]\d{0,8}$/.test(pageParam))) {
@@ -553,7 +563,7 @@ router.get("/enquiries", asyncHandler(async (req: AuthedRequest, res: Response) 
   const openCountQuery = prisma.longStayEnquiry.count({ where: ENQUIRY_VIEWS.open });
   const [open, total] = await Promise.all([
     openCountQuery,
-    pageParam == null ? null : view === "open" ? openCountQuery : prisma.longStayEnquiry.count({ where }),
+    pageParam == null ? null : view === "open" && ref == null ? openCountQuery : prisma.longStayEnquiry.count({ where }),
   ]);
   const page = total == null ? 1 : Math.min(Number(pageParam), Math.max(1, Math.ceil(total / pageSize)));
   const direction = view === "open" ? "asc" : "desc";
@@ -646,8 +656,10 @@ async function adminTenancyByRef(ref: string) {
 
 router.get("/tenancies", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const view = String(req.query.view || "payouts");
-  const where = TENANCY_VIEWS[view];
-  if (!where) return res.status(400).json({ error: "Unknown view" });
+  if (!Object.prototype.hasOwnProperty.call(TENANCY_VIEWS, view)) return res.status(400).json({ error: "Unknown view" });
+  const ref = req.query.ref;
+  if (ref != null && !isTenancyRef(ref)) return res.status(400).json({ error: "Invalid tenancy reference" });
+  const where = ref == null ? TENANCY_VIEWS[view] : { publicRef: ref };
   const rows = await prisma.tenancy.findMany({
     where,
     orderBy: { updatedAt: "desc" },
@@ -784,8 +796,13 @@ router.post("/tenancies/:ref/resolve", asyncHandler(async (req: AuthedRequest, r
   // A decision can confirm a move-in or send the first month back: keep the ledger in step.
   await syncLongStayRevenue(prisma, tenancy.id).catch((error) => console.error(`[longStay] revenue sync failed for tenancy ${tenancy.id}:`, error?.message ?? error));
   if (body.data.reinspect) {
-    await endInspectionAfterDispute(prisma, tenancy.propertyId, todayInEat()).catch((error) => console.error("[longStay] reinspection failed:", error?.message ?? error));
-    await notifyAdmins("long_stay_inspection_needed", { propertyTitle: await propertyTitleOf(tenancy.propertyId) }).catch(() => undefined);
+    const request = await endInspectionAfterDispute(prisma, tenancy.propertyId, todayInEat()).catch((error) => {
+      console.error("[longStay] reinspection failed:", error?.message ?? error);
+      return null;
+    });
+    if (request?.created) {
+      await notifyAdmins("long_stay_inspection_needed", { inspectionId: request.inspection.id, inspectionRef: request.inspection.publicRef, propertyTitle: await propertyTitleOf(tenancy.propertyId) });
+    }
   }
   await audit(req as any, "LONG_STAY_RESOLVE", "TENANCY", { status: tenancy.status, payoutStatus: tenancy.payoutStatus }, { ...body.data, note }, tenancy.id);
   return res.json({ ok: true });
@@ -814,7 +831,9 @@ router.post("/tenancies/:ref/claims", asyncHandler(async (req: AuthedRequest, re
 
 router.get("/claims", asyncHandler(async (req: AuthedRequest, res: Response) => {
   const scope = String(req.query.scope || "open");
-  const where = scope === "open" ? { OR: [{ status: { in: ["OPEN", "RECOVERING"] } }, { status: "RECOVERED", closedAt: null }] } : {};
+  const target = idParam.optional().safeParse(req.query.id == null ? undefined : { id: req.query.id });
+  if (!target.success) return res.status(400).json({ error: "Invalid claim" });
+  const where = target.data ? { id: target.data.id } : scope === "open" ? { OR: [{ status: { in: ["OPEN", "RECOVERING"] } }, { status: "RECOVERED", closedAt: null }] } : {};
   const rows = await prisma.tenancyClaim.findMany({ where: where as any, orderBy: { dueAt: "asc" }, take: 200, include: { tenancy: { select: { publicRef: true, property: { select: { title: true } } } } } });
   res.setHeader("Cache-Control", "private, no-store");
   return res.json({

@@ -189,7 +189,7 @@ router.post(
     }
     await audit(req as any, "LONG_STAY_INSPECTION_REPORT", "PROPERTY", null, { ref, recommendation: parsed.data.recommendation, ...outcome }, inspection.propertyId);
     const property = await db.property.findUnique({ where: { id: inspection.propertyId }, select: { title: true } }).catch(() => null);
-    await notifyAdmins("long_stay_inspection_report", { propertyTitle: property?.title ?? null, recommendation: parsed.data.recommendation, flags: outcome.flags });
+    await notifyAdmins("long_stay_inspection_report", { inspectionId: inspection.id, inspectionRef: ref, propertyTitle: property?.title ?? null, recommendation: parsed.data.recommendation, flags: outcome.flags });
     return res.status(201).json({ ok: true, status: "SUBMITTED", distanceMeters: outcome.distanceMeters, flags: outcome.flags });
   }),
 );

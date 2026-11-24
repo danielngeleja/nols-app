@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarRange, Check, CheckCircle2, ChevronDown, Clock3, CreditCard, FileSignature, FileText, Loader2, Printer, ShieldCheck, Wallet } from "lucide-react";
+import { CalendarRange, Check, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, CreditCard, FileSignature, FileText, KeyRound, Loader2, Printer, ShieldCheck, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DocumentViewer from "@/components/admin/DocumentViewer";
 import { LEASE_PDF_FLOW, leaseDocumentHtml } from "@/lib/leaseDocument";
@@ -366,19 +366,45 @@ function LeaseBlock({ side, view, base, post, busy }: { side: Side; view: OfferL
 function ReservedBlock({ side, view }: { side: Side; view: OfferLeaseView }) {
   const m = view.money!;
   const moveInDay = view.status === "MOVE_IN";
+  if (side === "TENANT") {
+    const steps = [
+      { Icon: ClipboardCheck, title: "Walk through the home", description: "Inspect it with the landlord and take condition photos." },
+      { Icon: Wallet, title: "Pay the landlord", description: `Pay the remaining rent of ${money(m.balanceDue, m.currency)} after the walkthrough.` },
+      { Icon: KeyRound, title: "Get the keys", description: "Both of you confirm the handover in this booking." },
+    ];
+    return (
+      <section aria-label="Move-in plan" className="space-y-4">
+        <div>
+          <h2 className="m-0 text-lg font-bold tracking-tight text-slate-950">{moveInDay ? "Move-in day" : "Prepare for move-in"}</h2>
+          {!moveInDay && <p className="m-0 mt-1 text-sm text-slate-600">NoLSAF holds the first month’s rent until move-in is confirmed.</p>}
+        </div>
+        {view.offer && <ReservationDates offer={view.offer} />}
+        <ol aria-label="Move-in steps" className="m-0 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+          {steps.map(({ Icon, title, description }) => (
+            <li key={title} className="flex min-w-0 items-start gap-2.5 rounded-md border border-solid border-slate-200 p-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-[#edf6f2] text-[#02665e]"><Icon className="size-4" aria-hidden /></span>
+              <div className="min-w-0">
+                <p className="m-0 text-sm font-semibold text-slate-900">{title}</p>
+                <p className="m-0 mt-1 text-xs leading-relaxed text-slate-600">{description}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+    );
+  }
   return (
     <div>
       <p className="m-0 flex items-center gap-2 text-[13px] font-semibold text-emerald-800"><CheckCircle2 className="h-4 w-4" />{moveInDay ? "Move-in day" : "Reserved"}</p>
       <p className="m-0 mt-1 text-[13px] text-slate-700">
         {view.offer ? `${view.offer.termMonths} months from ${dayLabel(view.offer.moveInDate)}. ` : ""}
-        {side === "TENANT" ? `First month paid${view.paidAt ? ` on ${dayLabel(view.paidAt)}` : ""}; NoLSAF holds it until you confirm move-in.` : "The tenant paid the first month; NoLSAF holds it until move-in is confirmed."}
+        The tenant paid the first month. NoLSAF holds it until move-in is confirmed.
       </p>
       <ol className="m-0 mt-3 list-none space-y-1.5 p-0 text-[13px] text-slate-700">
         <li className="flex gap-2"><span className="font-semibold text-slate-400">1</span>Walk through the home together and take condition photos.</li>
-        <li className="flex gap-2"><span className="font-semibold text-slate-400">2</span>{side === "TENANT" ? `Then pay the landlord the balance (${money(m.balanceDue, m.currency)}).` : `The tenant then pays you the balance (${money(m.balanceDue, m.currency)}).`}</li>
+        <li className="flex gap-2"><span className="font-semibold text-slate-400">2</span>The tenant then pays you the balance ({money(m.balanceDue, m.currency)}).</li>
         <li className="flex gap-2"><span className="font-semibold text-slate-400">3</span>Keys are handed over, and both of you confirm here.</li>
       </ol>
-      {side === "TENANT" ? <p className="m-0 mt-2 text-[12px] text-slate-500">Do not pay the balance before you have inspected the home.</p> : null}
     </div>
   );
 }

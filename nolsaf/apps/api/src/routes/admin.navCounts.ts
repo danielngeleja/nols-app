@@ -13,7 +13,7 @@ router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unk
 const safe = (p: Promise<number>) => p.catch(() => 0);
 
 router.get("/", async (_req, res) => {
-  const [listings, payouts, trips, groupStays, cancellations] = await Promise.all([
+  const [listings, payouts, trips, groupStays, cancellations, tenantIds, inspections, enquiries, longStays, longStayClaims] = await Promise.all([
     // Owners: listings waiting for review (same as the admin home queue).
     safe(prisma.property.count({ where: { status: "PENDING" } as any })),
     // Disbursements: approved owner invoices whose money is not yet sent (payments summary "waiting").
@@ -28,10 +28,21 @@ router.get("/", async (_req, res) => {
     safe((prisma as any).groupBooking.count({ where: { status: "PENDING" } })),
     // Cancellations waiting on an admin decision (NEED_INFO waits on the customer).
     safe(prisma.cancellationRequest.count({ where: { status: { in: ["SUBMITTED", "REVIEWING"] } } as any })),
+    safe(prisma.longStayTenantProfile.count({ where: { status: "PENDING", barredAt: null } })),
+    safe(prisma.longStayInspection.count({ where: { status: { in: ["REQUESTED", "SUBMITTED"] } } })),
+    safe(prisma.longStayEnquiry.count({ where: { status: "OPEN" } })),
+    safe(prisma.tenancy.count({ where: { OR: [
+      { status: { in: ["DISPUTED", "OVERDUE"] } },
+      { payoutStatus: { in: ["READY", "REVIEW", "REFUND_DUE"] } },
+    ] } })),
+    safe(prisma.tenancyClaim.count({ where: { closedAt: null, OR: [
+      { status: { in: ["OPEN", "RECOVERING"] }, escalatedAt: { not: null } },
+      { status: "RECOVERED" },
+    ] } })),
   ]);
 
-  res.set("Cache-Control", "private, max-age=20");
-  res.json({ listings, payouts, trips, groupStays, cancellations });
+  res.set("Cache-Control", "private, no-cache");
+  res.json({ listings, payouts, trips, groupStays, cancellations, tenantIds, inspections, enquiries, longStays: longStays + longStayClaims });
 });
 
 export default router;

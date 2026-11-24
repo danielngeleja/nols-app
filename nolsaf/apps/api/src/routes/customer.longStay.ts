@@ -29,6 +29,7 @@ import { createEnquiry, EnquiryError, enquirySchema, enquiryView } from "../lib/
 import { acceptLeaseRoute, cancelReservedRoute, cancelTermsRoute, claimReceivedRoute, closeRequest, confirmMoveInRoute, disputeRoute, getLease, getTenancy, listTenancies, noticeRoute, photosRoute, renewRoute, sendMessage, sendTenancyError } from "../lib/longStay/tenancyRoutes.js";
 import { extractPublicKeyFromSlug } from "../lib/publicPropertyKey.js";
 import { sanitizeText } from "../lib/sanitize.js";
+import { longStayReceipt } from "../lib/longStay/receipt.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -176,14 +177,15 @@ router.post("/reservations", blockImpersonated as RequestHandler, limitReservati
   if (!propertyKey) return res.status(404).json({ error: "This home is not available for long stays." });
   if (!(await tenantGate(req, res))) return;
   try {
-    const { tenancy, notification } = await prisma.$transaction(async (tx) => {
+    const { tenancy, notification, propertyTitle } = await prisma.$transaction(async (tx) => {
       const { tenancy, property } = await createReservation(tx, { tenantId: req.user!.id, propertyKey, moveInDate: body.data.moveInDate, termMonths: body.data.termMonths });
       const notification = await createOwnerReservationNotification(tx, property.ownerId, {
         tenancyRef: tenancy.publicRef, propertyTitle: property.title, moveInDate: body.data.moveInDate, termMonths: body.data.termMonths,
       });
-      return { tenancy, notification };
+      return { tenancy, notification, propertyTitle: property.title };
     });
     publishUserNotification(notification, LONG_STAY_RESERVATION_RECEIVED);
+    await notifyAdmins("long_stay_reservation_created", { tenancyRef: tenancy.publicRef, propertyTitle });
     return res.status(201).json({ ref: tenancy.publicRef, status: tenancy.status });
   } catch (error) {
     if (sendTenancyError(res, error)) return;
@@ -206,7 +208,7 @@ router.post("/enquiries", blockImpersonated as RequestHandler, limitEnquiries as
       text: sanitizeText(body.data.text).slice(0, 1000),
       slots: body.data.slots ?? null,
     });
-    await notifyAdmins("long_stay_enquiry", { kind: enquiry.kind, propertyTitle: property.title }).catch(() => undefined);
+    await notifyAdmins("long_stay_enquiry", { enquiryId: enquiry.id, enquiryRef: enquiry.publicRef, kind: enquiry.kind, propertyTitle: property.title });
     return res.status(201).json(enquiryView(enquiry, { title: property.title, key: propertyKey }));
   } catch (error) {
     if (error instanceof EnquiryError) return res.status(error.status).json({ error: error.message });
@@ -228,6 +230,8 @@ router.get("/enquiries", asyncHandler(async (req: AuthedRequest, res: Response) 
 
 router.get("/tenancies", listTenancies("TENANT"));
 router.get("/tenancies/:ref", getTenancy("TENANT"));
+router.get("/tenancies/:ref/receipt.html", blockImpersonated as RequestHandler, longStayReceipt("html"));
+router.get("/tenancies/:ref/pdf", blockImpersonated as RequestHandler, longStayReceipt("pdf"));
 router.post("/tenancies/:ref/messages", blockImpersonated as RequestHandler, sendMessage("TENANT"));
 router.post("/tenancies/:ref/cancel", blockImpersonated as RequestHandler, closeRequest("TENANT"));
 router.get("/tenancies/:ref/lease", getLease("TENANT"));

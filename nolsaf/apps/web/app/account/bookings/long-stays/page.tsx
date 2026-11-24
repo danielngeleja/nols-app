@@ -29,7 +29,7 @@ export default function AccountLongStaysPage() {
   }, []);
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4">
+    <div className="w-full min-w-0 space-y-4">
       <BookingTypeNav current="long" />
       <header className="flex flex-wrap items-end justify-between gap-4 rounded-lg border border-solid border-[#cfe2da] bg-[#eaf4ef] px-4 py-4 sm:px-6 sm:py-5">
         <div className="min-w-0">
@@ -39,7 +39,7 @@ export default function AccountLongStaysPage() {
         </div>
         <Link href="/public/properties" className="inline-flex min-h-9 shrink-0 items-center gap-2 rounded-md bg-[#02665e] px-3 text-sm font-semibold text-white no-underline hover:bg-[#014e47] hover:text-white hover:no-underline"><Search className="size-4" aria-hidden />Find a home</Link>
       </header>
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(16rem,1fr)]">
+      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,30%)]">
         <TenancyList side="TENANT" detailBase="/account/bookings/long-stays" hideHeading />
         <aside className="min-w-0 space-y-3">
           <Link href="/account/long-stay-id" className="flex items-center gap-3 rounded-lg border border-solid border-[#d9e7e2] bg-white p-3.5 text-slate-900 no-underline hover:bg-[#f1f8f4] hover:no-underline">

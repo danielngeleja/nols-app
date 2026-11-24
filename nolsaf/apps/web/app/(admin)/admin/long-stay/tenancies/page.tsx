@@ -7,6 +7,8 @@
  * Disbursements, USD payouts are paid by bank and recorded here.
  */
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import AdminNotificationTarget from "@/components/longStay/AdminNotificationTarget";
 import Link from "next/link";
 import { AlertTriangle, CalendarX2, HandCoins, History, Home, Inbox, KeyRound, List, Loader2, Phone, Undo2, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
@@ -63,7 +65,16 @@ const EMPTY: Record<View, { title: string; text: string }> = {
 };
 
 export default function LongStayTenanciesPage() {
-  const [view, setView] = useState<View>("payouts");
+  const params = useSearchParams();
+  const requestedView = params?.get("view");
+  const initialView = TABS.find((tab) => tab.key === requestedView)?.key ?? "payouts";
+  const target = params?.get("ref");
+  const claim = initialView === "claims" ? params?.get("claim") : null;
+  return <TenancyQueue key={`${initialView}:${target ?? ""}:${claim ?? ""}`} initialView={initialView} target={target} claim={claim} />;
+}
+
+function TenancyQueue({ initialView, target, claim }: { initialView: View; target: string | null | undefined; claim: string | null | undefined }) {
+  const [view, setView] = useState<View>(initialView);
   const [items, setItems] = useState<Item[] | null>(null);
   const [counts, setCounts] = useState<Partial<Record<View, number>>>({});
   const [loading, setLoading] = useState(true);
@@ -74,7 +85,7 @@ export default function LongStayTenanciesPage() {
     setError("");
     try {
       // Claims have their own list; the tenancy call still refreshes the counts.
-      const response = await apiClient.get<{ items: Item[]; counts: Partial<Record<View, number>> }>(`/api/admin/long-stay/tenancies?view=${view === "claims" ? "payouts" : view}`);
+      const response = await apiClient.get<{ items: Item[]; counts: Partial<Record<View, number>> }>("/api/admin/long-stay/tenancies", { params: { view: view === "claims" ? "payouts" : view, ref: target } });
       setCounts(response.data.counts ?? {});
       setItems(view === "claims" ? [] : response.data.items);
     } catch (requestError: any) {
@@ -83,7 +94,7 @@ export default function LongStayTenanciesPage() {
     } finally {
       setLoading(false);
     }
-  }, [view]);
+  }, [view, target]);
   useEffect(() => { setItems(null); void load(); }, [load]);
 
   const attention = (counts.payouts ?? 0) + (counts.disputes ?? 0) + (counts.refunds ?? 0);
@@ -103,21 +114,22 @@ export default function LongStayTenanciesPage() {
         ]}
         onRefresh={load}
         loading={loading}
-        tabs={TABS.map((t) => ({ ...t, count: t.key === "all" ? undefined : counts[t.key] }))}
+        tabs={target || claim ? undefined : TABS.map((t) => ({ ...t, count: t.key === "all" ? undefined : counts[t.key] }))}
         activeTab={view}
         onTab={setView}
       />
+      {(target || claim) && <AdminNotificationTarget href={`/admin/long-stay/tenancies?view=${view}`}>{claim ? "Claim from Notifications" : "Tenancy from Notifications"}</AdminNotificationTarget>}
       {error ? <p className="m-0 mt-3 text-sm text-red-700">{error}</p> : null}
       <div className="mt-3 space-y-3">
-        {view === "claims" ? <ClaimsList /> : items === null ? (
+        {view === "claims" ? <ClaimsList target={claim} /> : items === null ? (
           <div className="grid min-h-32 place-items-center text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
         ) : items.length === 0 ? (
           <div className="rounded-lg border border-solid border-slate-200 bg-white px-5 py-10 text-center">
             <Inbox className="mx-auto h-7 w-7 text-slate-300" />
-            <p className="m-0 mt-2 text-sm font-semibold text-slate-700">{EMPTY[view].title}</p>
-            <p className="m-0 mt-0.5 text-[13px] text-slate-500">{EMPTY[view].text}</p>
+            <p className="m-0 mt-2 text-sm font-semibold text-slate-700">{target ? "Tenancy unavailable" : EMPTY[view].title}</p>
+            {!target && <p className="m-0 mt-0.5 text-[13px] text-slate-500">{EMPTY[view].text}</p>}
           </div>
-        ) : items.map((item) => <TenancyCard key={item.ref} item={item} onChanged={load} />)}
+        ) : items.map((item) => <TenancyCard key={item.ref} item={item} onChanged={() => { window.dispatchEvent(new Event("nols:admin-long-stay-queue-change")); return load(); }} />)}
       </div>
     </div>
   );
@@ -291,7 +303,7 @@ function Fact({ label, value, sub, warn, strong }: { label: string; value: strin
 type ClaimRow = { id: number; kind: string; amount: number; recoveredAmount: number; currency: string; status: string; reason: string; dueAt: string; escalatedAt: string | null; closedAt: string | null; tenancyRef: string; home: string | null };
 
 /** Claims under the lease: open, being recovered, or recovered and owed to the tenant. */
-function ClaimsList() {
+function ClaimsList({ target }: { target?: string | null }) {
   const [rows, setRows] = useState<ClaimRow[] | null>(null);
   const [acting, setActing] = useState<{ id: number; outcome: string } | null>(null);
   const [note, setNote] = useState("");
@@ -299,12 +311,12 @@ function ClaimsList() {
 
   const load = useCallback(async () => {
     try {
-      const response = await apiClient.get<{ items: ClaimRow[] }>("/api/admin/long-stay/claims?scope=open");
+      const response = await apiClient.get<{ items: ClaimRow[] }>("/api/admin/long-stay/claims", { params: { scope: "open", id: target } });
       setRows(response.data.items);
     } catch {
       setRows([]);
     }
-  }, []);
+  }, [target]);
   useEffect(() => { void load(); }, [load]);
 
   const close = async () => {
@@ -314,6 +326,7 @@ function ClaimsList() {
       await apiClient.post(`/api/admin/long-stay/claims/${acting.id}/close`, { outcome: acting.outcome, note: note.trim() });
       setActing(null);
       setNote("");
+      window.dispatchEvent(new Event("nols:admin-long-stay-queue-change"));
       void load();
     } catch (requestError: any) {
       setMessage(requestError?.response?.data?.error || "Could not save.");
@@ -324,8 +337,8 @@ function ClaimsList() {
   if (!rows.length) return (
     <div className="rounded-lg border border-solid border-slate-200 bg-white px-5 py-10 text-center">
       <Inbox className="mx-auto h-7 w-7 text-slate-300" />
-      <p className="m-0 mt-2 text-sm font-semibold text-slate-700">No open claims</p>
-      <p className="m-0 mt-0.5 text-[13px] text-slate-500">Open one from a tenancy when a landlord owes the tenant money under the lease.</p>
+      <p className="m-0 mt-2 text-sm font-semibold text-slate-700">{target ? "Claim unavailable" : "No open claims"}</p>
+      {!target && <p className="m-0 mt-0.5 text-[13px] text-slate-500">Open one from a tenancy when a landlord owes the tenant money under the lease.</p>}
     </div>
   );
   const btn = "inline-flex h-8 cursor-pointer items-center justify-center rounded-md px-3 text-[13px] font-semibold [font-family:inherit]";
@@ -340,11 +353,11 @@ function ClaimsList() {
               <p className="m-0 mt-0.5 font-mono text-[11px] text-slate-400">{c.tenancyRef}</p>
               <p className="m-0 mt-1 text-xs">
                 <span className={`rounded-md px-1.5 py-0.5 font-semibold ${c.status === "RECOVERING" ? "bg-red-50 text-red-700" : c.status === "RECOVERED" ? "bg-amber-50 text-amber-800" : "bg-sky-50 text-sky-800"}`}>
-                  {c.status === "OPEN" ? `Due ${day(c.dueAt)}` : c.status === "RECOVERING" ? `Past due, ${money(c.recoveredAmount, c.currency)} recovered` : "Recovered: pay it to the tenant"}
+                  {c.closedAt ? `Closed ${day(c.closedAt)}` : c.status === "OPEN" ? `Due ${day(c.dueAt)}` : c.status === "RECOVERING" ? `Past due, ${money(c.recoveredAmount, c.currency)} recovered` : "Recovered: pay it to the tenant"}
                 </span>
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            {!c.closedAt && <div className="flex flex-wrap gap-2">
               {c.status === "RECOVERED" ? (
                 <button type="button" onClick={() => setActing({ id: c.id, outcome: "PAID_TO_TENANT" })} className={`${btn} border-0 bg-[#02665e] text-white`}>Paid to tenant</button>
               ) : (
@@ -353,7 +366,7 @@ function ClaimsList() {
                   <button type="button" onClick={() => setActing({ id: c.id, outcome: "WAIVED" })} className={`${btn} border border-solid border-slate-300 bg-white text-slate-700`}>Waive</button>
                 </>
               )}
-            </div>
+            </div>}
           </div>
           {acting?.id === c.id ? (
             <div className="mt-2 flex flex-wrap gap-2">

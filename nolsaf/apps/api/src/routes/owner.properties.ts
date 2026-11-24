@@ -1356,7 +1356,7 @@ export const submitListingProperty = (async (req: AuthedRequest, res) => {
     if (longStayRefusal) return res.status(400).json({ error: longStayRefusal, code: "LONG_STAY" });
     if (p.rentalMode === "LONG_STAY") {
       const opened = await requestInspection(prisma, id, "FIRST").catch(() => null);
-      if (opened?.created) await notifyAdmins("long_stay_inspection_needed", { propertyTitle: p.title }).catch(() => undefined);
+      if (opened?.created) await notifyAdmins("long_stay_inspection_needed", { inspectionId: opened.inspection.id, inspectionRef: opened.inspection.publicRef, propertyTitle: p.title });
     }
 
     // The owner-placed map pin is the authoritative coordinate. We intentionally

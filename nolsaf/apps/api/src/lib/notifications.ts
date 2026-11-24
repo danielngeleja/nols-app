@@ -2,6 +2,7 @@ import { prisma } from "@nolsaf/prisma";
 import type { Notification, Prisma } from "@prisma/client";
 import { customerBookingReference } from "./customerBookingReference.js";
 import { adminKindOf } from "./adminNotificationKinds.js";
+import { longStayAdminNotificationHref } from "./longStay/adminNotificationHref.js";
 
 /**
  * Notify all admins (creates notification with userId=null, ownerId=null so it appears in admin notifications)
@@ -139,6 +140,10 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Sales partner agreement awaiting activation",
         body: `${data.agentCode || "A sales partner"} signed agreement ${data.contractNumber || ""}. Review and countersign it before activating workspace access.`
       },
+        long_stay_reservation_created: {
+        title: "New long-stay reservation",
+        body: `A tenant reserved "${data.propertyTitle || "a long-stay home"}". The landlord has 24 hours to respond.`
+        },
         long_stay_cancelled_paid: {
         title: "Paid long stay cancelled",
         body: `The ${data.by === "LANDLORD" ? "landlord" : "tenant"} cancelled a paid long stay for "${data.propertyTitle || "a home"}".${Number(data.refund) > 0 ? ` Refund the tenant ${Number(data.refund).toLocaleString("en-US")}.` : ""}${Number(data.payout) > 0 ? ` The landlord is owed ${Number(data.payout).toLocaleString("en-US")}.` : ""}${data.landlordPaused ? " The landlord's long stays were paused after repeated cancellations." : ""} Handle it in Long stays.`
@@ -370,6 +375,7 @@ export async function notifyAdmins(template: string, data: any) {
 
     // Severity, area and whether someone must act come from the registry, never from the title.
     const kind = adminKindOf({ meta: { notificationKind: template } });
+    const longStayHref = longStayAdminNotificationHref(template, data);
     try {
       // Create notification for admins (no userId/ownerId = visible to all admins)
       const created = await prisma.notification.create({
@@ -380,7 +386,7 @@ export async function notifyAdmins(template: string, data: any) {
           body: templateData.body,
           unread: true,
           requiresAction: kind.requiresAction,
-          meta: { ...data, notificationKind: template, severity: kind.severity, category: kind.category },
+          meta: { ...data, ...(longStayHref ? { href: longStayHref } : {}), notificationKind: template, severity: kind.severity, category: kind.category },
           type: template.startsWith("security_") || isOwnerAccountChange
             ? "system"
             : template.startsWith("transport") || template.startsWith("driver_")
@@ -421,7 +427,7 @@ export async function notifyAdmins(template: string, data: any) {
             category: kind.category,
             requiresAction: kind.requiresAction,
             createdAt: created.createdAt,
-            ...(isOwnerAccountChange ? { meta: {
+            ...(longStayHref ? { meta: { notificationKind: template, href: longStayHref } } : isOwnerAccountChange ? { meta: {
               notificationKind: template,
               accountOwnerId: data.accountOwnerId,
               href: data.href,

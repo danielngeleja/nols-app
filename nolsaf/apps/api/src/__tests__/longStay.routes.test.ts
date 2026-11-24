@@ -65,6 +65,15 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("admin long-stay enquiry queue", () => {
+  it("opens the enquiry named by an alert even if another admin already answered", async () => {
+    const ref = "le_0123456789abcdefghijkl";
+    h.db.longStayEnquiry.count.mockImplementation(async ({ where }: { where: { status?: string } }) => where.status === "OPEN" ? 8 : 1);
+    h.db.longStayEnquiry.findMany.mockResolvedValueOnce([{ publicRef: ref, kind: "QUESTION", status: "ANSWERED" }]);
+    const response = await request(app).get("/api/admin/long-stay/enquiries").query({ ref, view: "open", page: 1 }).expect(200);
+    expect(response.body).toMatchObject({ openCount: 8, items: [{ ref, status: "ANSWERED" }], pagination: { total: 1 } });
+    expect(h.db.longStayEnquiry.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { publicRef: ref } }));
+  });
+
   it("paginates by status with a stable order and clamps a page after the queue shrinks", async () => {
     h.db.longStayEnquiry.count.mockImplementation(async ({ where }: { where: { status: string } }) => where.status === "OPEN" ? 8 : 51);
     h.db.longStayEnquiry.findMany.mockResolvedValue([]);
@@ -292,6 +301,15 @@ describe("home inspection invitations", () => {
     expect((await sendReport(3, {})).body.error).toMatch(/finding for every item answered No/);
     const sent = await sendReport(3);
     expect(sent.status).toBe(201);
+    expect(h.db.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: null, ownerId: null, unread: true, requiresAction: true,
+        meta: expect.objectContaining({
+          notificationKind: "long_stay_inspection_report", inspectionId: 1,
+          href: `/admin/long-stay/inspections?view=review&ref=${ref}`,
+        }),
+      }),
+    });
     expect(h.db.longStayInspection.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ salesPartnerId: 7, status: "ASSIGNED" }),
       data: expect.objectContaining({

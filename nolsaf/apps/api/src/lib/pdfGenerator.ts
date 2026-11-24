@@ -58,6 +58,10 @@ export interface BookingDetails {
     dateLine?: string;
     /** Label of the first totals row. Defaults to "Amount received" (an unpaid invoice uses "Amount due"). */
     amountLabel?: string;
+    referenceLabel?: string;
+    hideBalance?: boolean;
+    hideVerificationQr?: boolean;
+    watermark?: string;
   };
 }
 
@@ -113,7 +117,7 @@ async function generateBookingQRCode(details: BookingDetails): Promise<string> {
  */
 export async function generateBookingReservationHTML(details: BookingDetails): Promise<string> {
   // Generate QR code
-  const qrCodeDataUrl = await generateBookingQRCode(details);
+  const qrCodeDataUrl = details.document?.hideVerificationQr ? "" : await generateBookingQRCode(details);
 
   // HTML-escape all guest/property-controlled fields. This HTML is served directly
   // (receipt.html) and rendered in an iframe, so unescaped values would be an XSS vector.
@@ -644,6 +648,19 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
       font-size: 7pt;
       line-height: 1.5;
     }
+    .sheet--watermarked { position: relative; }
+    .receipt-watermark {
+      position: absolute;
+      top: 72%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-12deg);
+      color: #e3eeed;
+      font-size: 40pt;
+      font-weight: 900;
+      line-height: 1;
+      pointer-events: none;
+      user-select: none;
+    }
     .document-qr { text-align: center; }
     .document-qr img, .document-qr .qr-empty {
       width: 20mm;
@@ -669,7 +686,8 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
   </style>
 </head>
 <body>
-<div class="sheet">
+<div class="sheet${doc.watermark ? " sheet--watermarked" : ""}">
+  ${doc.watermark ? `<span class="receipt-watermark" aria-hidden="true">${esc(doc.watermark)}</span>` : ""}
   <header class="document-header">
     <div class="document-brand">
       <img class="document-logo" src="${esc(logoSrc)}" alt="NoLSAF" />
@@ -698,7 +716,7 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
       <div class="kicker">${esc(reservationKicker)}</div>
       <div class="primary-value">${esc(details.property.title)}</div>
       ${reservationSub ? `<div class="secondary-value">${esc(reservationSub)}</div>` : ""}
-      <div class="secondary-value">Code ${esc(details.bookingCode)}${invoiceReference !== "Not issued" ? ` | Invoice ${esc(invoiceReference)}` : ""}</div>
+      <div class="secondary-value">${esc(doc.referenceLabel || "Code")} ${esc(details.bookingCode)}${invoiceReference !== "Not issued" ? ` | Invoice ${esc(invoiceReference)}` : ""}</div>
     </div>
   </section>
 
@@ -724,19 +742,19 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
 
   <section class="totals">
     <div class="total-row"><span>${esc(doc.amountLabel || "Amount received")}</span><strong>${amount} ${esc(currency)}</strong></div>
-    <div class="total-row final"><span>Balance</span><span>${balanceDue.toLocaleString("en-US")} ${esc(currency)}</span></div>
+    ${doc.hideBalance ? "" : `<div class="total-row final"><span>Balance</span><span>${balanceDue.toLocaleString("en-US")} ${esc(currency)}</span></div>`}
   </section>
 
-  <section class="confirmation-row">
+  <section class="confirmation-row"${doc.hideVerificationQr ? ' style="grid-template-columns:1fr"' : ""}>
       <div>
         <div class="confirmation-title">${esc(confirmationTitle)}</div>
         <div class="confirmation-copy">${esc(confirmationCopy)}</div>
       </div>
-      <div class="document-qr">
+      ${doc.hideVerificationQr ? "" : `<div class="document-qr">
         ${qrCodeDataUrl
           ? `<img src="${qrCodeDataUrl}" alt="Booking verification QR code" /><div class="document-qr-label">Verify</div>`
           : `<div class="qr-empty">QR unavailable</div>`}
-      </div>
+      </div>`}
   </section>
 
   <footer class="document-footer">

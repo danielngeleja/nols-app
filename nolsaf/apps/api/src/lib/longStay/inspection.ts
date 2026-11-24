@@ -211,10 +211,10 @@ export async function prepareInspectionForApproval(db: any, propertyId: number, 
     if (required) throw error;
     return null;
   });
-  if (!refusal) return { refusal: null, opened: false };
+  if (!refusal) return { refusal: null, opened: null };
 
   const request = await requestInspection(db, propertyId, "FIRST").catch(() => null);
-  return { refusal: required ? refusal : null, opened: request?.created === true };
+  return { refusal: required ? refusal : null, opened: request?.created ? request.inspection : null };
 }
 
 /**

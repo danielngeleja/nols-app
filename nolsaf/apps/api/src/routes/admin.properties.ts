@@ -1335,7 +1335,7 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
     const { refusal: notInspected, opened } = await prepareInspectionForApproval(prisma, id, todayInEat());
     if (opened) {
       const { notifyAdmins } = await import("../lib/notifications.js");
-      await notifyAdmins("long_stay_inspection_needed", { propertyTitle: before.title });
+      await notifyAdmins("long_stay_inspection_needed", { inspectionId: opened.id, inspectionRef: opened.publicRef, propertyTitle: before.title });
     }
     if (notInspected) {
       res.status(409).json({ error: `${notInspected} Assign a partner in Long stays, Inspections.` });

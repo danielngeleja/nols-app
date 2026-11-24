@@ -377,9 +377,14 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const [agentsOpen, setAgentsOpen] = useState(false);
   const twigaWaiting = useTwigaQueueCount();
   const nav = useAdminNavCounts();
+  const ownerQueueCount = (nav?.listings ?? 0) + (nav?.tenantIds ?? 0) + (nav?.longStays ?? 0) + (nav?.inspections ?? 0) + (nav?.enquiries ?? 0);
   const badges: Record<string, number> = {
     "/admin/agents/ai": twigaWaiting,
     "/admin/properties/previews": nav?.listings ?? 0,
+    "/admin/long-stay/tenants": nav?.tenantIds ?? 0,
+    "/admin/long-stay/tenancies": nav?.longStays ?? 0,
+    "/admin/long-stay/inspections": nav?.inspections ?? 0,
+    "/admin/long-stay/enquiries": nav?.enquiries ?? 0,
     "/admin/payments": nav?.payouts ?? 0,
     "/admin/group-stays/requests": nav?.groupStays ?? 0,
     "/admin/cancellations": nav?.cancellations ?? 0,
@@ -703,7 +708,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Admin/Owners */}
         {collapsed ? (
-          <Item href="/admin" label="Owners" Icon={Building2} collapsed={collapsed} path={path} variant={variant} badge={nav?.listings ?? 0} />
+          <Item href="/admin" label="Owners" Icon={Building2} collapsed={collapsed} path={path} variant={variant} badge={ownerQueueCount} />
         ) : (
           <div className={dark && adminOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
@@ -713,7 +718,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setAdminOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "Owners"}
-              badge={nav?.listings ?? 0}
+              badge={ownerQueueCount}
               pages={adminDetails.length}
             />
             <NestedGroup open={adminOpen} title="Owners" active={activeSection === "Owners"} items={adminDetails} />

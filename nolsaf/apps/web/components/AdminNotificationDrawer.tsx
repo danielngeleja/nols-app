@@ -222,7 +222,8 @@ export default function AdminNotificationDrawer() {
   const groupOf = (list: NotificationItem[]) => {
     const groups = new Map<string, NotificationItem[]>();
     for (const item of list) {
-      const key = `${item.title}|${item.severity ?? ""}|${item.requiresAction ? 1 : 0}|${String(item.type ?? "")}|${item.meta?.accountOwnerId ?? ""}`;
+      const isLongStay = String(item.meta?.notificationKind ?? "").startsWith("long_stay_");
+      const key = isLongStay ? `long-stay:${item.id}` : `${item.title}|${item.severity ?? ""}|${item.requiresAction ? 1 : 0}|${String(item.type ?? "")}|${item.meta?.accountOwnerId ?? ""}`;
       const bucket = groups.get(key);
       if (bucket) bucket.push(item);
       else groups.set(key, [item]);
