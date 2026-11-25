@@ -14,6 +14,7 @@ import { sweepTenancyEndings } from "../lib/longStay/lifecycle.js";
 import { escalateOverdueClaims } from "../lib/longStay/claims.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { todayInEat } from "../lib/longStay/listing.js";
+import { lapseInspectionInvitations } from "../lib/longStay/inspection.js";
 
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -54,6 +55,15 @@ export async function runLongStayPayments(now = new Date()) {
       await notifyOwner(tenancy.landlordId, "long_stay_renewal_reminder_owner", { propertyTitle: title }).catch(() => undefined);
     }
   });
+  // Inspection invitations a partner left unanswered for 24 hours go back to NoLSAF.
+  for (const lapsed of await lapseInspectionInvitations(prisma, now).catch(() => [])) {
+    const title = await propertyTitle(lapsed.propertyId);
+    await notifyAdmins("long_stay_inspection_needed", { propertyTitle: title, reason: "invitation_lapsed" }).catch(() => undefined);
+    if (lapsed.salesPartnerId) {
+      const partner = await prisma.salesPartnerProfile.findUnique({ where: { id: lapsed.salesPartnerId }, select: { userId: true } }).catch(() => null);
+      if (partner) await notifyUser(partner.userId, "long_stay_inspection_invite_lapsed", { propertyTitle: title }).catch(() => undefined);
+    }
+  }
   // Claims unpaid past 14 days: pause the landlord, recover from future payouts.
   await escalateOverdueClaims(prisma, now, async (claim) => {
     await notifyAdmins("long_stay_claim_overdue", { claimId: claim.id }).catch(() => undefined);

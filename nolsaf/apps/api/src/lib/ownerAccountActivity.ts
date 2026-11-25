@@ -27,10 +27,17 @@ const actions = {
   USER_PAYOUT_DESTINATION_VERIFIED: ["payout", "Verified payout destination saved"],
   USER_PROFILE_UPDATE: ["profile", "Account profile updated"],
   USER_DOCUMENT_UPSERT: ["profile", "Account document updated"],
+  OWNER_WITHDRAWAL_OTP_FAILED: ["withdrawals", "Wrong withdrawal code entered"],
+  OWNER_WITHDRAWAL_OTP_LOCKED: ["withdrawals", "Withdrawal code locked"],
+  OWNER_WITHDRAWAL_OTP_UNLOCKED: ["withdrawals", "Withdrawal code unlocked by support"],
+  OWNER_PAYOUT_HOLD_PLACED: ["withdrawals", "Payouts paused by an admin"],
+  OWNER_PAYOUT_HOLD_RELEASED: ["withdrawals", "Payout pause lifted"],
+  OWNER_PAYOUT_ALWAYS_REVIEW_ON: ["withdrawals", "Payouts set to always be checked"],
+  OWNER_PAYOUT_ALWAYS_REVIEW_OFF: ["withdrawals", "Always-check removed"],
 } as const;
 
 type ActivityAction = keyof typeof actions;
-export const ownerActivityCategories = ["all", "payout", "security", "sign-in", "profile"] as const;
+export const ownerActivityCategories = ["all", "payout", "withdrawals", "security", "sign-in", "profile"] as const;
 export type OwnerActivityCategory = typeof ownerActivityCategories[number];
 
 export function ownerActivityActions(category: OwnerActivityCategory) {
@@ -41,6 +48,8 @@ export function ownerActivityScope(id: number): Prisma.AuditLogWhereInput {
   return { OR: [
     { entity: `user:${id}` },
     { entity: "USER", entityId: id },
+    // Withdrawal code guard events are written against the owner as "OWNER".
+    { entity: "OWNER", entityId: id },
     { actorId: id, action: { in: ["USER_SESSION_REVOKE", "SIGN_IN_ALERT_SESSION_REVOKED", "NO4P_OTP_VERIFY_FAILED"] } },
   ] };
 }
@@ -109,7 +118,17 @@ export function ownerActivityEvent(row: {
   let label: string = defaultLabel;
   let detail: string | null = null;
   const failed = (row.action === "USER_LOGIN" && data.success === false) ||
-    ["USER_PASSWORD_CHANGE_FAILED", "USER_PAYOUT_LOOKUP_MISMATCH", "NO4P_OTP_VERIFY_FAILED"].includes(row.action);
+    ["USER_PASSWORD_CHANGE_FAILED", "USER_PAYOUT_LOOKUP_MISMATCH", "NO4P_OTP_VERIFY_FAILED",
+      "OWNER_WITHDRAWAL_OTP_FAILED", "OWNER_WITHDRAWAL_OTP_LOCKED"].includes(row.action);
+  if (category === "withdrawals") {
+    if (typeof data.reason === "string" && data.reason.trim()) detail = `Reason: ${data.reason.trim().slice(0, 300)}`;
+    if (row.action === "OWNER_WITHDRAWAL_OTP_UNLOCKED" && typeof data.verifiedVia === "string") {
+      detail = `Identity checked by ${String(data.verifiedVia).toLowerCase().replace("_", " ")}`;
+    }
+    if (row.action === "OWNER_WITHDRAWAL_OTP_FAILED" && typeof data.failedAttempts === "number") {
+      detail = `${data.failedAttempts} of 3 wrong codes`;
+    }
+  }
   if (row.action === "USER_LOGIN" && failed) label = "Sign-in failed";
   if (row.action === "CONTACT_CHANGED") {
     const field = data.field === "email" ? "Email address" : data.field === "phone" ? "Phone number" : "Security contact";
@@ -133,7 +152,7 @@ export function ownerActivityEvent(row: {
     : "System";
   return {
     id: row.id.toString(), category, label, detail, actor,
-    tone: failed ? "failed" : category === "security" || row.action === "USER_PAYOUT_DESTINATION_VERIFIED" ? "change" : "neutral",
+    tone: failed ? "failed" : category === "security" || category === "withdrawals" || row.action === "USER_PAYOUT_DESTINATION_VERIFIED" ? "change" : "neutral",
     createdAt: row.createdAt.toISOString(), ip: row.ip || null,
     device: row.ua ? describeDevice(row.ua) : null,
   };

@@ -38,7 +38,7 @@ type Terms = {
 type Quote = { tenantFee: number; landlordCommission: number; bookingAmount: number; balanceDue: number; landlordPayout: number };
 type Inspection = {
   ref: string;
-  status: "REQUESTED" | "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED" | "CANCELLED";
+  status: "REQUESTED" | "INVITED" | "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED" | "CANCELLED";
   reason: string;
   partner: { code: string; name: string | null; phone: string | null } | null;
   assignedBy: string | null;
@@ -100,6 +100,7 @@ const FURNISHED_LABEL = { FURNISHED: "Furnished", SEMI: "Semi-furnished", UNFURN
 const REASON_TEXT: Record<string, string> = { FIRST: "First inspection", YEARLY: "Yearly check", AFTER_DISPUTE: "After an upheld complaint", RELISTED: "Relisted home" };
 const STATUS_TEXT: Record<string, { label: string; tone: string }> = {
   REQUESTED: { label: "No partner yet", tone: "bg-amber-50 text-amber-800 ring-amber-200" },
+  INVITED: { label: "Invited, awaiting reply", tone: "bg-violet-50 text-violet-800 ring-violet-200" },
   ASSIGNED: { label: "Visit booked", tone: "bg-sky-50 text-sky-800 ring-sky-200" },
   SUBMITTED: { label: "Report to review", tone: "bg-violet-50 text-violet-800 ring-violet-200" },
   PASSED: { label: "Passed", tone: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
@@ -428,7 +429,9 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
             <MiniCard title="Inspector" icon={<UserRoundCheck className="h-3.5 w-3.5" />}>
               {item.partner ? (
                 <PartnerLine name={item.partner.name || "Partner"} code={item.partner.code} phone={item.partner.phone} tone="brand"
-                  note={item.overdue ? <span className="font-semibold text-red-700">Visit overdue</span> : item.status === "ASSIGNED" ? `Visit by ${eat(item.dueBy)}` : null} />
+                  note={item.overdue ? <span className="font-semibold text-red-700">Visit overdue</span>
+                    : item.status === "INVITED" ? <span className="font-semibold text-violet-700">Invited, must reply by {eat(item.dueBy)}</span>
+                    : item.status === "ASSIGNED" ? `Accepted, visit by ${eat(item.dueBy)}` : null} />
               ) : (
                 <div className="flex items-start gap-3">
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border-2 border-dashed border-amber-300 text-amber-600"><UserRoundCheck className="h-4 w-4" /></span>
@@ -466,7 +469,8 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
             <MiniCard title="Visit timeline" icon={<Clock3 className="h-3.5 w-3.5" />}>
               <ol className="m-0 list-none space-y-2.5 p-0">
                 <TimelineStep done label="Requested" at={eat(item.createdAt) || REASON_TEXT[item.reason] || ""} />
-                <TimelineStep done={Boolean(item.assignedAt)} label="Partner assigned" at={item.assignedAt ? `${eat(item.assignedAt)}${item.assignedBy ? ` by ${item.assignedBy}` : ""}` : "Choose an inspector below"} />
+                <TimelineStep done={Boolean(item.assignedAt)} label="Partner invited" at={item.assignedAt ? `${eat(item.assignedAt)}${item.assignedBy ? ` by ${item.assignedBy}` : ""}` : "Choose an inspector below"} />
+                <TimelineStep done={item.status !== "REQUESTED" && item.status !== "INVITED" && Boolean(item.assignedAt)} label="Partner accepted" at={item.status === "INVITED" ? `Reply due ${eat(item.dueBy)}` : item.status === "REQUESTED" ? "-" : "Accepted"} />
                 <TimelineStep done={Boolean(r?.capturedAt)} label={item.status === "ASSIGNED" && item.reviewedAt ? "Return visit requested" : "Visited the home"} at={r?.capturedAt ? eat(r.capturedAt) : item.dueBy ? `Due ${eat(item.dueBy)}` : "Waiting for assignment"} warn={item.overdue} />
                 <TimelineStep done={Boolean(r?.submittedAt)} label="Report submitted" at={r?.submittedAt ? eat(r.submittedAt) : "Waiting for the partner’s report"} />
                 <TimelineStep done={item.status === "PASSED" || item.status === "FAILED"} label="NoLSAF decision" at={item.status === "PASSED" || item.status === "FAILED" ? eat(item.reviewedAt) : r?.submittedAt ? "Ready for review" : "Waiting for a report"} last />
@@ -474,7 +478,7 @@ function InspectionSection({ propertyId, data, onChanged }: { propertyId: number
             </MiniCard>
           </div>
 
-          {(item.status === "REQUESTED" || item.status === "ASSIGNED") ? (
+          {(item.status === "REQUESTED" || item.status === "INVITED" || item.status === "ASSIGNED") ? (
             <div className="border-0 border-t border-solid border-slate-100 px-5 py-4">
               <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
                 <p className="m-0 text-[13.5px] font-bold text-slate-900">{item.partner ? "Give the visit to another partner" : "Choose who inspects"}</p>

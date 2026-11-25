@@ -20,7 +20,7 @@ type SortKey = "property" | "landlord" | "partner" | "status" | "date";
 type Sort = { key: SortKey; direction: "asc" | "desc" };
 type QueueRow = {
   ref: string;
-  status: "REQUESTED" | "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED" | "CANCELLED";
+  status: "REQUESTED" | "INVITED" | "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED" | "CANCELLED";
   reason: string;
   home: { title: string | null; area: string; hasPin: boolean };
   landlord: { name: string | null };
@@ -67,6 +67,7 @@ function day(iso: string | null) {
 function statusOf(item: QueueRow) {
   switch (item.status) {
     case "REQUESTED": return { label: "Unassigned", tone: "bg-amber-50 text-amber-800", date: item.createdAt, dateLabel: "Requested" };
+    case "INVITED": return { label: "Invited, awaiting reply", tone: "bg-violet-50 text-violet-800", date: item.dueBy, dateLabel: "Reply by" };
     case "ASSIGNED": return item.overdue
       ? { label: "Visit overdue", tone: "bg-red-50 text-red-700", date: item.dueBy, dateLabel: "Was due" }
       : { label: "Visit pending", tone: "bg-sky-50 text-sky-800", date: item.dueBy, dateLabel: "Due" };
@@ -317,7 +318,7 @@ function InspectionCard({ item, checklist, onChanged }: { item: Item; checklist:
         </div>
       </div>
 
-      {(item.status === "REQUESTED" || item.status === "ASSIGNED") ? (
+      {(item.status === "REQUESTED" || item.status === "INVITED" || item.status === "ASSIGNED") ? (
         <div className="flex flex-wrap items-end gap-2 border-0 border-t border-solid border-slate-100 px-4 py-3">
           <label className="block text-xs font-semibold text-slate-700">{item.partner ? "Give it to another partner" : "Sales Partner code"}
             <input value={partnerCode} onChange={(e) => setPartnerCode(e.target.value.toUpperCase())} placeholder="NSA-DAR-0042" maxLength={30}

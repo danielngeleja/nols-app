@@ -51,6 +51,9 @@ type Focus = "OVERDUE" | "TODAY" | "PROTECTION" | "NONE" | "STALE";
 type InspectionQueue = {
   toVisit: number;
   inReview: number;
+  /** Invitations waiting for this partner's yes or no. */
+  invited?: number;
+  invitations?: Array<{ ref: string; area: string; type: string | null; replyBy: string | null }>;
   upcoming: Array<{ ref: string; title: string | null; area: string; dueBy: string | null; redo: boolean }>;
 };
 type Pulse = {
@@ -261,7 +264,9 @@ export default function SalesLeadsPage() {
                 <h2 id="inspection-queue-title" className="m-0 text-sm font-bold text-slate-900">Home inspections</h2>
                 {inspections ? (
                   <p className="m-0 mt-1 text-xs text-slate-600">
-                    {inspections.toVisit || inspections.inReview ? `${inspections.toVisit} due to visit · ${inspections.inReview} with NoLSAF for review` : "No inspections awaiting a visit or review."}
+                    {inspections.invited || inspections.toVisit || inspections.inReview
+                      ? [inspections.invited ? `${inspections.invited} ${inspections.invited === 1 ? "invitation" : "invitations"} to answer` : null, `${inspections.toVisit} due to visit`, `${inspections.inReview} with NoLSAF for review`].filter(Boolean).join(" · ")
+                      : "No inspections awaiting a visit or review."}
                   </p>
                 ) : null}
                 {inspectionError ? <button type="button" onClick={() => void loadInspections()} className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] underline">Retry inspection queue</button> : null}
@@ -271,6 +276,27 @@ export default function SalesLeadsPage() {
               Open inspections <ArrowRight className="h-3.5 w-3.5" aria-hidden />
             </Link>
           </div>
+          {inspections?.invitations?.length ? (
+            <ul className="m-0 list-none border-0 border-t border-solid border-violet-100 bg-violet-50/50 p-0">
+              {inspections.invitations.map((item) => {
+                const msLeft = item.replyBy && now !== null ? new Date(item.replyBy).getTime() - now : null;
+                const hours = msLeft != null ? Math.max(0, Math.floor(msLeft / 3_600_000)) : null;
+                return (
+                  <li key={item.ref} className="border-0 border-t border-solid border-violet-100 first:border-t-0">
+                    <Link href={salesInspectionPath(item.ref)} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-slate-900 no-underline hover:bg-violet-50">
+                      <span className="flex min-w-0 items-center gap-2.5">
+                        <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10.5px] font-bold text-violet-800">Invitation</span>
+                        <span className="truncate text-sm font-semibold">Inspect a long-stay home{item.area ? ` in ${item.area}` : ""}</span>
+                      </span>
+                      <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold ${hours != null && hours < 6 ? "text-rose-700" : "text-violet-800"}`}>
+                        {hours != null ? `Reply within ${hours < 1 ? "the hour" : `${hours}h`}` : "Reply now"}<ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
           {inspections?.upcoming.length ? (
             <ul className="m-0 grid list-none gap-px border-0 border-t border-solid border-slate-100 bg-slate-100 p-0 sm:grid-cols-3">
               {inspections.upcoming.map((item) => {
@@ -282,7 +308,7 @@ export default function SalesLeadsPage() {
                         <span className="block truncate text-sm font-semibold">{item.title || "Long-stay home"}</span>
                         {item.area ? <span className="block truncate text-xs text-slate-500">{item.area}</span> : null}
                         <span className={`mt-1 block text-xs font-medium ${late ? "text-rose-700" : "text-[#02665e]"}`}>
-                          {item.redo ? "Return visit" : "Inspection invitation"}{item.dueBy ? ` · ${late ? "Overdue since" : "Due"} ${inspectionDate(item.dueBy)}` : ""}
+                          {item.redo ? "Return visit" : "Visit to make"}{item.dueBy ? ` · ${late ? "Overdue since" : "Due"} ${inspectionDate(item.dueBy)}` : ""}
                         </span>
                       </span>
                       <ArrowRight className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />

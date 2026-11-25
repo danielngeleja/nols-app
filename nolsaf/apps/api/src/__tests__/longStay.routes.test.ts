@@ -227,8 +227,9 @@ describe("home inspection invitations", () => {
     expect(assigned.status).toBe(200);
     expect(h.db.$transaction).toHaveBeenCalledOnce();
     expect(h.db.longStayInspection.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "ASSIGNED", salesPartnerId: 7, dueBy: expect.any(Date) }),
+      data: expect.objectContaining({ status: "INVITED", salesPartnerId: 7, dueBy: expect.any(Date) }),
     }));
+    expect(assigned.body).toMatchObject({ ok: true, status: "INVITED" });
     const invitation = await h.db.notification.create.mock.results[0].value;
     expect(invitation).toMatchObject({ userId: 50, type: "sales", unread: true, meta: { actionPath: path } });
     h.db.notification.findMany.mockResolvedValue([invitation]);

@@ -49,6 +49,8 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   payout_amount_mismatch: act("critical", "money"),
   payout_correlation_mismatch: act("critical", "money"),
   owner_payout_withdrawal_review: act("critical", "money"),
+  owner_payout_withdrawal_requested: act("attention", "money"),
+  owner_payout_withdrawal_overdue: act("critical", "money"),
   owner_payout_claim_submitted: act("attention", "money"),
   owner_account_payout: info("money"),
   owner_payout_recovery_overdue: act("attention", "money"),

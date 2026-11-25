@@ -1266,7 +1266,15 @@ async function sendPayoutDestinationSecurityAlerts(
   const actionText = action === "added" ? "added" : action === "changed" ? "changed" : "reverified";
   const bankNote = "Automated bank payouts are not enabled; any bank transfer is handled manually.";
   const waitingHours = isBank ? null : (await loadPayoutSafeguards()).recentChangeHours;
-  const mobileNote = waitingHours === null ? "" : `A ${waitingHours}-hour security waiting period applies before this account can be used for payouts. Additional eligibility and approval checks still apply.`;
+  // Only a real change waits (riskScoring.destinationChangeAnchor): a first
+  // account is onboarding and a re-verification moves nothing.
+  const mobileNote = waitingHours === null
+    ? ""
+    : action === "changed"
+      ? `A ${waitingHours}-hour security waiting period applies before this account can be used for payouts. Additional eligibility and approval checks still apply.`
+      : action === "added"
+        ? "This account can receive payouts once a stay is ready. Your first payout is checked by our team before it is sent."
+        : "Re-verifying the same account did not start a new security waiting period. Additional eligibility and approval checks still apply.";
   const waitingNote = isBank ? bankNote : mobileNote;
   const noPayoutNote = "Saving this account did not approve or send a payout.";
   const details = `${provider} ending in ${lastFour}`;
@@ -1285,7 +1293,7 @@ async function sendPayoutDestinationSecurityAlerts(
       ["When", `${escapeContactHtml(savedAtEat)} EAT`],
     ])}
     ${proDivider()}
-    ${proNoteCard(BRAND_TEAL, isBank ? "Bank payouts" : "Security waiting period", `${escapeContactHtml(waitingNote)} ${noPayoutNote}`)}
+    ${proNoteCard(BRAND_TEAL, isBank ? "Bank payouts" : action === "changed" ? "Security waiting period" : "Payouts", `${escapeContactHtml(waitingNote)} ${noPayoutNote}`)}
     <div style="height:16px;font-size:0;line-height:0;">&nbsp;</div>
     ${proNoteCard(RED, "If this wasn't you", `If you did not ${verb} this account, contact <a href="mailto:support@nolsaf.com" style="color:${RED};font-weight:bold;text-decoration:none;">support@nolsaf.com</a> immediately so we can stop any payout.`, RED_BG)}
     ${proDivider()}
@@ -1301,7 +1309,9 @@ async function sendPayoutDestinationSecurityAlerts(
     ));
   }
   if (user.phone) {
-    const smsPolicy = isBank ? "Automated bank payouts unavailable; transfers are manual." : `${waitingHours}h security hold applies.`;
+    const smsPolicy = isBank
+      ? "Automated bank payouts unavailable; transfers are manual."
+      : action === "changed" ? `${waitingHours}h security hold applies.` : "No security hold started.";
     tasks.push(sendSms(user.phone, `NoLSAF security: payout account ${actionText}: ${details}, ${savedAtEat} EAT. ${smsPolicy} Saving it did not approve or send a payout. If not you, contact support@nolsaf.com.`));
   }
   await Promise.allSettled(tasks);
@@ -1540,7 +1550,17 @@ const confirmContactChange: RequestHandler = async (req, res) => {
     const changedAtField = field === "email" ? "emailChangedAt" : "phoneChangedAt";
     const oldValue = field === "email" ? before.email : before.phone;
     const actualChange = String(oldValue ?? "").toLowerCase() !== entry.value.toLowerCase();
-    const changedAt = actualChange ? new Date() : null;
+    // Adding a phone or email for the first time during onboarding is not a
+    // takeover signal, so it does not start the payout cooling period. Once a
+    // payout destination exists, any new contact (first-time or not) does,
+    // because the withdrawal code could then be steered to it.
+    const firstContact = !String(oldValue ?? "").trim();
+    const hasPayoutDestination = firstContact
+      ? (await prisma.payoutAccount.count({ where: { userId } })) > 0 ||
+        hasSavedPayoutDestination((await prisma.user.findUnique({ where: { id: userId }, select: { payout: true } }))?.payout)
+      : true;
+    const startsCooldown = actualChange && (!firstContact || hasPayoutDestination);
+    const changedAt = startsCooldown ? new Date() : null;
     const resultingIdentity = {
       name: before.name,
       fullName: before.fullName,
@@ -1553,7 +1573,7 @@ const confirmContactChange: RequestHandler = async (req, res) => {
       data: {
         [field]: entry.value,
         [verifiedAtField]: new Date(),
-        ...(actualChange ? { [changedAtField]: changedAt } : {}),
+        ...(startsCooldown ? { [changedAtField]: changedAt } : {}),
         registrationStatus,
         ...(registrationStatus === 'COMPLETE' && !before.profileCompletedAt
           ? { profileCompletedAt: new Date() }
@@ -1602,7 +1622,7 @@ const confirmContactChange: RequestHandler = async (req, res) => {
     }
     sendSuccess(res, {
       user: updated,
-      securityCooldownUntil: actualChange ? new Date(Date.now() + CONTACT_SECURITY_COOLDOWN_MS).toISOString() : null,
+      securityCooldownUntil: startsCooldown ? new Date(Date.now() + CONTACT_SECURITY_COOLDOWN_MS).toISOString() : null,
     }, `Your ${FIELD_LABEL[field]} has been updated securely.`);
   } catch (error) {
     console.error("account.contact.confirmChange failed", error);
@@ -1857,7 +1877,9 @@ const updatePayouts: RequestHandler = async (req, res) => {
               isVerified: true,
               verifiedAt: existing.verifiedAt ?? now,
               lastVerifiedAt: now,
-              destinationChangedAt: now,
+              // Re-verifying the destination already in use is not a change;
+              // moving it would restart the payout cooling period for nothing.
+              destinationChangedAt: action === "reverified" ? existing.destinationChangedAt ?? existing.createdAt : now,
               isDefault: true,
               isActive: true,
             },

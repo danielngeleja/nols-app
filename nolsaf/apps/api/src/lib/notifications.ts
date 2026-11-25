@@ -118,6 +118,14 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Owner withdrawal needs finance review",
         body: `Withdrawal release #${data.releaseId} for owner #${data.ownerId}, invoice #${data.invoiceId} could not finish safely. ${data.reason || "Check its recovery deductions and disbursement before taking action."} Do not submit another payout until reconciled.`
       },
+      owner_payout_withdrawal_requested: {
+        title: "Owner withdrawal waiting for approval",
+        body: `${data.ownerName ? `${data.ownerName} ` : "A property owner "}confirmed a withdrawal of ${data.amountText || "an amount"}. It needs a person: ${data.reason || "checked by our payments team"}. The owner is waiting; approve or decline it in Disbursements.`
+      },
+      owner_payout_withdrawal_overdue: {
+        title: "Owner withdrawal waiting too long",
+        body: `${data.ownerName ? `${data.ownerName}'s ` : "An owner's "}withdrawal of ${data.amountText || "an amount"} has waited ${data.hoursWaiting || "several"} hours for approval. The money is owed now; approve or decline it in Disbursements.`
+      },
 
       // Transport (driver allocation) escalations
       transport_auto_dispatch_no_drivers_2m: {
@@ -1072,7 +1080,11 @@ export async function createUserNotification(db: Pick<Prisma.TransactionClient, 
       },
       long_stay_inspection_assigned: {
         title: "Home inspection invitation",
-        body: `NoLSAF asked you to inspect "${data.propertyTitle || "a long-stay home"}". Open the inspection for the deadline and landlord contact, then submit your report from the home.`
+        body: `NoLSAF invites you to inspect "${data.propertyTitle || "a long-stay home"}". Accept or decline within 24 hours. Once you accept you get the landlord contact, the exact pin and 5 days to visit.`
+      },
+      long_stay_inspection_invite_lapsed: {
+        title: "Inspection invitation expired",
+        body: `Your invitation to inspect "${data.propertyTitle || "a long-stay home"}" expired without a reply, so NoLSAF will ask another partner.`
       },
       long_stay_inspection_redo: {
         title: "Inspection to redo",

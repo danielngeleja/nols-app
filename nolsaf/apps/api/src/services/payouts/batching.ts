@@ -44,6 +44,7 @@ import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
 import type { AzamPayDisburseBankName } from "../azampay/disbursement/types.js";
 import { PayoutStateError, submitToAzamPay, truncateReason } from "./ledger.js";
 import { twoPersonReleaseRequired } from "./releaseChallenge.js";
+import { heldOwnerIds } from "./ownerPayoutControl.js";
 
 export class BatchStateError extends Error {
   constructor(message: string) {
@@ -300,8 +301,15 @@ async function formBatchLocked(opts: { actorId: number | null; mode: "MANUAL" | 
   const included: Array<Disbursement & { payoutAccount: PayoutAccount }> = [];
   const excluded: Array<{ disbursementId: number; reason: string }> = [];
   const deferred: number[] = [];
+  // Owners an admin paused (ownerPayoutControl.ts): their approved payouts stay
+  // out of every batch, automatic or manual, until the pause is lifted.
+  const held = await heldOwnerIds([...new Set<number>(candidates.map((c) => c.payoutAccount.userId))]);
 
   for (const item of candidates) {
+    if (held.has(item.payoutAccount.userId)) {
+      deferred.push(item.id);
+      continue;
+    }
     // 1. Bulk re-verification — closes the approve-to-batch staleness window.
     const reverify = await reverifyAccount(item.payoutAccount);
     if (!reverify.ok) {

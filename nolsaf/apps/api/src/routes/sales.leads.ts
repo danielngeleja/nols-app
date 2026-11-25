@@ -574,7 +574,7 @@ router.get("/leads/:id", limitSalesLeadRead as any, asyncHandler(async (req: Sal
   const { assistedListing, ...leadData } = lead;
   const propertyId = lead.convertedPropertyId ?? assistedListing?.propertyId;
   const inspection = propertyId ? await db.longStayInspection.findFirst({
-    where: { propertyId, status: { in: ["REQUESTED", "ASSIGNED", "SUBMITTED", "PASSED", "FAILED"] } },
+    where: { propertyId, status: { in: ["REQUESTED", "INVITED", "ASSIGNED", "SUBMITTED", "PASSED", "FAILED"] } },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: { status: true, dueBy: true, submittedAt: true, reviewedAt: true, validUntil: true },
   }) : null;

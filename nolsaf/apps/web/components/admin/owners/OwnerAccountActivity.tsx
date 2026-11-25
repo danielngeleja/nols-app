@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Clock3, CreditCard, KeyRound, Loader2, RefreshCw, Shield, ShieldCheck, User } from "lucide-react";
+import { ChevronDown, Clock3, CreditCard, KeyRound, Loader2, RefreshCw, Shield, ShieldCheck, User, Wallet } from "lucide-react";
 import api from "@/lib/apiClient";
 import TablePagination from "@/components/TablePagination";
 
 const filters = [
   { key: "all", label: "All activity" },
   { key: "payout", label: "Payout details" },
+  { key: "withdrawals", label: "Withdrawals" },
   { key: "security", label: "Security" },
   { key: "sign-in", label: "Sign-ins" },
   { key: "profile", label: "Profile" },
 ] as const;
 type Category = typeof filters[number]["key"];
-const icons = { payout: CreditCard, security: KeyRound, "sign-in": Clock3, profile: User };
+const icons = { payout: CreditCard, withdrawals: Wallet, security: KeyRound, "sign-in": Clock3, profile: User };
 type Event = {
   id: string; category: keyof typeof icons; label: string; detail: string | null; actor: string;
   tone: "failed" | "change" | "neutral"; createdAt: string; ip: string | null; device: string | null;
@@ -30,7 +31,7 @@ type Signal = {
 };
 type Behaviour = { days: number; score: number | null; band: keyof typeof bands; signals: Signal[] };
 type Activity = {
-  items: Event[]; twoFactorEnabled: boolean;
+  items: Event[]; twoFactorEnabled: boolean; twoFactorMethod?: string | null; passkeyCount?: number;
   pagination?: { page: number; pageSize: number; total: number };
   destination: { type: string; provider: string; ending: string | null; changedAt: string | null } | null;
   behaviour?: Behaviour;
@@ -39,6 +40,27 @@ const dateTime = new Intl.DateTimeFormat("en-GB", {
   day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam",
 });
 const eat = (value: string) => `${dateTime.format(new Date(value))} EAT`;
+
+/** Provider codes are stored lowercase ("vodacom"); show the wallet's public name. */
+const providerNames: Record<string, string> = {
+  vodacom: "Vodacom M-Pesa", mpesa: "Vodacom M-Pesa", airtel: "Airtel Money", tigo: "Tigo Pesa",
+  azampesa: "AzamPesa", halopesa: "HaloPesa", crdb: "CRDB Bank", nmb: "NMB Bank", nbc: "NBC Bank",
+};
+function providerLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  return providerNames[raw.toLowerCase()] ?? raw.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Strong = passkey or authenticator app, matching the behaviour score's rule. */
+function signInProtection(activity: Activity): { text: string; strong: boolean } {
+  const passkeys = activity.passkeyCount ?? 0;
+  const method = String(activity.twoFactorMethod ?? "").toUpperCase();
+  if (passkeys > 0) return { text: passkeys === 1 ? "Passkey" : `${passkeys} passkeys`, strong: true };
+  if (activity.twoFactorEnabled && method === "TOTP") return { text: "Authenticator app", strong: true };
+  if (activity.twoFactorEnabled) return { text: method === "SMS" ? "SMS code only" : "Two-step on, no passkey or authenticator", strong: false };
+  return { text: "Off", strong: false };
+}
 
 function BehaviourScore({ behaviour }: { behaviour: Behaviour }) {
   const { band, days, score, signals } = behaviour;
@@ -152,14 +174,20 @@ export default function OwnerAccountActivity({ ownerId, initialCategory }: { own
           <div className="min-w-0 rounded-md border border-solid border-slate-200 px-3 py-2.5">
             <dt className="flex items-center gap-1.5 font-medium text-slate-600"><CreditCard className="size-3.5 shrink-0 text-[#39796d]" aria-hidden />Verified payout destination</dt>
             <dd className="m-0 mt-1 break-words font-semibold text-slate-900">
-              {destination ? [destination.provider || destination.type, destination.ending ? `ending in ${destination.ending}` : null].filter(Boolean).join(" · ") : "No verified destination on file"}
+              {destination ? [providerLabel(destination.provider) || destination.type, destination.ending ? `ending in ${destination.ending}` : null].filter(Boolean).join(" · ") : "No verified destination on file"}
             </dd>
-            {destination?.changedAt ? <dd className="m-0 mt-1 text-slate-600">Last recorded update {eat(destination.changedAt)}</dd> : null}
+            {destination?.changedAt ? <dd className="m-0 mt-1 text-slate-600">Saved {eat(destination.changedAt)}</dd> : null}
           </div>
-          <div className="rounded-md border border-solid border-slate-200 px-3 py-2.5">
-            <dt className="flex items-center gap-1.5 font-medium text-slate-600"><ShieldCheck className="size-3.5 shrink-0 text-[#39796d]" aria-hidden />Two-step verification</dt>
-            <dd className={`m-0 mt-1 font-semibold ${activity.twoFactorEnabled ? "text-emerald-800" : "text-amber-800"}`}>{activity.twoFactorEnabled ? "Enabled" : "Off"}</dd>
-          </div>
+          {(() => {
+            const protection = signInProtection(activity);
+            return (
+              <div className="rounded-md border border-solid border-slate-200 px-3 py-2.5">
+                <dt className="flex items-center gap-1.5 font-medium text-slate-600"><ShieldCheck className="size-3.5 shrink-0 text-[#39796d]" aria-hidden />Sign-in protection</dt>
+                <dd className={`m-0 mt-1 font-semibold ${protection.strong ? "text-emerald-800" : "text-amber-800"}`}>{protection.text}</dd>
+                {!protection.strong ? <dd className="m-0 mt-1 text-slate-600">No passkey or authenticator app yet.</dd> : null}
+              </div>
+            );
+          })()}
           </dl>
         </div>
       ) : null}

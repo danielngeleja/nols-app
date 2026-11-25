@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  accrueInspectionFee, assignInspection, CHECKLIST, checkReport, endInspectionAfterDispute, evaluatePosition, inspectionCurrent,
+  acceptInspection, accrueInspectionFee, assignInspection, CHECKLIST, declineInspection, lapseInspectionInvitations, checkReport, endInspectionAfterDispute, evaluatePosition, inspectionCurrent,
   inspectionEvidence, inspectionRefusal, isInspectionRef, newInspectionRef, partnerConflict, prepareInspectionForApproval, publicInspectionReport, publicInspectionView, reportSchema, requestInspection, reviewInspection, submitInspection,
 } from "./inspection.js";
 import { checkVisitSlot, createEnquiry } from "./enquiry.js";
@@ -130,11 +130,49 @@ describe("assigning a partner", () => {
     expect(await partnerConflict(fakeDb(), { id: 7, userId: 50 }, 9)).toBeNull();
   });
 
-  it("gives the partner 5 days, and only while waiting", async () => {
+  it("invites the partner with 24 hours to reply, and only while waiting", async () => {
     const db = fakeDb();
     await assignInspection(db, { id: 1, propertyId: 9, status: "REQUESTED" }, { id: 7, userId: 50 }, 1, NOW);
-    expect(db.longStayInspection.updateMany.mock.calls[0][0].data).toMatchObject({ status: "ASSIGNED", salesPartnerId: 7, dueBy: new Date("2026-11-26T08:00:00Z") });
+    expect(db.longStayInspection.updateMany.mock.calls[0][0].data).toMatchObject({ status: "INVITED", salesPartnerId: 7, dueBy: new Date("2026-11-22T08:00:00Z") });
     await expect(assignInspection(db, { id: 1, propertyId: 9, status: "SUBMITTED" }, { id: 7, userId: 50 }, 1, NOW)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("lets NoLSAF invite someone else while an invitation is unanswered", async () => {
+    const db = fakeDb();
+    await assignInspection(db, { id: 1, propertyId: 9, status: "INVITED", salesPartnerId: 8 }, { id: 7, userId: 50 }, 1, NOW);
+    expect(db.longStayInspection.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: 1, status: "INVITED" }, data: { status: "INVITED", salesPartnerId: 7 } });
+  });
+});
+
+describe("the partner's answer", () => {
+  const invited = { id: 1, propertyId: 9, status: "INVITED", salesPartnerId: 7, dueBy: new Date("2026-11-22T08:00:00Z") };
+
+  it("accepting starts the 5 days to visit", async () => {
+    const db = fakeDb();
+    const { dueBy } = await acceptInspection(db, invited, { id: 7, userId: 50 }, NOW);
+    expect(dueBy).toEqual(new Date("2026-11-26T08:00:00Z"));
+    expect(db.longStayInspection.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: 1, status: "INVITED", salesPartnerId: 7 }, data: { status: "ASSIGNED", dueBy } });
+  });
+
+  it("only the invited partner can answer, and not after the deadline", async () => {
+    await expect(acceptInspection(fakeDb(), invited, { id: 8, userId: 51 }, NOW)).rejects.toMatchObject({ status: 409 });
+    await expect(acceptInspection(fakeDb(), invited, { id: 7, userId: 50 }, new Date("2026-11-22T09:00:00Z"))).rejects.toThrow(/expired/);
+    await expect(declineInspection(fakeDb(), { ...invited, status: "ASSIGNED" }, 7)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("declining returns the home to NoLSAF with no partner", async () => {
+    const db = fakeDb();
+    await declineInspection(db, invited, 7);
+    expect(db.longStayInspection.updateMany.mock.calls[0][0]).toMatchObject({ where: { id: 1, status: "INVITED", salesPartnerId: 7 }, data: { status: "REQUESTED", salesPartnerId: null, dueBy: null } });
+  });
+
+  it("lapses invitations nobody answered in 24 hours", async () => {
+    const db = fakeDb();
+    db.longStayInspection.findMany = vi.fn(async () => [{ id: 1, propertyId: 9, salesPartnerId: 7, publicRef: "li_x" }]);
+    const lapsed = await lapseInspectionInvitations(db, NOW);
+    expect(lapsed).toHaveLength(1);
+    expect(db.longStayInspection.findMany.mock.calls[0][0].where).toEqual({ status: "INVITED", dueBy: { lt: NOW } });
+    expect(db.longStayInspection.updateMany.mock.calls[0][0].data).toMatchObject({ status: "REQUESTED", salesPartnerId: null });
   });
 });
 

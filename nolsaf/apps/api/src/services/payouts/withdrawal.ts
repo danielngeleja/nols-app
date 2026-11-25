@@ -33,6 +33,7 @@ import { loadPayoutSafeguards } from "./riskScoring.js";
 import { decideOwnerPayoutLane, loadAutoLaneSettings, startAutoPayout, type PayoutLane } from "./autoLane.js";
 import { ensureRecoveryDeduction, openRecoveryTotal } from "./recovery.js";
 import { approveDisbursementAutomatically } from "./ledger.js";
+import { heldOwnerIds, loadOwnerPayoutControl } from "./ownerPayoutControl.js";
 import { disbursementSendingEnabled } from "./senderSwitch.js";
 import { assertOwnerWithdrawalAmount, lockOwnerWithdrawalDay, ownerWithdrawalAllowance } from "./ownerWithdrawalLimit.js";
 
@@ -58,6 +59,7 @@ export class WithdrawalError extends Error {
       | "ALREADY_USED"
       | "TOO_MANY_ATTEMPTS"
       | "OTP_LOCKED"
+      | "ON_HOLD"
       | "INVALID_CODE"
       | "CHANGED",
     message: string,
@@ -914,7 +916,8 @@ export async function remindUnclaimed(now = new Date(), limit = 50): Promise<num
   }
 
   let reminded = 0;
-  for (const [ownerId, releases] of [...byOwner].slice(0, limit)) {
+  const held = await heldOwnerIds([...byOwner.keys()]);
+  for (const [ownerId, releases] of [...byOwner].filter(([ownerId]) => !held.has(ownerId)).slice(0, limit)) {
     const account = (await verifiedPayoutAccounts(ownerId))[0];
     if (!account) continue; // without a usable account nothing can be sent anyway
     const claims = await prisma.invoice.findMany({
@@ -977,6 +980,8 @@ export async function withdrawUnclaimed(now = new Date(), limit = 50): Promise<n
   for (const { ownerId } of stale) {
     const otpGuard = await prisma.payoutWithdrawalOtpGuard.findUnique({ where: { ownerId }, select: { lockedAt: true, failedAttempts: true } });
     if (otpGuard?.lockedAt || (otpGuard?.failedAttempts ?? 0) >= MAX_ATTEMPTS) continue;
+    // Nothing leaves for an owner an admin has paused.
+    if ((await loadOwnerPayoutControl(ownerId)).hold) continue;
     const ready = await withdrawableReleases(ownerId, now);
     const account = (await verifiedPayoutAccounts(ownerId))[0];
     if (!account || ready.length === 0) continue;

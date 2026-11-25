@@ -37,8 +37,13 @@ export const newInspectionRef = () => `li_${randomBytes(16).toString("base64url"
 export const isInspectionRef = (v: unknown): v is string => typeof v === "string" && INSPECTION_REF.test(v);
 
 export const INSPECTION_VALID_MONTHS = 12;
-/** A partner gets this long to visit after being assigned. */
+/** A partner gets this long to visit after accepting. */
 export const INSPECTION_DUE_DAYS = 5;
+/**
+ * An invited partner has this long to accept or decline before the
+ * invitation lapses and the home goes back to the admin to invite someone else.
+ */
+export const INSPECTION_REPLY_HOURS = 24;
 export const INSPECTION_PHOTO_SLOTS = [
   { label: "Property entrance", hint: "Show the gate, building entrance or unit door." },
   { label: "Inside the home", hint: "Take a wide photo of the main living area." },
@@ -51,7 +56,12 @@ export const LOW_ACCURACY_METERS = 100;
 /** A report captured offline may be sent up to 48 hours later. */
 export const MAX_CAPTURE_DELAY_MS = 48 * 3_600_000;
 
-export const OPEN_INSPECTION_STATUSES = ["REQUESTED", "ASSIGNED", "SUBMITTED"] as const;
+/**
+ * REQUESTED (no partner) -> INVITED (partner asked, 24h to reply) -> ASSIGNED
+ * (accepted, 5 days to visit) -> SUBMITTED -> PASSED | FAILED. A decline or a
+ * lapsed invitation returns the home to REQUESTED.
+ */
+export const OPEN_INSPECTION_STATUSES = ["REQUESTED", "INVITED", "ASSIGNED", "SUBMITTED"] as const;
 
 export function longStayInspectionRequiredForApproval(): boolean {
   return process.env.LONG_STAY_REQUIRE_INSPECTION === "1";
@@ -238,16 +248,65 @@ export async function partnerConflict(db: any, partner: { id: number; userId: nu
   return null;
 }
 
+/**
+ * NoLSAF invites a partner. The partner must accept within
+ * INSPECTION_REPLY_HOURS (dueBy holds that reply deadline while INVITED);
+ * accepting starts the 5 days to visit. Inviting someone else replaces any
+ * earlier invitation or acceptance that has not been reported on yet.
+ */
 export async function assignInspection(db: any, inspection: any, partner: { id: number; userId: number }, adminId: number, now = new Date()) {
-  if (!["REQUESTED", "ASSIGNED"].includes(inspection.status)) throw new InspectionError("This inspection is no longer waiting for a partner.", 409);
+  if (!["REQUESTED", "INVITED", "ASSIGNED"].includes(inspection.status)) throw new InspectionError("This inspection is no longer waiting for a partner.", 409);
   if (inspection.salesPartnerId === partner.id) throw new InspectionError("This partner already has the inspection in their queue.", 409);
   const conflict = await partnerConflict(db, partner, inspection.propertyId);
   if (conflict) throw new InspectionError(conflict, 409);
   const result = await db.longStayInspection.updateMany({
     where: { id: inspection.id, status: inspection.status, updatedAt: inspection.updatedAt },
-    data: { status: "ASSIGNED", salesPartnerId: partner.id, assignedById: adminId, assignedAt: now, dueBy: new Date(now.getTime() + INSPECTION_DUE_DAYS * 86_400_000) },
+    data: { status: "INVITED", salesPartnerId: partner.id, assignedById: adminId, assignedAt: now, dueBy: new Date(now.getTime() + INSPECTION_REPLY_HOURS * 3_600_000) },
   });
   if (result.count !== 1) throw new InspectionError("This inspection changed a moment ago. Refresh.", 409);
+}
+
+/** The invited partner takes the visit: the 5 days to visit start now. */
+export async function acceptInspection(db: any, inspection: any, partner: { id: number; userId: number }, now = new Date()) {
+  if (inspection.status !== "INVITED" || inspection.salesPartnerId !== partner.id) throw new InspectionError("This invitation is no longer open.", 409);
+  if (inspection.dueBy && new Date(inspection.dueBy).getTime() < now.getTime()) throw new InspectionError("This invitation has expired. NoLSAF may invite you again.", 409);
+  const conflict = await partnerConflict(db, partner, inspection.propertyId);
+  if (conflict) throw new InspectionError(conflict, 409);
+  const dueBy = new Date(now.getTime() + INSPECTION_DUE_DAYS * 86_400_000);
+  const result = await db.longStayInspection.updateMany({
+    where: { id: inspection.id, status: "INVITED", salesPartnerId: partner.id },
+    data: { status: "ASSIGNED", dueBy },
+  });
+  if (result.count !== 1) throw new InspectionError("This invitation changed a moment ago. Refresh.", 409);
+  return { dueBy };
+}
+
+/** The invited partner cannot go: the home goes back to NoLSAF to invite someone else. */
+export async function declineInspection(db: any, inspection: any, partnerId: number) {
+  if (inspection.status !== "INVITED" || inspection.salesPartnerId !== partnerId) throw new InspectionError("This invitation is no longer open.", 409);
+  const result = await db.longStayInspection.updateMany({
+    where: { id: inspection.id, status: "INVITED", salesPartnerId: partnerId },
+    data: { status: "REQUESTED", salesPartnerId: null, assignedAt: null, dueBy: null },
+  });
+  if (result.count !== 1) throw new InspectionError("This invitation changed a moment ago. Refresh.", 409);
+}
+
+/** Invitations nobody answered in time go back to NoLSAF. Returns the lapsed rows. */
+export async function lapseInspectionInvitations(db: any, now = new Date()) {
+  const stale = await db.longStayInspection.findMany({
+    where: { status: "INVITED", dueBy: { lt: now } },
+    select: { id: true, propertyId: true, salesPartnerId: true, publicRef: true },
+    take: 200,
+  });
+  const lapsed: typeof stale = [];
+  for (const row of stale) {
+    const result = await db.longStayInspection.updateMany({
+      where: { id: row.id, status: "INVITED", salesPartnerId: row.salesPartnerId },
+      data: { status: "REQUESTED", salesPartnerId: null, assignedAt: null, dueBy: null },
+    });
+    if (result.count === 1) lapsed.push(row);
+  }
+  return lapsed;
 }
 
 /**

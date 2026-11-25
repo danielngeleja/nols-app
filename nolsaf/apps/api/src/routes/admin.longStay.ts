@@ -56,6 +56,7 @@ import { houseRulesOf } from "../lib/longStay/offerService.js";
 import { LEASE_VERSION } from "../lib/longStay/lease.js";
 import { sampleLeaseText } from "../lib/longStay/leasePreview.js";
 import { ledgerRow } from "../lib/longStay/paymentLedger.js";
+import { sendSms } from "../lib/sms.js";
 import { gatewayFeeRates } from "../lib/gatewayFees.js";
 
 const router = Router();
@@ -346,7 +347,7 @@ router.post("/tenants/:id/bar", asyncHandler(async (req: AuthedRequest, res: Res
 // ---------- Inspections and Ask NoLSAF (section 13) ----------
 
 const INSPECTION_VIEWS: Record<string, any> = {
-  todo: { status: { in: ["REQUESTED", "ASSIGNED"] } },
+  todo: { status: { in: ["REQUESTED", "INVITED", "ASSIGNED"] } },
   review: { status: "SUBMITTED" },
   passed: { status: "PASSED" },
   failed: { status: "FAILED" },
@@ -482,9 +483,23 @@ router.post("/inspections/:ref/assign", asyncHandler(async (req: AuthedRequest, 
     if (error instanceof InspectionError) return res.status(error.status).json({ error: error.message });
     throw error;
   }
-  await audit(req as any, "LONG_STAY_INSPECTION_ASSIGN", "PROPERTY", { status: inspection.status, partnerId: inspection.salesPartnerId }, { partner: partner.agentCode }, inspection.propertyId);
+  await audit(req as any, "LONG_STAY_INSPECTION_ASSIGN", "PROPERTY", { status: inspection.status, partnerId: inspection.salesPartnerId }, { partner: partner.agentCode, invited: true }, inspection.propertyId);
   publishUserNotification(invitation);
-  return res.json({ ok: true });
+  // A text too, so the invitation is seen within the 24 hours to reply. Area only: no
+  // landlord contact or exact pin until the partner accepts.
+  try {
+    const smsTo = await prisma.salesPartnerProfile.findUnique({ where: { id: partner.id }, select: { phone: true, user: { select: { phone: true } } } });
+    const phone = smsTo?.phone || smsTo?.user?.phone;
+    if (phone) {
+      const place = await prisma.property.findUnique({ where: { id: inspection.propertyId }, select: { district: true, regionName: true } });
+      const area = [place?.district, place?.regionName].filter(Boolean).join(", ");
+      const link = `${String(process.env.WEB_ORIGIN || "https://www.nolsaf.com").replace(/\/+$/, "")}/sales/inspections?inspection=${encodeURIComponent(inspection.publicRef)}`;
+      await sendSms(phone, `NoLSAF inspection invitation: a long-stay home${area ? ` in ${area}` : ""}. Accept or decline within 24 hours: ${link}`, { bypassEligibilityCheck: true });
+    }
+  } catch {
+    // The in-app invitation already went out; a failed text must not undo the assignment.
+  }
+  return res.json({ ok: true, status: "INVITED" });
 }) as RequestHandler);
 
 /** One on-site photo, through a 5-minute signed link. Audited. */
@@ -956,7 +971,7 @@ async function inspectorCandidates(ownerId: number, regionName: string | null, d
   if (!pool.length) return [];
   const loads = await prisma.longStayInspection.groupBy({
     by: ["salesPartnerId", "status"],
-    where: { salesPartnerId: { in: pool.map((p) => p.id) }, status: { in: ["ASSIGNED", "SUBMITTED", "PASSED", "FAILED"] } },
+    where: { salesPartnerId: { in: pool.map((p) => p.id) }, status: { in: ["INVITED", "ASSIGNED", "SUBMITTED", "PASSED", "FAILED"] } },
     _count: { _all: true },
   });
   const count = (id: number, statuses: string[]) => loads.filter((l) => l.salesPartnerId === id && statuses.includes(l.status)).reduce((n, l) => n + l._count._all, 0);
@@ -974,7 +989,7 @@ async function inspectorCandidates(ownerId: number, regionName: string | null, d
         territory: p.territory,
         level: p.level,
         match,
-        openVisits: count(p.id, ["ASSIGNED", "SUBMITTED"]),
+        openVisits: count(p.id, ["INVITED", "ASSIGNED", "SUBMITTED"]),
         doneInspections: count(p.id, ["PASSED", "FAILED"]),
         assigned: p.id === assignedId,
       };
@@ -1046,7 +1061,7 @@ router.get("/properties/:id", asyncHandler(async (req: AuthedRequest, res: Respo
   });
   const [latest, ...older] = inspections;
   const onboardedBy = await onboardingPartners(property.id);
-  const needsPartner = !latest || latest.status === "REQUESTED" || latest.status === "ASSIGNED";
+  const needsPartner = !latest || latest.status === "REQUESTED" || latest.status === "INVITED" || latest.status === "ASSIGNED";
   const candidates = needsPartner
     ? await inspectorCandidates(property.ownerId, property.regionName, property.district, new Set(onboardedBy.map((p) => p.partnerId)), latest?.salesPartnerId ?? null)
     : [];

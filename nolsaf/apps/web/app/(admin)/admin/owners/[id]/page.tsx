@@ -11,6 +11,7 @@ import { BadgeCheck as BadgeCheckIcon, AlertTriangle, ArrowLeft, User, Building2
 import VerifiedIcon from "@/components/VerifiedIcon";
 import OwnerLongStayCard from "@/components/admin/owners/OwnerLongStayCard";
 import OwnerAccountActivity from "@/components/admin/owners/OwnerAccountActivity";
+import OwnerPayoutPanel from "@/components/admin/owners/OwnerPayoutPanel";
 import OwnerNotes from "@/components/admin/owners/OwnerNotes";
 import TableRow from "@/components/TableRow";
 
@@ -1148,7 +1149,12 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
             );
           })()}
 
-          {tab === "activity" && <OwnerAccountActivity key={activityCategory} ownerId={ownerId} initialCategory={activityCategory} />}
+          {tab === "activity" && (
+            <div className="grid min-w-0 gap-4">
+              <OwnerPayoutPanel ownerId={ownerId} />
+              <OwnerAccountActivity key={activityCategory} ownerId={ownerId} initialCategory={activityCategory} />
+            </div>
+          )}
           {tab === "notes" && <OwnerNotes ownerId={ownerId} onTotal={updateNotesCount} draft={noteDraft} onDraftChange={setNoteDraft} />}
         </div>
           )}
@@ -1157,27 +1163,71 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
           {tab === "overview" && (
             <>
           {/* At a glance. Contact details live in the header above. */}
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-100 lg:grid-cols-4">
-            {[
-              { label: "Properties", value: String(owner._count.properties), Icon: Building2, action: () => selectTab("properties"), hint: "View all" },
-              { label: "Paid invoices", value: String(snap.revenue.paidCount), Icon: FileText, hint: `of ${snap.invoicesCount} issued` },
-              { label: "Bookings value", value: moneyShort(snap.revenue.grossSum), full: moneyWhole(snap.revenue.grossSum), Icon: DollarSign, hint: "Paid by guests" },
-              { label: "Joined", value: fmtDay(owner.createdAt), Icon: Calendar, hint: `${new Date(owner.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT` },
-            ].map((cell) => (
-              <div key={cell.label} className="flex min-w-0 items-start gap-3 bg-white px-4 py-3">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#02665e]/10 text-[#02665e]"><cell.Icon className="h-4 w-4" /></span>
-                <div className="min-w-0">
-                  <p className="m-0 truncate text-[12px] text-slate-500">{cell.label}</p>
-                  <p className="m-0 truncate text-[17px] font-bold tabular-nums leading-tight text-slate-900" title={cell.full}>{cell.value}</p>
-                  {cell.action ? (
-                    <button type="button" onClick={cell.action} className="cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] hover:underline [font-family:inherit]">{cell.hint}</button>
-                  ) : (
-                    <p className="m-0 truncate text-xs text-slate-400">{cell.hint}</p>
-                  )}
-                </div>
+          {(() => {
+            // Each value is split into a unit and a figure, so "TZS" can be small
+            // and the number never gets cut off in a narrow cell.
+            const issued = Number(snap.invoicesCount || 0);
+            const paid = Number(snap.revenue.paidCount || 0);
+            const paidPct = issued > 0 ? Math.min(100, Math.round((paid / issued) * 100)) : 0;
+            const gross = moneyShort(snap.revenue.grossSum);
+            const grossFigure = gross.replace(/^[A-Z]{3}\s/, "");
+            const grossUnit = gross === grossFigure ? null : gross.slice(0, 3);
+            const joined = new Date(owner.createdAt);
+            const joinedDay = joined.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Dar_es_Salaam" });
+            const joinedYear = joined.toLocaleDateString("en-GB", { year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+            const joinedTime = joined.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "Africa/Dar_es_Salaam" });
+            const tenureDays = Math.max(0, Math.floor((Date.now() - joined.getTime()) / 86_400_000));
+            const tenure = tenureDays < 1 ? "Joined today" : tenureDays < 60 ? `${tenureDays} day${tenureDays === 1 ? "" : "s"} ago` : tenureDays < 730 ? `${Math.floor(tenureDays / 30)} months ago` : `${Math.floor(tenureDays / 365)} years ago`;
+            const cells: Array<{ label: string; Icon: typeof Building2; unit?: string | null; value: string; title?: string; sub: React.ReactNode }> = [
+              {
+                label: "Properties", Icon: Building2, value: String(owner._count.properties),
+                sub: (
+                  <button type="button" onClick={() => selectTab("properties")} className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] hover:underline [font-family:inherit]">
+                    View all <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                ),
+              },
+              {
+                label: "Paid invoices", Icon: FileText, value: String(paid),
+                sub: (
+                  <div className="flex items-center gap-2">
+                    <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+                      <div className="h-full rounded-full bg-[#02665e]" style={{ width: `${paidPct}%` }} />
+                    </div>
+                    <span className="shrink-0 text-xs tabular-nums text-slate-500">{issued ? `of ${issued}` : "none issued"}</span>
+                  </div>
+                ),
+              },
+              {
+                label: "Bookings value", Icon: DollarSign, unit: grossUnit, value: grossFigure, title: moneyWhole(snap.revenue.grossSum),
+                sub: <p className="m-0 truncate text-xs text-slate-500">Paid by guests</p>,
+              },
+              {
+                label: "Joined", Icon: Calendar, value: `${joinedDay} ${joinedYear}`, unit: null,
+                title: `${joinedDay} ${joinedYear}, ${joinedTime} EAT`,
+                sub: <p className="m-0 truncate text-xs text-slate-500">{tenure}</p>,
+              },
+            ];
+            return (
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-solid border-slate-200 bg-slate-100 xl:grid-cols-4">
+                {cells.map((cell) => (
+                  // Icon sits inline with the label: a separate icon column took a
+                  // third of each narrow cell and made every line wrap.
+                  <div key={cell.label} className="min-w-0 bg-white px-4 py-3.5">
+                    <p className="m-0 flex items-center gap-1.5 whitespace-nowrap text-[12px] font-medium text-slate-500">
+                      <span className="grid h-5 w-5 shrink-0 place-items-center rounded bg-[#02665e]/10 text-[#02665e]"><cell.Icon className="h-3 w-3" aria-hidden /></span>
+                      {cell.label}
+                    </p>
+                    <p className="m-0 mt-2 flex items-baseline gap-1 whitespace-nowrap leading-none text-slate-900" title={cell.title}>
+                      {cell.unit ? <span className="text-xs font-semibold text-slate-500">{cell.unit}</span> : null}
+                      <span className="text-[22px] font-bold tabular-nums tracking-tight">{cell.value}</span>
+                    </p>
+                    <div className="mt-2 min-w-0">{cell.sub}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            );
+          })()}
 
           {/* Money: where each shilling of a booking went, then NRMS billing */}
           {(() => {

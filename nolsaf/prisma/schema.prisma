@@ -2375,6 +2375,16 @@ model SystemSetting {
   /// Null means never.
   payoutUnclaimedAutoDays Int?
 
+  /// Largest FIRST payout (TZS) to a new owner that the AUTO lane may send
+  /// without a person. It still needs the AUTO lane on, a wallet holder name
+  /// that matches the owner, and clean risk. Null: every first payout is
+  /// checked by a person. Code ceiling 2,000,000 (autoLane.ts).
+  ownerFirstPayoutAutoMaxTzs Int?
+
+  /// Hours an owner withdrawal may wait for a person before finance is alerted
+  /// again. Clamped to 1..24.
+  ownerWithdrawalReviewAlertHours Int? @default(4)
+
   /// Sales partner withdrawals (docs/SALES_PAYOUT_WITHDRAWAL_POLICY.md). Off by
   /// default: every confirmed withdrawal then waits for an admin. Sales payouts
   /// that pass every rule share the owner AUTO lane, its kill switch and its
@@ -10058,6 +10068,23 @@ model PayoutWithdrawalOtpGuard {
   updatedAt      DateTime  @default(now()) @updatedAt
 
   @@map("payout_withdrawal_otp_guard")
+}
+
+/// Admin payout controls for one owner (admin owner page, Account activity,
+/// Payouts). holdAt pauses every withdrawal and keeps the owner out of the
+/// AUTO lane and unclaimed sends; alwaysReview sends every payout to a person.
+/// Placing either is immediate; lifting either needs the finance code.
+model OwnerPayoutControl {
+  ownerId            Int       @id
+  holdAt             DateTime?
+  holdReason         String?   @db.VarChar(300)
+  holdById           Int?
+  alwaysReview       Boolean   @default(false)
+  alwaysReviewReason String?   @db.VarChar(300)
+  alwaysReviewById   Int?
+  updatedAt          DateTime  @default(now()) @updatedAt
+
+  @@map("owner_payout_control")
 }
 
 /// Money an owner owes back after being paid for a stay that was later

@@ -2,7 +2,9 @@
  * Sales Partner side of long-stay rentals (docs/LONG_STAY_RENTALS.md section 13).
  *
  * GET  /api/sales/long-stay/inspections              homes NoLSAF asked me to inspect
- * GET  /api/sales/long-stay/inspections/queue        inspection work alongside the lead pipeline
+ * GET  /api/sales/long-stay/inspections/queue        inspection work alongside the lead pipeline (incl. invitations)
+ * POST /api/sales/long-stay/inspections/:ref/accept  take an invitation: contact and pin open, 5 days to visit
+ * POST /api/sales/long-stay/inspections/:ref/decline { reason }: NoLSAF invites someone else
  * POST /api/sales/long-stay/inspections/:ref/report  multipart: three photos, position, checklist, findings, recommendation, note
  * GET  /api/sales/long-stay/visits                   tenants I accompany to view a home
  *
@@ -23,7 +25,8 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { audit } from "../lib/audit.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { deleteVisitPhoto, uploadVisitPhoto } from "../lib/salesVisitPhotos.js";
-import { CHECKLIST, checkReport, INSPECTION_PHOTO_COUNT, INSPECTION_PHOTO_SLOTS, InspectionError, isInspectionRef, reportSchema, submitInspection } from "../lib/longStay/inspection.js";
+import { z } from "zod";
+import { acceptInspection, CHECKLIST, checkReport, declineInspection, INSPECTION_PHOTO_COUNT, INSPECTION_PHOTO_SLOTS, InspectionError, isInspectionRef, reportSchema, submitInspection } from "../lib/longStay/inspection.js";
 
 const router = Router();
 const db = prisma as any;
@@ -48,7 +51,8 @@ router.get("/long-stay/inspections/queue", limitSalesLeadRead as any, asyncHandl
   const partnerId = partnerIdFor(req);
   if (!partnerId) return res.status(403).json({ error: "Sales partner context required" });
   const assigned = { salesPartnerId: partnerId, status: "ASSIGNED" };
-  const [toVisit, inReview, upcoming] = await Promise.all([
+  const invitedWhere = { salesPartnerId: partnerId, status: "INVITED", dueBy: { gte: new Date() } };
+  const [toVisit, inReview, upcoming, invitations] = await Promise.all([
     db.longStayInspection.count({ where: assigned }),
     db.longStayInspection.count({ where: { salesPartnerId: partnerId, status: "SUBMITTED" } }),
     db.longStayInspection.findMany({
@@ -57,11 +61,25 @@ router.get("/long-stay/inspections/queue", limitSalesLeadRead as any, asyncHandl
       take: 3,
       select: { publicRef: true, dueBy: true, reviewedAt: true, property: { select: { title: true, district: true, regionName: true } } },
     }),
+    db.longStayInspection.findMany({
+      where: invitedWhere,
+      orderBy: [{ dueBy: "asc" }, { id: "asc" }],
+      take: 5,
+      select: { publicRef: true, dueBy: true, property: { select: { district: true, regionName: true, type: true } } },
+    }),
   ]);
   res.setHeader("Cache-Control", "no-store");
   return res.json({
     toVisit,
     inReview,
+    // Waiting for this partner's yes or no. Area only until they accept.
+    invited: invitations.length,
+    invitations: invitations.map((item: any) => ({
+      ref: item.publicRef,
+      area: [item.property?.district, item.property?.regionName].filter(Boolean).join(", "),
+      type: item.property?.type ?? null,
+      replyBy: item.dueBy,
+    })),
     upcoming: upcoming.map((item: any) => ({
       ref: item.publicRef,
       title: item.property?.title ?? null,
@@ -86,21 +104,36 @@ router.get("/long-stay/inspections", limitSalesLeadRead as any, asyncHandler(asy
       },
     },
   };
+  const now = new Date();
   const rows = await db.longStayInspection.findMany({
-    where: { salesPartnerId: partnerId, OR: [{ status: { in: ["ASSIGNED", "SUBMITTED"] } }, { status: { in: ["PASSED", "FAILED"] }, reviewedAt: { gte: since } }] },
+    where: {
+      salesPartnerId: partnerId,
+      OR: [
+        { status: "INVITED", dueBy: { gte: now } },
+        { status: { in: ["ASSIGNED", "SUBMITTED"] } },
+        { status: { in: ["PASSED", "FAILED"] }, reviewedAt: { gte: since } },
+      ],
+    },
     orderBy: [{ status: "asc" }, { dueBy: "asc" }],
     take: 100,
     include,
   });
   if (isInspectionRef(ref) && !rows.some((row: any) => row.publicRef === ref)) {
     const focused = await db.longStayInspection.findFirst({
-      where: { salesPartnerId: partnerId, publicRef: ref, status: { in: ["ASSIGNED", "SUBMITTED", "PASSED", "FAILED"] } },
+      where: { salesPartnerId: partnerId, publicRef: ref, status: { in: ["INVITED", "ASSIGNED", "SUBMITTED", "PASSED", "FAILED"] } },
       include,
     });
     if (focused) rows.unshift(focused);
   }
+  // What an accepted report earns, so the partner can decide on the invitation.
+  let inspectionFee = 25000;
+  try {
+    const settings = await db.systemSetting.findUnique({ where: { id: 1 }, select: { longStayInspectionFee: true } });
+    inspectionFee = Math.max(0, Math.round(Number(settings?.longStayInspectionFee ?? 25000)));
+  } catch { /* default fee */ }
   res.setHeader("Cache-Control", "no-store");
   return res.json({
+    inspectionFee,
     checklist: CHECKLIST,
     minPhotos: INSPECTION_PHOTO_COUNT,
     maxPhotos: INSPECTION_PHOTO_COUNT,
@@ -110,7 +143,9 @@ router.get("/long-stay/inspections", limitSalesLeadRead as any, asyncHandler(asy
       status: r.status,
       reason: r.reason,
       assignedAt: r.assignedAt,
-      dueBy: r.dueBy,
+      // While INVITED, dueBy is the reply deadline; once accepted it is the visit deadline.
+      dueBy: r.status === "INVITED" ? null : r.dueBy,
+      replyBy: r.status === "INVITED" ? r.dueBy : null,
       home: {
         title: r.property?.title ?? null,
         type: r.property?.type ?? null,
@@ -134,6 +169,52 @@ router.get("/long-stay/inspections", limitSalesLeadRead as any, asyncHandler(asy
       validUntil: day(r.validUntil),
     })),
   });
+}));
+
+const declineSchema = z.object({ reason: z.string().trim().min(3).max(300) }).strict();
+
+/** Accept an inspection invitation: the landlord contact and exact pin open, 5 days to visit start. */
+router.post("/long-stay/inspections/:ref/accept", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const partnerId = partnerIdFor(req);
+  if (!partnerId) return res.status(403).json({ error: "Sales partner context required" });
+  const ref = String(req.params.ref);
+  if (!isInspectionRef(ref)) return res.status(404).json({ error: "Not found" });
+  const inspection = await db.longStayInspection.findFirst({ where: { publicRef: ref, salesPartnerId: partnerId } });
+  if (!inspection) return res.status(404).json({ error: "Not found" });
+  const partner = await db.salesPartnerProfile.findUnique({ where: { id: partnerId }, select: { id: true, userId: true, agentCode: true } });
+  if (!partner) return res.status(403).json({ error: "Sales partner context required" });
+  let result;
+  try {
+    result = await acceptInspection(db, inspection, partner);
+  } catch (error) {
+    if (error instanceof InspectionError) return res.status(error.status).json({ error: error.message });
+    throw error;
+  }
+  await audit(req as any, "LONG_STAY_INSPECTION_ACCEPT", "PROPERTY", { status: "INVITED" }, { ref, partner: partner.agentCode, dueBy: result.dueBy }, inspection.propertyId);
+  return res.json({ ok: true, status: "ASSIGNED", dueBy: result.dueBy });
+}));
+
+/** Decline an inspection invitation with a reason; NoLSAF invites someone else. */
+router.post("/long-stay/inspections/:ref/decline", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const partnerId = partnerIdFor(req);
+  if (!partnerId) return res.status(403).json({ error: "Sales partner context required" });
+  const ref = String(req.params.ref);
+  if (!isInspectionRef(ref)) return res.status(404).json({ error: "Not found" });
+  const body = declineSchema.safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: "Tell NoLSAF briefly why you cannot go (at least 3 characters)." });
+  const inspection = await db.longStayInspection.findFirst({ where: { publicRef: ref, salesPartnerId: partnerId } });
+  if (!inspection) return res.status(404).json({ error: "Not found" });
+  const reason = sanitizeText(body.data.reason).slice(0, 300);
+  try {
+    await declineInspection(db, inspection, partnerId);
+  } catch (error) {
+    if (error instanceof InspectionError) return res.status(error.status).json({ error: error.message });
+    throw error;
+  }
+  await audit(req as any, "LONG_STAY_INSPECTION_DECLINE", "PROPERTY", { status: "INVITED", partnerId }, { ref, reason }, inspection.propertyId);
+  const property = await db.property.findUnique({ where: { id: inspection.propertyId }, select: { title: true } }).catch(() => null);
+  await notifyAdmins("long_stay_inspection_needed", { propertyTitle: property?.title ?? null, reason: "partner_declined", note: reason }).catch(() => undefined);
+  return res.json({ ok: true, status: "REQUESTED" });
 }));
 
 router.post(

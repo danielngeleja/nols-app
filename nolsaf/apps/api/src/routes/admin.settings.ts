@@ -7,6 +7,12 @@ import { enforceSocketSessionPolicy } from "../middleware/socketAuth.js";
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH_FLOOR } from "../lib/security.js";
 import { hasFinanceGrant } from "../lib/financeGrantStore.js";
 import {
+  OWNER_FIRST_PAYOUT_AUTO_CEILING_TZS,
+  OWNER_WITHDRAWAL_REVIEW_ALERT_DEFAULT_HOURS,
+  OWNER_WITHDRAWAL_REVIEW_ALERT_MAX_HOURS,
+  OWNER_WITHDRAWAL_REVIEW_ALERT_MIN_HOURS,
+} from "../services/payouts/autoLane.js";
+import {
   ADVANCE_EXPOSURE_LIMIT_MAX_TZS,
   ADVANCE_EXPOSURE_LIMIT_MIN_TZS,
   ADVANCE_EXPOSURE_TIERS,
@@ -211,6 +217,24 @@ async function hasTourPayoutControlColumns(): Promise<boolean> {
   }
 }
 
+let ownerPayoutPolicyColumnsAvailable: boolean | null = null;
+async function hasOwnerPayoutPolicyColumns(): Promise<boolean> {
+  // Positive result only: migration 20261125100000 may be applied while running.
+  if (ownerPayoutPolicyColumnsAvailable === true) return true;
+  try {
+    await prisma.systemSetting.findUnique({
+      where: { id: 1 },
+      select: { ownerFirstPayoutAutoMaxTzs: true, ownerWithdrawalReviewAlertHours: true } as any,
+    });
+    ownerPayoutPolicyColumnsAvailable = true;
+    return true;
+  } catch (err: any) {
+    if (err?.code === "P2022" || String(err?.message || "").includes("ColumnNotFound") ||
+      String(err?.message || "").includes("Unknown field")) return false;
+    throw err;
+  }
+}
+
 const UNCLAIMED_AUTO_DAYS_MIN = 3;
 const UNCLAIMED_AUTO_DAYS_MAX = 90;
 
@@ -256,6 +280,7 @@ router.get("/", async (_req, res) => {
   const ownerWithdrawalLimitCol = await hasOwnerWithdrawalLimitColumn();
   const salesAutoCols = await hasSalesAutoPayoutColumns();
   const tourCtlCols = await hasTourPayoutControlColumns();
+  const ownerPolicyCols = await hasOwnerPayoutPolicyColumns();
   const s =
     (await prisma.systemSetting.findUnique({
       where: { id: 1 },
@@ -301,6 +326,7 @@ router.get("/", async (_req, res) => {
         ...(ownerWithdrawalLimitCol ? { ownerWithdrawalDailyLimitTzs: true } : {}),
         ...(salesAutoCols ? { salesAutoPayoutEnabled: true, salesAutoPayoutMaxTzs: true } : {}),
         ...(tourCtlCols ? { tourAdvanceExposureLimits: true, tourPayoutSeparateApprover: true } : {}),
+        ...(ownerPolicyCols ? { ownerFirstPayoutAutoMaxTzs: true, ownerWithdrawalReviewAlertHours: true } : {}),
         ...(roleCols
           ? {
               sessionMaxMinutesAdmin: true,
@@ -342,6 +368,12 @@ router.get("/", async (_req, res) => {
   out.autoPayoutDailyCapTzs = out.autoPayoutDailyCapTzs ?? null;
   out.payoutUnclaimedAutoDays = out.payoutUnclaimedAutoDays ?? null;
   out.autoPayoutAvailable = autoCols;
+  out.ownerFirstPayoutAutoMaxTzs = ownerPolicyCols ? (out.ownerFirstPayoutAutoMaxTzs ?? null) : null;
+  out.ownerWithdrawalReviewAlertHours = ownerPolicyCols
+    ? (out.ownerWithdrawalReviewAlertHours ?? OWNER_WITHDRAWAL_REVIEW_ALERT_DEFAULT_HOURS)
+    : OWNER_WITHDRAWAL_REVIEW_ALERT_DEFAULT_HOURS;
+  out.ownerFirstPayoutAutoCeilingTzs = OWNER_FIRST_PAYOUT_AUTO_CEILING_TZS;
+  out.ownerPayoutPolicyAvailable = ownerPolicyCols;
   out.ownerWithdrawalDailyLimitTzs = ownerWithdrawalLimitCol
     ? (out.ownerWithdrawalDailyLimitTzs ?? OWNER_WITHDRAWAL_DAILY_LIMIT_DEFAULT_TZS)
     : null;
@@ -416,6 +448,7 @@ router.put("/", async (req, res) => {
   const ownerWithdrawalLimitCol = await hasOwnerWithdrawalLimitColumn();
   const salesAutoCols = await hasSalesAutoPayoutColumns();
   const tourCtlCols = await hasTourPayoutControlColumns();
+  const ownerPolicyCols = await hasOwnerPayoutPolicyColumns();
   // Fetch full record so the audit diff covers ALL changed fields, not just session ones.
   const before = await prisma.systemSetting.findUnique({ where: { id: 1 } });
 
@@ -486,6 +519,8 @@ router.put("/", async (req, res) => {
   delete (sanitizedUpdate as any).tourAdvanceExposureDefaults;
   delete (sanitizedUpdate as any).tourPayoutControlsAvailable;
   delete (sanitizedUpdate as any).tourAdvanceLimitFrom;
+  delete (sanitizedUpdate as any).ownerFirstPayoutAutoCeilingTzs;
+  delete (sanitizedUpdate as any).ownerPayoutPolicyAvailable;
 
   // Payout safeguards. Validated explicitly because the body is otherwise
   // copied into the update as-is. Tightening needs nothing extra; loosening
@@ -560,6 +595,33 @@ router.put("/", async (req, res) => {
       if (parsed !== null && (previous === null || parsed < previous)) loosensPayoutSafeguards = true;
     }
   }
+  // Owner first-payout policy. Setting or raising the automatic first-payout
+  // limit lets a new owner's money move without a person, and alerting later
+  // leaves a waiting owner unseen longer: both need the finance code.
+  // Before the migration the columns do not exist: the values are dropped
+  // below (the page shows them read-only), never treated as an error.
+  if (ownerPolicyCols && body.ownerFirstPayoutAutoMaxTzs !== undefined) {
+    const parsed = toIntOrNull(body.ownerFirstPayoutAutoMaxTzs) ?? null;
+    if (parsed !== null && (!Number.isSafeInteger(parsed) || parsed < PAYOUT_LIMIT_MIN_TZS || parsed > OWNER_FIRST_PAYOUT_AUTO_CEILING_TZS)) {
+      errors.push({ field: "ownerFirstPayoutAutoMaxTzs", message: `Must be a whole TZS amount from ${PAYOUT_LIMIT_MIN_TZS.toLocaleString("en-US")} to ${OWNER_FIRST_PAYOUT_AUTO_CEILING_TZS.toLocaleString("en-US")}, or blank so every first payout is checked by a person.` });
+    } else {
+      sanitizedUpdate.ownerFirstPayoutAutoMaxTzs = parsed;
+      const previous = (before as any)?.ownerFirstPayoutAutoMaxTzs ?? null;
+      if (parsed !== null && (previous === null || parsed > previous)) loosensPayoutSafeguards = true;
+    }
+  }
+  if (ownerPolicyCols && body.ownerWithdrawalReviewAlertHours !== undefined) {
+    const raw = toIntOrNull(body.ownerWithdrawalReviewAlertHours) ?? null;
+    const parsed = raw === null ? OWNER_WITHDRAWAL_REVIEW_ALERT_DEFAULT_HOURS : raw;
+    if (!Number.isSafeInteger(parsed) || parsed < OWNER_WITHDRAWAL_REVIEW_ALERT_MIN_HOURS || parsed > OWNER_WITHDRAWAL_REVIEW_ALERT_MAX_HOURS) {
+      errors.push({ field: "ownerWithdrawalReviewAlertHours", message: `Must be between ${OWNER_WITHDRAWAL_REVIEW_ALERT_MIN_HOURS} and ${OWNER_WITHDRAWAL_REVIEW_ALERT_MAX_HOURS} hours.` });
+    } else {
+      sanitizedUpdate.ownerWithdrawalReviewAlertHours = parsed;
+      const previous = (before as any)?.ownerWithdrawalReviewAlertHours ?? OWNER_WITHDRAWAL_REVIEW_ALERT_DEFAULT_HOURS;
+      if (parsed > previous) loosensPayoutSafeguards = true;
+    }
+  }
+
   // Automatic sales withdrawals: turning on or raising the limit lets more
   // money move without a person, so it needs the finance code too.
   if (body.salesAutoPayoutEnabled !== undefined) {
@@ -743,6 +805,10 @@ router.put("/", async (req, res) => {
     delete (sanitizedUpdate as any).autoPayoutEnabled;
     delete (sanitizedUpdate as any).autoPayoutDailyCapTzs;
     delete (sanitizedUpdate as any).payoutUnclaimedAutoDays;
+  }
+  if (!ownerPolicyCols) {
+    delete (sanitizedUpdate as any).ownerFirstPayoutAutoMaxTzs;
+    delete (sanitizedUpdate as any).ownerWithdrawalReviewAlertHours;
   }
   if (!salesAutoCols) {
     delete (sanitizedUpdate as any).salesAutoPayoutEnabled;

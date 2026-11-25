@@ -21,10 +21,12 @@ type CheckItem = { key: string; label: string; required: boolean };
 type Finding = { note: string; photoIndex?: number };
 type Inspection = {
   ref: string;
-  status: "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED";
+  status: "INVITED" | "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED";
   reason: string;
   assignedAt: string | null;
   dueBy: string | null;
+  /** Set while INVITED: accept or decline before this time. */
+  replyBy?: string | null;
   home: { title: string | null; type: string | null; area: string; pin: { lat: number; lng: number } | null; listing: { monthlyRent: number; currency: string; furnished: string; utilities: Record<string, string> } | null };
   landlord: { name: string | null; phone: string | null };
   reviewNote: string | null;
@@ -33,9 +35,12 @@ type Inspection = {
   feeAmount: number | null;
 };
 type Visit = { ref: string; visitAt: string; note: string | null; home: { title: string | null; area: string; pin: { lat: number; lng: number } | null }; tenant: { name: string | null; phone: string | null } };
-type Data = { checklist: CheckItem[]; photoSlots: Array<{ label: string; hint: string }>; items: Inspection[] };
+type Data = { checklist: CheckItem[]; photoSlots: Array<{ label: string; hint: string }>; items: Inspection[]; inspectionFee?: number };
+
+const DECLINE_REASONS = ["Too far from my area", "No time in the next 5 days", "I know the landlord personally", "I am travelling"];
 
 const STATUS: Record<Inspection["status"], { label: string; tone: string }> = {
+  INVITED: { label: "Invitation", tone: "bg-violet-50 text-violet-800" },
   ASSIGNED: { label: "To visit", tone: "bg-amber-50 text-amber-800" },
   SUBMITTED: { label: "With NoLSAF", tone: "bg-sky-50 text-sky-800" },
   PASSED: { label: "Passed", tone: "bg-emerald-50 text-emerald-800" },
@@ -88,9 +93,12 @@ function InspectionQueue() {
 
   const focused = data?.items.find((item) => item.ref === focusedRef);
   const otherItems = data?.items.filter((item) => item.ref !== focusedRef) ?? [];
+  const invites = otherItems.filter((i) => i.status === "INVITED");
   const todo = otherItems.filter((i) => i.status === "ASSIGNED");
-  const rest = otherItems.filter((i) => i.status !== "ASSIGNED");
-  const card = (item: Inspection, emphasized = false) => (
+  const rest = otherItems.filter((i) => i.status !== "ASSIGNED" && i.status !== "INVITED");
+  const card = (item: Inspection, emphasized = false) => item.status === "INVITED" ? (
+    <InvitationCard item={item} fee={data?.inspectionFee ?? null} emphasized={emphasized} onChanged={(accepted) => { if (accepted) setOpen(null); void load(); }} />
+  ) : (
     <div className={`overflow-hidden rounded-lg border border-solid bg-white ${emphasized ? "border-emerald-300 ring-1 ring-emerald-100" : "border-slate-200"}`}>
       <InspectionHead item={item} compact={item.status !== "ASSIGNED"} />
       {item.status === "ASSIGNED" ? (
@@ -131,10 +139,21 @@ function InspectionQueue() {
             ) : (
               <p role="status" className="m-0 rounded-lg border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">This inspection is no longer available in your workspace. Your current assignments are below.</p>
             ) : null}
+            {invites.length ? (
+              <section aria-label="Invitations">
+                <h2 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-900">
+                  Invitations <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800">{invites.length} waiting for your reply</span>
+                </h2>
+                <ul className="m-0 mt-2 list-none space-y-2 p-0">
+                  {invites.map((item) => <li key={item.ref}>{card(item)}</li>)}
+                </ul>
+              </section>
+            ) : null}
+
             <section aria-label="To visit">
               <h2 className="m-0 text-sm font-bold text-slate-900">{focused?.status === "ASSIGNED" ? "Other visits" : "To visit"} <span className="font-normal text-slate-500">({todo.length})</span></h2>
               {todo.length === 0 ? (
-                <p className="m-0 mt-2 rounded-lg border border-solid border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">{focused?.status === "ASSIGNED" ? "No other visits scheduled." : "No homes to inspect right now. New invitations appear in Sales Notifications."}</p>
+                <p className="m-0 mt-2 rounded-lg border border-solid border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">{focused?.status === "ASSIGNED" ? "No other visits scheduled." : invites.length ? "Accept an invitation above to add it here." : "No homes to inspect right now. NoLSAF texts you when it has an invitation."}</p>
               ) : (
                 <ul className="m-0 mt-2 list-none space-y-2 p-0">
                   {todo.map((item) => <li key={item.ref}>{card(item)}</li>)}
@@ -174,6 +193,112 @@ function InspectionQueue() {
           </>
         )}
       </div>
+  );
+}
+
+function timeLeft(iso: string | null | undefined) {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "expired";
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return h >= 1 ? `${h}h ${m}m left` : `${m}m left`;
+}
+
+/**
+ * An invitation from NoLSAF: what the home is, what the partner earns, and
+ * how long they have to answer. Contact and exact pin open only after accepting.
+ */
+function InvitationCard({ item, fee, emphasized, onChanged }: { item: Inspection; fee: number | null; emphasized?: boolean; onChanged: (accepted: boolean) => void }) {
+  const [mode, setMode] = useState<"idle" | "decline">("idle");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState<"accept" | "decline" | null>(null);
+  const [error, setError] = useState("");
+  const left = timeLeft(item.replyBy);
+  const urgent = item.replyBy ? new Date(item.replyBy).getTime() - Date.now() < 6 * 3_600_000 : false;
+
+  const act = async (kind: "accept" | "decline") => {
+    if (kind === "decline" && reason.trim().length < 3) { setError("Tell NoLSAF briefly why you cannot go."); return; }
+    setBusy(kind);
+    setError("");
+    try {
+      await apiClient.post(`/api/sales/long-stay/inspections/${encodeURIComponent(item.ref)}/${kind}`, kind === "decline" ? { reason: reason.trim() } : {});
+      onChanged(kind === "accept");
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.error || "Could not send your answer. Try again.");
+      setBusy(null);
+    }
+  };
+
+  return (
+    <article className={`overflow-hidden rounded-lg border border-solid bg-white ${emphasized ? "border-violet-300 ring-1 ring-violet-100" : "border-violet-200"}`}>
+      <div className="flex flex-wrap items-start gap-3 px-4 py-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-violet-50 text-violet-700"><ClipboardCheck className="h-4 w-4" /></span>
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-[11.5px] font-semibold text-violet-700">NoLSAF invites you to inspect</p>
+          <p className="m-0 mt-0.5 truncate text-sm font-semibold text-slate-900">A long-stay home in {item.home.area || "your area"}</p>
+          <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">
+            {item.home.type ? `${item.home.type.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())} · ` : ""}
+            {item.home.listing ? `${item.home.listing.currency} ${item.home.listing.monthlyRent.toLocaleString("en-US")} a month` : "Monthly rental"}
+            {item.reason === "AFTER_DISPUTE" ? " · after a tenant complaint" : item.reason === "YEARLY" ? " · yearly check" : " · first inspection"}
+          </p>
+        </div>
+        {left ? (
+          <span className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11.5px] font-semibold tabular-nums ${urgent ? "bg-rose-50 text-rose-700" : "bg-violet-50 text-violet-800"}`}>
+            <Clock3 className="h-3.5 w-3.5" />Reply: {left}
+          </span>
+        ) : null}
+      </div>
+
+      <dl className="m-0 grid grid-cols-1 gap-px border-0 border-t border-solid border-slate-100 bg-slate-100 sm:grid-cols-3">
+        <div className="bg-white px-4 py-2.5">
+          <dt className="text-[11px] font-semibold text-slate-500">You earn</dt>
+          <dd className="m-0 text-[14px] font-bold text-emerald-700">{fee ? `TZS ${fee.toLocaleString("en-US")}` : "Flat fee"}</dd>
+          <p className="m-0 text-[11px] text-slate-400">For a report NoLSAF accepts, pass or fail</p>
+        </div>
+        <div className="bg-white px-4 py-2.5">
+          <dt className="text-[11px] font-semibold text-slate-500">Time to visit</dt>
+          <dd className="m-0 text-[14px] font-bold text-slate-900">5 days</dd>
+          <p className="m-0 text-[11px] text-slate-400">Starts when you accept</p>
+        </div>
+        <div className="bg-white px-4 py-2.5">
+          <dt className="text-[11px] font-semibold text-slate-500">After you accept</dt>
+          <dd className="m-0 text-[13px] font-semibold text-slate-900">Landlord contact and exact pin</dd>
+          <p className="m-0 text-[11px] text-slate-400">Then 3 photos, location and checklist from the home</p>
+        </div>
+      </dl>
+
+      {mode === "decline" ? (
+        <div className="border-0 border-t border-solid border-slate-100 px-4 py-3">
+          <p className="m-0 text-[12.5px] font-semibold text-slate-700">Why can you not go? NoLSAF will invite someone else.</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {DECLINE_REASONS.map((r) => (
+              <button key={r} type="button" onClick={() => { setReason(r); setError(""); }}
+                className={`cursor-pointer rounded-md border border-solid px-2.5 py-1 text-[12px] [font-family:inherit] ${reason === r ? "border-[#02665e] bg-[#02665e]/5 text-[#02665e]" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}>{r}</button>
+            ))}
+          </div>
+          <input value={reason} onChange={(e) => { setReason(e.target.value); setError(""); }} maxLength={300} placeholder="Or write your own reason"
+            className="mt-2 block h-9 w-full rounded-md border border-solid border-slate-300 px-2.5 text-sm outline-none focus:border-[#02665e] [font-family:inherit]" />
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <button type="button" disabled={busy !== null} onClick={() => void act("decline")} className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-slate-800 px-3.5 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-60 [font-family:inherit]">
+              {busy === "decline" ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}Decline invitation
+            </button>
+            <button type="button" onClick={() => { setMode("idle"); setReason(""); setError(""); }} className="inline-flex min-h-9 cursor-pointer items-center rounded-md border border-solid border-slate-300 bg-white px-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 [font-family:inherit]">Back</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-slate-100 px-4 py-3">
+          <button type="button" disabled={busy !== null} onClick={() => void act("accept")} className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014e47] disabled:opacity-60 [font-family:inherit]">
+            {busy === "accept" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}Accept, I will visit
+          </button>
+          <button type="button" disabled={busy !== null} onClick={() => setMode("decline")} className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 [font-family:inherit]">
+            <X className="h-4 w-4" />I can&apos;t go
+          </button>
+          <span className="text-[12px] text-slate-500">If you do not reply in time, NoLSAF asks another partner.</span>
+        </div>
+      )}
+      {error ? <p className="m-0 px-4 pb-3 text-[12.5px] text-rose-700">{error}</p> : null}
+    </article>
   );
 }
 
