@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * Long-stay tenancies for admins (docs/LONG_STAY_RENTALS.md, milestone 7):
@@ -10,9 +10,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AdminNotificationTarget from "@/components/longStay/AdminNotificationTarget";
 import Link from "next/link";
-import { AlertTriangle, ArrowUpRight, CalendarDays, CalendarX2, HandCoins, History, Home, Inbox, KeyRound, List, Loader2, Phone, Undo2, Users, Wallet, X } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CalendarDays, CalendarX2, CheckCircle2, HandCoins, History, Home, Inbox, KeyRound, List, Loader2, Phone, RefreshCw, ShieldCheck, Undo2, Users, Wallet, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import SalesAdminHeader from "@/components/admin/sales/SalesAdminHeader";
 
 type View = "payouts" | "disputes" | "refunds" | "movein" | "ending" | "claims" | "all";
 type Item = {
@@ -34,7 +33,78 @@ type Item = {
   landlordPayout: number;
   payoutReleasedAt: string | null;
   disputedAt: string | null;
+  area?: string;
+  endDate?: string | null;
+  monthlyRent?: number | null;
+  upfrontMonths?: number | null;
+  bookingAmount?: number | null;
+  tenantFee?: number | null;
+  landlordCommission?: number | null;
+  payoutDeduction?: number | null;
+  timeline?: Partial<Record<"offeredAt" | "offerAcceptedAt" | "landlordLeaseAcceptedAt" | "tenantLeaseAcceptedAt" | "paymentDueAt" | "paidAt" | "landlordConfirmedAt" | "tenantConfirmedAt" | "moveInConfirmedAt" | "noticeGivenAt" | "endedAt" | "cancelledAt", string | null>>;
+  leaseVersion?: string | null;
+  leaseFingerprint?: string | null;
+  moveIn?: { landlordMethod: string | null; tenantMethod: string | null; keysReceived: boolean | null; matchesListing: boolean | null };
+  cancel?: { by: string | null; reason: string | null } | null;
+  tenantId?: { status: string; idType: string; expiresOn: string | null } | null;
 };
+
+/** The journey every tenancy follows; the card shows where this one is. */
+const JOURNEY: Array<{ key: string; label: string; at: (i: Item) => string | null | undefined }> = [
+  { key: "reserved", label: "Reserved", at: (i) => i.timeline?.offeredAt },
+  { key: "confirmed", label: "Landlord confirmed", at: (i) => i.timeline?.offerAcceptedAt },
+  { key: "lease", label: "Lease signed", at: (i) => (i.timeline?.landlordLeaseAcceptedAt && i.timeline?.tenantLeaseAcceptedAt ? [i.timeline.landlordLeaseAcceptedAt, i.timeline.tenantLeaseAcceptedAt].sort()[1] : null) },
+  { key: "paid", label: "First month paid", at: (i) => i.timeline?.paidAt },
+  { key: "movein", label: "Moved in", at: (i) => i.timeline?.moveInConfirmedAt },
+  { key: "payout", label: "Landlord paid", at: (i) => i.payoutReleasedAt },
+  { key: "ended", label: "Ended", at: (i) => i.timeline?.endedAt },
+];
+
+function softenCaps(value: string | null | undefined) {
+  const s = String(value || "").trim();
+  if (!s || s !== s.toUpperCase()) return s;
+  return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\bNolsaf\b/g, "NoLSAF");
+}
+
+function whenEat(iso: string | null | undefined) {
+  return iso ? `${new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT` : null;
+}
+
+function daysFromToday(isoDay: string | null | undefined) {
+  if (!isoDay) return null;
+  const today = new Date(new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Dar_es_Salaam" }) + "T00:00:00Z").getTime();
+  return Math.round((new Date(`${isoDay.slice(0, 10)}T00:00:00Z`).getTime() - today) / 86_400_000);
+}
+
+function Journey({ item }: { item: Item }) {
+  const cancelled = item.status === "CANCELLED";
+  const steps = JOURNEY.map((s) => ({ ...s, when: s.at(item) || null }));
+  const reached = steps.reduce((last, s, idx) => (s.when ? idx : last), -1);
+  return (
+    <div className="border-0 border-b border-solid border-slate-100 px-4 py-3.5 sm:px-5">
+      <ol className="m-0 grid list-none grid-cols-2 gap-x-2 gap-y-3 p-0 sm:grid-cols-4 lg:grid-cols-7">
+        {steps.map((s, idx) => {
+          const done = Boolean(s.when);
+          const current = !cancelled && !done && idx === reached + 1;
+          return (
+            <li key={s.key} className="relative min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-bold ${done ? "bg-[#02665e] text-white" : current ? "border-2 border-solid border-[#02665e] bg-white text-[#02665e]" : "bg-slate-100 text-slate-400"}`}>{idx + 1}</span>
+                <span className={`truncate text-[12px] font-semibold ${done ? "text-slate-900" : current ? "text-[#02665e]" : "text-slate-400"}`}>{s.label}</span>
+              </div>
+              <p className="m-0 mt-0.5 truncate pl-7 text-[11px] text-slate-500">{done ? whenEat(s.when) : current ? "Next" : ""}</p>
+            </li>
+          );
+        })}
+      </ol>
+      {cancelled ? (
+        <p className="m-0 mt-3 rounded-md bg-rose-50 px-3 py-2 text-[12.5px] text-rose-800">
+          Cancelled{item.cancel?.by ? ` by the ${item.cancel.by.toLowerCase()}` : ""}{item.timeline?.cancelledAt ? `, ${whenEat(item.timeline.cancelledAt)}` : ""}{item.cancel?.reason ? `: ${item.cancel.reason}` : ""}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 const TABS: Array<{ key: View; label: string; Icon: typeof Wallet }> = [
   { key: "payouts", label: "Payouts", Icon: Wallet },
@@ -120,29 +190,70 @@ function TenancyQueue({ initialView, target, claim }: { initialView: View; targe
 
   const attention = (counts.payouts ?? 0) + (counts.disputes ?? 0) + (counts.refunds ?? 0);
   return (
-    <div id="ls-tenancies" className="w-full">
+    <div id="ls-tenancies" className="w-full min-w-0 space-y-4">
       <style>{`#ls-tenancies, #ls-tenancies * { box-sizing: border-box; }`}</style>
-      <SalesAdminHeader<View>
-        kicker="Long stays"
-        title="Long-stay tenancies"
-        description="Approve landlord payouts after move-in, decide reported problems, refund money owed to tenants, and follow every stay to its end."
-        metrics={[
-          { label: "Needs you", value: counts.payouts == null ? "-" : attention, tone: attention ? "warn" : "good" },
-          { label: "Payouts", value: counts.payouts ?? "-", tone: counts.payouts ? "warn" : "muted" },
-          { label: "Problems", value: counts.disputes ?? "-", tone: counts.disputes ? "warn" : "muted" },
-          { label: "Refunds owed", value: counts.refunds ?? "-", tone: counts.refunds ? "warn" : "muted" },
-          { label: "Moving in", value: counts.movein ?? "-", tone: "default" },
-        ]}
-        onRefresh={load}
-        loading={loading}
-        tabs={target || claim ? undefined : TABS.map((t) => ({ ...t, count: t.key === "all" ? undefined : counts[t.key] }))}
-        activeTab={view}
-        onTab={setView}
-      />
-      {(target || claim) && <AdminNotificationTarget href={`/admin/long-stay/tenancies?view=${view}`}>{claim ? "Claim from Notifications" : "Tenancy from Notifications"}</AdminNotificationTarget>}
-      {error ? <p className="m-0 mt-3 text-sm text-red-700">{error}</p> : null}
-      <div className="mt-3 space-y-3">
-        {view === "claims" ? <ClaimsList target={claim} /> : items === null ? (
+
+      {/* Tenancy desk, in the No4P Agents style */}
+      <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_0%_100%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden />
+        <div className="pointer-events-none absolute inset-0 opacity-[0.35]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.09) 1px, transparent 1px)", backgroundSize: "18px 18px" }} aria-hidden />
+        <div className="relative flex flex-wrap items-start justify-between gap-4 px-5 py-5 sm:px-6">
+          <div className="min-w-0">
+            <p className="m-0 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
+              <Home className="h-3.5 w-3.5" /> Long stays
+              <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal ${attention ? "bg-amber-400/15 text-amber-200" : "bg-emerald-400/15 text-emerald-200"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${attention ? "bg-amber-400" : "bg-emerald-400"}`} />{counts.payouts == null ? "Loading" : attention ? `${attention} ${attention === 1 ? "needs" : "need"} you` : "Nothing waiting"}
+              </span>
+            </p>
+            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Tenancies</h1>
+            <p className="m-0 mt-1 max-w-xl text-sm text-white/60">Approve payouts after move-in, decide problems, refund what tenants are owed, and follow every stay to its end.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href="/admin/long-stay/payments" className="inline-flex h-9 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3 text-[12.5px] font-semibold text-white no-underline hover:bg-white/[0.12]"><Wallet className="h-3.5 w-3.5" />Payments</Link>
+            <button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh" title="Refresh"
+              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-solid border-white/15 bg-white/[0.06] text-white hover:bg-white/[0.12] disabled:opacity-60">
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {(target || claim) ? (
+        <AdminNotificationTarget href={`/admin/long-stay/tenancies?view=${view}`}>{claim ? "Claim from Notifications" : "Tenancy from Notifications"}</AdminNotificationTarget>
+      ) : (
+        /* Queue track: pick what to work on; the urgent ones say so */
+        <section className="rounded-lg border border-solid border-neutral-200 bg-white p-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+            {TABS.map((t) => {
+              const on = view === t.key;
+              const value = t.key === "all" ? null : counts[t.key];
+              const urgent = (t.key === "payouts" || t.key === "disputes" || t.key === "refunds" || t.key === "claims") && (value ?? 0) > 0;
+              const hint: Record<View, string> = {
+                payouts: "First month to approve",
+                disputes: "Money held for a decision",
+                refunds: "Owed back to tenants",
+                movein: "Paid, moving in soon",
+                ending: "Notice given or overdue",
+                claims: "Landlords owing tenants",
+                all: "Every reservation",
+              };
+              return (
+                <button key={t.key} type="button" onClick={() => setView(t.key)} aria-pressed={on}
+                  className={`min-w-0 cursor-pointer rounded-md border border-solid p-3 text-left transition-all [font-family:inherit] ${on ? "border-neutral-900 bg-emerald-50/50" : "border-transparent bg-neutral-50/70 hover:border-neutral-200 hover:bg-white"}`}>
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-xs font-semibold text-neutral-800">{t.label}</span>
+                    <t.Icon className={`h-4 w-4 shrink-0 ${urgent ? "text-amber-500" : "text-neutral-400"}`} />
+                  </span>
+                  <span className={`mt-2 block text-2xl font-bold tabular-nums leading-none ${urgent ? "text-amber-700" : "text-neutral-900"}`}>{value == null ? (t.key === "all" ? "All" : "...") : value}</span>
+                  <span className="mt-1 block truncate text-[11px] text-neutral-500">{hint[t.key]}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      {error ? <p className="m-0 text-sm text-red-700">{error}</p> : null}
+      <div className="space-y-3">        {view === "claims" ? <ClaimsList target={claim} /> : items === null ? (
           <div className="grid min-h-32 place-items-center text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
         ) : items.length === 0 ? (
           <div className="rounded-lg border border-solid border-slate-200 bg-white px-5 py-10 text-center">
@@ -179,8 +290,8 @@ function TenancyRows({ items, onOpen }: { items: Item[]; onOpen: (item: Item) =>
                 <p className="m-0 mt-0.5 text-xs text-slate-600">{STAY_LABEL[item.status] ?? item.status}</p>
               </div>
             </div>
-            <p className="m-0 hidden break-words text-sm text-slate-700 lg:block">{item.tenant.name || "—"}</p>
-            <p className="m-0 text-xs text-slate-600 lg:text-sm"><span className="lg:hidden">Move-in · </span>{day(item.moveInDate)}</p>
+            <p className="m-0 hidden break-words text-sm text-slate-700 lg:block">{item.tenant.name || "-"}</p>
+            <p className="m-0 text-xs text-slate-600 lg:text-sm"><span className="lg:hidden">Move-in Â· </span>{day(item.moveInDate)}</p>
             <div className="col-start-2 row-start-1 lg:col-start-auto lg:row-start-auto"><PayoutStatus status={item.payoutStatus} /></div>
             <button type="button" onClick={() => onOpen(item)} aria-haspopup="dialog" aria-label={`View tenancy for ${item.home || "long stay"}`} className="inline-flex min-h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-solid border-[#cde2d8] bg-white px-2.5 text-xs font-semibold text-[#215b50] hover:bg-[#edf6f2] focus-visible:outline-2 focus-visible:outline-[#02665e]">
               View <ArrowUpRight className="size-3.5" aria-hidden />
@@ -263,8 +374,11 @@ function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () =
           <div className="flex min-w-0 items-start gap-3">
             <span className="grid size-10 shrink-0 place-items-center rounded-md bg-white/10 text-emerald-200"><Home className="size-4" aria-hidden /></span>
             <div className="min-w-0">
-              <h2 className="m-0 break-words text-xl font-bold tracking-tight text-white sm:text-2xl">{item.home || "Long stay"}</h2>
-              <p className="m-0 mt-1 font-mono text-xs text-white/75 [overflow-wrap:anywhere]">{item.ref}</p>
+              <h2 className="m-0 break-words text-xl font-bold tracking-tight text-white sm:text-2xl">{softenCaps(item.home) || "Long stay"}</h2>
+              <p className="m-0 mt-1 text-[13px] text-white/75">
+                {item.area ? `${item.area} Â· ` : ""}{item.monthlyRent != null ? `${money(item.monthlyRent, item.currency)} a month` : ""}{item.termMonths ? ` Â· ${item.termMonths} months` : ""}
+              </p>
+              <p className="m-0 mt-0.5 font-mono text-[11px] text-white/50 [overflow-wrap:anywhere]">{item.ref}</p>
             </div>
           </div>
           {onClose && <button type="button" onClick={onClose} aria-label="Close tenancy" className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-md border border-solid border-white/20 bg-white/5 text-white hover:bg-white/15"><X className="size-4" aria-hidden /></button>}
@@ -272,28 +386,72 @@ function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () =
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white">{STAY_LABEL[item.status] ?? item.status}</span>
           <PayoutStatus status={item.payoutStatus} />
+          {(() => {
+            const d = ["RESERVED", "MOVE_IN", "AWAITING_PAYMENT", "ACCEPTED", "OFFERED"].includes(item.status) ? daysFromToday(item.moveInDate) : null;
+            return d == null ? null : (
+              <span className="rounded-md bg-emerald-400/15 px-2 py-1 text-xs font-semibold text-emerald-100">
+                {d > 0 ? `Moves in in ${d} ${d === 1 ? "day" : "days"}` : d === 0 ? "Moves in today" : `Move-in was ${-d} ${d === -1 ? "day" : "days"} ago`}
+              </span>
+            );
+          })()}
         </div>
       </header>
-      <div className="grid gap-3 p-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+
+      <Journey item={item} />
+
+      <div className="grid gap-3 p-4 sm:p-5 lg:grid-cols-3">
+        {/* People */}
         <section className="min-w-0 rounded-lg border border-solid border-slate-200 p-3.5">
-          <h3 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><Users className="size-4 text-[#02665e]" aria-hidden />People and move-in</h3>
-          <dl className="m-0 mt-3 grid grid-cols-2 gap-3">
-            <Fact label="Landlord" value={item.landlord.name || "—"} phone={item.landlord.phone} />
-            <Fact label="Tenant" value={item.tenant.name || "—"} phone={item.tenant.phone} />
-            <Fact label="Move-in" value={day(item.moveInDate)} sub={item.termMonths ? `${item.termMonths} ${item.termMonths === 1 ? "month" : "months"}` : null} />
-            {item.moveInConfirmedBy && <Fact label="Confirmed by" value={item.moveInConfirmedBy === "BOTH" ? "Both parties" : item.moveInConfirmedBy === "ADMIN" ? "NoLSAF" : "One party after 72 hours"} />}
+          <h3 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><Users className="size-4 text-[#02665e]" aria-hidden />People</h3>
+          <dl className="m-0 mt-3 space-y-3">
+            <Fact label="Landlord" value={softenCaps(item.landlord.name) || "-"} phone={item.landlord.phone} />
+            <div>
+              <Fact label="Tenant" value={softenCaps(item.tenant.name) || "-"} phone={item.tenant.phone} />
+              {item.tenantId ? (
+                <span className={`mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${item.tenantId.status === "APPROVED" ? "bg-emerald-50 text-emerald-800" : item.tenantId.status === "PENDING" ? "bg-amber-50 text-amber-800" : "bg-rose-50 text-rose-700"}`}>
+                  <ShieldCheck className="size-3" aria-hidden />
+                  ID {item.tenantId.status === "APPROVED" ? "verified" : item.tenantId.status.toLowerCase()} Â· {item.tenantId.idType === "PASSPORT" ? "Passport" : item.tenantId.idType === "RES_PERMIT" ? "Residence permit" : "National ID"}
+                  {item.tenantId.expiresOn ? ` Â· to ${day(item.tenantId.expiresOn)}` : ""}
+                </span>
+              ) : <span className="mt-1.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">No long-stay ID on file</span>}
+            </div>
+            <Fact label="Stay" value={`${day(item.moveInDate)} to ${day(item.endDate ?? null)}`} sub={item.termMonths ? `${item.termMonths} months${item.upfrontMonths ? `, ${item.upfrontMonths} prepaid` : ""}` : null} />
           </dl>
         </section>
+
+        {/* Money */}
         <section className="min-w-0 rounded-lg border border-solid border-[#d9e7e2] bg-[#f5f9f7] p-3.5">
-          <h3 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><Wallet className="size-4 text-[#02665e]" aria-hidden />Payment breakdown</h3>
-          <dl className="m-0 mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Fact label="Paid to NoLSAF" value={money(item.paidAmount, item.currency)} />
-            <Fact label="Rent due at move-in" value={money(item.balanceDue, item.currency)} />
-            <Fact label="Landlord payout" value={money(item.landlordPayout, item.currency)} strong sub={item.payoutReleasedAt ? `Sent ${day(item.payoutReleasedAt)}` : null} />
-            {item.landlordBalanceAmount != null && <Fact label="Landlord confirmed" value={money(item.landlordBalanceAmount, item.currency)} warn={item.balanceMismatch && item.landlordBalanceAmount !== item.balanceDue} />}
-            {item.tenantBalanceAmount != null && <Fact label="Tenant confirmed" value={money(item.tenantBalanceAmount, item.currency)} warn={item.balanceMismatch && item.tenantBalanceAmount !== item.balanceDue} />}
+          <h3 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><Wallet className="size-4 text-[#02665e]" aria-hidden />Money</h3>
+          <dl className="m-0 mt-3 space-y-1.5 text-[13px]">
+            <MoneyRow label="Monthly rent" value={money(item.monthlyRent, item.currency)} />
+            <MoneyRow label="Tenant paid NoLSAF (card)" value={money(item.paidAmount ?? item.bookingAmount, item.currency)} sub={item.timeline?.paidAt ? `Paid ${whenEat(item.timeline.paidAt)}` : item.timeline?.paymentDueAt ? `Due ${whenEat(item.timeline.paymentDueAt)}` : "Not paid yet"} />
+            <MoneyRow label="of which tenant fee" value={money(item.tenantFee, item.currency)} muted />
+            <MoneyRow label="Rent due to landlord at move-in" value={money(item.balanceDue, item.currency)} />
+            <div className="my-1.5 border-0 border-t border-dashed border-[#cfe0da]" />
+            <MoneyRow label="First month held" value={money(item.monthlyRent, item.currency)} muted />
+            <MoneyRow label="less landlord commission" value={item.landlordCommission != null ? `- ${money(item.landlordCommission, item.currency)}` : "-"} muted />
+            {item.payoutDeduction ? <MoneyRow label="less recovered for claims" value={`- ${money(item.payoutDeduction, item.currency)}`} muted /> : null}
+            <MoneyRow label="Landlord payout" value={money(item.landlordPayout, item.currency)} strong sub={item.payoutReleasedAt ? `Sent ${day(item.payoutReleasedAt)}` : PAYOUT_LABEL[item.payoutStatus] ?? item.payoutStatus} />
+            {item.tenantFee != null && item.landlordCommission != null ? (
+              <MoneyRow label="NoLSAF keeps" value={money(item.tenantFee + item.landlordCommission, item.currency)} brand />
+            ) : null}
           </dl>
-          {item.balanceMismatch && <p role="status" className="m-0 mt-3 flex items-start gap-1.5 rounded-md bg-amber-50 p-2 text-xs font-semibold text-amber-900"><AlertTriangle className="size-4 shrink-0" aria-hidden />The reported balance differs from the lease. Check with both parties before paying.</p>}
+        </section>
+
+        {/* Lease and move-in checks */}
+        <section className="min-w-0 rounded-lg border border-solid border-slate-200 p-3.5">
+          <h3 className="m-0 flex items-center gap-2 text-sm font-bold text-slate-950"><KeyRound className="size-4 text-[#02665e]" aria-hidden />Lease and move-in</h3>
+          <ul className="m-0 mt-3 list-none space-y-2 p-0 text-[12.5px]">
+            <Check ok={Boolean(item.timeline?.landlordLeaseAcceptedAt)} label="Landlord signed the lease" when={whenEat(item.timeline?.landlordLeaseAcceptedAt)} />
+            <Check ok={Boolean(item.timeline?.tenantLeaseAcceptedAt)} label="Tenant signed the lease" when={whenEat(item.timeline?.tenantLeaseAcceptedAt)} />
+            {item.leaseVersion ? <li className="pl-6 text-[11.5px] text-slate-500">Version {item.leaseVersion}{item.leaseFingerprint ? ` Â· fingerprint ${item.leaseFingerprint}` : ""}</li> : null}
+            <Check ok={Boolean(item.timeline?.landlordConfirmedAt)} label={`Landlord received the balance${item.moveIn?.landlordMethod ? ` (${item.moveIn.landlordMethod === "BANK" ? "bank" : "mobile money"})` : ""}`} when={whenEat(item.timeline?.landlordConfirmedAt)} warn={item.balanceMismatch && item.landlordBalanceAmount != null && item.landlordBalanceAmount !== item.balanceDue ? money(item.landlordBalanceAmount, item.currency) : undefined} />
+            <Check ok={Boolean(item.timeline?.tenantConfirmedAt)} label={`Tenant paid the balance${item.moveIn?.tenantMethod ? ` (${item.moveIn.tenantMethod === "BANK" ? "bank" : "mobile money"})` : ""}`} when={whenEat(item.timeline?.tenantConfirmedAt)} warn={item.balanceMismatch && item.tenantBalanceAmount != null && item.tenantBalanceAmount !== item.balanceDue ? money(item.tenantBalanceAmount, item.currency) : undefined} />
+            <Check ok={item.moveIn?.keysReceived === true} bad={item.moveIn?.keysReceived === false} label="Keys handed over" />
+            <Check ok={item.moveIn?.matchesListing === true} bad={item.moveIn?.matchesListing === false} label="Home matches the listing" />
+            {item.moveInConfirmedBy ? <li className="pl-6 text-[11.5px] text-slate-500">Move-in confirmed by {item.moveInConfirmedBy === "BOTH" ? "both parties" : item.moveInConfirmedBy === "ADMIN" ? "NoLSAF" : "one party after 72 hours"}</li> : null}
+          </ul>
+          {item.balanceMismatch && <p role="status" className="m-0 mt-3 flex items-start gap-1.5 rounded-md bg-amber-50 p-2 text-xs font-semibold text-amber-900"><AlertTriangle className="size-4 shrink-0" aria-hidden />The reported balance differs from the lease ({money(item.balanceDue, item.currency)}). Check with both parties before paying.</p>}
         </section>
       </div>
 
@@ -329,7 +487,7 @@ function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () =
           </label>
           <label className="flex items-start gap-2 text-xs text-slate-700 sm:col-span-2">
             <input type="checkbox" checked={reinspect} onChange={(e) => setReinspect(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#02665e]" />
-            End this home’s current inspection and request another visit. New reservations pause until the home passes again.
+            End this homeâ€™s current inspection and request another visit. New reservations pause until the home passes again.
           </label>
           <div className="flex gap-2 sm:col-span-2">
             <button type="button" disabled={busy || note.trim().length < 10} onClick={() => call("resolve", { to, payout, note: note.trim(), reinspect }, "Decision saved.")} className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}>Save decision</button>
@@ -378,7 +536,7 @@ function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () =
                 return (
                   <li key={`${event.createdAt}:${index}`} className="grid gap-x-3 gap-y-1 px-3.5 py-2.5 sm:grid-cols-[minmax(0,1fr)_10rem]">
                     <div className="min-w-0">
-                      <p className="m-0 text-sm font-semibold text-slate-900 first-letter:uppercase">{title} <span className="ml-1 text-xs font-medium capitalize text-slate-600">· {actor}</span></p>
+                      <p className="m-0 text-sm font-semibold text-slate-900 first-letter:uppercase">{title} <span className="ml-1 text-xs font-medium capitalize text-slate-600">Â· {actor}</span></p>
                       {(event.data?.reason || event.data?.note) && <p className="m-0 mt-1 break-words text-xs text-slate-600">{event.data.reason || event.data.note}</p>}
                     </div>
                     <time dateTime={event.createdAt} className="flex items-center gap-1.5 text-xs tabular-nums text-slate-600"><CalendarDays className="size-3.5 shrink-0 text-[#02665e]" aria-hidden />{new Date(event.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT</time>
@@ -415,6 +573,33 @@ function Fact({ label, value, sub, phone, warn, strong }: { label: string; value
       {sub && <dd className="m-0 mt-0.5 text-xs text-slate-600">{sub}</dd>}
       {phone && <dd className="m-0 mt-0.5"><a href={`tel:${phone}`} className="inline-flex items-center gap-1 break-all text-xs font-medium text-[#02665e] no-underline hover:underline"><Phone className="size-3 shrink-0" aria-hidden />{phone}</a></dd>}
     </div>
+  );
+}
+
+function MoneyRow({ label, value, sub, muted, strong, brand }: { label: string; value: string; sub?: string | null; muted?: boolean; strong?: boolean; brand?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className={muted ? "pl-3 text-[12px] text-slate-500" : "text-slate-600"}>
+        {label}
+        {sub ? <span className="block text-[11px] text-slate-400">{sub}</span> : null}
+      </dt>
+      <dd className={`m-0 shrink-0 text-right tabular-nums ${strong ? "text-[15px] font-bold text-[#215b50]" : brand ? "font-semibold text-[#02665e]" : muted ? "text-[12px] text-slate-500" : "font-semibold text-slate-900"}`}>{value}</dd>
+    </div>
+  );
+}
+
+function Check({ ok, bad, label, when, warn }: { ok: boolean; bad?: boolean; label: string; when?: string | null; warn?: string }) {
+  return (
+    <li className="flex items-start gap-2">
+      <span className={`mt-px grid size-4 shrink-0 place-items-center rounded-full ${bad ? "bg-rose-100 text-rose-700" : ok ? "bg-emerald-100 text-emerald-700" : "border-2 border-solid border-slate-200 bg-white"}`}>
+        {bad ? <X className="size-2.5" aria-hidden /> : ok ? <CheckCircle2 className="size-3" aria-hidden /> : null}
+      </span>
+      <span className="min-w-0">
+        <span className={bad ? "font-semibold text-rose-700" : ok ? "text-slate-800" : "text-slate-400"}>{label}</span>
+        {warn ? <span className="ml-1 font-semibold text-amber-800">said {warn}</span> : null}
+        {when ? <span className="block text-[11px] text-slate-400">{when}</span> : null}
+      </span>
+    </li>
   );
 }
 

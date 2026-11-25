@@ -183,51 +183,95 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
 
   return (
     <section id="booking-card" aria-label="Long-stay terms and reservations" className="box-border min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
-      <header className="px-4 pb-4 pt-5 sm:px-5">
-        {reserved ? (
-          <div role="status" className="flex items-start gap-3 rounded-md border border-solid border-[#cfe2da] bg-[#edf6f2] px-3 py-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-white text-[#02665e]"><CalendarCheck className="size-4" aria-hidden /></span>
-            <div className="min-w-0">
-              <p className="m-0 text-sm font-bold text-[#164c44]">Reserved</p>
-              <p className="m-0 mt-0.5 text-xs leading-relaxed text-slate-700">This home is held for a reservation. New bookings are closed for now.</p>
-              {nextAvailable && <p className="m-0 mt-1.5 text-xs font-semibold text-[#215b50]">Expected availability from <time dateTime={nextAvailable}>{dayLabel(nextAvailable)}</time></p>}
+      <header className="px-4 pb-4 pt-4 sm:px-5">
+        {/* Availability: one slim strip. When reserved, how long until it frees up. */}
+        {reserved ? (() => {
+          const daysLeft = nextAvailable ? Math.max(0, Math.round((new Date(`${nextAvailable}T00:00:00Z`).getTime() - Date.now()) / 86_400_000)) : null;
+          const monthsLeft = daysLeft != null ? Math.round(daysLeft / 30.44) : null;
+          return (
+            <div role="status" className="rounded-md border border-solid border-[#cfe2da] bg-[#edf6f2] px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <Lock className="size-3.5 shrink-0 text-[#02665e]" aria-hidden />
+                <p className="m-0 flex-1 text-[13px] font-bold text-[#164c44]">Reserved by another tenant</p>
+                {nextAvailable ? <span className="rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-[#215b50]">{monthsLeft && monthsLeft >= 1 ? `in ${monthsLeft} ${monthsLeft === 1 ? "month" : "months"}` : `in ${daysLeft} days`}</span> : null}
+              </div>
+              <p className="m-0 mt-1 text-xs leading-5 text-slate-700">
+                {nextAvailable ? <>Free again from <time dateTime={nextAvailable} className="font-semibold text-[#164c44]">{dayLabel(nextAvailable)}</time>. Ask NoLSAF to hold your interest.</> : "New bookings are closed for now. Ask NoLSAF about the next opening."}
+              </p>
             </div>
-          </div>
+          );
+        })() : !longStay.open ? (
+          // Not bookable yet: say why, instead of "Available now" above a closed card.
+          <p className={`m-0 inline-flex items-center gap-2 rounded px-2 py-1 text-xs font-semibold ${longStay.inspected ? "bg-slate-100 text-slate-700" : "bg-amber-50 text-amber-800"}`}>
+            <span className={`size-1.5 shrink-0 rounded-full ${longStay.inspected ? "bg-slate-400" : "bg-amber-500"}`} aria-hidden />
+            {longStay.inspected ? "Reservations paused" : "Opens after NoLSAF's inspection"}
+          </p>
         ) : (
-          <p className={`m-0 flex items-center gap-2 text-xs font-semibold ${longStay.availableFrom ? "text-[#02665e]" : "text-slate-600"}`}>
+          <p className={`m-0 inline-flex items-center gap-2 rounded px-2 py-1 text-xs font-semibold ${longStay.availableFrom ? "bg-[#edf6f2] text-[#02665e]" : "bg-slate-100 text-slate-600"}`}>
             <span className={`size-1.5 shrink-0 rounded-full ${longStay.availableFrom ? "bg-[#02665e]" : "bg-slate-400"}`} aria-hidden />
             {longStay.availableFrom ? (longStay.availableNow ? "Available now" : `Available from ${dayLabel(longStay.availableFrom)}`) : "Currently let"}
           </p>
         )}
-        <div className="mt-2.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <h2 className="m-0 min-w-0 text-[clamp(1.75rem,5vw,2.375rem)] font-bold leading-tight tracking-tight text-slate-950 tabular-nums [overflow-wrap:anywhere]">{money(longStay.monthlyRent, longStay.currency)}</h2>
-          <span className="text-sm text-slate-600">per month</span>
+
+        {/* Price */}
+        <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <h2 className="m-0 min-w-0 text-[clamp(1.75rem,5vw,2.25rem)] font-bold leading-none tracking-tight text-slate-950 tabular-nums [overflow-wrap:anywhere]">{money(longStay.monthlyRent, longStay.currency)}</h2>
+          <span className="text-sm text-slate-500">/ month</span>
         </div>
         {d6 || d12 ? (
-          <p className="m-0 mt-2 text-xs font-semibold text-[#02665e]">{[d6 ? `${d6}% off for 6+ months` : null, d12 ? `${d12}% off for 12 months` : null].filter(Boolean).join(" · ")}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {d6 ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-[#02665e]">{d6}% off 6+ months</span> : null}
+            {d12 ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-[#02665e]">{d12}% off 12 months</span> : null}
+          </div>
         ) : null}
-        <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1.5 text-xs font-medium text-slate-600">
-          <span className="inline-flex items-center gap-1.5"><CalendarRange className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden />{stayLength}</span>
-          <span className="inline-flex items-center gap-1.5"><Armchair className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden />{FURNISHED[longStay.furnished]}</span>
-          {longStay.inspected?.inspectedOn ? (
-            <span className="inline-flex items-center gap-1.5 text-[#02665e]" title={`Visited on ${dayLabel(longStay.inspected.inspectedOn)}`}><BadgeCheck className="h-4 w-4 shrink-0" aria-hidden />Inspected by NoLSAF</span>
-          ) : null}
-        </div>
+
+        {/* Key facts as one row of chips */}
+        <ul className="m-0 mt-3 flex list-none flex-wrap gap-1.5 p-0 text-[12px] font-medium text-slate-700">
+          <li className="inline-flex items-center gap-1.5 rounded border border-solid border-slate-200 px-2 py-1"><CalendarRange className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden />{stayLength}</li>
+          <li className="inline-flex items-center gap-1.5 rounded border border-solid border-slate-200 px-2 py-1"><Armchair className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden />{FURNISHED[longStay.furnished]}</li>
+          {longStay.inspected?.inspectedOn ? (() => {
+            const checks = longStay.inspectionReport?.checks ?? [];
+            const applicable = checks.filter((c) => c.result !== "NA");
+            const score = applicable.length ? Math.round((applicable.filter((c) => c.result === "PASS").length / applicable.length) * 100) : null;
+            return (
+              <li>
+                <a href="#long-stay-inspection" title={`Visited on ${dayLabel(longStay.inspected.inspectedOn)}`}
+                  className="inline-flex items-center gap-1.5 rounded border border-solid border-[#cfe2da] bg-[#edf6f2] px-2 py-1 font-semibold text-[#02665e] no-underline hover:underline">
+                  <BadgeCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />Inspected{score != null ? ` · ${score}/100` : " by NoLSAF"}
+                </a>
+              </li>
+            );
+          })() : null}
+        </ul>
       </header>
 
       <div className="space-y-3 px-4 pb-4 sm:px-5">
-        <dl className="m-0 grid grid-cols-[repeat(auto-fit,minmax(min(100%,7.5rem),1fr))] gap-2">
-          <div className="min-w-0 rounded-md border border-solid border-slate-200 bg-slate-50/70 px-3 py-2.5">
-            <dt className="text-xs font-medium text-slate-600">Rent paid upfront</dt>
-            <dd className="m-0 mt-1 text-[15px] font-semibold text-slate-950">{longStay.upfrontMonths} {longStay.upfrontMonths === 1 ? "month" : "months"}</dd>
-            <dd className="m-0 mt-0.5 text-[11px] text-slate-500">Includes the first month</dd>
-          </div>
-          <div className="min-w-0 rounded-md border border-solid border-slate-200 bg-slate-50/70 px-3 py-2.5">
-            <dt className="text-xs font-medium text-slate-600">Security deposit</dt>
-            <dd className="m-0 mt-1 break-words text-[15px] font-semibold tabular-nums text-slate-950">{deposit}</dd>
-            {longStay.securityDepositMonths > 0 ? <dd className="m-0 mt-0.5 text-[11px] text-slate-500">Pay to landlord</dd> : null}
-          </div>
-        </dl>
+        {/* What moving in costs, before any fee */}
+        {(() => {
+          const upfrontTotal = longStay.monthlyRent * longStay.upfrontMonths;
+          const depositValue = longStay.securityDepositMonths ? (longStay.depositAmount ?? longStay.monthlyRent * longStay.securityDepositMonths) : 0;
+          return (
+            <div className="overflow-hidden rounded-md border border-solid border-slate-200">
+              <dl className="m-0 grid grid-cols-2 divide-x divide-slate-200">
+                <div className="min-w-0 px-3 py-2.5">
+                  <dt className="text-[11.5px] font-medium text-slate-500">Rent paid upfront</dt>
+                  <dd className="m-0 mt-0.5 text-[15px] font-bold text-slate-950">{longStay.upfrontMonths} {longStay.upfrontMonths === 1 ? "month" : "months"}</dd>
+                  <dd className="m-0 text-[11px] tabular-nums text-slate-500">{money(upfrontTotal, longStay.currency)} in all</dd>
+                </div>
+                <div className="min-w-0 px-3 py-2.5">
+                  <dt className="text-[11.5px] font-medium text-slate-500">Security deposit</dt>
+                  <dd className="m-0 mt-0.5 break-words text-[15px] font-bold tabular-nums text-slate-950">{deposit}</dd>
+                  <dd className="m-0 text-[11px] text-slate-500">{longStay.securityDepositMonths ? "Held by the landlord" : "Nothing to hold back"}</dd>
+                </div>
+              </dl>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-2 border-0 border-t border-solid border-slate-200 bg-slate-50 px-3 py-2">
+                <span className="text-[12px] text-slate-600">To move in</span>
+                <span className="text-[13px] font-bold tabular-nums text-slate-900">{money(upfrontTotal + depositValue, longStay.currency)}<span className="ml-1 text-[11px] font-normal text-slate-500">+ service fee</span></span>
+              </div>
+              <p className="m-0 border-0 border-t border-solid border-slate-100 px-3 py-1.5 text-[11px] leading-4 text-slate-500">First month through NoLSAF by card; the rest to the landlord on move-in day, after you see the home.</p>
+            </div>
+          );
+        })()}
 
         {done?.kind === "reserved" ? (
           <div className="rounded-md border border-solid border-emerald-200 bg-emerald-50/60 p-3 text-[13px] text-emerald-900">
@@ -241,15 +285,38 @@ export default function LongStayRequestCard({ propertySlug, propertyTitle, longS
             <p className="m-0 mt-1 text-emerald-800">{mode === "visit" ? "NoLSAF arranges the visit and a Sales Partner goes with you." : "NoLSAF answers, asking the landlord where needed."} You will get a notice in Long stays.</p>
           </div>
         ) : !longStay.open ? (
-          <div className={`flex items-start gap-2.5 rounded-md border border-solid px-3 py-2.5 text-[13px] text-slate-900 ${longStay.inspected ? "border-slate-200 bg-slate-50" : "border-[#eedfc0] bg-[#fcf8ee]"}`}>
-            <span className={`grid size-7 shrink-0 place-items-center rounded-sm ${longStay.inspected ? "bg-slate-100 text-slate-600" : "bg-[#f5ead2] text-amber-800"}`}>
-              <CalendarCheck className="size-4" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <p className="m-0 font-semibold">{longStay.inspected ? "Reservations are closed for now" : "Inspection pending"}</p>
-              {!longStay.inspected ? <p className="m-0 mt-0.5 text-xs leading-relaxed text-slate-600">Reservations are closed while NoLSAF checks this home.</p> : null}
+          longStay.inspected ? (
+            <div className="rounded-md border border-solid border-slate-200 bg-slate-50 px-3 py-2.5">
+              <p className="m-0 flex items-center gap-2 text-[13px] font-semibold text-slate-900"><Lock className="size-3.5 text-slate-500" aria-hidden />Reservations are paused for now</p>
+              <p className="m-0 mt-1 text-xs leading-5 text-slate-600">This home passed NoLSAF&apos;s inspection. Ask NoLSAF when it opens again.</p>
             </div>
-          </div>
+          ) : (
+            /* Before the visit: show where the home is in NoLSAF's check, step by step */
+            <div className="overflow-hidden rounded-md border border-solid border-amber-200">
+              <div className="flex items-center gap-2 bg-amber-50 px-3 py-2">
+                <BadgeCheck className="size-4 shrink-0 text-amber-700" aria-hidden />
+                <p className="m-0 text-[13px] font-semibold text-amber-950">Waiting for NoLSAF&apos;s inspection</p>
+              </div>
+              <ol className="m-0 list-none space-y-2.5 bg-white p-3">
+                {[
+                  { label: "A Sales Partner visits the home", detail: "Checks it matches the listing, in person", state: longStay.inspectionReport?.status === "IN_REVIEW" ? "done" : "now" },
+                  { label: "NoLSAF reviews the report", detail: "Photos, location and 12 checks", state: longStay.inspectionReport?.status === "IN_REVIEW" ? "now" : "next" },
+                  { label: "Reservations open", detail: "You can reserve at the listed terms", state: "next" },
+                ].map((s, i) => (
+                  <li key={s.label} className="flex items-start gap-2.5">
+                    <span className={`mt-px grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-bold ${s.state === "done" ? "bg-[#02665e] text-white" : s.state === "now" ? "border-2 border-solid border-amber-500 bg-white text-amber-700" : "bg-slate-100 text-slate-400"}`}>
+                      {s.state === "done" ? <Check className="size-3" aria-hidden /> : i + 1}
+                    </span>
+                    <span className="min-w-0">
+                      <span className={`block text-[12.5px] font-semibold ${s.state === "next" ? "text-slate-500" : "text-slate-900"}`}>{s.label}{s.state === "now" ? <span className="ml-1.5 rounded bg-amber-50 px-1 text-[10.5px] font-semibold text-amber-800">Now</span> : null}</span>
+                      <span className="block text-[11.5px] text-slate-500">{s.detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              <p className="m-0 border-0 border-t border-solid border-slate-100 bg-slate-50 px-3 py-2 text-[11.5px] leading-4 text-slate-600">Once a partner is assigned they have 5 days to visit. Check back here for the result.</p>
+            </div>
+          )
         ) : (
           <div>
             <div className="flex gap-1 rounded-md border border-solid border-slate-200 bg-slate-50 p-1" role="group" aria-label="What would you like to do?">

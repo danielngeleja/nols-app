@@ -1,6 +1,9 @@
 /**
  * Admin side of long-stay rentals (docs/LONG_STAY_RENTALS.md, decision 7).
  *
+ * GET  /api/admin/long-stay/overview                   the program dashboard: queues, pipeline, money, next move-ins
+ * GET  /api/admin/long-stay/payments?view=&q=           the payments ledger: paid, split, balance, remaining, risk
+ * GET  /api/admin/long-stay/payments/:ref/events        card attempts and money events on one tenancy
  * GET  /api/admin/long-stay/landlords/:ownerId          the landlord's switch and long-stay listings
  * POST /api/admin/long-stay/landlords/:ownerId          ENABLE | DISABLE | PAUSE | RESUME
  * GET  /api/admin/long-stay/properties/:propertyId      a listing's monthly terms, fee preview, living rules and its
@@ -34,7 +37,7 @@ import { hasWorkspaceAccess, loadSalesPartnerContext } from "../middleware/sales
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { audit, auditOrThrow } from "../lib/audit.js";
 import { sanitizeText } from "../lib/sanitize.js";
-import { computeLongStayQuote } from "../lib/longStay/fees.js";
+import { computeLongStayQuote, longStayOpen } from "../lib/longStay/fees.js";
 import { currentLongStayRates, landlordGate, rentForTerm, rowToTerms, todayInEat } from "../lib/longStay/listing.js";
 import { assignInspection, CHECKLIST, endInspectionAfterDispute, InspectionError, inspectionCurrent, inspectionEvidence, isInspectionRef, latestPassedInspection, longStayInspectionRequiredForApproval, requestInspection, reviewInspection, reviewSchema as inspectionReviewSchema } from "../lib/longStay/inspection.js";
 import { answerSchema as enquiryAnswerSchema, isEnquiryRef } from "../lib/longStay/enquiry.js";
@@ -52,6 +55,8 @@ import { requestDisbursement } from "../services/payouts/ledger.js";
 import { houseRulesOf } from "../lib/longStay/offerService.js";
 import { LEASE_VERSION } from "../lib/longStay/lease.js";
 import { sampleLeaseText } from "../lib/longStay/leasePreview.js";
+import { ledgerRow } from "../lib/longStay/paymentLedger.js";
+import { gatewayFeeRates } from "../lib/gatewayFees.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -665,11 +670,21 @@ router.get("/tenancies", asyncHandler(async (req: AuthedRequest, res: Response) 
     orderBy: { updatedAt: "desc" },
     take: 100,
     include: {
-      property: { select: { title: true } },
+      property: { select: { title: true, district: true, regionName: true, type: true } },
       landlord: { select: { name: true, fullName: true, phone: true } },
       tenant: { select: { name: true, fullName: true, phone: true } },
     },
   });
+  // Tenant ID status for each tenant on the page (one query).
+  const tenantIdStatus = new Map<number, { status: string; idType: string; expiresOn: string | null }>();
+  try {
+    const profiles = await prisma.longStayTenantProfile.findMany({
+      where: { userId: { in: [...new Set(rows.map((t: any) => t.tenantId))] } },
+      select: { userId: true, status: true, idType: true, idExpiresOn: true },
+    });
+    for (const p of profiles) tenantIdStatus.set(p.userId, { status: p.status, idType: p.idType, expiresOn: p.idExpiresOn ? p.idExpiresOn.toISOString().slice(0, 10) : null });
+  } catch { /* profile table not migrated: show without */ }
+  const iso = (v: Date | null | undefined) => (v ? new Date(v).toISOString() : null);
   // Counts for the header and tabs, from the same filters as the views.
   const countKeys = Object.keys(TENANCY_VIEWS).filter((k) => k !== "all");
   const [viewCounts, openClaims] = await Promise.all([
@@ -698,6 +713,39 @@ router.get("/tenancies", asyncHandler(async (req: AuthedRequest, res: Response) 
       landlordPayout: landlordPayoutOf(t),
       payoutReleasedAt: t.payoutReleasedAt,
       disputedAt: t.disputedAt,
+      // The fuller picture for the tenancy card.
+      area: [t.property?.district, t.property?.regionName].filter(Boolean).join(", "),
+      endDate: t.endDate ? new Date(t.endDate).toISOString().slice(0, 10) : null,
+      monthlyRent: t.monthlyRent != null ? Number(t.monthlyRent) : null,
+      upfrontMonths: t.upfrontMonths,
+      bookingAmount: t.bookingAmount != null ? Number(t.bookingAmount) : null,
+      tenantFee: t.tenantFee != null ? Number(t.tenantFee) : null,
+      landlordCommission: t.landlordCommission != null ? Number(t.landlordCommission) : null,
+      payoutDeduction: t.payoutDeduction != null ? Number(t.payoutDeduction) : null,
+      timeline: {
+        offeredAt: iso(t.offeredAt),
+        offerAcceptedAt: iso(t.offerAcceptedAt),
+        landlordLeaseAcceptedAt: iso(t.landlordLeaseAcceptedAt),
+        tenantLeaseAcceptedAt: iso(t.tenantLeaseAcceptedAt),
+        paymentDueAt: iso(t.paymentDueAt),
+        paidAt: iso(t.paidAt),
+        landlordConfirmedAt: iso(t.landlordConfirmedAt),
+        tenantConfirmedAt: iso(t.tenantConfirmedAt),
+        moveInConfirmedAt: iso(t.moveInConfirmedAt),
+        noticeGivenAt: iso(t.noticeGivenAt),
+        endedAt: iso(t.endedAt),
+        cancelledAt: iso(t.cancelledAt),
+      },
+      leaseVersion: t.leaseVersion ?? null,
+      leaseFingerprint: t.leaseHash ? String(t.leaseHash).slice(0, 12) : null,
+      moveIn: {
+        landlordMethod: t.landlordBalanceMethod ?? null,
+        tenantMethod: t.tenantBalanceMethod ?? null,
+        keysReceived: t.tenantKeysReceived ?? null,
+        matchesListing: t.tenantMatchesListing ?? null,
+      },
+      cancel: t.cancelledAt ? { by: t.cancelledBy ?? null, reason: t.cancelReason ?? null } : null,
+      tenantId: tenantIdStatus.get(t.tenantId) ?? null,
     })),
   });
 }) as RequestHandler);
@@ -1042,6 +1090,221 @@ router.get("/properties/:id", asyncHandler(async (req: AuthedRequest, res: Respo
   }
   res.setHeader("Cache-Control", "private, no-store");
   return res.json({ rentalMode: "LONG_STAY", terms, quote, landlord: await landlordGate(prisma, property.ownerId), ...longStayExtra });
+}) as RequestHandler);
+
+/**
+ * The long-stay program at a glance, for /admin/long-stay: what waits on an
+ * admin, the pipeline of tenancies, homes and inspections, money held and
+ * earned, and the next move-ins. Counts only; every list links to its page.
+ */
+router.get("/overview", asyncHandler(async (_req: AuthedRequest, res: Response) => {
+  const db = prisma as any;
+  const now = new Date();
+  const in14 = new Date(now.getTime() + 14 * 86_400_000);
+  const group = async (model: string, by: string, where: any = {}) => {
+    try {
+      const rows = await db[model].groupBy({ by: [by], where, _count: { _all: true } });
+      return Object.fromEntries(rows.map((r: any) => [String(r[by]), r._count._all])) as Record<string, number>;
+    } catch {
+      return {} as Record<string, number>;
+    }
+  };
+  const safeCount = async (model: string, where: any) => { try { return await db[model].count({ where }); } catch { return 0; } };
+
+  const [tenancies, payouts, inspections, tenantIds, listings, enquiries, claims, overdueVisits, landlordsOn, landlordsPaused, mismatches] = await Promise.all([
+    group("tenancy", "status"),
+    group("tenancy", "payoutStatus", { payoutStatus: { in: ["HELD", "READY", "REVIEW"] } }),
+    group("longStayInspection", "status"),
+    group("longStayTenantProfile", "status"),
+    group("property", "status", { rentalMode: "LONG_STAY" }),
+    group("longStayEnquiry", "status"),
+    group("tenancyClaim", "status"),
+    safeCount("longStayInspection", { status: "ASSIGNED", dueBy: { lt: now } }),
+    safeCount("longStayLandlordGrant", { pausedAt: null }),
+    safeCount("longStayLandlordGrant", { pausedAt: { not: null } }),
+    safeCount("tenancy", { balanceMismatch: true, status: { notIn: ["CANCELLED", "ENDED"] } }),
+  ]);
+
+  // Money by currency: held now (paid, payout not released) and earned (fees on moved-in tenancies).
+  let money: Array<{ currency: string; held: number; earned: number; rentUnderLease: number }> = [];
+  try {
+    const rows = await db.tenancy.findMany({
+      where: { paidAt: { not: null } },
+      select: { currency: true, bookingAmount: true, tenantFee: true, landlordCommission: true, monthlyRent: true, termMonths: true, payoutStatus: true, moveInConfirmedAt: true, status: true },
+      take: 5000,
+    });
+    const byCur = new Map<string, { currency: string; held: number; earned: number; rentUnderLease: number }>();
+    for (const r of rows) {
+      const m = byCur.get(r.currency) ?? { currency: r.currency, held: 0, earned: 0, rentUnderLease: 0 };
+      if (["HELD", "READY", "REVIEW"].includes(r.payoutStatus)) m.held += Number(r.bookingAmount ?? 0);
+      if (r.moveInConfirmedAt) m.earned += Number(r.tenantFee ?? 0) + Number(r.landlordCommission ?? 0);
+      if (r.status !== "CANCELLED") m.rentUnderLease += Number(r.monthlyRent ?? 0) * Number(r.termMonths ?? 0);
+      byCur.set(r.currency, m);
+    }
+    money = [...byCur.values()];
+  } catch { money = []; }
+
+  let moveIns: any[] = [];
+  try {
+    const rows = await db.tenancy.findMany({
+      where: { status: { in: ["RESERVED", "MOVE_IN"] }, moveInDate: { lte: in14 } },
+      orderBy: { moveInDate: "asc" },
+      take: 8,
+      select: {
+        publicRef: true, status: true, moveInDate: true, termMonths: true, currency: true, monthlyRent: true,
+        property: { select: { title: true, district: true, regionName: true } },
+        tenant: { select: { name: true, fullName: true } },
+      },
+    });
+    moveIns = rows.map((r: any) => ({
+      ref: r.publicRef,
+      status: r.status,
+      moveInDate: r.moveInDate ? new Date(r.moveInDate).toISOString().slice(0, 10) : null,
+      termMonths: r.termMonths,
+      rent: r.monthlyRent != null ? { amount: Number(r.monthlyRent), currency: r.currency } : null,
+      home: r.property?.title ?? null,
+      area: [r.property?.district, r.property?.regionName].filter(Boolean).join(", "),
+      tenant: r.tenant?.fullName || r.tenant?.name || null,
+    }));
+  } catch { moveIns = []; }
+
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.json({
+    open: longStayOpen(),
+    landlords: { on: landlordsOn, paused: landlordsPaused },
+    listings,
+    tenancies,
+    payouts,
+    inspections: { ...inspections, OVERDUE: overdueVisits },
+    tenantIds,
+    enquiries,
+    claims,
+    mismatches,
+    money,
+    moveIns,
+  });
+}) as RequestHandler);
+
+const PAYMENT_VIEWS = ["all", "awaiting", "held", "release", "released", "refunds", "risk"] as const;
+type PaymentView = (typeof PAYMENT_VIEWS)[number];
+const inView = (row: ReturnType<typeof ledgerRow>, view: PaymentView) =>
+  view === "all" ? true
+    : view === "awaiting" ? ["AWAITING", "OVERDUE"].includes(row.stage)
+    : view === "held" ? row.stage === "HELD"
+    : view === "release" ? row.stage === "TO_RELEASE"
+    : view === "released" ? row.stage === "RELEASED"
+    : view === "refunds" ? ["REFUND_DUE", "REFUNDED"].includes(row.stage)
+    : row.risk.level !== "LOW";
+
+/**
+ * Every long-stay payment in one ledger: the card payment to NoLSAF, how it
+ * splits (fee, commission, card cost, payout), the balance paid to the
+ * landlord at move-in as each side confirmed it, what remains under the
+ * lease, and a risk assessment with its reasons. Read-only.
+ */
+router.get("/payments", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const view = (PAYMENT_VIEWS as readonly string[]).includes(String(req.query.view || "all")) ? (String(req.query.view || "all") as PaymentView) : "all";
+  const q = String(req.query.q || "").trim().toLowerCase().slice(0, 80);
+  const db = prisma as any;
+  const rows = await db.tenancy.findMany({
+    // Anything with money in it: a recorded payment (time or amount), a status
+    // only reachable by paying, a payout in progress, or a payment still owed.
+    where: {
+      OR: [
+        { paidAt: { not: null } },
+        { paidAmount: { not: null } },
+        { status: { in: ["AWAITING_PAYMENT", "RESERVED", "MOVE_IN", "ACTIVE", "ENDING", "ENDED", "DISPUTED", "OVERDUE"] } },
+        { payoutStatus: { notIn: ["NONE"] } },
+      ],
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 500,
+    include: {
+      property: { select: { title: true, district: true, regionName: true } },
+      landlord: { select: { name: true, fullName: true, phone: true } },
+      tenant: { select: { name: true, fullName: true, phone: true } },
+    },
+  });
+  const landlordIds = [...new Set<number>(rows.map((t: any) => t.landlordId))];
+  const tenantIds = [...new Set<number>(rows.map((t: any) => t.tenantId))];
+  const [paidBefore, paused, claims, profiles, rates] = await Promise.all([
+    db.tenancy.findMany({ where: { landlordId: { in: landlordIds }, payoutStatus: "RELEASED" }, select: { landlordId: true }, distinct: ["landlordId"] }).catch(() => []),
+    db.longStayLandlordGrant.findMany({ where: { userId: { in: landlordIds }, pausedAt: { not: null } }, select: { userId: true } }).catch(() => []),
+    db.tenancyClaim.groupBy({ by: ["landlordId"], where: { landlordId: { in: landlordIds }, status: { in: ["OPEN", "RECOVERING"] } }, _sum: { amount: true } }).catch(() => []),
+    db.longStayTenantProfile.findMany({ where: { userId: { in: tenantIds } }, select: { userId: true, idExpiresOn: true } }).catch(() => []),
+    gatewayFeeRates(),
+  ]);
+  const ctx = {
+    now: new Date(),
+    cardFeePercent: rates.CARD,
+    landlordsPaidBefore: new Set<number>(paidBefore.map((r: any) => r.landlordId)),
+    landlordsPaused: new Set<number>(paused.map((r: any) => r.userId)),
+    landlordOpenClaims: new Map<number, number>(claims.map((r: any) => [r.landlordId, Number(r._sum?.amount ?? 0)])),
+    tenantIdExpiry: new Map<number, string | null>(profiles.map((p: any) => [p.userId, p.idExpiresOn ? new Date(p.idExpiresOn).toISOString().slice(0, 10) : null])),
+  };
+  const all = rows.map((t: any) => ledgerRow(t, ctx, landlordPayoutOf(t)));
+  const counts = Object.fromEntries(PAYMENT_VIEWS.map((v) => [v, all.filter((r: any) => inView(r, v)).length]));
+  const matches = (r: any) => !q || [r.ref, r.home, r.tenant.name, r.landlord.name, r.booking.reference].some((v) => String(v || "").toLowerCase().includes(q));
+  const items = all.filter((r: any) => inView(r, view) && matches(r))
+    .sort((a: any, b: any) => (view === "risk" ? b.risk.score - a.risk.score : 0));
+
+  // Totals per currency over every row (not just this view).
+  const totals = new Map<string, any>();
+  for (const r of all) {
+    const m = totals.get(r.currency) ?? { currency: r.currency, collected: 0, held: 0, toRelease: 0, releasedToLandlords: 0, refundsDue: 0, nolsafKeeps: 0, cardFees: 0, balancesConfirmed: 0, remainingUnderLeases: 0, awaiting: 0 };
+    const paidIn = !["AWAITING", "OVERDUE", "LAPSED"].includes(r.stage) && r.booking.paid != null;
+    if (paidIn) m.collected += r.booking.paid ?? 0;
+    if (r.stage === "HELD") m.held += r.booking.paid ?? 0;
+    if (r.stage === "TO_RELEASE") m.toRelease += r.split.landlordPayout;
+    if (r.stage === "RELEASED") m.releasedToLandlords += r.split.landlordPayout - r.split.payoutDeduction;
+    if (r.stage === "REFUND_DUE") m.refundsDue += r.booking.paid ?? 0;
+    if (["AWAITING", "OVERDUE"].includes(r.stage)) m.awaiting += r.booking.expected ?? 0;
+    m.nolsafKeeps += r.split.nolsafKeeps;
+    if (paidIn && r.stage !== "REFUND_DUE" && r.stage !== "REFUNDED") m.cardFees += r.split.cardFee;
+    if (r.balance.state === "CONFIRMED") m.balancesConfirmed += r.balance.expected;
+    if (!["CANCELLED", "ENDED"].includes(r.status)) m.remainingUnderLeases += r.remaining.amount;
+    totals.set(r.currency, m);
+  }
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.json({ counts, totals: [...totals.values()], items });
+}) as RequestHandler);
+
+/** Every card attempt and money event on one tenancy, oldest first. */
+router.get("/payments/:ref/events", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const ref = String(req.params.ref);
+  if (!isTenancyRef(ref)) return res.status(404).json({ error: "Not found" });
+  const tenancy = await prisma.tenancy.findUnique({ where: { publicRef: ref }, select: { id: true, paymentRef: true } });
+  if (!tenancy) return res.status(404).json({ error: "Not found" });
+  const [gateway, money] = await Promise.all([
+    (prisma as any).paymentEvent.findMany({
+      where: { provider: "CORALCOMMERCE", payload: { path: "$.nolsafTenancyRef", equals: ref } },
+      orderBy: { createdAt: "asc" },
+      take: 50,
+      select: { eventId: true, status: true, rawStatus: true, amount: true, currency: true, paymentChannel: true, createdAt: true },
+    }).catch(() => []),
+    (prisma as any).tenancyEvent.findMany({
+      // Every event on the tenancy; the page labels the money ones and dims the rest.
+      where: { tenancyId: tenancy.id },
+      orderBy: { createdAt: "asc" },
+      take: 50,
+      select: { type: true, actorRole: true, toStatus: true, createdAt: true, data: true },
+    }).catch(() => []),
+  ]);
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.json({
+    reference: tenancy.paymentRef,
+    gateway: gateway.map((e: any) => ({
+      // Show only the end of the provider's id: enough to match a statement line.
+      eventId: `…${String(e.eventId).slice(-8)}`,
+      status: e.status,
+      rawStatus: e.rawStatus,
+      amount: Number(e.amount),
+      currency: e.currency,
+      channel: e.paymentChannel,
+      at: e.createdAt,
+    })),
+    money: money.map((e: any) => ({ type: e.type, actor: e.actorRole, toStatus: e.toStatus, at: e.createdAt, amount: e.data?.amount ?? null, note: e.data?.reason || e.data?.note || e.data?.reference || null })),
+  });
 }) as RequestHandler);
 
 /** The lease a tenant would sign for this listing, with sample names and dates (the landlord's own preview). */

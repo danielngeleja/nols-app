@@ -1,4 +1,4 @@
-import { CalendarCheck, Check, ChevronDown, CircleAlert, ClipboardList, House, Minus, ShieldCheck, X } from "lucide-react";
+import { BadgeCheck, CalendarCheck, Check, CircleAlert, ClipboardList, Droplets, House, Lock, Minus, ShieldCheck, Sofa, X } from "lucide-react";
 
 type CheckResult = "PASS" | "FAIL" | "NA" | null;
 type InspectionCheck = { key: string; label: string; required: boolean; result: CheckResult };
@@ -47,63 +47,104 @@ function InspectionProgress({ inReview }: { inReview: boolean }) {
   );
 }
 
-function Checklist({ title, checks }: { title: string; checks: InspectionCheck[] }) {
-  if (!checks.length) return null;
+/** The checklist grouped into what a tenant cares about. Unknown keys fall into "Other checks". */
+const THEMES: Array<{ key: string; title: string; blurb: string; Icon: typeof House; keys: string[] }> = [
+  { key: "real", title: "Real and as listed", blurb: "The home exists, is where it says, and may be let", Icon: BadgeCheck, keys: ["MATCHES_LISTING", "LOCATION", "RIGHT_TO_LET"] },
+  { key: "basics", title: "Everyday essentials", blurb: "Water, power, toilet and bathroom", Icon: Droplets, keys: ["WATER", "POWER", "SANITATION"] },
+  { key: "safe", title: "Safe and sound", blurb: "Locks, structure, wiring and fire risk", Icon: Lock, keys: ["SECURITY", "STRUCTURE", "SAFETY"] },
+  { key: "comfort", title: "Living comfort", blurb: "Access, furniture and bills as listed", Icon: Sofa, keys: ["ACCESS", "FURNISHING", "UTILITIES_AS_LISTED"] },
+];
+
+function grade(score: number) {
+  if (score >= 100) return { word: "Excellent", tone: "#02665e" };
+  if (score >= 90) return { word: "Very good", tone: "#02665e" };
+  if (score >= 75) return { word: "Good", tone: "#0f766e" };
+  return { word: "Fair", tone: "#b45309" };
+}
+
+function ScoreDial({ score, confirmed, applicable }: { score: number; confirmed: number; applicable: number }) {
+  const r = 44;
+  const circ = 2 * Math.PI * r;
+  const g = grade(score);
   return (
-    <div>
-      <h3 className="m-0 text-xs font-semibold text-slate-600">{title}</h3>
-      <ul className="m-0 mt-1.5 grid list-none gap-x-5 p-0 md:grid-cols-2">
-        {checks.map((check) => {
-          const result = check.result === "PASS" ? { Icon: Check, label: "Confirmed", color: "text-[#02665e]" }
-            : check.result === "FAIL" ? { Icon: X, label: "Not met", color: "text-amber-800" }
-            : { Icon: Minus, label: check.result === "NA" ? "Not applicable" : "Not recorded", color: "text-slate-600" };
-          return (
-            <li key={check.key} className="flex items-start gap-2 border-0 border-t border-solid border-slate-100 py-1.5 text-xs leading-5 text-slate-700">
-              <span title={result.label} className={`mt-0.5 grid size-4 shrink-0 place-items-center ${result.color}`}>
-                <result.Icon className="size-3.5" aria-hidden /><span className="sr-only">{result.label}</span>
-              </span>
-              <span className="min-w-0">{check.label}{check.result !== "PASS" && <span aria-hidden className={`ml-1.5 font-semibold ${result.color}`}>· {result.label}</span>}</span>
-            </li>
-          );
-        })}
-      </ul>
+    <div className="flex items-center gap-4">
+      <svg viewBox="0 0 108 108" className="h-[104px] w-[104px] shrink-0" role="img" aria-label={`Inspection score ${score} out of 100, ${g.word}`}>
+        <circle cx="54" cy="54" r={r} fill="none" stroke="#e7efec" strokeWidth="9" />
+        <circle cx="54" cy="54" r={r} fill="none" stroke={g.tone} strokeWidth="9" strokeLinecap="round" strokeDasharray={`${(score / 100) * circ} ${circ}`} transform="rotate(-90 54 54)" />
+        <text x="54" y="55" textAnchor="middle" style={{ fontSize: 26, fontWeight: 700, fill: "#0f172a" }}>{score}</text>
+        <text x="54" y="71" textAnchor="middle" style={{ fontSize: 9, fill: "#64748b" }}>out of 100</text>
+      </svg>
+      <div className="min-w-0">
+        <p className="m-0 text-[11px] font-semibold text-slate-500">Inspection score</p>
+        <p className="m-0 text-xl font-bold leading-tight" style={{ color: g.tone }}>{g.word}</p>
+        <p className="m-0 mt-1 text-[12.5px] leading-5 text-slate-600">{confirmed} of {applicable} checks confirmed in person by a NoLSAF Sales Partner, then reviewed by NoLSAF.</p>
+      </div>
     </div>
   );
 }
 
-function InspectionConfidence({ checks }: { checks: InspectionCheck[] }) {
-  const applicable = checks.filter((check) => check.result !== "NA");
-  if (!applicable.some((check) => check.result === "PASS" || check.result === "FAIL")) return null;
-
-  const confirmed = applicable.filter((check) => check.result === "PASS").length;
-  const score = Math.round((confirmed / applicable.length) * 100);
-  const groups = [
-    { label: "Required", items: applicable.filter((check) => check.required) },
-    { label: "Additional", items: applicable.filter((check) => !check.required) },
-  ];
-
+function ThemeCard({ title, blurb, Icon, checks }: { title: string; blurb: string; Icon: typeof House; checks: InspectionCheck[] }) {
+  const applicable = checks.filter((c) => c.result !== "NA");
+  const ok = applicable.filter((c) => c.result === "PASS").length;
+  const missed = applicable.filter((c) => c.result === "FAIL").length;
+  const all = applicable.length > 0 && ok === applicable.length;
   return (
-    <section aria-label="Inspection confidence" className="grid gap-3 bg-[#f2f7f5] px-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] sm:items-center sm:gap-5 sm:px-4">
-      <div className="flex items-center gap-3">
-        <span className="shrink-0 text-2xl font-bold leading-none tabular-nums tracking-tight text-[#07564d]">{score}%</span>
-        <div className="min-w-0">
-          <h3 className="m-0 text-sm font-semibold text-slate-950">Inspection confidence</h3>
-          <p className="m-0 mt-0.5 text-xs leading-4 text-slate-600">{confirmed} of {applicable.length} applicable checks confirmed at the visit</p>
+    <article className="flex min-w-0 flex-col rounded-md border border-solid border-slate-200 bg-white p-3.5">
+      <header className="flex items-start gap-2.5">
+        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md ${all ? "bg-emerald-50 text-[#02665e]" : missed ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"}`}><Icon className="h-4 w-4" aria-hidden /></span>
+        <div className="min-w-0 flex-1">
+          <h3 className="m-0 text-[13.5px] font-semibold text-slate-950">{title}</h3>
+          <p className="m-0 text-[11.5px] leading-4 text-slate-500">{blurb}</p>
         </div>
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${all ? "bg-emerald-50 text-[#02665e]" : missed ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
+          {applicable.length ? `${ok}/${applicable.length}` : "N/A"}
+        </span>
+      </header>
+      <div aria-hidden="true" className="mt-3 flex gap-1">
+        {applicable.map((c) => <span key={c.key} className={`h-1.5 flex-1 rounded-sm ${c.result === "PASS" ? "bg-[#238477]" : c.result === "FAIL" ? "bg-amber-500" : "bg-slate-200"}`} />)}
       </div>
-      <div className="min-w-0">
-        <div aria-hidden="true" className="flex gap-0.5 sm:gap-1">
-          {applicable.map(({ key, result }) => (
-            <span key={key} className={`h-2.5 min-w-0 flex-1 rounded-sm ${result === "PASS" ? "bg-[#238477]" : result === "FAIL" ? "bg-amber-500" : "border border-dashed border-slate-400 bg-white"}`} />
-          ))}
-        </div>
-        <ul aria-label="Confirmed checks by type" className="m-0 mt-1.5 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-xs text-slate-600">
-          {groups.filter(({ items }) => items.length > 0).map(({ label, items }) => (
-            <li key={label}>{label} <strong className="font-semibold tabular-nums text-slate-950">{items.filter((check) => check.result === "PASS").length} of {items.length}</strong></li>
-          ))}
-        </ul>
+      <ul className="m-0 mt-3 list-none space-y-1.5 p-0">
+        {checks.map((c) => {
+          const r = c.result === "PASS" ? { Icon: Check, cls: "bg-emerald-50 text-[#02665e]", label: "Confirmed" }
+            : c.result === "FAIL" ? { Icon: X, cls: "bg-amber-100 text-amber-800", label: "Not met" }
+            : { Icon: Minus, cls: "bg-slate-100 text-slate-400", label: c.result === "NA" ? "Not applicable" : "Not recorded" };
+          return (
+            <li key={c.key} className="flex items-start gap-2 text-[12.5px] leading-5">
+              <span title={r.label} className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded-full ${r.cls}`}><r.Icon className="size-2.5" aria-hidden /><span className="sr-only">{r.label}</span></span>
+              <span className={c.result === "FAIL" ? "text-amber-900" : c.result === "PASS" ? "text-slate-700" : "text-slate-400"}>
+                {c.label}{c.required ? "" : <span className="text-slate-400"> · extra</span>}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </article>
+  );
+}
+
+function Validity({ visitedOn, reviewedOn, validUntil }: { visitedOn?: string | null; reviewedOn?: string | null; validUntil?: string | null }) {
+  const start = reviewedOn || visitedOn;
+  const t = (d: string) => new Date(`${d}T00:00:00Z`).getTime();
+  const pct = start && validUntil ? Math.min(100, Math.max(0, ((Date.now() - t(start)) / (t(validUntil) - t(start))) * 100)) : null;
+  const monthsLeft = validUntil ? Math.max(0, Math.round((t(validUntil) - Date.now()) / (30.44 * 86_400_000))) : null;
+  return (
+    <div className="rounded-md bg-slate-50 px-3.5 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-[12px]">
+        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800"><CalendarCheck className="size-3.5 text-[#02665e]" aria-hidden />
+          {monthsLeft != null ? (monthsLeft > 0 ? `Valid for about ${monthsLeft} more ${monthsLeft === 1 ? "month" : "months"}` : "Due for its yearly re-check") : "Inspection dates"}
+        </span>
+        <span className="text-slate-500">Checked again every 12 months</span>
       </div>
-    </section>
+      {pct != null ? <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-[#238477]" style={{ width: `${pct}%` }} /></div> : null}
+      <dl className="m-0 mt-2 grid grid-cols-3 gap-2 text-[11.5px]">
+        {[["Visited", visitedOn], ["Reviewed", reviewedOn], ["Valid through", validUntil]].map(([label, d]) => (
+          <div key={label as string} className="min-w-0">
+            <dt className="text-slate-500">{label}</dt>
+            <dd className="m-0 font-semibold tabular-nums text-slate-900">{d ? <time dateTime={d as string}>{dayLabel.format(new Date(`${d}T00:00:00Z`))}</time> : "-"}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
@@ -113,16 +154,17 @@ export default function LongStayInspectionReport({ report, inspected }: {
 }) {
   const status = report?.status ?? (inspected ? "PASSED" : "PENDING");
   const copy = STATUS_COPY[status];
-  const dates = [
-    { label: report ? "Home visited" : "Last inspection", date: report ? report.visitedOn : inspected?.inspectedOn },
-    { label: "Reviewed by NoLSAF", date: report?.reviewedOn },
-    { label: "Valid through", date: report?.validUntil ?? inspected?.validUntil },
-  ].filter(({ date }) => date);
   const checks = report?.checks ?? [];
-  const required = checks.filter((check) => check.required);
-  const additional = checks.filter((check) => !check.required);
-  const findings = checks.filter((check) => check.result === "FAIL");
-  const hasRecordedChecks = checks.some((check) => check.result === "PASS" || check.result === "FAIL");
+  const applicable = checks.filter((c) => c.result !== "NA");
+  const confirmed = applicable.filter((c) => c.result === "PASS").length;
+  const score = applicable.length ? Math.round((confirmed / applicable.length) * 100) : 0;
+  const findings = checks.filter((c) => c.result === "FAIL");
+  const known = new Set(THEMES.flatMap((t) => t.keys));
+  const themes = [
+    ...THEMES.map((t) => ({ ...t, checks: t.keys.map((k) => checks.find((c) => c.key === k)).filter(Boolean) as InspectionCheck[] })),
+    { key: "other", title: "Other checks", blurb: "Further points checked at the visit", Icon: ClipboardList, keys: [], checks: checks.filter((c) => !known.has(c.key)) },
+  ].filter((t) => t.checks.length);
+  const hasRecorded = checks.some((c) => c.result === "PASS" || c.result === "FAIL");
 
   return (
     <section id="long-stay-inspection" aria-labelledby="long-stay-inspection-title" className="scroll-mt-24 rounded-lg border border-solid border-slate-200 bg-white p-4 sm:p-6">
@@ -131,55 +173,46 @@ export default function LongStayInspectionReport({ report, inspected }: {
           <ShieldCheck className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0 flex-1 basis-[180px]">
-          <h2 id="long-stay-inspection-title" className="m-0 text-lg font-semibold leading-6 tracking-tight text-slate-950">On-site inspection report</h2>
+          <h2 id="long-stay-inspection-title" className="m-0 text-lg font-semibold leading-6 tracking-tight text-slate-950">Inspected in person by NoLSAF</h2>
           <p className="m-0 mt-0.5 max-w-[65ch] text-[13px] leading-5 text-slate-600">{copy.detail}</p>
         </div>
-        <span className={`ml-auto inline-flex min-h-7 shrink-0 items-center rounded px-2.5 text-xs font-semibold ${status === "PASSED" ? "bg-emerald-50 text-[#02665e]" : status === "IN_REVIEW" ? "bg-slate-100 text-slate-700" : "bg-amber-50 text-amber-900"}`}>
-          {copy.label}
+        <span className={`ml-auto inline-flex min-h-7 shrink-0 items-center gap-1 rounded px-2.5 text-xs font-semibold ${status === "PASSED" ? "bg-emerald-50 text-[#02665e]" : status === "IN_REVIEW" ? "bg-slate-100 text-slate-700" : "bg-amber-50 text-amber-900"}`}>
+          {status === "PASSED" ? <Check className="size-3.5" aria-hidden /> : null}{copy.label}
         </span>
       </header>
 
       {status === "PASSED" ? (
-        <div className="mt-3">
-          {dates.length ? (
-            <dl className="m-0 flex flex-wrap gap-x-5 gap-y-1.5 border-0 border-t border-solid border-slate-100 py-2.5">
-              {dates.map(({ label, date }) => date ? (
-                <div key={label} className="flex flex-wrap items-baseline gap-x-1.5 text-xs">
-                  <dt className="inline-flex items-center gap-1 text-slate-600">{label === "Valid through" && <CalendarCheck className="size-3.5 text-[#02665e]" aria-hidden />}{label}</dt>
-                  <dd className="m-0 font-semibold tabular-nums text-slate-900"><time dateTime={date}>{dayLabel.format(new Date(`${date}T00:00:00Z`))}</time></dd>
-                </div>
-              ) : null)}
-            </dl>
-          ) : null}
-          {checks.length ? (
-            <div className="overflow-hidden divide-y divide-slate-100 rounded-md border border-solid border-slate-200">
-              <InspectionConfidence checks={checks} />
-              {findings.length > 0 && (
-                <div className="px-3 py-2.5 sm:px-4">
-                  <p className="m-0 flex items-center gap-1.5 text-xs font-semibold text-amber-900"><CircleAlert className="size-4" aria-hidden />Checks that were not met</p>
-                  <ul className="m-0 mt-1 list-none space-y-1 p-0">
-                    {findings.map((check) => (
-                      <li key={check.key} className="flex flex-wrap items-baseline gap-x-2 text-xs leading-5 text-slate-700">
-                        <span>{check.label}</span>
-                        <span className="rounded bg-amber-50 px-1.5 font-medium text-amber-900">{check.required ? "Required" : "Additional"}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <details className="group">
-                <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 px-3 text-xs font-semibold text-[#02665e] hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e] sm:px-4 [&::-webkit-details-marker]:hidden">
-                  <span className="inline-flex items-center gap-1.5"><ClipboardList className="size-4" aria-hidden />Full checklist <span className="font-normal text-slate-500">· {checks.length} checks</span></span>
-                  <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden />
-                </summary>
-                <div className="space-y-3 border-0 border-t border-solid border-slate-100 px-3 py-3 sm:px-4">
-                  {hasRecordedChecks && <p className="m-0 text-xs leading-5 text-slate-600">The score is the share of applicable checks the Sales Partner confirmed and NoLSAF reviewed. Unrecorded checks count as unconfirmed.</p>}
-                  <Checklist title="Required checks" checks={required} />
-                  <Checklist title="Additional checks" checks={additional} />
-                </div>
-              </details>
+        <div className="mt-4 space-y-3">
+          {hasRecorded ? (
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-center">
+              <ScoreDial score={score} confirmed={confirmed} applicable={applicable.length} />
+              <Validity visitedOn={report?.visitedOn ?? inspected?.inspectedOn} reviewedOn={report?.reviewedOn} validUntil={report?.validUntil ?? inspected?.validUntil} />
+            </div>
+          ) : (
+            <Validity visitedOn={report?.visitedOn ?? inspected?.inspectedOn} reviewedOn={report?.reviewedOn} validUntil={report?.validUntil ?? inspected?.validUntil} />
+          )}
+
+          {findings.length > 0 && (
+            <div className="flex items-start gap-2.5 rounded-md border border-solid border-amber-200 bg-amber-50/70 px-3.5 py-2.5">
+              <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-700" aria-hidden />
+              <div className="min-w-0 text-[12.5px] leading-5 text-amber-950">
+                <p className="m-0 font-semibold">{findings.length === 1 ? "One point was not met at the visit" : `${findings.length} points were not met at the visit`}</p>
+                <p className="m-0 text-amber-900">{findings.map((f) => f.label).join("; ")}. {findings.every((f) => !f.required) ? "These are extra checks; every required check passed." : "Ask NoLSAF before you reserve."}</p>
+              </div>
+            </div>
+          )}
+
+          {themes.length ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {themes.map((t) => <ThemeCard key={t.key} title={t.title} blurb={t.blurb} Icon={t.Icon} checks={t.checks} />)}
             </div>
           ) : <p className="m-0 text-sm text-slate-600">The checklist is unavailable for this visit.</p>}
+
+          {hasRecorded ? (
+            <p className="m-0 text-[11.5px] leading-5 text-slate-500">
+              How this works: a NoLSAF Sales Partner visits the home, takes photos there and records their location, and answers each check. NoLSAF reviews the report before the home can be reserved. The score is the share of checks confirmed; checks that do not apply are left out.
+            </p>
+          ) : null}
         </div>
       ) : (
         <div className="mt-4"><InspectionProgress inReview={status === "IN_REVIEW"} /></div>
