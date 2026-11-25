@@ -317,7 +317,7 @@ export default function LongStayDashboardPage() {
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-[13.5px] font-semibold text-slate-900">{m.home || "Long-stay home"}</span>
-                            <span className="block truncate text-[12px] text-slate-500">{m.tenant || "Tenant"} Ã‚Â· {day(m.moveInDate)}{m.termMonths ? ` Ã‚Â· ${m.termMonths} months` : ""}{m.area ? ` Ã‚Â· ${m.area}` : ""}</span>
+                            <span className="block truncate text-[12px] text-slate-500">{m.tenant || "Tenant"} · {day(m.moveInDate)}{m.termMonths ? ` · ${m.termMonths} months` : ""}{m.area ? ` · ${m.area}` : ""}</span>
                           </span>
                           {m.rent ? <span className="flex-none text-right text-[12.5px] font-semibold tabular-nums text-slate-700">{money(m.rent.amount, m.rent.currency)}<span className="block text-[10.5px] font-normal text-slate-400">a month</span></span> : null}
                         </Link>

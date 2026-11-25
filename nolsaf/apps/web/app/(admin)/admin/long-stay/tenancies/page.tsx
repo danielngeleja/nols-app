@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 /**
  * Long-stay tenancies for admins (docs/LONG_STAY_RENTALS.md, milestone 7):
@@ -291,7 +291,7 @@ function TenancyRows({ items, onOpen }: { items: Item[]; onOpen: (item: Item) =>
               </div>
             </div>
             <p className="m-0 hidden break-words text-sm text-slate-700 lg:block">{item.tenant.name || "-"}</p>
-            <p className="m-0 text-xs text-slate-600 lg:text-sm"><span className="lg:hidden">Move-in Â· </span>{day(item.moveInDate)}</p>
+            <p className="m-0 text-xs text-slate-600 lg:text-sm"><span className="lg:hidden">Move-in · </span>{day(item.moveInDate)}</p>
             <div className="col-start-2 row-start-1 lg:col-start-auto lg:row-start-auto"><PayoutStatus status={item.payoutStatus} /></div>
             <button type="button" onClick={() => onOpen(item)} aria-haspopup="dialog" aria-label={`View tenancy for ${item.home || "long stay"}`} className="inline-flex min-h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-solid border-[#cde2d8] bg-white px-2.5 text-xs font-semibold text-[#215b50] hover:bg-[#edf6f2] focus-visible:outline-2 focus-visible:outline-[#02665e]">
               View <ArrowUpRight className="size-3.5" aria-hidden />
@@ -368,32 +368,28 @@ function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () =
 
   return (
     <article className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
-      <header className="relative isolate overflow-hidden bg-[#0b2420] px-4 py-5 text-white sm:px-5">
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,rgba(16,185,129,0.20),transparent_65%)]" aria-hidden />
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-md bg-white/10 text-emerald-200"><Home className="size-4" aria-hidden /></span>
-            <div className="min-w-0">
-              <h2 className="m-0 break-words text-xl font-bold tracking-tight text-white sm:text-2xl">{softenCaps(item.home) || "Long stay"}</h2>
-              <p className="m-0 mt-1 text-[13px] text-white/75">
-                {item.area ? `${item.area} Â· ` : ""}{item.monthlyRent != null ? `${money(item.monthlyRent, item.currency)} a month` : ""}{item.termMonths ? ` Â· ${item.termMonths} months` : ""}
-              </p>
-              <p className="m-0 mt-0.5 font-mono text-[11px] text-white/50 [overflow-wrap:anywhere]">{item.ref}</p>
-            </div>
-          </div>
-          {onClose && <button type="button" onClick={onClose} aria-label="Close tenancy" className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-md border border-solid border-white/20 bg-white/5 text-white hover:bg-white/15"><X className="size-4" aria-hidden /></button>}
+      {/* Compact header: name, place and the status tags on one line */}
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-0 border-b border-solid border-slate-200 bg-[#0b2420] px-4 py-2.5 text-white sm:px-5">
+        <Home className="size-4 shrink-0 text-emerald-300" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <h2 className="m-0 truncate text-[15px] font-bold text-white">
+            {softenCaps(item.home) || "Long stay"}
+            <span className="ml-2 font-normal text-white/60">{[softenCaps(item.area), item.monthlyRent != null ? `${money(item.monthlyRent, item.currency)}/mo` : "", item.termMonths ? `${item.termMonths} mo` : ""].filter(Boolean).join(" · ")}</span>
+          </h2>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white">{STAY_LABEL[item.status] ?? item.status}</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-semibold text-white">{STAY_LABEL[item.status] ?? item.status}</span>
           <PayoutStatus status={item.payoutStatus} />
           {(() => {
             const d = ["RESERVED", "MOVE_IN", "AWAITING_PAYMENT", "ACCEPTED", "OFFERED"].includes(item.status) ? daysFromToday(item.moveInDate) : null;
             return d == null ? null : (
-              <span className="rounded-md bg-emerald-400/15 px-2 py-1 text-xs font-semibold text-emerald-100">
-                {d > 0 ? `Moves in in ${d} ${d === 1 ? "day" : "days"}` : d === 0 ? "Moves in today" : `Move-in was ${-d} ${d === -1 ? "day" : "days"} ago`}
+              <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-100">
+                {d > 0 ? `In ${d} ${d === 1 ? "day" : "days"}` : d === 0 ? "Moves in today" : `Moved in ${-d}d ago`}
               </span>
             );
           })()}
+          <span className="hidden font-mono text-[10.5px] text-white/40 md:inline" title={item.ref}>{item.ref.slice(0, 11)}…</span>
+          {onClose && <button type="button" onClick={onClose} aria-label="Close tenancy" className="ml-1 grid size-7 shrink-0 cursor-pointer place-items-center rounded border border-solid border-white/20 bg-white/5 text-white hover:bg-white/15"><X className="size-3.5" aria-hidden /></button>}
         </div>
       </header>
 
@@ -410,8 +406,8 @@ function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () =
               {item.tenantId ? (
                 <span className={`mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${item.tenantId.status === "APPROVED" ? "bg-emerald-50 text-emerald-800" : item.tenantId.status === "PENDING" ? "bg-amber-50 text-amber-800" : "bg-rose-50 text-rose-700"}`}>
                   <ShieldCheck className="size-3" aria-hidden />
-                  ID {item.tenantId.status === "APPROVED" ? "verified" : item.tenantId.status.toLowerCase()} Â· {item.tenantId.idType === "PASSPORT" ? "Passport" : item.tenantId.idType === "RES_PERMIT" ? "Residence permit" : "National ID"}
-                  {item.tenantId.expiresOn ? ` Â· to ${day(item.tenantId.expiresOn)}` : ""}
+                  ID {item.tenantId.status === "APPROVED" ? "verified" : item.tenantId.status.toLowerCase()} · {item.tenantId.idType === "PASSPORT" ? "Passport" : item.tenantId.idType === "RES_PERMIT" ? "Residence permit" : "National ID"}
+                  {item.tenantId.expiresOn ? ` · to ${day(item.tenantId.expiresOn)}` : ""}
                 </span>
               ) : <span className="mt-1.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">No long-stay ID on file</span>}
             </div>
@@ -444,7 +440,7 @@ function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () =
           <ul className="m-0 mt-3 list-none space-y-2 p-0 text-[12.5px]">
             <Check ok={Boolean(item.timeline?.landlordLeaseAcceptedAt)} label="Landlord signed the lease" when={whenEat(item.timeline?.landlordLeaseAcceptedAt)} />
             <Check ok={Boolean(item.timeline?.tenantLeaseAcceptedAt)} label="Tenant signed the lease" when={whenEat(item.timeline?.tenantLeaseAcceptedAt)} />
-            {item.leaseVersion ? <li className="pl-6 text-[11.5px] text-slate-500">Version {item.leaseVersion}{item.leaseFingerprint ? ` Â· fingerprint ${item.leaseFingerprint}` : ""}</li> : null}
+            {item.leaseVersion ? <li className="pl-6 text-[11.5px] text-slate-500">Version {item.leaseVersion}{item.leaseFingerprint ? ` · fingerprint ${item.leaseFingerprint}` : ""}</li> : null}
             <Check ok={Boolean(item.timeline?.landlordConfirmedAt)} label={`Landlord received the balance${item.moveIn?.landlordMethod ? ` (${item.moveIn.landlordMethod === "BANK" ? "bank" : "mobile money"})` : ""}`} when={whenEat(item.timeline?.landlordConfirmedAt)} warn={item.balanceMismatch && item.landlordBalanceAmount != null && item.landlordBalanceAmount !== item.balanceDue ? money(item.landlordBalanceAmount, item.currency) : undefined} />
             <Check ok={Boolean(item.timeline?.tenantConfirmedAt)} label={`Tenant paid the balance${item.moveIn?.tenantMethod ? ` (${item.moveIn.tenantMethod === "BANK" ? "bank" : "mobile money"})` : ""}`} when={whenEat(item.timeline?.tenantConfirmedAt)} warn={item.balanceMismatch && item.tenantBalanceAmount != null && item.tenantBalanceAmount !== item.balanceDue ? money(item.tenantBalanceAmount, item.currency) : undefined} />
             <Check ok={item.moveIn?.keysReceived === true} bad={item.moveIn?.keysReceived === false} label="Keys handed over" />
@@ -487,7 +483,7 @@ function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () =
           </label>
           <label className="flex items-start gap-2 text-xs text-slate-700 sm:col-span-2">
             <input type="checkbox" checked={reinspect} onChange={(e) => setReinspect(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#02665e]" />
-            End this homeâ€™s current inspection and request another visit. New reservations pause until the home passes again.
+            End this home’s current inspection and request another visit. New reservations pause until the home passes again.
           </label>
           <div className="flex gap-2 sm:col-span-2">
             <button type="button" disabled={busy || note.trim().length < 10} onClick={() => call("resolve", { to, payout, note: note.trim(), reinspect }, "Decision saved.")} className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}>Save decision</button>
@@ -536,7 +532,7 @@ function TenancyCard({ item, onChanged, onClose }: { item: Item; onChanged: () =
                 return (
                   <li key={`${event.createdAt}:${index}`} className="grid gap-x-3 gap-y-1 px-3.5 py-2.5 sm:grid-cols-[minmax(0,1fr)_10rem]">
                     <div className="min-w-0">
-                      <p className="m-0 text-sm font-semibold text-slate-900 first-letter:uppercase">{title} <span className="ml-1 text-xs font-medium capitalize text-slate-600">Â· {actor}</span></p>
+                      <p className="m-0 text-sm font-semibold text-slate-900 first-letter:uppercase">{title} <span className="ml-1 text-xs font-medium capitalize text-slate-600">· {actor}</span></p>
                       {(event.data?.reason || event.data?.note) && <p className="m-0 mt-1 break-words text-xs text-slate-600">{event.data.reason || event.data.note}</p>}
                     </div>
                     <time dateTime={event.createdAt} className="flex items-center gap-1.5 text-xs tabular-nums text-slate-600"><CalendarDays className="size-3.5 shrink-0 text-[#02665e]" aria-hidden />{new Date(event.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT</time>

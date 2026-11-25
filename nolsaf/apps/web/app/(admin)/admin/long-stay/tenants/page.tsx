@@ -273,7 +273,7 @@ function TenantIdQueue({ target }: { target: string | null | undefined }) {
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-semibold text-slate-900">{item.tenant.name || "No name on the account"}</span>
                         <span className="block truncate text-xs text-slate-500">
-                          {idDocumentLabel(item.idType, item.idCountry)} Â· {item.idCountry} Â· <span className="font-mono">â€¢â€¢â€¢â€¢{item.idNumberLast4}</span>
+                          {idDocumentLabel(item.idType, item.idCountry)} · {item.idCountry} · <span className="font-mono">••••{item.idNumberLast4}</span>
                         </span>
                       </span>
                       <RowTag item={item} tab={tab} />
@@ -311,7 +311,7 @@ function TenantIdQueue({ target }: { target: string | null | undefined }) {
 }
 
 function RowTag({ item, tab }: { item: Item; tab: Status }) {
-  if (item.sameIdOnOtherAccounts > 0) return <span className="rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-semibold text-red-700">Same ID Ã—{item.sameIdOnOtherAccounts}</span>;
+  if (item.sameIdOnOtherAccounts > 0) return <span className="rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-semibold text-red-700">Same ID ×{item.sameIdOnOtherAccounts}</span>;
   if (tab === "EXPIRING" || item.expiring) return <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">{day(item.idExpiresOn)}</span>;
   if (item.status === "PENDING") {
     const wait = waited(item.submittedAt);
@@ -384,10 +384,10 @@ function ReviewPanel({ item, today, onChanged }: { item: Item; today: string; on
             {item.tenant.email ? <span className="truncate">{item.tenant.email}</span> : null}
             {item.tenant.phone ? <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{item.tenant.phone}{item.tenant.phoneVerified ? <BadgeCheck className="h-3.5 w-3.5 text-emerald-600" aria-label="verified" /> : null}</span> : null}
           </p>
-          <p className="m-0 mt-0.5 text-xs text-slate-400">Member since {eat(item.tenant.memberSince).replace(/,? \d{2}:\d{2} EAT$/, "")} Â· sent {eat(item.submittedAt)}</p>
+          <p className="m-0 mt-0.5 text-xs text-slate-400">Member since {eat(item.tenant.memberSince).replace(/,? \d{2}:\d{2} EAT$/, "")} · sent {eat(item.submittedAt)}</p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800">
-          <IdCard className="h-3.5 w-3.5" />{idDocumentLabel(item.idType, item.idCountry)}{item.idType === "PASSPORT" ? " Â· TD3" : ""}
+          <IdCard className="h-3.5 w-3.5" />{idDocumentLabel(item.idType, item.idCountry)}{item.idType === "PASSPORT" ? " · TD3" : ""}
         </span>
       </div>
 
@@ -410,7 +410,7 @@ function ReviewPanel({ item, today, onChanged }: { item: Item; today: string; on
           <dl className="m-0 mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
             <Fact label="Issuing country">{item.idCountry ? `${countryName(item.idCountry)} (${item.idCountry})` : "-"}</Fact>
             <Fact label="Nationality">{item.nationality ? `${countryName(item.nationality)} (${item.nationality})` : "-"}</Fact>
-            <Fact label="Number"><span className="font-mono">â€¢â€¢â€¢â€¢{item.idNumberLast4}</span></Fact>
+            <Fact label="Number"><span className="font-mono">••••{item.idNumberLast4}</span></Fact>
             <Fact label="Expires">{item.idExpiresOn ? day(item.idExpiresOn) : "-"}</Fact>
             <Fact label="Name on the document">{item.holderName || "-"}</Fact>
             <Fact label="Date of birth">{item.dateOfBirth ? `${day(item.dateOfBirth)} (${item.age})` : "-"}</Fact>

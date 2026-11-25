@@ -37,7 +37,7 @@ type Row = {
   totals: { leaseRent: number; collectedByNolsaf: number; paidToLandlordAtMoveIn: number };
   risk: { level: "HIGH" | "MEDIUM" | "LOW"; score: number; flags: Flag[] };
 };
-type Totals = { currency: string; collected: number; held: number; toRelease: number; releasedToLandlords: number; refundsDue: number; nolsafKeeps: number; cardFees: number; balancesConfirmed: number; remainingUnderLeases: number; awaiting: number };
+type Totals = { currency: string; collected: number; held: number; toRelease: number; releasedToLandlords: number; refundsDue: number; nolsafKeeps: number; cardFees: number; balancesConfirmed: number; remainingUnderLeases: number; awaiting: number; collectedByStage?: { held: number; toRelease: number; settled: number; refund: number } };
 type Data = { counts: Record<View, number>; totals: Totals[]; items: Row[] };
 
 const TABS: Array<{ key: View; label: string; Icon: typeof Wallet }> = [
@@ -128,59 +128,107 @@ export default function LongStayPaymentsPage() {
         loading={loading}
       />
 
-      {/* Money flow: from the tenant's card to the landlord, left to right */}
-      <section className="rounded-lg border border-solid border-slate-200 bg-white">
-        <header className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-slate-100 px-4 py-3">
-          <h2 className="m-0 text-[15px] font-bold text-slate-900">Money flow</h2>
+      {/* Money flow: where every shilling or dollar the tenants paid is right now */}
+      <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+        <header className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-neutral-100 px-5 py-3">
+          <div>
+            <h2 className="m-0 text-[15px] font-bold text-neutral-900">Money flow</h2>
+            <p className="m-0 text-[12px] text-neutral-500">From the tenant&apos;s card, through NoLSAF, to the landlord</p>
+          </div>
           {totals.length > 1 ? (
-            <div className="inline-flex rounded-md bg-slate-100 p-0.5" role="tablist" aria-label="Currency">
+            <div className="inline-flex rounded-md bg-neutral-100 p-0.5" role="tablist" aria-label="Currency">
               {totals.map((x) => (
                 <button key={x.currency} type="button" role="tab" aria-selected={t?.currency === x.currency} onClick={() => setCurrency(x.currency)}
-                  className={`h-7 cursor-pointer rounded border-0 px-3 text-[12.5px] font-semibold [font-family:inherit] ${t?.currency === x.currency ? "bg-white text-slate-900 shadow-sm" : "bg-transparent text-slate-500"}`}>{x.currency}</button>
+                  className={`h-7 cursor-pointer rounded border-0 px-3 text-[12.5px] font-semibold [font-family:inherit] ${t?.currency === x.currency ? "bg-white text-neutral-900 shadow-sm" : "bg-transparent text-neutral-500"}`}>{x.currency}</button>
               ))}
             </div>
-          ) : t ? <span className="text-[12.5px] font-semibold text-slate-500">{t.currency}</span> : null}
+          ) : t ? <span className="rounded bg-neutral-100 px-2 py-1 text-[12px] font-semibold text-neutral-600">{t.currency}</span> : null}
         </header>
         {!data ? (
-          <div className="grid min-h-28 place-items-center text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          <div className="grid min-h-28 place-items-center text-neutral-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
         ) : !t ? (
-          <p className="m-0 px-4 py-8 text-center text-[13px] text-slate-500">No long-stay payments yet. They appear here once a tenant is asked to pay.</p>
-        ) : (
-          <>
-            <ol className="m-0 grid list-none gap-px bg-slate-100 p-0 sm:grid-cols-2 lg:grid-cols-5">
-              {[
-                { label: "Waiting for tenants", hint: "Signed, not paid yet", value: t.awaiting, cls: "text-sky-700", Icon: Clock3 },
-                { label: "Collected by card", hint: "First month + tenant fee", value: t.collected, cls: "text-slate-900", Icon: CreditCard },
-                { label: "Held by NoLSAF", hint: "Until move-in is confirmed", value: t.held, cls: "text-amber-700", Icon: Wallet },
-                { label: "Ready to release", hint: "Approve on Tenancies", value: t.toRelease, cls: "text-violet-700", Icon: HandCoins },
-                { label: "Paid to landlords", hint: "First month less commission", value: t.releasedToLandlords, cls: "text-emerald-700", Icon: CheckCircle2 },
-              ].map((s, i, arr) => (
-                <li key={s.label} className="relative bg-white px-4 py-3.5">
-                  <p className="m-0 flex items-center gap-1.5 text-[11.5px] font-semibold text-slate-500"><s.Icon className="h-3.5 w-3.5" />{s.label}</p>
-                  <p className={`m-0 mt-1 text-[19px] font-bold tabular-nums leading-tight ${s.value ? s.cls : "text-slate-300"}`}>{money(s.value, t.currency)}</p>
-                  <p className="m-0 mt-0.5 text-[11.5px] text-slate-400">{s.hint}</p>
-                  {i < arr.length - 1 ? <span className="absolute right-[-9px] top-1/2 z-[1] hidden h-[18px] w-[18px] -translate-y-1/2 place-items-center rounded-full border border-solid border-slate-200 bg-white text-[11px] text-slate-400 lg:grid" aria-hidden>›</span> : null}
-                </li>
-              ))}
-            </ol>
-            <div className="grid gap-px border-0 border-t border-solid border-slate-100 bg-slate-100 sm:grid-cols-2 lg:grid-cols-4">
-              {[
-                { label: "NoLSAF keeps", hint: "Fees and commission, less card cost", value: t.nolsafKeeps, cls: "text-[#02665e]" },
-                { label: "Card fees", hint: "Paid to the card gateway", value: t.cardFees, cls: "text-slate-700" },
-                { label: "Refunds owed", hint: "Money to send back to tenants", value: t.refundsDue, cls: "text-rose-700" },
-                { label: "Still to come under leases", hint: "Paid to landlords directly, later", value: t.remainingUnderLeases, cls: "text-slate-700" },
-              ].map((s) => (
-                <div key={s.label} className="flex items-baseline justify-between gap-3 bg-slate-50/70 px-4 py-2.5">
-                  <span className="min-w-0">
-                    <span className="block text-[12.5px] font-semibold text-slate-700">{s.label}</span>
-                    <span className="block text-[11px] text-slate-400">{s.hint}</span>
-                  </span>
-                  <span className={`text-[15px] font-bold tabular-nums ${s.value ? s.cls : "text-slate-300"}`}>{money(s.value, t.currency)}</span>
+          <p className="m-0 px-5 py-8 text-center text-[13px] text-neutral-500">No long-stay payments yet. They appear here once a tenant is asked to pay.</p>
+        ) : (() => {
+          const cur = t.currency;
+          const collected = t.collected || 0;
+          const pct = (v: number) => (collected > 0 ? Math.round((v / collected) * 100) : 0);
+          // Where the collected money sits now; the four parts always add up to what was collected.
+          const by = t.collectedByStage ?? { held: t.held, toRelease: 0, settled: 0, refund: t.refundsDue };
+          const parts = [
+            { key: "held", label: "Held until move-in", value: by.held, color: "#f59e0b" },
+            { key: "release", label: "Waiting to be released", value: by.toRelease, color: "#8b5cf6" },
+            { key: "settled", label: "Settled (landlord paid, NoLSAF share kept)", value: by.settled, color: "#059669" },
+            { key: "refund", label: "To refund", value: by.refund, color: "#e11d48" },
+          ].filter((p) => p.value > 0);
+          const steps = [
+            { label: "Waiting for tenants", value: t.awaiting, hint: "Lease signed, card not paid", Icon: Clock3, tone: "sky" },
+            { label: "Collected by card", value: t.collected, hint: "First month + tenant fee", Icon: CreditCard, tone: "ink" },
+            { label: "Held by NoLSAF", value: t.held, hint: "Until move-in is confirmed", Icon: Wallet, tone: "amber" },
+            { label: "Ready to release", value: t.toRelease, hint: "Approve on Tenancies", Icon: HandCoins, tone: "violet" },
+            { label: "Paid to landlords", value: t.releasedToLandlords, hint: "First month less commission", Icon: CheckCircle2, tone: "green" },
+          ] as const;
+          const toneCls: Record<string, { icon: string; num: string }> = {
+            sky: { icon: "bg-sky-50 text-sky-700", num: "text-sky-800" },
+            ink: { icon: "bg-neutral-100 text-neutral-700", num: "text-neutral-900" },
+            amber: { icon: "bg-amber-50 text-amber-700", num: "text-amber-700" },
+            violet: { icon: "bg-violet-50 text-violet-700", num: "text-violet-700" },
+            green: { icon: "bg-emerald-50 text-emerald-700", num: "text-emerald-700" },
+          };
+          return (
+            <>
+              {/* Where the collected money is now */}
+              <div className="px-5 pb-1 pt-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="m-0 text-[12px] font-semibold text-neutral-600">Where the collected {money(collected, cur)} is now</p>
+                  {collected > 0 ? <p className="m-0 text-[11.5px] text-neutral-400">{pct(by.settled)}% settled</p> : null}
                 </div>
-              ))}
-            </div>
-          </>
-        )}
+                <div className="mt-2 flex h-2.5 overflow-hidden rounded bg-neutral-100" aria-hidden>
+                  {parts.map((p) => <span key={p.key} style={{ width: `${pct(p.value)}%`, background: p.color }} />)}
+                </div>
+                <ul className="m-0 mt-2 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-[11.5px] text-neutral-600">
+                  {parts.length ? parts.map((p) => (
+                    <li key={p.key} className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: p.color }} />{p.label} <b className="tabular-nums text-neutral-900">{pct(p.value)}%</b></li>
+                  )) : <li className="text-neutral-400">Nothing collected yet</li>}
+                </ul>
+              </div>
+
+              {/* The stages, left to right */}
+              <ol className="m-0 grid list-none gap-3 p-5 pt-4 sm:grid-cols-2 lg:grid-cols-5">
+                {steps.map((s, i) => {
+                  const c = toneCls[s.tone];
+                  const empty = !s.value;
+                  return (
+                    <li key={s.label} className={`relative min-w-0 rounded-md border border-solid p-3.5 ${empty ? "border-neutral-100 bg-neutral-50/60" : "border-neutral-200 bg-white"}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`grid h-8 w-8 place-items-center rounded-md ${empty ? "bg-neutral-100 text-neutral-400" : c.icon}`}><s.Icon className="h-4 w-4" /></span>
+                        <span className="text-[10.5px] font-semibold tabular-nums text-neutral-400">{i + 1} / 5</span>
+                      </div>
+                      <p className="m-0 mt-2.5 text-[12px] font-semibold text-neutral-600">{s.label}</p>
+                      <p className={`m-0 mt-0.5 whitespace-nowrap text-[18px] font-bold leading-tight tabular-nums ${empty ? "text-neutral-300" : c.num}`}>{money(s.value, cur)}</p>
+                      <p className="m-0 mt-1 text-[11px] leading-4 text-neutral-400">{s.hint}</p>
+                    </li>
+                  );
+                })}
+              </ol>
+
+              {/* NoLSAF's side and what is still to come */}
+              <dl className="m-0 grid border-0 border-t border-solid border-neutral-100 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { label: "NoLSAF keeps", value: t.nolsafKeeps, hint: "Fees and commission, less card cost", cls: "text-[#02665e]" },
+                  { label: "Card fees", value: t.cardFees, hint: "Paid to the card gateway", cls: "text-neutral-800" },
+                  { label: "Refunds owed", value: t.refundsDue, hint: "To send back to tenants", cls: "text-rose-700" },
+                  { label: "Still to come under leases", value: t.remainingUnderLeases, hint: "Paid to landlords directly, later", cls: "text-neutral-800" },
+                ].map((m, i) => (
+                  <div key={m.label} className={`min-w-0 px-5 py-3 ${i ? "border-0 border-t border-solid border-neutral-100 sm:border-t-0 sm:border-l" : ""}`}>
+                    <dt className="text-[12px] font-semibold text-neutral-600">{m.label}</dt>
+                    <dd className={`m-0 mt-0.5 whitespace-nowrap text-[16px] font-bold tabular-nums ${m.value ? m.cls : "text-neutral-300"}`}>{money(m.value, cur)}</dd>
+                    <p className="m-0 text-[11px] text-neutral-400">{m.hint}</p>
+                  </div>
+                ))}
+              </dl>
+            </>
+          );
+        })()}
       </section>
 
       {/* Filters: only the ones with something in them, plus search */}
@@ -216,9 +264,7 @@ export default function LongStayPaymentsPage() {
           <p className="m-0 mt-0.5 text-[13px] text-slate-500">Payments appear once a lease is signed and the tenant is asked to pay.</p>
         </div>
       ) : (
-        <ul className="m-0 list-none space-y-2 p-0">
-          {data.items.map((r) => <PaymentCard key={r.ref} row={r} onOpen={() => setOpen(r)} />)}
-        </ul>
+        <PaymentsTable rows={data.items} onOpen={setOpen} />
       )}
 
       {open ? <PaymentDrawer row={open} onClose={() => setOpen(null)} /> : null}
@@ -226,48 +272,111 @@ export default function LongStayPaymentsPage() {
   );
 }
 
-/** A payment's journey as four steps: owed, paid, held, paid out (or refunded). */
-function PaymentCard({ row: r, onOpen }: { row: Row; onOpen: () => void }) {
-  const c = r.currency;
-  const paid = !["AWAITING", "OVERDUE", "LAPSED"].includes(r.stage);
-  const refund = r.stage === "REFUND_DUE" || r.stage === "REFUNDED";
-  const steps = [
-    { label: "Owed", value: money(r.booking.expected, c), sub: r.booking.dueAt && !paid ? `Due ${when(r.booking.dueAt)}` : `${r.term.months} months`, done: true },
-    { label: "Paid by card", value: paid ? money(r.booking.paid, c) : "Not yet", sub: paid ? (r.booking.paidAt ? when(r.booking.paidAt) : "Paid") : r.stage === "OVERDUE" ? "Late" : "Waiting", done: paid, bad: r.stage === "OVERDUE" },
-    { label: refund ? "Refund" : "Held by NoLSAF", value: refund ? money(r.split.refund?.amount ?? r.booking.paid, c) : paid ? money(r.booking.firstMonth, c) : "-", sub: refund ? (r.stage === "REFUNDED" ? "Refunded" : "Owed to tenant") : paid ? "First month" : "", done: paid && !refund, bad: r.stage === "REFUND_DUE" },
-    { label: "Landlord payout", value: money(r.split.landlordPayout, c), sub: r.split.payoutReleasedAt ? `Sent ${day(r.split.payoutReleasedAt)}` : r.stage === "TO_RELEASE" ? "Ready to approve" : "After move-in", done: r.stage === "RELEASED" },
+type SortKey = "home" | "paid" | "paidAt" | "payout" | "keeps" | "balance" | "remaining" | "risk";
+
+/** Rows and columns, like Tour Revenue: sortable headers, one tenancy per row, click to open. */
+function PaymentsTable({ rows, onOpen }: { rows: Row[]; onOpen: (r: Row) => void }) {
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "paidAt", dir: -1 });
+  const value = (r: Row, k: SortKey): number | string => {
+    switch (k) {
+      case "home": return soften(r.home).toLowerCase();
+      case "paid": return r.booking.paid ?? r.booking.expected ?? 0;
+      case "paidAt": return r.booking.paidAt || r.booking.dueAt || "";
+      case "payout": return r.split.landlordPayout;
+      case "keeps": return r.split.nolsafKeeps;
+      case "balance": return r.balance.expected;
+      case "remaining": return r.remaining.amount;
+      case "risk": return r.risk.score;
+    }
+  };
+  const sorted = [...rows].sort((a, b) => {
+    const x = value(a, sort.key);
+    const y = value(b, sort.key);
+    return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
+  });
+  const onSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: key === "home" ? 1 : -1 }));
+  const cols: Array<[SortKey | null, string, "left" | "right"]> = [
+    ["home", "Tenancy", "left"],
+    ["paid", "Card payment", "right"],
+    ["paidAt", "Paid", "left"],
+    [null, "Stage", "left"],
+    ["payout", "Landlord payout", "right"],
+    ["keeps", "NoLSAF", "right"],
+    ["balance", "Balance at move-in", "right"],
+    ["remaining", "Still to pay", "right"],
+    ["risk", "Risk", "left"],
   ];
   return (
-    <li>
-      <button type="button" onClick={onOpen}
-        className="grid w-full cursor-pointer gap-3 rounded-lg border border-solid border-slate-200 bg-white p-3.5 text-left hover:border-slate-300 hover:shadow-sm [font-family:inherit] lg:grid-cols-[minmax(0,230px)_minmax(0,1fr)_minmax(0,190px)] lg:items-center">
-        <span className="min-w-0">
-          <span className="block truncate text-[14px] font-bold text-slate-900">{soften(r.home) || "Long-stay home"}</span>
-          <span className="block truncate text-[12px] text-slate-500">{soften(r.tenant.name) || "Tenant"} · moves in {day(r.term.moveIn)}</span>
-          <span className={`mt-1.5 inline-block rounded-md px-2 py-0.5 text-[11.5px] font-semibold ${STAGE[r.stage].cls}`}>{STAGE[r.stage].label}</span>
-        </span>
-        <ol className="m-0 grid list-none grid-cols-2 gap-2 p-0 sm:grid-cols-4">
-          {steps.map((s, i) => (
-            <li key={s.label} className={`min-w-0 rounded-md px-2.5 py-2 ${s.bad ? "bg-rose-50" : s.done ? "bg-emerald-50/70" : "bg-slate-50"}`}>
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
-                <span className={`grid h-4 w-4 flex-none place-items-center rounded-full text-[9px] font-bold ${s.bad ? "bg-rose-500 text-white" : s.done ? "bg-[#02665e] text-white" : "bg-slate-200 text-slate-500"}`}>{i + 1}</span>
-                <span className="truncate">{s.label}</span>
-              </span>
-              <span className={`mt-1 block truncate text-[13px] font-bold tabular-nums ${s.bad ? "text-rose-700" : s.done ? "text-slate-900" : "text-slate-400"}`}>{s.value}</span>
-              <span className="block truncate text-[11px] text-slate-500">{s.sub}</span>
-            </li>
-          ))}
-        </ol>
-        <span className="flex items-center justify-between gap-3 lg:flex-col lg:items-end">
-          <span className="text-right">
-            <span className="block text-[11px] text-slate-500">Balance at move-in</span>
-            <span className="block text-[13px] font-semibold tabular-nums text-slate-900">{money(r.balance.expected, c)}</span>
-            <span className={`block text-[11px] ${BALANCE[r.balance.state].cls}`}>{BALANCE[r.balance.state].label}</span>
-          </span>
-          <RiskBadge risk={r.risk} />
-        </span>
-      </button>
-    </li>
+    <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1120px] border-collapse text-left text-xs">
+          <thead>
+            <tr className="border-0 border-b border-solid border-neutral-100 bg-neutral-50/60">
+              {cols.map(([key, label, align]) => (
+                <th key={label} className={`px-3 py-2.5 first:pl-5 ${align === "right" ? "text-right" : ""}`}>
+                  {key ? (
+                    <button type="button" onClick={() => onSort(key)} className={`inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[10px] font-bold uppercase tracking-wide [font-family:inherit] ${sort.key === key ? "text-neutral-800" : "text-neutral-400 hover:text-neutral-700"}`}>
+                      {label}<span aria-hidden>{sort.key === key ? (sort.dir === 1 ? "↑" : "↓") : ""}</span>
+                    </button>
+                  ) : <span className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">{label}</span>}
+                </th>
+              ))}
+              <th className="px-3 py-2.5 pr-5"><span className="sr-only">Open</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => {
+              const c = r.currency;
+              const paid = !["AWAITING", "OVERDUE", "LAPSED"].includes(r.stage);
+              return (
+                <tr key={r.ref} onClick={() => onOpen(r)} className="cursor-pointer border-0 border-b border-solid border-neutral-100 transition last:border-b-0 hover:bg-emerald-50/40">
+                  <td className="px-3 py-3 pl-5">
+                    <div className="max-w-[220px] truncate font-semibold text-neutral-900">{soften(r.home) || "Long-stay home"}</div>
+                    <div className="max-w-[220px] truncate text-[11px] text-neutral-500">{soften(r.tenant.name) || "Tenant"} · {r.term.months} mo · in {day(r.term.moveIn)}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                    <div className={`font-semibold ${paid ? "text-neutral-900" : "text-neutral-400"}`}>{money(r.booking.paid ?? r.booking.expected, c)}</div>
+                    <div className="text-[10.5px] text-neutral-400">fee {money(r.split.tenantFee, c)}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3">
+                    {paid ? (
+                      <>
+                        <div className="text-neutral-800">{r.booking.paidAt ? when(r.booking.paidAt).replace(/ \d{4},/, ",") : "Paid"}</div>
+                        <div className="text-[10.5px] text-neutral-400">{r.booking.gateway || "Card"}</div>
+                      </>
+                    ) : (
+                      <div className={r.stage === "OVERDUE" ? "font-semibold text-rose-700" : "text-sky-700"}>{r.booking.dueAt ? `Due ${when(r.booking.dueAt).replace(/ \d{4},/, ",")}` : "Not paid"}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-3"><span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-[10.5px] font-bold ${STAGE[r.stage].cls}`}>{STAGE[r.stage].label}</span></td>
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                    <div className={`font-semibold ${r.stage === "RELEASED" ? "text-emerald-700" : "text-neutral-900"}`}>{money(r.split.landlordPayout, c)}</div>
+                    <div className="text-[10.5px] text-neutral-400">{r.split.payoutReleasedAt ? `sent ${day(r.split.payoutReleasedAt)}` : `less ${money(r.split.landlordCommission, c)}`}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                    <div className="font-semibold text-violet-700">{money(r.split.nolsafKeeps, c)}</div>
+                    <div className="text-[10.5px] text-neutral-400">card {money(r.split.cardFee, c)}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                    <div className="text-neutral-900">{money(r.balance.expected, c)}</div>
+                    <div className={`text-[10.5px] ${BALANCE[r.balance.state].cls}`}>{BALANCE[r.balance.state].label}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                    <div className={r.remaining.months ? "text-neutral-900" : "text-neutral-400"}>{r.remaining.months ? money(r.remaining.amount, c) : "Nothing"}</div>
+                    <div className="text-[10.5px] text-neutral-400">{r.remaining.months ? `${r.remaining.months} mo from ${day(r.remaining.firstDueOn)}` : "Fully prepaid"}</div>
+                  </td>
+                  <td className="px-3 py-3"><RiskBadge risk={r.risk} /></td>
+                  <td className="px-3 py-3 pr-5 text-right">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition hover:bg-emerald-50 hover:text-emerald-700" aria-hidden><ArrowUpRight className="h-4 w-4" /></span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="m-0 border-0 border-t border-solid border-neutral-100 px-5 py-2.5 text-[11px] text-neutral-500">{rows.length} {rows.length === 1 ? "payment" : "payments"} · click a row for the full breakdown and history</p>
+    </section>
   );
 }
 
@@ -300,22 +409,42 @@ function PaymentDrawer({ row: r, onClose }: { row: Row; onClose: () => void }) {
 
   const c = r.currency;
   return (
-    <div className="fixed inset-0 z-[70] flex justify-end bg-black/40" onClick={onClose} role="dialog" aria-modal="true" aria-label="Payment details">
-      <aside className="flex h-full w-full max-w-[560px] flex-col overflow-hidden bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <header className="flex items-start gap-3 border-0 border-b border-solid border-slate-200 bg-[#0b2420] px-5 py-4 text-white">
-          <div className="min-w-0 flex-1">
-            <p className="m-0 text-[11.5px] font-semibold text-emerald-100/70">Long-stay payment</p>
-            <h2 className="m-0 mt-0.5 truncate text-[18px] font-bold">{soften(r.home) || "Long-stay home"}</h2>
-            <p className="m-0 mt-0.5 text-[12.5px] text-white/70">{r.area ? `${r.area} · ` : ""}{money(r.term.monthlyRent, c)} a month · {r.term.months} months</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <span className={`rounded-md px-2 py-0.5 text-[11.5px] font-semibold ${STAGE[r.stage].cls}`}>{STAGE[r.stage].label}</span>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#071b17]/60 p-3 backdrop-blur-[2px] sm:p-6" onClick={onClose} role="dialog" aria-modal="true" aria-label="Payment details">
+      <div className="flex max-h-[min(92dvh,56rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <header className="relative overflow-hidden bg-[#0b2420] px-5 py-4 text-white sm:px-6">
+          <div className="pointer-events-none absolute inset-0 opacity-[0.3]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.09) 1px, transparent 1px)", backgroundSize: "18px 18px" }} aria-hidden />
+          <div className="relative flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300/80">Long-stay payment</p>
+              <h2 className="m-0 mt-1 truncate text-[20px] font-bold tracking-tight">{soften(r.home) || "Long-stay home"}</h2>
+              <p className="m-0 mt-0.5 text-[12.5px] text-white/65">{r.area ? `${soften(r.area)} · ` : ""}{money(r.term.monthlyRent, c)} a month · {r.term.months} months · {soften(r.tenant.name) || "Tenant"}</p>
+            </div>
+            <div className="flex flex-none items-center gap-1.5">
+              <span className={`rounded-md px-2 py-1 text-[11.5px] font-semibold ${STAGE[r.stage].cls}`}>{STAGE[r.stage].label}</span>
               <RiskInline level={r.risk.level} />
+              <button type="button" onClick={onClose} aria-label="Close" className="ml-1 grid h-9 w-9 cursor-pointer place-items-center rounded-md border border-solid border-white/20 bg-white/5 text-white hover:bg-white/15"><X className="h-4 w-4" /></button>
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="grid h-9 w-9 flex-none cursor-pointer place-items-center rounded-md border border-solid border-white/20 bg-white/5 text-white hover:bg-white/15"><X className="h-4 w-4" /></button>
+          {/* The four numbers that matter, at a glance */}
+          <dl className="relative m-0 mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              { label: "Tenant paid", value: money(r.booking.paid, c), sub: r.booking.paidAt ? when(r.booking.paidAt) : "Not paid yet" },
+              { label: "Landlord payout", value: money(r.split.landlordPayout, c), sub: r.split.payoutReleasedAt ? `Sent ${day(r.split.payoutReleasedAt)}` : STAGE[r.stage].label },
+              { label: "NoLSAF keeps", value: money(r.split.nolsafKeeps, c), sub: "After the card fee", brand: true },
+              { label: "Still to pay", value: r.remaining.months ? money(r.remaining.amount, c) : "Nothing", sub: r.remaining.months ? `${r.remaining.months} months, to the landlord` : "Fully prepaid" },
+            ].map((m) => (
+              <div key={m.label} className="min-w-0 rounded-md bg-white/[0.05] px-3 py-2.5 ring-1 ring-inset ring-white/10">
+                <dt className="truncate text-[11px] font-semibold text-white/55">{m.label}</dt>
+                <dd className={`m-0 mt-0.5 truncate text-[17px] font-bold tabular-nums ${m.brand ? "text-emerald-300" : "text-white"}`}>{m.value}</dd>
+                <p className="m-0 truncate text-[11px] text-white/40">{m.sub}</p>
+              </div>
+            ))}
+          </dl>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 p-4 sm:p-5">
+          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="min-w-0 space-y-4">
           {/* Risk */}
           {r.risk.flags.length ? (
             <section className={`rounded-lg border border-solid p-3.5 ${r.risk.level === "HIGH" ? "border-rose-200 bg-rose-50/60" : "border-amber-200 bg-amber-50/60"}`}>
@@ -355,6 +484,8 @@ function PaymentDrawer({ row: r, onClose }: { row: Row; onClose: () => void }) {
             {r.split.refund ? <Line label={r.split.refund.done ? "Refunded to the tenant" : "Refund owed to the tenant"} value={money(r.split.refund.amount, c)} warn={!r.split.refund.done} /> : null}
           </Block>
 
+          </div>
+          <div className="min-w-0 space-y-4">
           {/* Balance at move-in */}
           <Block icon={<Landmark className="h-4 w-4" />} title="Balance paid to the landlord at move-in">
             <Line label="Lease balance" value={money(r.balance.expected, c)} />
@@ -374,6 +505,15 @@ function PaymentDrawer({ row: r, onClose }: { row: Row; onClose: () => void }) {
             {r.remaining.months ? <p className="m-0 mt-1 text-[12px] text-slate-500">From {day(r.remaining.firstDueOn)}: {r.remaining.paidTo}.</p> : null}
           </Block>
 
+          {/* People */}
+          <Block icon={<ArrowUpRight className="h-4 w-4" />} title="People">
+            <Line label="Tenant" value={`${soften(r.tenant.name) || "-"}${r.tenant.phone ? ` · ${r.tenant.phone}` : ""}`} />
+            <Line label="Landlord" value={`${soften(r.landlord.name) || "-"}${r.landlord.phone ? ` · ${r.landlord.phone}` : ""}`} />
+          </Block>
+          </div>
+          </div>
+
+          <div className="mt-4">
           {/* History */}
           <Block icon={<Clock3 className="h-4 w-4" />} title="Payment history">
             {eventsError ? (
@@ -419,21 +559,16 @@ function PaymentDrawer({ row: r, onClose }: { row: Row; onClose: () => void }) {
               </>
             )}
           </Block>
-
-          {/* People */}
-          <Block icon={<ArrowUpRight className="h-4 w-4" />} title="People">
-            <Line label="Tenant" value={`${soften(r.tenant.name) || "-"}${r.tenant.phone ? ` · ${r.tenant.phone}` : ""}`} />
-            <Line label="Landlord" value={`${soften(r.landlord.name) || "-"}${r.landlord.phone ? ` · ${r.landlord.phone}` : ""}`} />
-          </Block>
+          </div>
         </div>
 
-        <footer className="flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-slate-200 px-5 py-3">
+        <footer className="flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-slate-200 bg-white px-5 py-3">
           <span className="font-mono text-[11px] text-slate-400">{r.ref}</span>
           <Link href={`/admin/long-stay/tenancies?view=all&ref=${encodeURIComponent(r.ref)}`} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#02665e] px-3.5 text-[13px] font-semibold text-white no-underline hover:bg-[#014e47]">
             Open the tenancy<ArrowUpRight className="h-4 w-4" />
           </Link>
         </footer>
-      </aside>
+      </div>
     </div>
   );
 }
@@ -445,7 +580,7 @@ function RiskInline({ level }: { level: Row["risk"]["level"] }) {
 
 function Block({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-solid border-slate-200 p-3.5">
+    <section className="rounded-md border border-solid border-slate-200 bg-white p-3.5">
       <p className="m-0 mb-2.5 flex items-center gap-1.5 text-[13px] font-bold text-slate-900"><span className="text-[#02665e]">{icon}</span>{title}</p>
       <dl className="m-0 space-y-1.5">{children}</dl>
     </section>

@@ -1251,9 +1251,17 @@ router.get("/payments", asyncHandler(async (req: AuthedRequest, res: Response) =
   // Totals per currency over every row (not just this view).
   const totals = new Map<string, any>();
   for (const r of all) {
-    const m = totals.get(r.currency) ?? { currency: r.currency, collected: 0, held: 0, toRelease: 0, releasedToLandlords: 0, refundsDue: 0, nolsafKeeps: 0, cardFees: 0, balancesConfirmed: 0, remainingUnderLeases: 0, awaiting: 0 };
+    const m = totals.get(r.currency) ?? { currency: r.currency, collected: 0, held: 0, toRelease: 0, releasedToLandlords: 0, refundsDue: 0, nolsafKeeps: 0, cardFees: 0, balancesConfirmed: 0, remainingUnderLeases: 0, awaiting: 0, collectedByStage: { held: 0, toRelease: 0, settled: 0, refund: 0 } };
     const paidIn = !["AWAITING", "OVERDUE", "LAPSED"].includes(r.stage) && r.booking.paid != null;
     if (paidIn) m.collected += r.booking.paid ?? 0;
+    // The same collected money, by where it sits: these four always add up to `collected`.
+    if (paidIn) {
+      const amount = r.booking.paid ?? 0;
+      if (r.stage === "HELD") m.collectedByStage.held += amount;
+      else if (r.stage === "TO_RELEASE") m.collectedByStage.toRelease += amount;
+      else if (r.stage === "RELEASED") m.collectedByStage.settled += amount;
+      else m.collectedByStage.refund += amount;
+    }
     if (r.stage === "HELD") m.held += r.booking.paid ?? 0;
     if (r.stage === "TO_RELEASE") m.toRelease += r.split.landlordPayout;
     if (r.stage === "RELEASED") m.releasedToLandlords += r.split.landlordPayout - r.split.payoutDeduction;
