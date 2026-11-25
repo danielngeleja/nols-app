@@ -43,6 +43,7 @@ const finance = vi.hoisted(() => {
       groupBooking: { aggregate: vi.fn(async () => emptyAggregate) },
       nrmsServicePayment: { groupBy: subscriptionGroupBy },
       nrmsBillingStatement: { groupBy: vi.fn(async () => []) },
+      tenancy: { findMany: vi.fn(async () => []), groupBy: vi.fn(async () => []) },
     },
   };
 });
