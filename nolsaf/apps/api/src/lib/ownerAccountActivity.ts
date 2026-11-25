@@ -34,7 +34,16 @@ const actions = {
   OWNER_PAYOUT_HOLD_RELEASED: ["withdrawals", "Payout pause lifted"],
   OWNER_PAYOUT_ALWAYS_REVIEW_ON: ["withdrawals", "Payouts set to always be checked"],
   OWNER_PAYOUT_ALWAYS_REVIEW_OFF: ["withdrawals", "Always-check removed"],
+  OWNER_PAYOUT_RECORD_EXPORTED: ["withdrawals", "Payout record exported as PDF"],
 } as const;
+
+/** Why a payout record was exported, as chosen by the admin (lib/ownerPayoutRecordPdf.ts). */
+const EXPORT_PURPOSE_LABELS: Record<string, string> = {
+  DISPUTE: "Dispute with the owner",
+  LEGAL: "Police or legal request",
+  AUDIT: "Auditor's request",
+  OWNER_REQUEST: "Owner asked for their record",
+};
 
 type ActivityAction = keyof typeof actions;
 export const ownerActivityCategories = ["all", "payout", "withdrawals", "security", "sign-in", "profile"] as const;
@@ -127,6 +136,13 @@ export function ownerActivityEvent(row: {
     }
     if (row.action === "OWNER_WITHDRAWAL_OTP_FAILED" && typeof data.failedAttempts === "number") {
       detail = `${data.failedAttempts} of 3 wrong codes`;
+    }
+    if (row.action === "OWNER_PAYOUT_RECORD_EXPORTED") {
+      detail = [
+        typeof data.purpose === "string" ? EXPORT_PURPOSE_LABELS[data.purpose] ?? null : null,
+        typeof data.note === "string" && data.note.trim() ? data.note.trim().slice(0, 300) : null,
+        typeof data.reference === "string" ? data.reference : null,
+      ].filter(Boolean).join(" · ") || null;
     }
   }
   if (row.action === "USER_LOGIN" && failed) label = "Sign-in failed";

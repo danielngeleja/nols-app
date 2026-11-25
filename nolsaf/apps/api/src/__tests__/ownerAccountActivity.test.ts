@@ -27,6 +27,7 @@ vi.mock("@nolsaf/prisma", () => {
 vi.mock("../middleware/auth.js", () => ({
   requireAuth: (req: any, _res: any, next: any) => { req.user = { id: 7, role: mocks.role }; next(); },
   requireRole: (role: string) => (req: any, res: any, next: any) => req.user.role === role ? next() : res.sendStatus(403),
+  blockImpersonated: (_req: any, _res: any, next: any) => next(),
 }));
 
 import { router } from "../routes/admin.owners.js";

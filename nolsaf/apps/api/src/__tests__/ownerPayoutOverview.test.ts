@@ -29,6 +29,7 @@ vi.mock("@nolsaf/prisma", () => ({
 vi.mock("../middleware/auth.js", () => ({
   requireAuth: (req: any, _res: any, next: any) => { req.user = { id: 7, role: "ADMIN" }; next(); },
   requireRole: () => (_req: any, _res: any, next: any) => next(),
+  blockImpersonated: (_req: any, _res: any, next: any) => next(),
 }));
 vi.mock("../services/payouts/release.js", () => ({ verifiedPayoutAccounts: m.accounts }));
 vi.mock("../services/payouts/partialWithdrawal.js", () => ({ readyBalances: m.ready }));

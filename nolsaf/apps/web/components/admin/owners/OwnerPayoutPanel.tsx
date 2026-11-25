@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, Eye, KeyRound, Loader2, PauseCircle, RefreshCw, ShieldAlert, ShieldCheck, UserCheck, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardCheck, Clock3, Download, Eye, FileLock2, Gavel, KeyRound, Loader2, PauseCircle, RefreshCw, Scale, ShieldAlert, ShieldCheck, UserCheck, Wallet, X } from "lucide-react";
 import api from "@/lib/apiClient";
 import FinanceGrantPanel from "@/components/FinanceGrantPanel";
 
@@ -30,6 +30,15 @@ type Overview = {
   }>;
 };
 type Action = "HOLD" | "RELEASE" | "ALWAYS_REVIEW_ON" | "ALWAYS_REVIEW_OFF";
+type ExportPurpose = "DISPUTE" | "LEGAL" | "AUDIT" | "OWNER_REQUEST";
+
+/** The only reasons a payout record may leave the product (matches the API list). */
+const EXPORT_PURPOSES: Array<{ key: ExportPurpose; title: string; hint: string; placeholder: string; icon: typeof Wallet }> = [
+  { key: "DISPUTE", title: "A dispute with the owner", hint: "The owner disagrees about a payout.", placeholder: "e.g. Owner disputes the 14 Nov payout, support case SC-1042", icon: Scale },
+  { key: "LEGAL", title: "A police or legal request", hint: "Formal request from police, court or a lawyer.", placeholder: "e.g. Police request ref. CR/123/2026 from Kati station", icon: Gavel },
+  { key: "AUDIT", title: "An auditor's request", hint: "Internal or external audit of payouts.", placeholder: "e.g. 2026 year-end audit, sample item 17", icon: ClipboardCheck },
+  { key: "OWNER_REQUEST", title: "The owner asked for their record", hint: "The owner wants a copy of their own data.", placeholder: "e.g. Owner emailed support on 24 Nov asking for their record", icon: UserCheck },
+];
 
 const tzs = (n: number) => `TZS ${Math.round(n).toLocaleString("en-US")}`;
 const dateTime = new Intl.DateTimeFormat("en-GB", {
@@ -116,6 +125,44 @@ export default function OwnerPayoutPanel({ ownerId }: { ownerId: number }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportPurpose, setExportPurpose] = useState<ExportPurpose | null>(null);
+  const [exportNote, setExportNote] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportDone, setExportDone] = useState<string | null>(null);
+
+  async function exportRecord() {
+    if (!exportPurpose || exportNote.trim().length < 10) return;
+    setExporting(true);
+    setExportError(null);
+    setExportDone(null);
+    try {
+      const res = await api.post(`/api/admin/owners/${ownerId}/payout-record.pdf`,
+        { purpose: exportPurpose, note: exportNote.trim() }, { responseType: "blob" });
+      // The reference header may be hidden cross-origin; the PDF itself always carries it.
+      const header = String(res.headers?.["x-export-reference"] ?? "");
+      const reference = /^EXP-[A-Z0-9]{8}$/.test(header) ? header : null;
+      const url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: "application/pdf" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = reference ? `NoLSAF-payout-record-${reference}.pdf` : "NoLSAF-payout-record.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      setExportDone(reference ?? "a PDF");
+      setExportNote("");
+      setExportPurpose(null);
+    } catch (cause: any) {
+      const body = cause?.response?.data;
+      setExportError(body?.require2fa
+        ? "Enter your finance code in the window that opened, then press Export PDF again."
+        : body?.error || "Could not export the record. Nothing was released.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -161,11 +208,76 @@ export default function OwnerPayoutPanel({ ownerId }: { ownerId: number }) {
         <h3 id="owner-payouts-title" className="m-0 flex items-center gap-2.5 text-base font-semibold text-slate-950">
           <span className="grid size-8 place-items-center rounded-md bg-[#eaf4f0] text-[#28645a]"><Wallet className="size-4" aria-hidden /></span>Payouts
         </h3>
-        <button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh payouts"
-          className="grid size-8 cursor-pointer place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-600 hover:text-[#02665e] disabled:opacity-50">
-          <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => { setExportOpen((open) => !open); setExportError(null); setExportDone(null); }} disabled={!data}
+            aria-expanded={exportOpen}
+            className={`inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-md border border-solid px-3 text-xs font-semibold disabled:opacity-50 ${exportOpen ? "border-[#02665e] bg-[#eaf4f0] text-[#02665e]" : "border-slate-200 bg-white text-slate-700 hover:border-[#02665e] hover:text-[#02665e]"}`}>
+            <FileLock2 className="size-3.5" aria-hidden />Export PDF
+          </button>
+          <button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh payouts"
+            className="grid size-8 cursor-pointer place-items-center rounded-md border border-solid border-slate-200 bg-white text-slate-600 hover:text-[#02665e] disabled:opacity-50">
+            <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
+          </button>
+        </div>
       </header>
+
+      {exportOpen ? (
+        <div className="border-0 border-b border-solid border-slate-100 bg-[#f7faf9] px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="m-0 flex items-center gap-1.5 text-sm font-semibold text-slate-950"><FileLock2 className="size-4 text-[#28645a]" aria-hidden />Export a confidential payout record</p>
+              <p className="m-0 mt-1 text-xs leading-5 text-slate-600">Needs your finance code. The export is recorded in this owner's timeline, and every page carries your name, the time and a reference.</p>
+            </div>
+            <button type="button" onClick={() => setExportOpen(false)} aria-label="Close export"
+              className="grid size-7 shrink-0 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-slate-500 hover:text-slate-900"><X className="size-4" aria-hidden /></button>
+          </div>
+
+          <fieldset className="m-0 mt-3 min-w-0 border-0 p-0">
+            <legend className="mb-2 p-0 text-xs font-semibold text-slate-800">Why are you exporting it?</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {EXPORT_PURPOSES.map((option) => {
+                const selected = exportPurpose === option.key;
+                const Icon = option.icon;
+                return (
+                  <label key={option.key}
+                    className={`flex min-w-0 cursor-pointer items-start gap-2.5 rounded-md border border-solid bg-white px-3 py-2.5 ${selected ? "border-[#02665e] ring-1 ring-inset ring-[#02665e]" : "border-slate-200 hover:border-[#b8d9d1]"}`}>
+                    <input type="radio" name="owner-payout-export-purpose" value={option.key} checked={selected}
+                      onChange={() => setExportPurpose(option.key)} className="sr-only" />
+                    <span className={`grid size-7 shrink-0 place-items-center rounded-md ${selected ? "bg-[#02665e] text-white" : "bg-[#eaf4f0] text-[#28645a]"}`}><Icon className="size-3.5" aria-hidden /></span>
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-semibold text-slate-900">{option.title}</span>
+                      <span className="block text-xs leading-5 text-slate-600">{option.hint}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <label htmlFor="owner-payout-export-note" className="mt-3 block text-xs font-semibold text-slate-800">Note <span className="font-normal text-slate-500">(case number, who asked, or the request reference)</span></label>
+          <textarea id="owner-payout-export-note" value={exportNote} onChange={(e) => setExportNote(e.target.value)} maxLength={300} rows={2}
+            placeholder={EXPORT_PURPOSES.find((p) => p.key === exportPurpose)?.placeholder ?? "What this export is for"}
+            className="mt-1.5 w-full resize-y rounded-md border border-solid border-slate-300 bg-white px-2.5 py-2 text-[13px] text-slate-900 box-border focus:border-[#02665e] focus:outline-none" />
+
+          <p className="m-0 mt-2 text-xs leading-5 text-slate-500">
+            Included: money, next payout route, safety signals, behaviour score, controls, recent withdrawals and withdrawal events.
+            Left out on purpose: wallet holder name and full number, IP addresses, devices, phone and email.
+          </p>
+
+          {exportError ? <p role="alert" className="m-0 mt-2 text-xs text-red-700">{exportError}</p> : null}
+          {exportDone ? <p role="status" className="m-0 mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-800"><CheckCircle2 className="size-3.5" aria-hidden />Exported as {exportDone}. It is now in this owner's timeline.</p> : null}
+
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            <span className="mr-auto text-[11px] tabular-nums text-slate-500">
+              {!exportPurpose ? "Choose a purpose" : exportNote.trim().length < 10 ? `${10 - exportNote.trim().length} more characters needed` : "Ready to export"}
+            </span>
+            <button type="button" onClick={() => void exportRecord()} disabled={exporting || !exportPurpose || exportNote.trim().length < 10}
+              className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-4 text-xs font-semibold text-white hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-50">
+              {exporting ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Download className="size-3.5" aria-hidden />}Export PDF
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {error ? <p role="alert" className="m-0 px-4 py-3 text-xs text-red-700">{error} <button type="button" onClick={() => void load()} className="cursor-pointer border-0 bg-transparent p-0 font-semibold text-red-800 underline">Try again</button></p> : null}
       {!data && loading ? <p role="status" className="m-0 flex items-center gap-2 px-4 py-3 text-xs text-slate-600"><Loader2 className="size-4 animate-spin" aria-hidden />Loading payouts</p> : null}

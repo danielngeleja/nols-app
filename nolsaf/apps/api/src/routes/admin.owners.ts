@@ -15,13 +15,15 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { audit } from "../lib/audit.js";
 import { ownerActivityActions, ownerActivityCategories, ownerActivityEvent, ownerActivityScope, ownerBehaviourDays, ownerBehaviourEventFilter, ownerBehaviourScore, payoutAccountEnding, type OwnerActivityCategory } from "../lib/ownerAccountActivity.js";
 import { hasFinanceGrant } from "../lib/financeGrantStore.js";
-import { verifiedPayoutAccounts } from "../services/payouts/release.js";
-import { destinationChangeAnchor, loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
-import { decideOwnerPayoutLane, walletNameMatchesOwner } from "../services/payouts/autoLane.js";
-import { openRecoveryTotal } from "../services/payouts/recovery.js";
-import { readyBalances } from "../services/payouts/partialWithdrawal.js";
+import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
+import { blockImpersonated } from "../middleware/auth.js";
+import { retentionFields } from "../lib/auditRetention.js";
+import { buildOwnerPayoutOverview } from "../services/payouts/ownerPayoutOverview.js";
 import {
-  applyOwnerPayoutControl, controlActionLoosens, loadOwnerPayoutControl,
+  generateOwnerPayoutRecordPdf, OWNER_PAYOUT_RECORD_PURPOSES, ownerPayoutRecordReference, type OwnerPayoutRecordPurpose,
+} from "../lib/ownerPayoutRecordPdf.js";
+import {
+  applyOwnerPayoutControl, controlActionLoosens,
   OwnerPayoutControlError, type OwnerPayoutControlAction,
 } from "../services/payouts/ownerPayoutControl.js";
 
@@ -152,103 +154,11 @@ router.get("/:id/payout-overview", async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid owner id" });
   try {
-    const owner = await prisma.user.findFirst({
-      where: { id, role: "OWNER" },
-      select: { id: true, name: true, fullName: true, phoneChangedAt: true, emailChangedAt: true },
-    });
-    if (!owner) return res.status(404).json({ error: "Owner not found" });
-    const now = new Date();
-    const since30 = new Date(now.getTime() - 30 * 86_400_000);
-    const since14 = new Date(now.getTime() - 14 * 86_400_000);
-    const ownerPayouts = { payoutAccount: { is: { userId: id } } } satisfies Prisma.DisbursementWhereInput;
-
-    const [account, control, safeguards, otpGuard, paidCount, paid30, failed14, waiting, recoveryDue, releases, recent] = await Promise.all([
-      verifiedPayoutAccounts(id).then((rows) => rows[0] ?? null),
-      loadOwnerPayoutControl(id),
-      loadPayoutSafeguards(),
-      prisma.payoutWithdrawalOtpGuard.findUnique({ where: { ownerId: id }, select: { lockedAt: true, failedAttempts: true } }),
-      prisma.disbursement.count({ where: { ...ownerPayouts, status: "PAID" } }),
-      prisma.disbursement.aggregate({ where: { ...ownerPayouts, status: "PAID", paidAt: { gte: since30 } }, _sum: { amount: true } }),
-      prisma.disbursement.count({ where: { ...ownerPayouts, status: "FAILED", createdAt: { gte: since14 } } }),
-      prisma.disbursement.findMany({
-        where: { ...ownerPayouts, status: "REQUESTED", sourceType: { in: ["OWNER_WITHDRAWAL", "OWNER_INVOICE"] } },
-        select: { amount: true, createdAt: true }, orderBy: { createdAt: "asc" },
-      }),
-      openRecoveryTotal(id),
-      prisma.payoutRelease.groupBy({ by: ["status"], where: { ownerId: id, status: { in: ["LOCKED", "HELD", "AVAILABLE"] } }, _count: { _all: true } }),
-      prisma.disbursement.findMany({
-        where: { ...ownerPayouts, sourceType: { in: ["OWNER_WITHDRAWAL", "OWNER_INVOICE"] } },
-        select: { externalReferenceId: true, amount: true, status: true, releaseLane: true, approvedById: true, createdAt: true, paidAt: true, securityReviewReason: true },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      }),
-    ]);
-
-    const ready = (await readyBalances(id, now)).reduce((sum, row) => sum + row.remaining, 0);
-    const hours = safeguards.recentChangeHours * 3_600_000;
-    const anchor = account ? await destinationChangeAnchor(account) : null;
-    const walletWaitUntil = anchor && anchor.getTime() + hours > now.getTime() ? new Date(anchor.getTime() + hours) : null;
-    const contactChangedAt = [owner.phoneChangedAt, owner.emailChangedAt].filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0];
-    const contactWaitUntil = contactChangedAt && contactChangedAt.getTime() + hours > now.getTime() ? new Date(contactChangedAt.getTime() + hours) : null;
-
-    // The route a withdrawal of today's ready balance would take, with the
-    // same rules the real handoff uses (including an open refund recovery).
-    let nextRoute: { lane: "AUTO" | "MANUAL"; reason: string | null; amount: number } | null = null;
-    if (account && ready > 0) {
-      const decision = await decideOwnerPayoutLane({ ownerId: id, invoiceId: 0, amount: ready, account, now });
-      nextRoute = decision.lane === "AUTO" && recoveryDue > 0
-        ? { lane: "MANUAL", reason: "A recovery from an earlier refund is still open", amount: ready }
-        : { ...decision, amount: ready };
-    }
-    const count = (status: string) => releases.find((r) => r.status === status)?._count._all ?? 0;
-
+    const overview = await buildOwnerPayoutOverview(id);
+    if (!overview) return res.status(404).json({ error: "Owner not found" });
     res.setHeader("Cache-Control", "no-store");
-    return res.json({
-      money: {
-        firstPayoutDone: paidCount > 0,
-        paidCount,
-        paidLast30Days: Number(paid30._sum.amount ?? 0),
-        readyToWithdraw: Math.round(ready * 100) / 100,
-        unlockingCount: count("LOCKED"),
-        onHoldCount: count("HELD"),
-        readyCount: count("AVAILABLE"),
-        waitingApproval: {
-          count: waiting.length,
-          total: waiting.reduce((sum, row) => sum + Number(row.amount), 0),
-          oldestAt: waiting[0]?.createdAt ?? null,
-        },
-        recoveryDue,
-      },
-      nextRoute,
-      safety: {
-        wallet: account ? {
-          provider: account.provider,
-          ending: payoutAccountEnding(account.accountNumber),
-          holderName: account.accountName ?? null,
-          nameMatchesOwner: walletNameMatchesOwner(account.accountName, [owner.fullName, owner.name]),
-        } : null,
-        walletWaitUntil,
-        contactWaitUntil,
-        codeLocked: Boolean(otpGuard?.lockedAt) || (otpGuard?.failedAttempts ?? 0) >= 3,
-        wrongCodes: otpGuard?.failedAttempts ?? 0,
-        failedLast14Days: failed14,
-      },
-      controls: {
-        available: control.available,
-        hold: control.hold ? { at: control.hold.at, reason: control.hold.reason } : null,
-        alwaysReview: control.alwaysReview ? { reason: control.alwaysReview.reason } : null,
-      },
-      recent: recent.map((row) => ({
-        reference: row.externalReferenceId,
-        amount: Number(row.amount),
-        status: row.status,
-        route: row.releaseLane === "AUTO" ? "AUTO" : "MANUAL",
-        approvedAutomatically: row.releaseLane === "AUTO" && row.approvedById == null,
-        createdAt: row.createdAt,
-        paidAt: row.paidAt,
-        note: row.securityReviewReason ?? null,
-      })),
-    });
+    const { owner: _owner, ...body } = overview;
+    return res.json(body);
   } catch (error) {
     console.error("admin.owners.payout-overview failed", error);
     return res.status(500).json({ error: "Could not load owner payouts" });
@@ -300,6 +210,117 @@ router.post("/:id/payout-controls", async (req, res) => {
     return res.status(500).json({ error: "Could not change the payout control" });
   }
 });
+
+// Exports per admin: enough for real casework, too few for scraping every owner.
+const limitOwnerPayoutRecordExport = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many payout record exports. Please wait before exporting another." },
+  keyGenerator: (req) => {
+    const adminId = (req as any).user?.id;
+    return adminId ? `admin-owner-payout-record:${adminId}` : req.ip || req.socket.remoteAddress || "unknown";
+  },
+});
+
+/**
+ * POST /admin/owners/:id/payout-record.pdf { purpose, note }
+ *
+ * One owner's payout record as a confidential PDF. Needs the finance code,
+ * a stated purpose and a note. The export is written to the audit log (and so
+ * to the owner's timeline) BEFORE the file is released: if that record cannot
+ * be written, no PDF leaves. The PDF carries less than the screen: wallet
+ * ending only, no holder name, IP, device, phone or email.
+ */
+router.post(
+  "/:id/payout-record.pdf",
+  blockImpersonated as unknown as RequestHandler,
+  limitOwnerPayoutRecordExport,
+  requireAdminFinanceGrant as unknown as RequestHandler,
+  async (req, res) => {
+    const id = Number(req.params.id);
+    const purpose = String(req.body?.purpose ?? "");
+    const note = typeof req.body?.note === "string" ? req.body.note.replace(/\s+/g, " ").trim() : "";
+    if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid owner id" });
+    if (!Object.prototype.hasOwnProperty.call(OWNER_PAYOUT_RECORD_PURPOSES, purpose)) {
+      return res.status(400).json({ error: "Choose why this record is being exported." });
+    }
+    if (note.length < 10 || note.length > 300) {
+      return res.status(400).json({ error: "Add a note of 10 to 300 characters, for example a case or request reference." });
+    }
+    try {
+      const now = new Date();
+      const overview = await buildOwnerPayoutOverview(id, now);
+      if (!overview) return res.status(404).json({ error: "Owner not found" });
+      const adminId = (req as any).user?.id ?? null;
+      const scope = ownerActivityScope(id);
+      const recent = {
+        ...scope,
+        createdAt: { gte: new Date(now.getTime() - ownerBehaviourDays * 86_400_000) },
+        AND: { OR: [{ actorRole: null }, { actorRole: { not: { endsWith: ":IMP" } } }] },
+      } satisfies Prisma.AuditLogWhereInput;
+      const [admin, factors, signalCounts, recentActivity, eventRows] = await Promise.all([
+        adminId ? prisma.user.findUnique({ where: { id: adminId }, select: { name: true, fullName: true } }) : null,
+        prisma.user.findUnique({ where: { id }, select: { twoFactorEnabled: true, twoFactorMethod: true, _count: { select: { passkeys: true } } } }),
+        prisma.auditLog.groupBy({ by: ["action"], where: { AND: [recent, ownerBehaviourEventFilter] }, _count: { _all: true } }),
+        prisma.auditLog.findFirst({ where: { ...recent, action: { in: ownerActivityActions("all") } }, select: { id: true } }),
+        prisma.auditLog.findMany({
+          where: { ...scope, action: { in: ownerActivityActions("withdrawals") } },
+          orderBy: { id: "desc" },
+          take: 40,
+          select: { id: true, actorId: true, actorRole: true, action: true, afterJson: true, ip: true, ua: true, createdAt: true },
+        }),
+      ]);
+      const behaviour = ownerBehaviourScore(
+        new Map(signalCounts.map(({ action, _count }) => [action, _count._all])),
+        (factors?._count.passkeys ?? 0) > 0 || Boolean(factors?.twoFactorEnabled && factors?.twoFactorMethod === "TOTP"),
+        recentActivity != null,
+      );
+      const reference = ownerPayoutRecordReference();
+      const exportedBy = admin?.fullName || admin?.name || `Admin ${adminId ?? ""}`.trim();
+      const s = overview.safety;
+
+      const pdf = await generateOwnerPayoutRecordPdf({
+        reference, purpose: purpose as OwnerPayoutRecordPurpose, note, exportedBy, exportedAt: now,
+        ownerName: overview.owner.name || "Property owner",
+        money: overview.money,
+        nextRoute: overview.nextRoute,
+        // Deliberately no holder name: the record says whether it matches, not what it is.
+        wallet: s.wallet ? { provider: s.wallet.provider, ending: s.wallet.ending, nameMatchesOwner: s.wallet.nameMatchesOwner } : null,
+        walletWaitUntil: s.walletWaitUntil, contactWaitUntil: s.contactWaitUntil,
+        codeLocked: s.codeLocked, wrongCodes: s.wrongCodes, failedLast14Days: s.failedLast14Days,
+        behaviour: { score: behaviour.score, band: behaviour.band, days: behaviour.days, signals: behaviour.signals.map((x) => ({ label: x.label, value: x.value, severity: x.severity })) },
+        controls: { hold: overview.controls.hold, alwaysReview: overview.controls.alwaysReview },
+        withdrawals: overview.recent,
+        // Label, actor and detail only: never the IP or device stored with the event.
+        events: eventRows.map((row) => ownerActivityEvent(row, id)).filter((e): e is NonNullable<typeof e> => e != null)
+          .map((e) => ({ createdAt: e.createdAt, label: e.label, actor: e.actor, detail: e.detail })),
+      });
+
+      // Fail closed: the file is released only once its export is on record.
+      await prisma.auditLog.create({
+        data: {
+          actorId: adminId, actorRole: "ADMIN", action: "OWNER_PAYOUT_RECORD_EXPORTED",
+          entity: `user:${id}`, entityId: id,
+          ip: (req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || req.socket?.remoteAddress || "").slice(0, 64) || null,
+          ua: String(req.headers["user-agent"] || "").slice(0, 255) || null,
+          afterJson: { reference, purpose, note },
+          ...retentionFields("FINANCIAL", now),
+        },
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="NoLSAF-payout-record-${reference}.pdf"`);
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("X-Export-Reference", reference);
+      return res.send(pdf);
+    } catch (error) {
+      console.error("admin.owners.payout-record export failed", error);
+      return res.status(500).json({ error: "Could not export the payout record. Nothing was released." });
+    }
+  },
+);
 
 /** GET /admin/owners/counts */
 router.get("/counts", async (req, res) => {
