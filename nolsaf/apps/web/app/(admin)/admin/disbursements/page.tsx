@@ -90,6 +90,146 @@ const fieldClass =
 const actionClass =
   "inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-40";
 
+const EVENT_LABELS: Record<string, string> = {
+  SUBMIT_RESPONSE: "Sent to AzamPay",
+  STATUS_POLL: "Status check",
+  CALLBACK: "AzamPay callback",
+  AMOUNT_MISMATCH: "Amount mismatch",
+  PROVIDER_CORRELATION_MISMATCH: "Reference mismatch",
+};
+
+type EventTone = "ok" | "bad" | "moving" | "review" | "neutral";
+
+const EVENT_TONES: Record<EventTone, { dot: string; text: string }> = {
+  ok: { dot: "bg-emerald-500", text: "text-emerald-700" },
+  bad: { dot: "bg-rose-500", text: "text-rose-700" },
+  moving: { dot: "bg-sky-500", text: "text-sky-700" },
+  review: { dot: "bg-amber-500", text: "text-amber-700" },
+  neutral: { dot: "bg-neutral-300", text: "text-neutral-500" },
+};
+
+/** Plain words for one provider or safety event, and how it went. */
+function describeEvent(event: DisbursementEvent): { title: string; outcome: string | null; tone: EventTone } {
+  const status = String(event.status ?? "").toLowerCase();
+  if (event.eventType === "SECURITY_REVIEW") {
+    return status === "cleared"
+      ? { title: "Security hold cleared", outcome: null, tone: "ok" }
+      : { title: "Security hold", outcome: null, tone: "review" };
+  }
+  const title = EVENT_LABELS[event.eventType] ?? readableStatus(event.eventType);
+  if (event.eventType === "AMOUNT_MISMATCH" || event.eventType === "PROVIDER_CORRELATION_MISMATCH") {
+    return { title, outcome: "held for review", tone: "review" };
+  }
+  if (["success", "paid", "completed"].includes(status)) return { title, outcome: "paid", tone: "ok" };
+  if (["failure", "failed", "rejected"].includes(status)) return { title, outcome: "failed", tone: "bad" };
+  if (["processing", "pending", "submitted", "accepted"].includes(status)) return { title, outcome: "in progress", tone: "moving" };
+  return { title, outcome: status || null, tone: "neutral" };
+}
+
+/**
+ * The payout's provider history as one timeline, newest first, with EAT
+ * times and labelled references. A final answer that the ledger held back
+ * (a correlation note on a payout still in flight) is marked so, which is
+ * exactly what an admin needs to know when the status and the history
+ * seem to disagree.
+ */
+function EventTimeline({ events, payout }: { events: DisbursementEvent[]; payout: Disbursement }) {
+  const ordered = [...events].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const held = ["SUBMITTED", "PROCESSING"].includes(payout.status) &&
+    String(payout.securityReviewReason ?? "").startsWith("Provider event correlation failure");
+  const heldId = held
+    ? ordered.find((event) => ["success", "failure"].includes(String(event.status ?? "").toLowerCase()))?.id
+    : undefined;
+  return (
+    <div className="rounded-xl border border-solid border-neutral-200 bg-white px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Provider history</p>
+        <span className={`inline-flex rounded-full border border-solid px-2 py-0.5 text-[10px] font-bold ${statusClass(payout.status)}`}>
+          Now: {readableStatus(payout.status)}
+        </span>
+      </div>
+      <ol className="m-0 mt-3 list-none p-0">
+        {ordered.map((event, index) => {
+          const meta = describeEvent(event);
+          const tone = EVENT_TONES[event.id === heldId ? "review" : meta.tone];
+          const refs = [
+            event.pgReferenceId ? ["AzamPay ref", event.pgReferenceId] : null,
+            event.fspReferenceId ? ["Network ref", event.fspReferenceId] : null,
+            event.operator ? ["Operator", readableProvider(event.operator)] : null,
+          ].filter((ref): ref is string[] => !!ref);
+          return (
+            <li key={event.id} className="relative flex gap-3 pb-4 last:pb-0">
+              {index < ordered.length - 1 && <span className="absolute left-[4px] top-3 h-full w-px bg-neutral-200" aria-hidden />}
+              <span className={`relative mt-1 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-white ${tone.dot}`} aria-hidden />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                  <p className="m-0 text-xs font-semibold text-neutral-900">
+                    {meta.title}
+                    {meta.outcome && <span className={`font-semibold ${tone.text}`}> · {meta.outcome}</span>}
+                    {event.id === heldId && <span className="font-semibold text-amber-700"> · held, not applied</span>}
+                  </p>
+                  <span className="whitespace-nowrap text-[11px] text-neutral-500">{eatDate(event.createdAt)}, {eatTime(event.createdAt)} EAT</span>
+                </div>
+                {event.message && <p className="m-0 mt-0.5 text-xs text-neutral-600">{event.message}</p>}
+                {event.id === heldId && (
+                  <p className="m-0 mt-0.5 text-[11px] text-amber-800">{payout.securityReviewReason}</p>
+                )}
+                {refs.length > 0 && (
+                  <dl className="m-0 mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px]">
+                    {refs.map(([label, value]) => (
+                      <div key={label} className="flex min-w-0 gap-1">
+                        <dt className="text-neutral-400">{label}</dt>
+                        <dd className="m-0 truncate font-mono text-neutral-600" title={value}>{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+/** Compact row button, matching the Tour commerce table. */
+const rowActionClass =
+  "inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-solid border-neutral-200 bg-white px-2 text-[11px] font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40";
+
+const EAT_ZONE = "Africa/Dar_es_Salaam";
+
+function eatDate(value: string) {
+  return new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: EAT_ZONE });
+}
+
+function eatTime(value: string) {
+  return new Date(value).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: EAT_ZONE });
+}
+
+function minutesSince(value: string) {
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000));
+  return minutes < 120 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
+}
+
+function readableStatus(status: string) {
+  const text = status.replace(/_/g, " ").toLowerCase();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Account names arrive in capitals from the wallet; show them as names. */
+function tidyName(name: string) {
+  return name.toLowerCase().replace(/\b([a-z])/g, (letter) => letter.toUpperCase());
+}
+
+function readableProvider(provider: string) {
+  const known: Record<string, string> = {
+    vodacom: "M-Pesa", mpesa: "M-Pesa", tigo: "Mixx by Yas", yas: "Mixx by Yas",
+    airtel: "Airtel Money", halotel: "HaloPesa", halopesa: "HaloPesa", azampesa: "AzamPesa",
+  };
+  return known[provider.toLowerCase()] || provider;
+}
+
 function money(value: number, currency: string) {
   return `${currency === "TZS" ? "TSh" : currency} ${Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
@@ -962,90 +1102,91 @@ function DisbursementsView() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[900px] border-collapse text-left text-xs">
               <thead>
-                <tr className="border-b border-neutral-100 bg-neutral-50/70 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">
-                  <th className="px-4 py-3 font-bold">Reference</th>
-                  <th className="px-4 py-3 font-bold">Status</th>
-                  <th className="px-4 py-3 font-bold">Lane</th>
-                  <th className="px-4 py-3 font-bold">Source</th>
-                  <th className="px-4 py-3 font-bold">Payout account</th>
-                  <th className="px-4 py-3 text-right font-bold">Amount</th>
-                  <th className="px-4 py-3 font-bold">Created</th>
-                  <th className="px-4 py-3 font-bold">Actions</th>
+                <tr className="border-0 border-y border-solid border-neutral-100 text-[10px] font-bold uppercase tracking-wide text-neutral-400">
+                  <th className="px-3 py-2.5 pl-5 font-bold">Payout</th>
+                  <th className="px-3 py-2.5 font-bold">State</th>
+                  <th className="px-3 py-2.5 font-bold">Recipient</th>
+                  <th className="px-3 py-2.5 text-right font-bold">Amount</th>
+                  <th className="px-3 py-2.5 font-bold">Created</th>
+                  <th className="px-3 py-2.5 pr-5"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100">
+              <tbody>
                 {visible.map((item) => {
                   const stale = isStale(item);
                   const expanded = expandedId === item.id;
                   return (
                     <Fragment key={item.id}>
                       <tr
-                        className={`cursor-pointer align-top transition hover:bg-emerald-50/30 ${stale ? "bg-amber-50/40" : ""}`}
+                        className={`cursor-pointer border-0 border-b border-solid border-neutral-100 transition hover:bg-emerald-50/40 ${stale ? "bg-amber-50/40" : ""}`}
                         onClick={() => toggleExpand(item)}
                       >
-                        <td className="px-4 py-3">
-                          <span className="font-mono text-xs font-medium text-neutral-950">{item.externalReferenceId}</span>
-                          {item.providerMessage && <p className="mb-0 mt-1 max-w-[220px] truncate text-[11px] text-slate-400">{item.providerMessage}</p>}
+                        <td className="px-3 py-3 pl-5">
+                          <div className="whitespace-nowrap font-mono text-[11px] font-semibold text-neutral-800">{item.externalReferenceId}</div>
+                          <div className="max-w-[240px] truncate text-[11px] text-neutral-500" title={item.providerMessage || undefined}>
+                            {sourceLabel(item.sourceType)} #{item.sourceId}
+                            {item.providerMessage ? <span className="text-neutral-400"> · {item.providerMessage}</span> : null}
+                          </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col items-start gap-1">
-                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusClass(item.status)}`}>{item.status}</span>
-                            {stale && (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
-                                <AlertTriangle className="h-3 w-3" /> Stuck &gt; {STALE_MINUTES}m
+                        <td className="whitespace-nowrap px-3 py-3">
+                          <span className={`inline-flex rounded-full border border-solid px-2 py-0.5 text-[10px] font-bold ${statusClass(item.status)}`}>{readableStatus(item.status)}</span>
+                          <div className="mt-1 flex items-center gap-1 text-[11px] text-neutral-500">
+                            {item.releaseLane === "AUTO" ? <Zap className="h-3 w-3 text-teal-600" aria-hidden /> : <UserCheck className="h-3 w-3" aria-hidden />}
+                            {item.releaseLane === "AUTO" ? "Automatic" : "Admin"}
+                            {stale && item.submittedAt && (
+                              <span className="inline-flex items-center gap-0.5 font-bold text-amber-700">
+                                <span className="text-neutral-300">·</span>
+                                <AlertTriangle className="h-3 w-3" aria-hidden /> No result {minutesSince(item.submittedAt)}
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <LaneBadge lane={item.releaseLane} />
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-600">
-                          {sourceLabel(item.sourceType)} #{item.sourceId}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-600">
-                          <div>{item.payoutAccount.accountName}</div>
-                          <div className="text-slate-400">
-                            {item.payoutAccount.provider} · {item.payoutAccount.accountNumber}
+                        <td className="px-3 py-3">
+                          <div className="max-w-[220px] truncate whitespace-nowrap font-semibold text-neutral-800" title={item.payoutAccount.accountName}>
+                            {tidyName(item.payoutAccount.accountName)}
+                          </div>
+                          <div className="whitespace-nowrap text-[11px] text-neutral-500">
+                            {readableProvider(item.payoutAccount.provider)} · {item.payoutAccount.accountNumber}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className="text-sm font-bold text-slate-950">{money(item.amount, item.currency)}</span>
+                        <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-neutral-900">
+                          {money(item.amount, item.currency)}
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()}</td>
-                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex flex-wrap gap-2">
+                        <td className="whitespace-nowrap px-3 py-3 text-neutral-700">
+                          <div>{eatDate(item.createdAt)}</div>
+                          <div className="text-[11px] text-neutral-500">{eatTime(item.createdAt)} EAT</div>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 pr-5 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="inline-flex flex-nowrap items-center justify-end gap-1.5">
                             {item.status === "REQUESTED" && (
-                              <button type="button" disabled={!!busy} onClick={() => void runAction(item.id, "approve")} className={actionClass}>
-                                {busy === `approve-${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
+                              <button type="button" disabled={!!busy} onClick={() => void runAction(item.id, "approve")} className={rowActionClass}>
+                                {busy === `approve-${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BadgeCheck className="h-3.5 w-3.5" />}
                                 Approve
                               </button>
                             )}
                             {item.status === "APPROVED" && (item.releaseLane === "AUTO" ? (
                               <span
-                                className="inline-flex items-center gap-1.5 rounded-xl border border-solid border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-800"
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700"
                                 title="The release worker batches and authorizes this under the daily automatic limit. No admin step is needed."
                               >
                                 <Zap className="h-3.5 w-3.5" />
                                 Batches automatically
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs font-bold text-neutral-500">
-                                Awaiting next batch
-                              </span>
+                              <span className="text-[11px] font-semibold text-neutral-500">Awaiting next batch</span>
                             ))}
                             {(item.status === "BATCHED" || item.status === "AUTHORIZED") && item.batchId && (
-                              <Link href={recordHref("disbursement-batch", item.batchId)} className={`${actionClass} no-underline`}>
-                                <Layers className="h-4 w-4" />
-                                View batch #{item.batchId}
+                              <Link href={recordHref("disbursement-batch", item.batchId)} className={`${rowActionClass} no-underline`}>
+                                <Layers className="h-3.5 w-3.5" />
+                                Batch
                               </Link>
                             )}
                             {item.status === "SECURITY_REVIEW" && (
-                              <Link href="/admin/disbursements/security-review" className={`${actionClass} !border-red-200 !bg-red-50 !text-red-700 no-underline`}>
-                                <ShieldAlert className="h-4 w-4" />
-                                In security review
+                              <Link href="/admin/disbursements/security-review" className={`${rowActionClass} !border-red-200 !bg-red-50 !text-red-700 no-underline`}>
+                                <ShieldAlert className="h-3.5 w-3.5" />
+                                Review
                               </Link>
                             )}
                             {["SUBMITTED", "PROCESSING"].includes(item.status) && (
@@ -1053,9 +1194,10 @@ function DisbursementsView() {
                                 type="button"
                                 disabled={!!busy}
                                 onClick={() => void runAction(item.id, "check-status")}
-                                className={actionClass}
+                                className={rowActionClass}
+                                title="Ask AzamPay for this payout's result now"
                               >
-                                {busy === `check-status-${item.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
+                                {busy === `check-status-${item.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                                 Check status
                               </button>
                             )}
@@ -1064,10 +1206,10 @@ function DisbursementsView() {
                                 type="button"
                                 disabled={!!busy}
                                 onClick={() => reRequest(item)}
-                                className={actionClass}
+                                className={rowActionClass}
                                 title="Prefill a new request from this failed payout"
                               >
-                                <RefreshCw className="h-4 w-4" />
+                                <RefreshCw className="h-3.5 w-3.5" />
                                 Re-request
                               </button>
                             )}
@@ -1077,7 +1219,7 @@ function DisbursementsView() {
 
                       {expanded && (
                         <tr>
-                          <td colSpan={8} className="border-t border-neutral-100 bg-neutral-50/60 px-4 py-4">
+                          <td colSpan={6} className="border-0 border-b border-solid border-neutral-100 bg-neutral-50/70 px-5 py-4">
                             <div className={`mb-3 flex items-start gap-2.5 rounded-xl border border-solid px-3 py-2.5 text-xs ${item.releaseLane === "AUTO" ? "border-teal-200 bg-teal-50/70 text-teal-900" : "border-neutral-200 bg-white text-neutral-600"}`}>
                               <LaneBadge lane={item.releaseLane} size="md" />
                               <span className="leading-5">
@@ -1095,25 +1237,7 @@ function DisbursementsView() {
                             ) : !detail.events || detail.events.length === 0 ? (
                               <p className="m-0 text-xs text-neutral-500">No provider events yet.</p>
                             ) : (
-                              <ol className="m-0 grid gap-2 p-0 sm:grid-cols-2 lg:grid-cols-3">
-                                {detail.events.map((event) => (
-                                  <li key={event.id} className="rounded-xl border border-neutral-200 bg-white p-3 text-xs">
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <span className="font-bold text-neutral-800">{event.eventType}</span>
-                                      <span className="text-neutral-400">{new Date(event.createdAt).toLocaleString()}</span>
-                                    </div>
-                                    <p className="mb-0 mt-1 text-neutral-600">
-                                      {event.status ? `${event.status}: ` : ""}
-                                      {event.message || "no message"}
-                                    </p>
-                                    {(event.pgReferenceId || event.fspReferenceId || event.operator) && (
-                                      <p className="mb-0 mt-1 font-mono text-[10px] text-neutral-400">
-                                        {[event.pgReferenceId, event.fspReferenceId, event.operator].filter(Boolean).join(" · ")}
-                                      </p>
-                                    )}
-                                  </li>
-                                ))}
-                              </ol>
+                              <EventTimeline events={detail.events} payout={item} />
                             )}
                           </td>
                         </tr>

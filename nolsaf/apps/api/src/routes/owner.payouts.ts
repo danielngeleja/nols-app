@@ -25,6 +25,7 @@ import { confirmWithdrawal, WithdrawalError } from "../services/payouts/withdraw
 import { confirmAmountWithdrawal, startAmountWithdrawal } from "../services/payouts/partialWithdrawal.js";
 import { OwnerWithdrawalLimitError, ownerWithdrawalAllowance } from "../services/payouts/ownerWithdrawalLimit.js";
 import { openRecoveryTotal } from "../services/payouts/recovery.js";
+import { recentOwnerWithdrawals } from "../services/payouts/ownerWithdrawalView.js";
 import { destinationChangeAnchor, loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
 import { customerBookingReference, ownerInvoiceReference } from "../lib/customerBookingReference.js";
 import { requireOwnerStrongSession } from "../lib/ownerMfaPolicy.js";
@@ -222,6 +223,8 @@ router.get(
       dailyUsed: dailyAllowance.used,
       dailyRemaining: dailyAllowance.remaining,
       dailyResetAt: dailyAllowance.end,
+      // Each confirmed withdrawal as one tracked item (Requested, Checked, Sending, Paid or Returned).
+      withdrawals: await recentOwnerWithdrawals(req.user!.id),
       releases: rows.map((r) => {
         const claim = claimById.get(r.sourceId);
         const portions = allocationsByRelease.get(r.id) ?? [];

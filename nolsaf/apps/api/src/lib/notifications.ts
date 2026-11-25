@@ -589,6 +589,10 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
         title: "Withdrawal request under review",
         body: `Your withdrawal request #${data.releaseId} needs a check by our payments team. Please do not submit it again. We will update its status after review.`
       },
+      owner_payout_withdrawal_failed: {
+        title: "Withdrawal could not be sent",
+        body: `Your withdrawal of ${data.amountText || "your requested amount"} could not be sent, so no money left your NoLSAF balance. It is back in Ready; you can withdraw it again from My Payouts.`
+      },
       owner_payout_withdrawal_reset: {
         title: "Withdrawal is ready to confirm again",
         body: `Our payments team checked withdrawal request #${data.releaseId} and returned it to Ready. Request a new code in My Payouts if you still want to withdraw.`

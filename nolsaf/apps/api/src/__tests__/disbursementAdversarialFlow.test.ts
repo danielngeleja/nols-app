@@ -254,12 +254,99 @@ describe("disbursement state-machine attack resistance", () => {
     ]);
 
     expect(["PAID", "FAILED"]).toContain(state.status);
-    expect(tx.disbursement.updateMany).toHaveBeenCalledTimes(2);
+    // Terminal claims only; the winner also clears any stale correlation note.
+    const claimCalls = tx.disbursement.updateMany.mock.calls.filter(
+      ([args]: any) => args?.where?.status === "PROCESSING"
+    );
+    expect(claimCalls).toHaveLength(2);
     const successfulClaims = tx.disbursement.updateMany.mock.results.filter(
       (result) => result.type === "return"
     );
-    expect(successfulClaims).toHaveLength(2);
+    expect(successfulClaims.length).toBeGreaterThanOrEqual(2);
     expect(state.status).not.toBe("PROCESSING");
+  });
+
+  // First production payout, 2026-11-25: a vodacom payout failed inside our
+  // funding wallet, AzamPay's status reply named "azampesa", an exact operator
+  // compare held it, and every later identical poll was skipped as a duplicate.
+  function stuckSourceFailure(status: string) {
+    // As left in production by the old rule: held with a correlation note.
+    let state: any = {
+      ...payout(status), bankName: "vodacom",
+      securityReviewReason: "Provider event correlation failure: operator does not match the payout destination",
+    };
+    const tx = {
+      disbursement: {
+        findUnique: vi.fn(async () => ({ ...state })),
+        update: vi.fn(async ({ data }: any) => { state = { ...state, ...data }; return { ...state }; }),
+        updateMany: vi.fn(async ({ where, data }: any) => {
+          const prefix = where?.securityReviewReason?.startsWith;
+          if (prefix !== undefined) {
+            if (!String(state.securityReviewReason ?? "").startsWith(prefix)) return { count: 0 };
+            state = { ...state, ...data };
+            return { count: 1 };
+          }
+          if (state.status !== "PROCESSING") return { count: 0 };
+          state = { ...state, ...data };
+          return { count: 1 };
+        }),
+      },
+      // The same poll answer was already recorded on an earlier pass.
+      disbursementEvent: { createMany: vi.fn(async () => ({ count: 0 })) },
+    };
+    mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
+    const event = {
+      eventType: "STATUS_POLL" as const,
+      callback: { ...providerEvent("failure").callback, operator: "azampesa", message: "Balance can not be negative" },
+    };
+    return { tx, event, current: () => state };
+  }
+
+  it("fails a payout that failed in our funding wallet, even on a repeated poll", async () => {
+    const { tx, event, current } = stuckSourceFailure("PROCESSING");
+
+    await applyProviderEvent(77, event);
+
+    expect(current().status).toBe("FAILED");
+    expect(current().providerMessage).toBe("Balance can not be negative");
+    expect(current().activeSourceKey).toBeNull();
+    // The red "operator does not match" note is no longer true once it settles.
+    expect(current().securityReviewReason).toBeNull();
+    expect(tx.disbursement.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps a note that is not a correlation hold when the payout settles", async () => {
+    const { event, current } = stuckSourceFailure("PROCESSING");
+    const note = "AzamPay reported 90000 for a payout of 150000";
+    (current() as any).securityReviewReason = note;
+
+    await applyProviderEvent(77, event);
+
+    expect(current().status).toBe("FAILED");
+    expect(current().securityReviewReason).toBe(note);
+  });
+
+  it("still ignores a repeated event once the payout is final", async () => {
+    const { tx, event, current } = stuckSourceFailure("FAILED");
+
+    await applyProviderEvent(77, event);
+
+    expect(current().status).toBe("FAILED");
+    expect(tx.disbursement.updateMany).not.toHaveBeenCalled();
+    expect(tx.disbursement.update).not.toHaveBeenCalled();
+  });
+
+  it("never accepts a success that names our source rail", async () => {
+    const { tx, current } = stuckSourceFailure("PROCESSING");
+    tx.disbursementEvent.createMany.mockResolvedValue({ count: 1 });
+
+    await applyProviderEvent(77, {
+      eventType: "STATUS_POLL",
+      callback: { ...providerEvent("success").callback, operator: "azampesa" },
+    });
+
+    expect(current().status).toBe("PROCESSING");
+    expect(current().securityReviewReason).toContain("operator does not match");
   });
 });
 

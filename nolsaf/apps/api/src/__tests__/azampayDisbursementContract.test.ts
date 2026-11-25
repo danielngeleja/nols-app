@@ -292,6 +292,23 @@ describe("AzamPay callback correlation", () => {
     ).toBeNull();
   });
 
+  it("accepts our source rail on a failure, never on a success", () => {
+    const vodacomPayout = { ...stored, bankName: "vodacom" };
+    // First production payout: failed in our funding wallet, reported as Azampesa.
+    expect(
+      validateDisbursementCallbackCorrelation(vodacomPayout, {
+        ...callback, status: "failure", operator: "azampesa", message: "Balance can not be negative",
+      })
+    ).toBeNull();
+    expect(
+      validateDisbursementCallbackCorrelation(vodacomPayout, { ...callback, status: "success", operator: "azampesa" })
+    ).toMatchObject({ code: "operator_mismatch" });
+    // A failure naming some other network is still a mismatch.
+    expect(
+      validateDisbursementCallbackCorrelation(vodacomPayout, { ...callback, status: "failure", operator: "Airtel" })
+    ).toMatchObject({ code: "operator_mismatch" });
+  });
+
   it("detects pgReferenceId, amount, and operator mismatches", () => {
     expect(
       validateDisbursementCallbackCorrelation(stored, { ...callback, pgReferenceId: "PG-OTHER" })

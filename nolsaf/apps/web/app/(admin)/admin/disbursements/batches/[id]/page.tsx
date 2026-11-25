@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, BadgeCheck, CheckCircle2, Layers, Loader2, ShieldAlert, ShieldCheck } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Check, CheckCircle2, Layers, Loader2, ShieldAlert, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type BatchItem = {
@@ -63,6 +63,102 @@ function riskClass(level: string | null) {
   return "border-neutral-200 bg-neutral-100 text-neutral-500";
 }
 
+const STATUS_META: Record<string, { label: string; tone: string }> = {
+  DRAFT: { label: "Awaiting release", tone: "border-amber-200 bg-amber-50 text-amber-800" },
+  AUTHORIZED: { label: "Released", tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
+  PROCESSING: { label: "Sending", tone: "border-sky-200 bg-sky-50 text-sky-800" },
+  COMPLETED: { label: "Completed", tone: "border-emerald-200 bg-emerald-50 text-emerald-800" },
+  SECURITY_REVIEW: { label: "Security review", tone: "border-red-200 bg-red-50 text-red-700" },
+  ABANDONED: { label: "Closed", tone: "border-neutral-200 bg-neutral-50 text-neutral-600" },
+};
+
+const LIFECYCLE = [
+  { key: "DRAFT", label: "Formed" },
+  { key: "AUTHORIZED", label: "Released" },
+  { key: "PROCESSING", label: "Sending" },
+  { key: "COMPLETED", label: "Completed" },
+];
+
+const RISK_ORDER = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+
+/** Admin times are shown in Tanzania time, whatever the browser's zone. */
+function eat(value: string) {
+  return `${new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(value))} EAT`;
+}
+
+function clock(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function highestRisk(items: BatchItem[]) {
+  return items.reduce<string | null>((top, item) => {
+    if (!item.riskLevel) return top;
+    return !top || RISK_ORDER.indexOf(item.riskLevel) > RISK_ORDER.indexOf(top) ? item.riskLevel : top;
+  }, null);
+}
+
+function destinationSummary(items: BatchItem[]) {
+  const providers = [...new Set(items.map((item) => item.payoutAccount.provider).filter(Boolean))];
+  if (!providers.length) return "None";
+  return providers.length <= 2 ? providers.join(", ") : `${providers.length} providers`;
+}
+
+function Lifecycle({ status }: { status: string }) {
+  if (status === "SECURITY_REVIEW" || status === "ABANDONED") return null;
+  const current = LIFECYCLE.findIndex((step) => step.key === status);
+  return (
+    <ol className="m-0 mt-5 grid list-none grid-cols-4 gap-2 p-0">
+      {LIFECYCLE.map((step, index) => {
+        const reached = index <= current;
+        return (
+          <li key={step.key} className="min-w-0">
+            <div className={`h-1 rounded-full ${reached ? "bg-emerald-600" : "bg-neutral-200"}`} />
+            <p className={`m-0 mt-1.5 truncate text-[11px] font-bold ${index === current ? "text-emerald-800" : reached ? "text-neutral-600" : "text-neutral-400"}`}>
+              {step.label}
+            </p>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function Fact({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="min-w-0 bg-white px-3 py-2.5">
+      <dt className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">{label}</dt>
+      <dd className="m-0 mt-0.5 truncate text-sm font-semibold text-neutral-900" title={value}>{value}</dd>
+      {sub && <dd className="m-0 truncate text-[11px] text-neutral-500">{sub}</dd>}
+    </div>
+  );
+}
+
+function StepDot({ n, done }: { n: number; done: boolean }) {
+  return (
+    <span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold ${done ? "bg-emerald-600 text-white" : "border border-solid border-neutral-300 bg-white text-neutral-500"}`}>
+      {done ? <Check className="h-3 w-3" /> : n}
+    </span>
+  );
+}
+
+const NOTE_TONES = {
+  emerald: "text-emerald-800 [&_svg]:text-emerald-700",
+  amber: "text-amber-800 [&_svg]:text-amber-700",
+  red: "text-red-700 [&_svg]:text-red-600",
+  neutral: "text-neutral-700 [&_svg]:text-neutral-500",
+};
+
+function PanelNote({ icon, tone, title, children }: { icon: ReactNode; tone: keyof typeof NOTE_TONES; title: string; children: ReactNode }) {
+  return (
+    <div className={NOTE_TONES[tone]}>
+      <p className="m-0 flex items-center gap-2 text-sm font-bold">{icon}{title}</p>
+      <p className="mb-0 mt-1.5 text-xs leading-5 text-neutral-600">{children}</p>
+    </div>
+  );
+}
+
 function errorMessage(cause: any, fallback: string) {
   if (cause?.response?.data?.require2fa) {
     return "Finance OTP verification is required. Complete it in the verification panel, then retry.";
@@ -87,8 +183,22 @@ function BatchDetail({ batchId }: { batchId: number }) {
   const [sendingCode, setSendingCode] = useState(false);
   const [releaseCode, setReleaseCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
+  const [codeHint, setCodeHint] = useState("");
+  const [codeExpiresAt, setCodeExpiresAt] = useState<number | null>(null);
+  const [codeSentAt, setCodeSentAt] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  // One tick a second only while a code is live, for the expiry and resend timers.
+  useEffect(() => {
+    if (!codeSent) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [codeSent]);
+  const secondsLeft = codeExpiresAt ? Math.max(0, Math.ceil((codeExpiresAt - now) / 1000)) : 0;
+  // The API refuses a resend inside 30 seconds; count it down instead of letting the click fail.
+  const resendIn = codeSentAt ? Math.max(0, 30 - Math.floor((now - codeSentAt) / 1000)) : 0;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,6 +216,13 @@ function BatchDetail({ batchId }: { batchId: number }) {
 
   useEffect(() => { if (Number.isInteger(batchId)) void load(); }, [batchId, load]);
 
+  const resetCode = () => {
+    setReleaseCode("");
+    setCodeSent(false);
+    setCodeSentAt(null);
+    setCodeExpiresAt(null);
+  };
+
   // Sends the single-use code that lets this admin release a batch they
   // formed or approved into. Only reachable when the API says a challenge is
   // required, so a two-person release never sees this step.
@@ -115,8 +232,14 @@ function BatchDetail({ batchId }: { batchId: number }) {
     setNotice("");
     try {
       const response = await apiClient.post(`/api/admin/disbursements/batches/${batchId}/release-challenge`);
+      const sentAt = Date.now();
+      const expires = Date.parse(response.data?.expiresAt);
       setCodeSent(true);
-      setNotice(response.data?.hint || "Release code sent. Check your registered email or phone.");
+      setCodeSentAt(sentAt);
+      setNow(sentAt);
+      setCodeExpiresAt(Number.isFinite(expires) ? expires : sentAt + 10 * 60 * 1000);
+      setCodeHint(response.data?.hint || "Sent to the email or phone on your admin account.");
+      setReleaseCode("");
     } catch (cause: any) {
       setError(errorMessage(cause, "Could not send a release code."));
     } finally {
@@ -139,17 +262,13 @@ function BatchDetail({ batchId }: { batchId: number }) {
         response.data?.message ||
           "Batch authorized. Submission to AzamPay runs in the background and starts within a minute."
       );
-      setReleaseCode("");
-      setCodeSent(false);
+      resetCode();
       await load();
     } catch (cause: any) {
       setError(errorMessage(cause, "Could not authorize this batch."));
       // A spent or rejected code cannot be retried; make the admin fetch a
       // fresh one rather than letting them retype into a dead field.
-      if (cause?.response?.data?.challengeRequired) {
-        setReleaseCode("");
-        setCodeSent(false);
-      }
+      if (cause?.response?.data?.challengeRequired) resetCode();
     } finally {
       setBusy(false);
     }
@@ -170,88 +289,158 @@ function BatchDetail({ batchId }: { batchId: number }) {
         <ArrowLeft className="h-3.5 w-3.5" /> Back to batches
       </Link>
 
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-center gap-3.5">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Layers className="h-5 w-5" /></span>
-            <div className="min-w-0">
-              <p className="m-0 font-mono text-[11px] text-neutral-500">{batch.batchReference}</p>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">{money(batch.totalAmount, batch.currency)} · {batch.itemCount} item(s)</h1>
-              <p className="mb-0 mt-1 text-xs text-neutral-500">
-                Status <span className="font-bold text-neutral-700">{batch.status}</span> · Formed by {batch.mode === "AUTO" ? "System (automatic payouts)" : batch.formedBy?.name || batch.formedBy?.email || "n/a"}
-                {batch.authorizedBy && <> · Authorized by {batch.authorizedBy.name || batch.authorizedBy.email}</>}
-              </p>
-              {/* itemCount and totalAmount are frozen at formation; items is the
-                  live relation. Once payouts are cleared out of a frozen batch
-                  the two disagree, so say so rather than showing a headline
-                  figure above an empty table. */}
-              {batch.items.length !== batch.itemCount && (
-                <p className="mb-0 mt-1 text-xs text-neutral-500">
-                  {batch.itemCount - batch.items.length} payout(s) were cleared out of this batch and re-queued. The totals above are what the batch
-                  held when it was formed.
-                </p>
-              )}
-            </div>
-          </div>
-          {batch.status === "DRAFT" && batch.mode === "AUTO" && (
-            <span className="inline-flex max-w-sm items-start gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
-              <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0" />
-              Automatic batch. The system authorizes it when today&apos;s automatic payout limit allows; admins do not release it.
+      <section className="grid gap-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Summary: what this batch is and where it stands. */}
+        <div className="min-w-0 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><Layers className="h-4 w-4" /></span>
+            <span className="font-mono text-xs text-neutral-500">{batch.batchReference}</span>
+            <span className={`rounded-full border border-solid px-2 py-0.5 text-[10px] font-bold ${STATUS_META[batch.status]?.tone || "border-neutral-200 bg-neutral-50 text-neutral-600"}`}>
+              {STATUS_META[batch.status]?.label || batch.status}
             </span>
+            <span className="rounded-full border border-solid border-neutral-200 bg-white px-2 py-0.5 text-[10px] font-bold text-neutral-500">
+              {batch.mode === "AUTO" ? "Automatic" : "Manual"}
+            </span>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="m-0 whitespace-nowrap text-3xl font-bold tracking-tight text-neutral-950">{money(batch.totalAmount, batch.currency)}</h1>
+            <span className="whitespace-nowrap text-sm font-semibold text-neutral-500">
+              {batch.itemCount} {batch.itemCount === 1 ? "payout" : "payouts"}
+            </span>
+          </div>
+          {/* itemCount and totalAmount are frozen at formation; items is the
+              live relation. Once payouts are cleared out of a frozen batch
+              the two disagree, so say so rather than showing a headline
+              figure above an empty table. */}
+          {batch.items.length !== batch.itemCount && (
+            <p className="mb-0 mt-1 text-xs text-neutral-500">
+              {batch.itemCount - batch.items.length} of these were cleared out and re-queued. The total is what the batch held when it was formed.
+            </p>
+          )}
+
+          <Lifecycle status={batch.status} />
+
+          <dl className="m-0 mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-solid border-neutral-100 bg-neutral-100 sm:grid-cols-4">
+            <Fact label="Formed by" value={batch.mode === "AUTO" ? "System" : batch.formedBy?.name || batch.formedBy?.email || "Unknown"} sub={eat(batch.createdAt)} />
+            <Fact
+              label="Authorized"
+              value={batch.authorizedBy ? batch.authorizedBy.name || batch.authorizedBy.email || "Admin" : "Not yet"}
+              sub={batch.authorizedAt ? eat(batch.authorizedAt) : undefined}
+            />
+            <Fact label="Destinations" value={destinationSummary(batch.items)} />
+            <Fact label="Highest risk" value={highestRisk(batch.items) || "None flagged"} />
+          </dl>
+        </div>
+
+        {/* Action: the one thing this admin can do next. */}
+        <aside className="border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 p-5 sm:p-6 lg:border-l lg:border-t-0">
+          {batch.status === "DRAFT" && batch.mode === "AUTO" && (
+            <PanelNote icon={<BadgeCheck className="h-4 w-4" />} tone="emerald" title="Released by the system">
+              The system authorizes this batch when today&apos;s automatic payout limit allows. Admins do not release it.
+            </PanelNote>
           )}
           {batch.status === "DRAFT" && batch.mode !== "AUTO" && release?.blocked && (
-            <span className="inline-flex max-w-sm items-start gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
-              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-              You {release.formedByActor ? "formed this batch" : "approved payouts in this batch"}. Two-person release is required here, so a different admin must authorize it.
-            </span>
+            <PanelNote icon={<ShieldAlert className="h-4 w-4" />} tone="amber" title="Another admin must release this">
+              You {release.formedByActor ? "formed this batch" : "approved payouts in it"}, and two-person release is on. Ask a different finance admin to authorize it.
+            </PanelNote>
           )}
           {batch.status === "DRAFT" && batch.mode !== "AUTO" && !release?.blocked && (
-            <div className="flex flex-col items-stretch gap-2 lg:items-end">
-              {release?.challengeRequired && (
-                <div className="rounded-xl border border-solid border-amber-200 bg-amber-50 p-3">
-                  <p className="m-0 flex items-start gap-1.5 text-[11px] font-bold text-amber-800">
-                    <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    You {release.formedByActor ? "formed this batch" : "approved payouts in this batch"}. Releasing your own
-                    batch needs a one-time code sent to your registered email or phone.
+            <div className="flex h-full flex-col">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">Release this batch</p>
+              {release?.challengeRequired ? (
+                <>
+                  <p className="mb-0 mt-1.5 text-xs leading-5 text-neutral-500">
+                    You {release.formedByActor ? "formed this batch" : "approved payouts in it"}, so releasing it needs a one-time code.
                   </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <button type="button" disabled={sendingCode || busy} onClick={() => void sendReleaseCode()} className={actionClass}>
-                      {sendingCode ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
-                      {codeSent ? "Resend code" : "Send release code"}
-                    </button>
-                    <input
-                      value={releaseCode}
-                      onChange={(e) => setReleaseCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      inputMode="numeric"
-                      placeholder="6-digit code"
-                      className="w-32 rounded-xl border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-center font-mono text-sm tracking-[0.3em] text-neutral-800 outline-none transition focus:border-emerald-300"
-                    />
-                  </div>
-                </div>
+                  <ol className="m-0 mt-4 list-none space-y-3 p-0">
+                    <li className="flex gap-2.5">
+                      <StepDot n={1} done={codeSent} />
+                      <div className="min-w-0 flex-1">
+                        <p className="m-0 text-xs font-bold text-neutral-800">Get a code</p>
+                        {codeSent && codeExpiresAt ? (
+                          <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">
+                            {codeHint} {secondsLeft > 0 ? <>Expires in <span className="font-mono font-bold text-neutral-700">{clock(secondsLeft)}</span>.</> : <span className="font-bold text-red-600">Expired, send a new one.</span>}
+                          </p>
+                        ) : (
+                          <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Sent to the email or phone on your admin account.</p>
+                        )}
+                        <button
+                          type="button"
+                          disabled={sendingCode || busy || resendIn > 0}
+                          onClick={() => void sendReleaseCode()}
+                          className={`${actionClass} mt-2 border-solid`}
+                        >
+                          {sendingCode ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                          {!codeSent ? "Send code" : resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
+                        </button>
+                      </div>
+                    </li>
+                    <li className="flex gap-2.5">
+                      <StepDot n={2} done={releaseCode.length === 6} />
+                      <div className="min-w-0 flex-1">
+                        <label htmlFor="batch-release-code" className="m-0 block text-xs font-bold text-neutral-800">Enter the code</label>
+                        <input
+                          id="batch-release-code"
+                          value={releaseCode}
+                          onChange={(e) => setReleaseCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          onKeyDown={(e) => { if (e.key === "Enter" && releaseCode.length === 6 && !busy) void authorize(); }}
+                          disabled={!codeSent || busy}
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          placeholder="000000"
+                          className="mt-2 w-full rounded-xl border border-solid border-neutral-200 bg-white px-3 py-2 text-center font-mono text-lg tracking-[0.4em] text-neutral-900 outline-none transition placeholder:text-neutral-300 focus:border-emerald-400 disabled:bg-neutral-100 disabled:text-neutral-400"
+                        />
+                      </div>
+                    </li>
+                  </ol>
+                </>
+              ) : (
+                <p className="mb-0 mt-1.5 text-xs leading-5 text-neutral-500">
+                  Another admin formed this batch, so you can release it directly.
+                </p>
               )}
               <button
                 type="button"
-                disabled={busy || (release?.challengeRequired === true && releaseCode.length !== 6)}
+                disabled={busy || (release?.challengeRequired === true && (releaseCode.length !== 6 || secondsLeft <= 0))}
                 onClick={() => void authorize()}
-                className={`${actionClass} !border-emerald-700 !bg-emerald-700 !text-white`}
+                className={`${actionClass} mt-4 w-full border-solid !border-emerald-700 !bg-emerald-700 !text-white !min-h-10 !text-sm`}
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
-                Authorize &amp; release
+                Release {money(batch.totalAmount, batch.currency)}
               </button>
+              <p className="mb-0 mt-2 text-[11px] leading-4 text-neutral-400">
+                Payout accounts are re-checked first. If anything changed since the batch was formed, it freezes to Security Review instead of sending.
+              </p>
             </div>
           )}
+          {batch.status === "AUTHORIZED" && (
+            <PanelNote icon={<BadgeCheck className="h-4 w-4" />} tone="emerald" title="Queued for sending">
+              Released. Sending to AzamPay starts within a minute; refresh to watch each payout move.
+            </PanelNote>
+          )}
+          {batch.status === "PROCESSING" && (
+            <PanelNote icon={<Loader2 className="h-4 w-4 animate-spin" />} tone="emerald" title="Sending to AzamPay">
+              Each payout settles when AzamPay confirms it. Results show in the table below.
+            </PanelNote>
+          )}
+          {batch.status === "COMPLETED" && (
+            <PanelNote icon={<CheckCircle2 className="h-4 w-4" />} tone="emerald" title="Finished">
+              Every payout in this batch reached a final result. Check the table for any that failed.
+            </PanelNote>
+          )}
           {batch.status === "SECURITY_REVIEW" && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
-              <ShieldAlert className="h-4 w-4" /> Fingerprint mismatch, frozen. See Security Review
-            </span>
+            <PanelNote icon={<ShieldAlert className="h-4 w-4" />} tone="red" title="Frozen for security review">
+              A payout account changed after this batch was formed, so nothing was sent.{" "}
+              <Link href="/admin/disbursements/security-review" className="font-bold text-red-700">Open Security Review</Link>
+            </PanelNote>
           )}
           {batch.status === "ABANDONED" && (
-            <span className="inline-flex max-w-sm items-start gap-1.5 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-bold text-neutral-600">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-              Closed. Every payout this batch held was cleared and re-queued into a new batch, so nothing here is pending.
-            </span>
+            <PanelNote icon={<ShieldCheck className="h-4 w-4" />} tone="neutral" title="Closed">
+              Every payout this batch held was cleared and re-queued into a new batch, so nothing here is pending.
+            </PanelNote>
           )}
-        </div>
+        </aside>
       </section>
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700">{error}</div>}
@@ -301,13 +490,6 @@ function BatchDetail({ batchId }: { batchId: number }) {
           </table>
         </div>
       </section>
-
-      {batch.status === "DRAFT" && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-800">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>Authorizing recomputes this batch's fingerprint. If anything changed since formation, the batch and every item freeze to Security Review instead of submitting.</span>
-        </div>
-      )}
     </div>
   );
 }

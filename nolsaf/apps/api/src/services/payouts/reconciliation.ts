@@ -25,6 +25,38 @@ export class AmountMismatchError extends Error {
 
 const DEFAULT_STALE_THRESHOLD_MINUTES = 30;
 
+/** Keys whose values may be logged: status-like words only. */
+const LOGGABLE_KEY = /(status|state|result|success|code|message|desc|reason|error)/i;
+/** Anything that could identify a person or an account is never logged, whatever else the key says. */
+const PRIVATE_KEY = /(account|msisdn|phone|mobile|name|number|token|key|secret|checksum|email|reference)/i;
+
+/**
+ * Field paths of an AzamPay status reply, plus the values of status-like
+ * fields only. Values are short scalars; anything private or nested deeper
+ * than two levels is reduced to its path.
+ */
+export function describeStatusReply(reply: unknown): { fields: string[]; values: Record<string, string | number | boolean | null> } {
+  const fields: string[] = [];
+  const values: Record<string, string | number | boolean | null> = {};
+  const walk = (node: unknown, prefix: string, depth: number) => {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return;
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      fields.push(path);
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        if (depth < 2) walk(value, path, depth + 1);
+        continue;
+      }
+      if (PRIVATE_KEY.test(key) || !LOGGABLE_KEY.test(key)) continue;
+      if (value === null || typeof value === "number" || typeof value === "boolean") values[path] = value;
+      // A free-text message can quote a phone or account number; mask long digit runs.
+      else if (typeof value === "string") values[path] = value.slice(0, 80).replace(/\d{6,}/g, "[digits]");
+    }
+  };
+  walk(reply, "", 0);
+  return { fields: fields.slice(0, 40), values };
+}
+
 export interface ReconciliationResult {
   checked: number;
   resolved: number;
@@ -57,6 +89,13 @@ export async function checkDisbursementStatus(disbursementId: number): Promise<D
 
   const normalizedStatus = normalizeAzamPayFinalStatus(status);
   if (!normalizedStatus) {
+    // AzamPay does not document which field carries the final result, so an
+    // unread reply used to vanish silently. Log its shape (never account data)
+    // so the real field can be mapped from evidence, not guessed.
+    console.warn(
+      `[payout-reconciliation] unrecognised status reply for disbursement ${disbursementId}: ` +
+        JSON.stringify(describeStatusReply(status))
+    );
     return prisma.disbursement.findUniqueOrThrow({ where: { id: disbursementId } });
   }
 
