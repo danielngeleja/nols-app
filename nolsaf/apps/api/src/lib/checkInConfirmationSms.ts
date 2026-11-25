@@ -37,9 +37,10 @@ export async function ensureGuestCheckInConfirmation(bookingId: number): Promise
   if (await guestCheckInAlertAccepted(bookingId)) return true;
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
+    // Booking has no guestEmail column: selecting it threw on every call, which
+    // stopped every payout release from being evaluated (first prod payout, 2026-11-25).
     select: {
       guestPhone: true,
-      guestEmail: true,
       user: { select: { phone: true, email: true } },
       property: { select: { title: true } },
       code: { select: { status: true, usedAt: true } },
@@ -65,7 +66,7 @@ export async function ensureGuestCheckInConfirmation(bookingId: number): Promise
       console.warn("[checkin-alert] SMS not accepted", { bookingId, message: err?.message });
     }
   }
-  const email = booking.guestEmail || booking.user?.email;
+  const email = booking.user?.email;
   if (!accepted && email) {
     try {
       const result = await sendMail(

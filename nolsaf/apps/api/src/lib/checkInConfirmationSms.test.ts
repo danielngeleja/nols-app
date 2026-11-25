@@ -69,16 +69,24 @@ describe("guest check-in awareness gate", () => {
     }));
   });
 
-  it("uses the email recorded on a public guest booking when SMS fails", async () => {
+  it("selects only fields that exist on Booking (a wrong field throws in production and freezes payouts)", async () => {
+    const { Prisma } = await import("@prisma/client");
+    mocks.sendSms.mockResolvedValue({ success: true, provider: "africastalking", messageId: "sms-3" });
+    await ensureGuestCheckInConfirmation(42);
+    const select = mocks.findBooking.mock.calls[0][0].select as Record<string, unknown>;
+    const relations = new Set(["user", "property", "code"]);
+    const scalars = new Set(Object.keys((Prisma as any).BookingScalarFieldEnum));
+    expect(scalars.size).toBeGreaterThan(5);
+    for (const key of Object.keys(select)) expect(relations.has(key) || scalars.has(key), `Booking.${key}`).toBe(true);
+  });
+
+  it("does not report success when no provider accepted the alert", async () => {
     mocks.findBooking.mockResolvedValue({
-      guestPhone: "+255712345678", guestEmail: "booking-guest@example.com", user: null,
+      guestPhone: null, user: null,
       property: { title: "NoLSAF Hotel" }, code: { status: "USED", usedAt: new Date("2026-10-07T11:00:00Z") },
     });
-    mocks.sendSms.mockResolvedValue({ success: false, error: "provider unavailable" });
-    mocks.sendMail.mockResolvedValue({ success: true, provider: "resend", messageId: "email-2" });
-    expect(await ensureGuestCheckInConfirmation(42)).toBe(true);
-    expect(mocks.sendMail).toHaveBeenCalledWith("booking-guest@example.com", expect.any(String), expect.any(String), undefined,
-      expect.objectContaining({ bypassEligibilityCheck: true }));
+    expect(await ensureGuestCheckInConfirmation(42)).toBe(false);
+    expect(mocks.createAlert).not.toHaveBeenCalled();
   });
 
   it("does not unlock on console-only or suppressed delivery", async () => {
