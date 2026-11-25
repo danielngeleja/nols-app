@@ -13,7 +13,18 @@ import { ensureRoomsSpecCodes } from "../lib/roomSelectionCode.js";
 import { invalidateCache, cacheKeys } from "../lib/performance.js";
 import { LARGE_CHANGE_PERCENT, checkPriceChange } from "../lib/priceGuardrails.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { requestInspection } from "../lib/longStay/inspection.js";
 import { customerRecordReference } from "../lib/customerBookingReference.js";
+import {
+  LongStayListingError,
+  RENTAL_MODES,
+  longStaySubmitRefusal,
+  longStayTypeRefusal,
+  rowToTerms,
+  validateRentalMode,
+  writeRentalMode,
+  type RentalModeChange,
+} from "../lib/longStay/listing.js";
 
 // ---------- Schemas & Helpers ----------
 // Minimal Zod schema for property body used by create/update
@@ -87,8 +98,19 @@ const baseBodySchema = z.object({
   // tourism / park placement
   tourismSiteId: z.number().int().positive().optional().nullable(),
   parkPlacement: z.enum(["INSIDE", "NEARBY"]).optional().nullable(),
-  
+
+  // long stay (docs/LONG_STAY_RENTALS.md): omitted means "leave as it is".
+  // Terms are validated in lib/longStay/listing.ts, never here.
+  rentalMode: z.enum(RENTAL_MODES).optional(),
+  longStay: z.unknown().optional(),
 });
+
+/** A long-stay refusal answers with its own status and message. */
+function sendLongStayError(res: any, error: unknown): boolean {
+  if (!(error instanceof LongStayListingError)) return false;
+  res.status(error.status).json({ error: error.message, code: "LONG_STAY" });
+  return true;
+}
 
 function normalizeHotelStar(v: unknown): string | null {
   // DB schema stores hotelStar as string label (basic/simple/moderate/high/luxury)
@@ -139,10 +161,10 @@ function cleanServices(services: unknown): any {
     
     // Preserve all service properties (parking, restaurant, bar, pool, etc.)
     const serviceProperties = [
-      'parking', 'parkingPrice', 'breakfastIncluded', 'breakfastAvailable',
+      'parking', 'parkingPrice', 'parkingPeriod', 'parkingSpaces', 'parkingCovered', 'breakfastIncluded', 'breakfastAvailable',
       'restaurant', 'bar', 'pool', 'sauna', 'laundry', 'roomService', 'privateChef',
       'security24', 'firstAid', 'fireExtinguisher', 'onSiteShop', 'nearbyMall',
-      'socialHall', 'sportsGames', 'gym', 'wifi', 'ac',
+      'socialHall', 'sportsGames', 'gym', 'wifi', 'ac', 'playground', 'cleaningService',
       'acceptGroupBookings', 'freeCancellation',
       // Persist house rules inside services JSON for admin/owner previews
       'houseRules'
@@ -353,6 +375,7 @@ async function findOwnerPropertyById(ownerId: number, id: number) {
     services: true,
     basePrice: true,
     currency: true,
+    rentalMode: true,
     rejectionReasons: true,
     lastSubmittedAt: true,
     createdAt: true,
@@ -681,6 +704,10 @@ export const getListingProperty = (async (req: AuthedRequest, res) => {
     if (!property) return res.status(404).json({ error: "Property not found" });
     // A partner listing for an owner never sees the owner's account contact details.
     if (listingScopeOf(req)) delete (property as any).owner;
+    if ((property as any).rentalMode === "LONG_STAY") {
+      const row = await prisma.longStayListing.findUnique({ where: { propertyId: id } });
+      (property as any).longStay = rowToTerms(row);
+    }
 
     const sanitized = sanitizePropertyJsonFields(property as any, `GET /:id property ${id}`);
     if (sanitized.hasRepairForDb && Object.keys(sanitized.updateData).length > 0) {
@@ -759,6 +786,17 @@ router.post("/", (async (req: AuthedRequest, res) => {
   try {
     const ownerId = req.user!.id;
     const parsed = baseBodySchema.parse(req.body);
+
+    // Long stay is checked before anything is written.
+    let rentalChange: RentalModeChange | null = null;
+    if (parsed.rentalMode === "LONG_STAY") {
+      try {
+        rentalChange = await validateRentalMode(prisma, { propertyId: null, ownerId, propertyType: parsed.type, rentalMode: "LONG_STAY", terms: parsed.longStay, assisted: false });
+      } catch (error) {
+        if (sendLongStayError(res, error)) return;
+        throw error;
+      }
+    }
 
     // Normalize tourism / park placement fields
     const normalizedTourismSiteId = parsed.tourismSiteId ?? null;
@@ -861,6 +899,8 @@ router.post("/", (async (req: AuthedRequest, res) => {
       // don't fail the request on image persistence issues
       console.log("property image persist failed", e);
     }
+    if (rentalChange) await writeRentalMode(prisma, created.id, rentalChange);
+
     // ✅ AFTER CREATE — AUTO GENERATE LAYOUT IF WE HAVE ROOMS
     if (Array.isArray(created.roomsSpec) && created.roomsSpec.length > 0) {
       try { await regenerateAndSaveLayout(created.id); } catch {}
@@ -1063,7 +1103,7 @@ export const updateListingProperty = (async (req: AuthedRequest, res) => {
 
     const exists = await prisma.property.findFirst({
       where: { id, ownerId },
-      select: { id: true, tourismSiteId: true, parkPlacement: true, status: true },
+      select: { id: true, tourismSiteId: true, parkPlacement: true, status: true, rentalMode: true },
     });
     if (!exists) return res.status(404).json({ error: "Property not found" });
 
@@ -1072,6 +1112,28 @@ export const updateListingProperty = (async (req: AuthedRequest, res) => {
     });
 
     const parsed = baseBodySchema.parse(req.body);
+
+    // Long stay is checked before anything is written, so a refusal leaves the
+    // listing untouched.
+    let rentalChange: RentalModeChange | null = null;
+    try {
+      if (parsed.rentalMode !== undefined) {
+        rentalChange = await validateRentalMode(prisma, {
+          propertyId: id,
+          ownerId,
+          propertyType: parsed.type,
+          rentalMode: parsed.rentalMode,
+          terms: parsed.longStay,
+          assisted: Boolean(listingScopeOf(req)),
+        });
+      } else {
+        const typeRefusal = longStayTypeRefusal(exists.rentalMode, parsed.type);
+        if (typeRefusal) throw new LongStayListingError(typeRefusal);
+      }
+    } catch (error) {
+      if (sendLongStayError(res, error)) return;
+      throw error;
+    }
 
     // Normalize tourism / park placement fields
     const incomingTourismSiteId = typeof parsed.tourismSiteId === "undefined" ? undefined : (parsed.tourismSiteId ?? null);
@@ -1168,6 +1230,11 @@ export const updateListingProperty = (async (req: AuthedRequest, res) => {
       }
     }
 
+    if (rentalChange) {
+      await writeRentalMode(prisma, id, rentalChange);
+      updated.rentalMode = rentalChange.rentalMode;
+    }
+
     // Persist PropertyImage records for any photos provided
     try {
       const photos: string[] = Array.isArray(parsed.photos) ? parsed.photos : [];
@@ -1241,6 +1308,8 @@ export const submitListingProperty = (async (req: AuthedRequest, res) => {
         ownerId: true,
         status: true,
         title: true,
+        type: true,
+        rentalMode: true,
         regionId: true,
         regionName: true,
         district: true,
@@ -1281,6 +1350,13 @@ export const submitListingProperty = (async (req: AuthedRequest, res) => {
     if (!complete) {
       console.error(`Property ${id} incomplete. Title: ${p.title?.length}, regionId: ${!!p.regionId}, district: ${!!p.district}, lat: ${p.latitude} (${latNum}), lng: ${p.longitude} (${lngNum}), hasPin: ${hasPin}, photos: ${photoCount} (json:${jsonPhotoCount} images:${imageRecordCount}), rooms: ${Array.isArray(p.roomsSpec) ? p.roomsSpec.length : 0}`);
       return res.status(400).json({ error: "Incomplete property. Please complete required fields (name, exact location pin, ≥3 photos, ≥1 room type)." });
+    }
+
+    const longStayRefusal = await longStaySubmitRefusal(prisma, p);
+    if (longStayRefusal) return res.status(400).json({ error: longStayRefusal, code: "LONG_STAY" });
+    if (p.rentalMode === "LONG_STAY") {
+      const opened = await requestInspection(prisma, id, "FIRST").catch(() => null);
+      if (opened?.created) await notifyAdmins("long_stay_inspection_needed", { inspectionId: opened.inspection.id, inspectionRef: opened.inspection.publicRef, propertyTitle: p.title });
     }
 
     // The owner-placed map pin is the authoritative coordinate. We intentionally

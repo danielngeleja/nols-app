@@ -7,6 +7,7 @@ import {
   ChevronDown, ChevronLeft, ChevronRight, Users, HandHeart, CalendarDays,
   CheckCircle2, Building2, BadgeCheck, LogIn, LogOut, BarChart3, BedDouble,
   LayoutGrid, Clock, Receipt, Archive, Bell, ShieldCheck, Star,
+  CalendarRange,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -120,7 +121,7 @@ function Section({
         type="button"
         onClick={onClick}
         aria-expanded={isOpen}
-        className="w-full group flex appearance-none items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-2.5 transition-colors duration-200 hover:bg-white/[0.05]"
+        className="w-full group flex appearance-none items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-1.5 transition-colors duration-200 hover:bg-white/[0.05]"
       >
         <span
           className="flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center transition-all duration-200"
@@ -163,7 +164,7 @@ function TopItem({
   return (
     <Link
       href={href}
-      className="group no-underline flex items-center gap-3 px-2 py-2.5 rounded-lg transition-colors duration-200 hover:bg-white/[0.05]"
+      className="group no-underline flex items-center gap-3 px-2 py-1.5 rounded-lg transition-colors duration-200 hover:bg-white/[0.05]"
       aria-current={active ? "page" : undefined}
       style={active ? { background: "rgba(255,255,255,0.10)" } : { background: "transparent" }}
     >
@@ -294,6 +295,16 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
     };
   }, []);
 
+  // Long stays (docs/LONG_STAY_RENTALS.md): shown only to owners NoLSAF switched on.
+  const [longStaysOn, setLongStaysOn] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    api.get("/api/owner/long-stay/eligibility", { timeout: 10000 })
+      .then(({ data }) => { if (mounted) setLongStaysOn(Boolean(data?.granted)); })
+      .catch(() => undefined);
+    return () => { mounted = false; };
+  }, []);
+
   // Guest reviews still waiting for the owner's public reply.
   const [unansweredReviews, setUnansweredReviews] = useState(0);
   useEffect(() => {
@@ -354,6 +365,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
         <CollapseBtn href="/owner/bookings/checked-in" label="Front desk" Icon={Calendar} active={sectionActive.bookings} count={checkoutDueCount || undefined} />
         <CollapseBtn href="/owner/properties/approved" label="Properties" Icon={Building2} active={sectionActive.properties} />
         <CollapseBtn href="/owner/group-stays" label="Group stays" Icon={Users} active={sectionActive.groupStays} />
+        {longStaysOn && <CollapseBtn href="/owner/long-stays" label="Long stays" Icon={CalendarRange} active={path.startsWith("/owner/long-stays")} />}
         <CollapseBtn href="/owner/payouts" label="My Payouts" Icon={Wallet} active={sectionActive.revenue} />
         {/* Sidebar buttons use `color: inherit !important` (globals.css), so the icon colour is set here. */}
         <div className="mt-auto w-full border-0 border-t border-solid border-white/10 pt-2 text-white">
@@ -391,7 +403,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
       </div>
 
       {/* Nav */}
-      <div className="sidebar-scroll min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 py-3">
+      <div className="sidebar-scroll min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2.5 py-3">
 
         <TopItem href="/owner" label="Dashboard" Icon={LayoutDashboard} />
         <TopItem href="/owner/notifications" label="Inbox" Icon={Bell} count={unreadCount} />
@@ -400,6 +412,7 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
           <TopItem href="/owner/partner-confirmations" label="Partner confirmations" Icon={ShieldCheck} count={partnerConfirmations.pending} />
         )}
         <TopItem href="/owner/nrms" label="NRMS workspace" Icon={BedDouble} />
+        {longStaysOn && <TopItem href="/owner/long-stays" label="Long stays" Icon={CalendarRange} />}
         <Divider />
 
         <Section label="Front desk" Icon={Calendar} isOpen={bookOpen} active={sectionActive.bookings} onClick={() => setBookOpen(v => !v)}>

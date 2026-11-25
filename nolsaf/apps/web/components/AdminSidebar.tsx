@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake, BadgeCheck, Smartphone } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake, BadgeCheck, Smartphone, ClipboardCheck, MessageCircleQuestion, CalendarRange } from "lucide-react";
 import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import { useAdminNavCounts } from "@/lib/useAdminNavCounts";
@@ -236,6 +236,16 @@ const adminDetails: Item[] = [
   { href: "/admin/payments", label: "Payments", Icon: Wallet },
 ];
 
+/** Long stays are their own program (like Group Stay and No4P Agents), not part of Owners. */
+const longStayDetails: Item[] = [
+  { href: "/admin/long-stay", label: "Dashboard", Icon: LayoutDashboard },
+  { href: "/admin/long-stay/tenancies", label: "Tenancies", Icon: Home },
+  { href: "/admin/long-stay/payments", label: "Payments", Icon: Wallet },
+  { href: "/admin/long-stay/inspections", label: "Inspections", Icon: ClipboardCheck },
+  { href: "/admin/long-stay/tenants", label: "Tenant IDs", Icon: ShieldCheck },
+  { href: "/admin/long-stay/enquiries", label: "Ask NoLSAF", Icon: MessageCircleQuestion },
+];
+
 const driverDetails: Item[] = [
   { href: "/admin/drivers", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/admin/drivers/vetting", label: "Driver Vetting", Icon: ShieldCheck },
@@ -351,6 +361,7 @@ export const ADMIN_NAV_PAGES: Array<{ href: string; label: string; section: stri
     ["Drivers", driverDetails],
     ["Users", userDetails],
     ["Group Stay", groupStayDetails],
+    ["Long Stay", longStayDetails],
     ["No4P Agents", agentsDetails],
     ["NRMS", nrmsDetails],
     ["Sales partners", salesDetails],
@@ -373,9 +384,16 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const [agentsOpen, setAgentsOpen] = useState(false);
   const twigaWaiting = useTwigaQueueCount();
   const nav = useAdminNavCounts();
+  const ownerQueueCount = nav?.listings ?? 0;
+  const longStayQueueCount = (nav?.tenantIds ?? 0) + (nav?.longStays ?? 0) + (nav?.inspections ?? 0) + (nav?.enquiries ?? 0);
+  const [longStayOpen, setLongStayOpen] = useState(false);
   const badges: Record<string, number> = {
     "/admin/agents/ai": twigaWaiting,
     "/admin/properties/previews": nav?.listings ?? 0,
+    "/admin/long-stay/tenants": nav?.tenantIds ?? 0,
+    "/admin/long-stay/tenancies": nav?.longStays ?? 0,
+    "/admin/long-stay/inspections": nav?.inspections ?? 0,
+    "/admin/long-stay/enquiries": nav?.enquiries ?? 0,
     "/admin/payments": nav?.payouts ?? 0,
     "/admin/group-stays/requests": nav?.groupStays ?? 0,
     "/admin/cancellations": nav?.cancellations ?? 0,
@@ -392,6 +410,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     if (path.startsWith("/admin/drivers")) return "Drivers";
     if (path.startsWith("/admin/users")) return "Users";
     if (path.startsWith("/admin/group-stays")) return "Group Stay";
+    if (path === "/admin/long-stay" || path.startsWith("/admin/long-stay/")) return "Long Stay";
     if (path.startsWith("/admin/agents")) return "No4P Agents";
     if (path.startsWith("/admin/cancellations")) return "Cancellations";
     if (path.startsWith("/admin/observability")) return "Management";
@@ -490,6 +509,8 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     // Group Stay mini-sidebar: open when on group stay routes
     if (isGroupStay) setGroupStayOpen(true);
     else setGroupStayOpen(false);
+    // Long Stay mini-sidebar
+    setLongStayOpen(path === "/admin/long-stay" || path.startsWith("/admin/long-stay/"));
     // Agents mini-sidebar: open when on agents routes
     if (isAgents) setAgentsOpen(true);
     else setAgentsOpen(false);
@@ -699,7 +720,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Admin/Owners */}
         {collapsed ? (
-          <Item href="/admin" label="Owners" Icon={Building2} collapsed={collapsed} path={path} variant={variant} badge={nav?.listings ?? 0} />
+          <Item href="/admin" label="Owners" Icon={Building2} collapsed={collapsed} path={path} variant={variant} badge={ownerQueueCount} />
         ) : (
           <div className={dark && adminOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
@@ -709,7 +730,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setAdminOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "Owners"}
-              badge={nav?.listings ?? 0}
+              badge={ownerQueueCount}
               pages={adminDetails.length}
             />
             <NestedGroup open={adminOpen} title="Owners" active={activeSection === "Owners"} items={adminDetails} />
@@ -771,6 +792,25 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               pages={groupStayDetails.length}
             />
             <NestedGroup open={groupStayOpen} title="Group Stay" active={activeSection === "Group Stay"} items={groupStayDetails} />
+          </div>
+        )}
+
+        {/* Long Stay */}
+        {collapsed ? (
+          <Item href="/admin/long-stay" label="Long Stay" Icon={CalendarRange} collapsed={collapsed} path={path} variant={variant} badge={longStayQueueCount} />
+        ) : (
+          <div className={dark && longStayOpen ? "rounded-md bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
+            <CollapsibleButton
+              label="Long Stay"
+              Icon={CalendarRange}
+              isOpen={longStayOpen}
+              onClick={() => setLongStayOpen(v => !v)}
+              collapsed={collapsed}
+              active={activeSection === "Long Stay"}
+              badge={longStayQueueCount}
+              pages={longStayDetails.length}
+            />
+            <NestedGroup open={longStayOpen} title="Long Stay" active={activeSection === "Long Stay"} items={longStayDetails} />
           </div>
         )}
 

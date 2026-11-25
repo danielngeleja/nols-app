@@ -23,7 +23,7 @@ function topicOf(note: Note): Topic {
   const title = note.title.toLowerCase();
   if (kind.startsWith("nrms_") || title.includes("nrms") || title.includes("partnership")) return "NRMS";
   if (/payout|payment|invoice|recovery/.test(kind + title)) return "Payments";
-  if (/booking|cancellation|guest_code/.test(kind + title)) return "Bookings";
+  if (/booking|cancellation|guest_code|long_stay_reservation/.test(kind + title)) return "Bookings";
   if (/property|listing/.test(kind + title)) return "Properties";
   return "Updates";
 }
@@ -74,6 +74,16 @@ export default function OwnerInbox({ initialTab }: { initialTab: Tab }) {
   }, []);
 
   useEffect(() => { void load(tab); setTopic(null); setExpanded(null); setConfirmClear(false); }, [tab, load]);
+  useEffect(() => {
+    if (tab !== "unread") return;
+    const refresh = () => { void load("unread"); };
+    window.addEventListener("nols:owner-notification-arrived", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("nols:owner-notification-arrived", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [load, tab]);
   useEffect(() => {
     let active = true;
     fetch("/api/owner/notifications?tab=viewed&page=1&pageSize=1", { credentials: "include" })

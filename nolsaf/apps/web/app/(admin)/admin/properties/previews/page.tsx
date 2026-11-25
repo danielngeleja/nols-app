@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import PropertyPreview from "@/components/PropertyPreview";
-import { Loader2, ScanEye, MapPin, Star, Search, X, ChevronDown, Users } from "lucide-react";
+import LongStayReview, { type ReviewCheck } from "@/components/admin/properties/LongStayReview";
+import { CalendarRange, Loader2, ScanEye, MapPin, Star, Search, X, ChevronDown, Users } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import Image from "next/image";
@@ -11,6 +12,7 @@ import {
   calculatePriceWithCommission 
 } from "@/lib/priceUtils";
 import { REGIONS } from "@/lib/tzRegions";
+import { formatMoney } from "@/lib/money";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
@@ -31,6 +33,9 @@ type Property = {
   services?: any; // Can contain commissionPercent and discountRules
   /** Listed by a sales partner for the owner (assisted listing). */
   assistedListing?: { status: string; partnerCode: string | null } | null;
+  /** NIGHTLY or LONG_STAY (docs/LONG_STAY_RENTALS.md). */
+  rentalMode?: string | null;
+  longStay?: { monthlyRent: number; currency: string } | null;
   location?: {
     regionName?: string | null;
     district?: string | null;
@@ -138,6 +143,16 @@ export default function PropertyPreviewsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
+  /** NIGHTLY or LONG_STAY for the open property, from the long-stay review (null until known). */
+  const [selectedRentalMode, setSelectedRentalMode] = useState<string | null>(null);
+  /** Long-stay readiness steps for the review progress bar. */
+  const [selectedReviewChecks, setSelectedReviewChecks] = useState<ReviewCheck[]>([]);
+  // The list already knows the rental mode, so the loading skeleton has the right shape at once.
+  useEffect(() => {
+    setSelectedRentalMode(properties.find((p) => p.id === selectedPropertyId)?.rentalMode ?? null);
+    setSelectedReviewChecks([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPropertyId]);
   const [statusFilter, setStatusFilter] = useState<string>("PENDING");
   const [systemCommission, setSystemCommission] = useState<number>(0);
   const [counts, setCounts] = useState<Record<string, number>>({
@@ -154,6 +169,7 @@ export default function PropertyPreviewsPage() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [regionFilter, setRegionFilter] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>("");
+  const [rentalModeFilter, setRentalModeFilter] = useState("");
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [districtFilter, setDistrictFilter] = useState<string>("");
   const [ownerQuery, setOwnerQuery] = useState<string>("");
@@ -195,7 +211,7 @@ export default function PropertyPreviewsPage() {
   // Any filter change starts again from the first page
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, searchQuery, regionFilter, districtFilter, typeFilter, ownerFilter]);
+  }, [statusFilter, searchQuery, regionFilter, districtFilter, typeFilter, rentalModeFilter, ownerFilter]);
 
   useEffect(() => {
     let mounted = true;
@@ -240,41 +256,52 @@ export default function PropertyPreviewsPage() {
   }, [ownerMenuOpen, ownerQuery]);
 
   /** Filters shared by the list and the status counts (status excluded for counts) */
+  const propertyRequest = useRef<AbortController | null>(null);
+  const countsRequest = useRef<AbortController | null>(null);
   const filterParams = useCallback(() => {
     const params: Record<string, string | number> = {};
     if (searchQuery) params.q = searchQuery;
     if (regionFilter) params.region = regionFilter;
     if (regionFilter && districtFilter) params.district = districtFilter;
     if (typeFilter) params.type = typeFilter;
+    if (rentalModeFilter) params.rentalMode = rentalModeFilter;
     if (ownerFilter) params.ownerId = Number(ownerFilter);
     return params;
-  }, [searchQuery, regionFilter, districtFilter, typeFilter, ownerFilter]);
+  }, [searchQuery, regionFilter, districtFilter, typeFilter, rentalModeFilter, ownerFilter]);
 
   const loadProperties = useCallback(async () => {
+    propertyRequest.current?.abort();
+    const controller = new AbortController();
+    propertyRequest.current = controller;
     try {
       setLoading(true);
       const params: Record<string, string | number> = { ...filterParams(), page, pageSize: PAGE_SIZE };
       if (statusFilter !== "ALL") params.status = statusFilter;
-      const response = await api.get("/api/admin/properties", { params });
+      const response = await api.get("/api/admin/properties", { params, signal: controller.signal });
+      if (controller.signal.aborted) return;
       const items: Property[] = response.data.items || [];
       setTotal(Number(response.data.total) || items.length);
       // Page 1 replaces the list; later pages append ("Show more")
       setProperties((prev) => (page === 1 ? items : [...prev, ...items.filter((it) => !prev.some((p) => p.id === it.id))]));
     } catch (err: any) {
+      if (controller.signal.aborted) return;
       console.error("Failed to load properties:", err);
       if (page === 1) {
         setProperties([]);
         setTotal(0);
       }
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [filterParams, page, statusFilter]);
 
   const loadCounts = useCallback(async () => {
+    countsRequest.current?.abort();
+    const controller = new AbortController();
+    countsRequest.current = controller;
     try {
-      const r = await api.get<Record<string, number>>("/api/admin/properties/counts", { params: filterParams() });
-      if (r?.data) {
+      const r = await api.get<Record<string, number>>("/api/admin/properties/counts", { params: filterParams(), signal: controller.signal });
+      if (!controller.signal.aborted && r?.data) {
         const next: Record<string, number> = { DRAFT: 0, PENDING: 0, APPROVED: 0, NEEDS_FIXES: 0, REJECTED: 0, SUSPENDED: 0, ...r.data };
         next.ALL = ["DRAFT", "PENDING", "APPROVED", "NEEDS_FIXES", "REJECTED", "SUSPENDED"].reduce((sum, k) => sum + (Number(next[k]) || 0), 0);
         setCounts(next);
@@ -286,10 +313,12 @@ export default function PropertyPreviewsPage() {
 
   useEffect(() => {
     void loadProperties();
+    return () => propertyRequest.current?.abort();
   }, [loadProperties]);
 
   useEffect(() => {
     void loadCounts();
+    return () => countsRequest.current?.abort();
   }, [loadCounts]);
 
   const refreshAll = useCallback(async () => {
@@ -303,11 +332,12 @@ export default function PropertyPreviewsPage() {
     setRegionFilter("");
     setDistrictFilter("");
     setTypeFilter("");
+    setRentalModeFilter("");
     setOwnerFilter("");
     setOwnerQuery("");
   };
 
-  const hasActiveFilters = Boolean(searchQuery || regionFilter || districtFilter || typeFilter || ownerFilter);
+  const hasActiveFilters = Boolean(searchQuery || regionFilter || districtFilter || typeFilter || rentalModeFilter || ownerFilter);
 
   const badgeClasses = (v: string) => {
     switch (v) {
@@ -328,9 +358,14 @@ export default function PropertyPreviewsPage() {
 
   if (selectedPropertyId) {
     return (
+      <>
       <PropertyPreview
         propertyId={selectedPropertyId}
         mode="admin"
+        rentalMode={selectedRentalMode}
+        reviewChecks={selectedReviewChecks}
+        reviewPending={selectedRentalMode === "LONG_STAY" && selectedReviewChecks.length === 0}
+        adminTop={<LongStayReview propertyId={selectedPropertyId} expectLongStay={selectedRentalMode === "LONG_STAY"} onMode={setSelectedRentalMode} onChecks={setSelectedReviewChecks} />}
         onClose={() => setSelectedPropertyId(null)}
         onApproved={() => {
           setSelectedPropertyId(null);
@@ -353,6 +388,7 @@ export default function PropertyPreviewsPage() {
           }
         }}
       />
+      </>
     );
   }
 
@@ -460,6 +496,15 @@ export default function PropertyPreviewsPage() {
                   {chevron}
                 </span>
 
+                <span className="relative block">
+                  <select value={rentalModeFilter} onChange={(e) => { setPage(1); setRentalModeFilter(e.target.value); }} aria-label="Rental mode" className={`${field} ${on(rentalModeFilter)} min-w-[148px]`}>
+                    <option value="">All rental modes</option>
+                    <option value="LONG_STAY">Long stay</option>
+                    <option value="NIGHTLY">Nightly stays</option>
+                  </select>
+                  {chevron}
+                </span>
+
                 {/* Owner: type to search instead of scrolling a long dropdown */}
                 <span className="relative block w-[220px]">
                   <Users className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
@@ -549,6 +594,7 @@ export default function PropertyPreviewsPage() {
                 : null,
               districtFilter ? { key: "district", label: districtFilter, clear: () => setDistrictFilter("") } : null,
               typeFilter ? { key: "type", label: PROPERTY_TYPES.find((t) => t.value === typeFilter)?.label || typeFilter, clear: () => setTypeFilter("") } : null,
+              rentalModeFilter ? { key: "rentalMode", label: rentalModeFilter === "LONG_STAY" ? "Long stay" : "Nightly stays", clear: () => setRentalModeFilter("") } : null,
               ownerFilter
                 ? {
                     key: "owner",
@@ -644,7 +690,8 @@ export default function PropertyPreviewsPage() {
                 if (isSafeNextImageSrc(property.photos)) return property.photos;
                 return null;
               })();
-              const displayBasePrice = effectiveBasePrice(property);
+              const isLongStay = property.rentalMode === "LONG_STAY";
+              const displayBasePrice = isLongStay ? null : effectiveBasePrice(property);
 
               const hotelStarLabels: Record<string, string> = {
                 basic: "1★",
@@ -703,6 +750,11 @@ export default function PropertyPreviewsPage() {
                         </div>
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/10 via-black/0 to-transparent rounded-2xl pointer-events-none" />
+                      {isLongStay ? (
+                        <span className="absolute left-2 top-2 inline-flex items-center gap-1.5 rounded-md bg-[#064d46] px-2 py-1 text-[11px] font-semibold text-white">
+                          <CalendarRange className="size-3.5 shrink-0" aria-hidden />Long stay
+                        </span>
+                      ) : null}
                     </div>
                   </div>
 
@@ -748,7 +800,14 @@ export default function PropertyPreviewsPage() {
                         </span>
                       </div>
 
-                      {displayBasePrice && (() => {
+                      {isLongStay ? (
+                        property.longStay ? (
+                          <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                            <span className="text-sm font-bold text-[#07574f]">{formatMoney(property.longStay.monthlyRent, property.longStay.currency)}</span>
+                            <span className="text-[11px] text-[#49746b]">per month</span>
+                          </div>
+                        ) : <span className="text-xs text-slate-600">Monthly rent pending</span>
+                      ) : displayBasePrice && (() => {
                         const commission = getPropertyCommission(property, systemCommission);
                         const finalPrice = calculatePriceWithCommission(displayBasePrice, commission);
                         return (

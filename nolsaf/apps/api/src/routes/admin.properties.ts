@@ -28,6 +28,10 @@ import {
   sendRestrictionResolvedEmail,
 } from "../lib/restrictionCases.js";
 import { onAssistedPropertyApproved, onAssistedPropertyRejected } from "../lib/salesAssistedListing.js";
+import { longStaySubmitRefusal } from "../lib/longStay/listing.js";
+import { longStayOpen } from "../lib/longStay/fees.js";
+import { longStayInspectionRequiredForApproval, prepareInspectionForApproval } from "../lib/longStay/inspection.js";
+import { todayInEat } from "../lib/longStay/listing.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireAdmin as RequestHandler);
@@ -265,6 +269,9 @@ function buildAdminPropertyWhere(query: Record<string, unknown>, opts: { ignoreS
   const type = String(query.type || "").trim().toUpperCase();
   if (type) and.push({ type });
 
+  const rentalMode = String(query.rentalMode ?? "").trim().toUpperCase();
+  if (rentalMode === "NIGHTLY" || rentalMode === "LONG_STAY") and.push({ rentalMode });
+
   const ownerIdNum = Number(query.ownerId);
   if (query.ownerId && Number.isFinite(ownerIdNum)) and.push({ ownerId: ownerIdNum });
 
@@ -287,7 +294,7 @@ function buildAdminPropertyWhere(query: Record<string, unknown>, opts: { ignoreS
   return and.length ? { AND: and } : {};
 }
 
-/** GET /admin/properties?status=&q=&region=&type=&ownerId=&page=&pageSize= */
+/** GET /admin/properties?status=&q=&region=&type=&rentalMode=&ownerId=&page=&pageSize= */
 router.get("/", (async (req: AuthedRequest, res) => {
   try {
     // Explicitly set Content-Type to JSON
@@ -313,6 +320,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
             title: true,
             status: true,
             type: true,
+            rentalMode: true,
+            longStayListing: { select: { monthlyRent: true, currency: true } },
             owner: { select: { id: true, name: true, email: true } },
             regionName: true,
             district: true,
@@ -375,6 +384,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
       title: string;
       status: string;
       type: string | null;
+      rentalMode?: string | null;
+      longStayListing?: { monthlyRent: unknown; currency: string } | null;
       owner: AdminPropertyOwner | null;
       regionName?: string | null;
       district?: string | null;
@@ -391,6 +402,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
       title: string;
       status: string;
       type: string | null;
+      rentalMode: string;
+      longStay: { monthlyRent: number; currency: string } | null;
       owner: AdminPropertyOwner | null;
       regionName?: string | null;
       district?: string | null;
@@ -477,6 +490,12 @@ router.get("/", (async (req: AuthedRequest, res) => {
     // Serialize items safely
     const serializedItems: AdminPropertyListItem[] = [];
     for (const p of items as AdminPropertyRow[]) {
+      const rentalMode = p?.rentalMode ?? "NIGHTLY";
+      const monthlyTerms = p?.longStayListing;
+      const monthlyRent = Number(monthlyTerms?.monthlyRent);
+      const longStay = rentalMode === "LONG_STAY" && monthlyTerms && Number.isFinite(monthlyRent) && monthlyRent > 0
+        ? { monthlyRent, currency: monthlyTerms.currency }
+        : null;
       try {
         // Manually construct the item to ensure proper serialization
         // Handle owner object safely
@@ -527,6 +546,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
           title: String(p.title || ''),
           status: String(p.status || 'DRAFT'),
           type: p.type ? String(p.type) : null,
+          rentalMode,
+          longStay,
           owner: ownerObj,
           regionName: p.regionName ? String(p.regionName) : null,
           district: p.district ? String(p.district) : null,
@@ -557,6 +578,8 @@ router.get("/", (async (req: AuthedRequest, res) => {
             title: p?.title || '',
             status: p?.status || 'DRAFT',
             type: p?.type || null,
+            rentalMode,
+            longStay,
             owner: p?.owner ? {
               id: p.owner.id,
               name: p.owner.name,
@@ -1295,9 +1318,30 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
 
   const before = await prisma.property.findFirst({
     where: { id },
-    select: { status: true, ownerId: true, title: true, tourismSiteId: true, parkPlacement: true },
+    select: { status: true, ownerId: true, title: true, type: true, rentalMode: true, tourismSiteId: true, parkPlacement: true },
   });
   if (!before) { res.status(404).json({ error: "Not found" }); return; }
+  // Long stay (docs/LONG_STAY_RENTALS.md): the landlord's switch, the home type
+  // and the terms are checked again here, since any of them may have changed
+  // since submit. Long-stay listings stay off sale until tenants can book them
+  // (milestone 4), so approval is refused until then.
+  if (before.rentalMode === "LONG_STAY") {
+    const refusal = await longStaySubmitRefusal(prisma, { id, ownerId: before.ownerId, type: before.type, rentalMode: before.rentalMode });
+    if (refusal) { res.status(409).json({ error: refusal }); return; }
+    if (!longStayOpen()) {
+      res.status(409).json({ error: "Long-stay listings cannot go live yet: tenant booking opens in a later release. Review the terms and keep it pending." });
+      return;
+    }
+    const { refusal: notInspected, opened } = await prepareInspectionForApproval(prisma, id, todayInEat());
+    if (opened) {
+      const { notifyAdmins } = await import("../lib/notifications.js");
+      await notifyAdmins("long_stay_inspection_needed", { inspectionId: opened.id, inspectionRef: opened.publicRef, propertyTitle: before.title });
+    }
+    if (notInspected) {
+      res.status(409).json({ error: `${notInspected} Assign a partner in Long stays, Inspections.` });
+      return;
+    }
+  }
   if ((before.parkPlacement === "INSIDE" || before.parkPlacement === "NEARBY") && !before.tourismSiteId) {
     res.status(400).json({ error: "tourismSiteId_required_when_parkPlacement_set" });
     return;
@@ -1343,7 +1387,9 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
     await upsertPropertyVerification(tx as any, id, {
       status: "VERIFIED",
       adminId: req.user!.id,
-      method: DEFAULT_PROPERTY_VERIFICATION_METHOD,
+      method: before.rentalMode === "LONG_STAY" && !longStayInspectionRequiredForApproval()
+        ? "Listing review"
+        : DEFAULT_PROPERTY_VERIFICATION_METHOD,
     });
 
     return property;

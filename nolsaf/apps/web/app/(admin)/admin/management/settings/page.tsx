@@ -492,6 +492,13 @@ export default function SystemSettingsPage(){
   ...((s as any).ownerWithdrawalLimitAvailable
     ? { ownerWithdrawalDailyLimitTzs: (s as any).ownerWithdrawalDailyLimitTzs }
     : {}),
+  // Owner first-payout policy: only sent once migration 20261125100000 is applied.
+  ...((s as any).ownerPayoutPolicyAvailable
+    ? {
+        ownerFirstPayoutAutoMaxTzs: (s as any).ownerFirstPayoutAutoMaxTzs ?? null,
+        ownerWithdrawalReviewAlertHours: (s as any).ownerWithdrawalReviewAlertHours ?? 4,
+      }
+    : {}),
   // Automatic sales withdrawals: only sent once migration 20261108090000 is applied.
   ...((s as any).salesAutoPayoutAvailable
     ? {
@@ -818,7 +825,7 @@ export default function SystemSettingsPage(){
             ];
             return (
               <>
-                <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+                <section className="relative overflow-hidden rounded-lg bg-[#0b2420] text-white">
                   <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
                   <div className="relative px-5 py-5 sm:px-6 sm:py-6">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1135,18 +1142,21 @@ export default function SystemSettingsPage(){
           {(() => {
             const available = Boolean((s as any)?.autoPayoutAvailable);
             const on = Boolean((s as any)?.autoPayoutEnabled);
+            const policyAvailable = Boolean((s as any)?.ownerPayoutPolicyAvailable);
+            const firstCeiling = Number((s as any)?.ownerFirstPayoutAutoCeilingTzs ?? 2_000_000);
+            const firstMax = (s as any)?.ownerFirstPayoutAutoMaxTzs;
             const value = (id: string) => {
               const v = (s as any)?.[id];
               return v === null || v === undefined ? "" : String(v);
             };
-            const numberField = (id: string, label: string, suffix: string, placeholder: string, hint: string) => (
+            const numberField = (id: string, label: string, suffix: string, placeholder: string, hint: string, enabled: boolean = available) => (
               <div className="min-w-0 px-4 py-3.5 sm:px-5">
                 <label htmlFor={id} className={sectionLabel}>{label}</label>
                 <div className="relative mt-1.5">
                   <input
                     id={id}
                     type="number" min={0} step={suffix === "TZS" ? 1000 : 1} inputMode="numeric"
-                    disabled={!available}
+                    disabled={!enabled}
                     placeholder={placeholder}
                     value={value(id)}
                     onChange={(e) => setS((prev: any) => ({ ...(prev || {}), [id]: e.target.value === "" ? null : Number(e.target.value) }))}
@@ -1174,7 +1184,9 @@ export default function SystemSettingsPage(){
                     <p className="m-0 text-sm font-semibold text-neutral-900">Send clean payouts automatically</p>
                     <p className="m-0 mt-0.5 text-xs text-neutral-400">
                       {on
-                        ? "On. An owner's first payout, and any payout with a risk flag, still goes to an admin."
+                        ? policyAvailable && firstMax != null
+                          ? `On. A new owner's first payout up to TZS ${Number(firstMax).toLocaleString("en-US")} is sent when the wallet name matches; larger ones, and any payout with a risk flag, go to an admin.`
+                          : "On. An owner's first payout, and any payout with a risk flag, still goes to an admin."
                         : "Off. Every confirmed withdrawal waits for an admin to approve, batch and release it."}
                     </p>
                   </div>
@@ -1195,6 +1207,30 @@ export default function SystemSettingsPage(){
                   {numberField("autoPayoutDailyCapTzs", "Automatic payouts per day", "TZS", "None", "Total sent without an admin per day (EAT). Beyond it, payouts wait for the next day. Blank stops automatic payouts.")}
                   <div className="border-0 border-t border-solid border-neutral-200 sm:border-l sm:border-t-0">
                     {numberField("payoutUnclaimedAutoDays", "Send unclaimed payouts after", "days", "Never", "3 to 90. A ready payout the owner has not withdrawn is sent to their verified, unchanged account.")}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 border-0 border-t border-solid border-neutral-200 sm:grid-cols-2">
+                  {numberField(
+                    "ownerFirstPayoutAutoMaxTzs",
+                    "New owner's first payout, sent automatically up to",
+                    "TZS",
+                    "Always checked",
+                    policyAvailable
+                      ? `Up to ${firstCeiling.toLocaleString("en-US")}. Only when the wallet name matches the owner and nothing is flagged. Blank: a person checks every first payout.`
+                      : "Needs the database update. Until then a person checks every first payout.",
+                    policyAvailable,
+                  )}
+                  <div className="border-0 border-t border-solid border-neutral-200 sm:border-l sm:border-t-0">
+                    {numberField(
+                      "ownerWithdrawalReviewAlertHours",
+                      "Alert again if a withdrawal waits",
+                      "hours",
+                      "4",
+                      policyAvailable
+                        ? "1 to 24. Finance is alerted at once, then again once after this many hours without approval."
+                        : "Needs the database update. Until then the second alert comes after 4 hours.",
+                      policyAvailable,
+                    )}
                   </div>
                 </div>
               </section>

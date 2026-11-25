@@ -64,6 +64,8 @@ export default function OwnerPayoutAccountManager() {
   const [success, setSuccess] = useState<string | null>(null);
   const [preview, setPreview] = useState<Verification | null>(null);
   const [securityWaitingHours, setSecurityWaitingHours] = useState(72);
+  // From the API: when the active account can receive payouts (null = now). Undefined on an older API.
+  const [activeUsableFrom, setActiveUsableFrom] = useState<string | null | undefined>(undefined);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const now = useNow();
 
@@ -82,6 +84,8 @@ export default function OwnerPayoutAccountManager() {
       setAccounts((rows as any)?.data?.accounts ?? []);
       const waitingHours = Number((rows as any)?.data?.securityWaitingHours);
       if (Number.isFinite(waitingHours) && waitingHours >= 24 && waitingHours <= 336) setSecurityWaitingHours(waitingHours);
+      const usable = (rows as any)?.data?.activeUsableFrom;
+      setActiveUsableFrom(usable === undefined ? undefined : typeof usable === "string" ? usable : null);
     } catch {
       setError("Your payout account could not be loaded. Refresh to try again.");
     } finally {
@@ -107,7 +111,9 @@ export default function OwnerPayoutAccountManager() {
     .sort((a, b) => new Date(b.destinationChangedAt ?? b.createdAt).getTime() - new Date(a.destinationChangedAt ?? a.createdAt).getTime()),
   [accounts]);
   const changedAt = active ? new Date(active.destinationChangedAt ?? active.createdAt) : null;
-  const usableFrom = changedAt ? new Date(changedAt.getTime() + securityWaitingHours * 60 * 60 * 1000) : null;
+  const usableFrom = activeUsableFrom !== undefined
+    ? activeUsableFrom ? new Date(activeUsableFrom) : null
+    : changedAt ? new Date(changedAt.getTime() + securityWaitingHours * 60 * 60 * 1000) : null;
   const inWaitingPeriod = Boolean(usableFrom && usableFrom.getTime() > now);
   const savedIsBank = clean(saved.payoutPreferred).toUpperCase() === "BANK";
 

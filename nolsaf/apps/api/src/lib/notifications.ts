@@ -1,12 +1,15 @@
 import { prisma } from "@nolsaf/prisma";
+import type { Notification, Prisma } from "@prisma/client";
 import { customerBookingReference } from "./customerBookingReference.js";
 import { adminKindOf } from "./adminNotificationKinds.js";
+import { longStayAdminNotificationHref } from "./longStay/adminNotificationHref.js";
 
 /**
  * Notify all admins (creates notification with userId=null, ownerId=null so it appears in admin notifications)
  */
 export async function notifyAdmins(template: string, data: any) {
   try {
+    const isOwnerAccountChange = template.startsWith("owner_account_");
     const notificationTemplates: Record<string, { title: string; body: string }> = {
       booking_guest_code_overdue: {
         title: "Guest code request still waiting",
@@ -115,6 +118,14 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Owner withdrawal needs finance review",
         body: `Withdrawal release #${data.releaseId} for owner #${data.ownerId}, invoice #${data.invoiceId} could not finish safely. ${data.reason || "Check its recovery deductions and disbursement before taking action."} Do not submit another payout until reconciled.`
       },
+      owner_payout_withdrawal_requested: {
+        title: "Owner withdrawal waiting for approval",
+        body: `${data.ownerName ? `${data.ownerName} ` : "A property owner "}confirmed a withdrawal of ${data.amountText || "an amount"}. It needs a person: ${data.reason || "checked by our payments team"}. The owner is waiting; approve or decline it in Disbursements.`
+      },
+      owner_payout_withdrawal_overdue: {
+        title: "Owner withdrawal waiting too long",
+        body: `${data.ownerName ? `${data.ownerName}'s ` : "An owner's "}withdrawal of ${data.amountText || "an amount"} has waited ${data.hoursWaiting || "several"} hours for approval. The money is owed now; approve or decline it in Disbursements.`
+      },
 
       // Transport (driver allocation) escalations
       transport_auto_dispatch_no_drivers_2m: {
@@ -137,6 +148,62 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Sales partner agreement awaiting activation",
         body: `${data.agentCode || "A sales partner"} signed agreement ${data.contractNumber || ""}. Review and countersign it before activating workspace access.`
       },
+        long_stay_reservation_created: {
+        title: "New long-stay reservation",
+        body: `A tenant reserved "${data.propertyTitle || "a long-stay home"}". The landlord has 24 hours to respond.`
+        },
+        long_stay_cancelled_paid: {
+        title: "Paid long stay cancelled",
+        body: `The ${data.by === "LANDLORD" ? "landlord" : "tenant"} cancelled a paid long stay for "${data.propertyTitle || "a home"}".${Number(data.refund) > 0 ? ` Refund the tenant ${Number(data.refund).toLocaleString("en-US")}.` : ""}${Number(data.payout) > 0 ? ` The landlord is owed ${Number(data.payout).toLocaleString("en-US")}.` : ""}${data.landlordPaused ? " The landlord's long stays were paused after repeated cancellations." : ""} Handle it in Long stays.`
+        },
+        long_stay_landlord_notice: {
+        title: "Landlord gave notice on a long stay",
+        body: `The landlord of "${data.propertyTitle || "a home"}" asked the tenant to leave on ${data.leaveOn || ""}. Ground given: "${data.reason || ""}". Check it is a lawful ground and that unused prepaid months are refunded.`
+        },
+        long_stay_overdue_admin: {
+        title: "Long stay overdue",
+        body: `"${data.propertyTitle || "A home"}" is past its end date with no move-out confirmed (${data.tenancyRef || ""}). Call both sides.`
+        },
+        long_stay_claim_overdue: {
+        title: "Long-stay claim past due",
+        body: `A landlord did not pay a long-stay claim within 14 days. Their long stays are paused and the claim will be taken from their next long-stay payout. See Long stays, Claims.`
+        },
+        long_stay_payout_ready: {
+        title: data.mismatch ? "Long-stay payout to review" : "Long-stay payout to approve",
+        body: data.auto
+          ? `${data.count || 1} long-stay move-in${Number(data.count) === 1 ? " was" : "s were"} confirmed by one side after 72 hours. Review and approve the landlord payouts in Long stays, Tenancies.`
+          : `Move-in is confirmed for "${data.propertyTitle || "a home"}".${data.mismatch ? " The balance confirmed did not match the lease, so check it first." : ""} Approve the landlord payout in Long stays, Tenancies.`
+        },
+        long_stay_dispute_opened: {
+        title: "Long-stay problem reported",
+        body: `The ${data.side === "TENANT" ? "tenant" : "landlord"} of "${data.propertyTitle || "a home"}" reported a problem: "${data.reason || ""}". The tenancy and payout are frozen. Decide it in Long stays, Tenancies.`
+        },
+        long_stay_move_in_silent: {
+        title: "Long-stay move-in not confirmed",
+        body: `Nobody has confirmed move-in a week after the date (${data.tenancyRef || ""}). Call both sides, then decide it in Long stays, Tenancies.`
+        },
+        long_stay_payment_review: {
+        title: "Long-stay payment to check",
+        body: data.reason === "closed"
+          ? `A long-stay first month (${data.currency || ""} ${data.received ?? ""}) arrived for a lease that was already closed (${data.status || "closed"}). Refund it to the tenant. Payment ref ${data.paymentRef || ""}.`
+          : `A long-stay payment did not match the lease amount (expected ${data.currency || ""} ${data.expected ?? ""}). The home was not reserved. Check payment ref ${data.paymentRef || ""} in the Coral portal.`
+        },
+        long_stay_inspection_needed: {
+        title: "Long-stay home to inspect",
+        body: `"${data.propertyTitle || "A long-stay home"}" has an on-site inspection request. Assign a Sales Partner in Long stays, Inspections.`
+        },
+        long_stay_inspection_report: {
+        title: "Inspection report to review",
+        body: `A Sales Partner sent the inspection of "${data.propertyTitle || "a long-stay home"}" (recommends ${data.recommendation === "PASS" ? "pass" : "fail"}${Array.isArray(data.flags) && data.flags.length ? `, warnings: ${data.flags.join(", ")}` : ""}). Review it in Long stays, Inspections.`
+        },
+        long_stay_enquiry: {
+        title: data.kind === "VISIT" ? "Tenant wants to visit a home" : "Tenant question about a home",
+        body: `A tenant ${data.kind === "VISIT" ? "asked to visit" : "asked about"} "${data.propertyTitle || "a long-stay home"}". Answer in Long stays, Ask NoLSAF.`
+        },
+        long_stay_tenant_id_submitted: {
+        title: "Tenant ID to check",
+        body: `A tenant sent a ${data.idType === "PASSPORT" ? "passport" : data.idType === "RES_PERMIT" ? "residence permit" : "national ID card"} for long stays. Open the photos and the selfie in Long stays, Tenant IDs, confirm the name and face, then approve or reject it.`
+        },
         sales_assisted_listing_submitted: {
         title: "Assisted listing to review",
         body: `${data.partnerCode || "A sales partner"} listed "${data.propertyTitle || "a property"}" for its owner. Review it in Properties (it carries the Assisted listing badge), then verify the conversion in Sales.`
@@ -306,13 +373,17 @@ export async function notifyAdmins(template: string, data: any) {
         },
     };
 
-    const templateData = notificationTemplates[template] || {
+    const templateData = isOwnerAccountChange ? {
+      title: data.changeTitle,
+      body: `Owner #${data.accountOwnerId}. Open Account activity to review the change.`,
+    } : notificationTemplates[template] || {
       title: "Admin Notification",
       body: `Update: ${JSON.stringify(data)}`
     };
 
     // Severity, area and whether someone must act come from the registry, never from the title.
     const kind = adminKindOf({ meta: { notificationKind: template } });
+    const longStayHref = longStayAdminNotificationHref(template, data);
     try {
       // Create notification for admins (no userId/ownerId = visible to all admins)
       const created = await prisma.notification.create({
@@ -323,8 +394,8 @@ export async function notifyAdmins(template: string, data: any) {
           body: templateData.body,
           unread: true,
           requiresAction: kind.requiresAction,
-          meta: { ...data, notificationKind: template, severity: kind.severity, category: kind.category },
-          type: template.startsWith("security_")
+          meta: { ...data, ...(longStayHref ? { href: longStayHref } : {}), notificationKind: template, severity: kind.severity, category: kind.category },
+          type: template.startsWith("security_") || isOwnerAccountChange
             ? "system"
             : template.startsWith("transport") || template.startsWith("driver_")
             ? "ride"
@@ -364,6 +435,11 @@ export async function notifyAdmins(template: string, data: any) {
             category: kind.category,
             requiresAction: kind.requiresAction,
             createdAt: created.createdAt,
+            ...(longStayHref ? { meta: { notificationKind: template, href: longStayHref } } : isOwnerAccountChange ? { meta: {
+              notificationKind: template,
+              accountOwnerId: data.accountOwnerId,
+              href: data.href,
+            } } : {}),
           });
         }
       } catch {
@@ -385,6 +461,74 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       : typeof data?.bookingReference === "string" ? data.bookingReference : null;
     // Create notification in database if Notification model exists
     const notificationTemplates: Record<string, { title: string; body: string }> = {
+      long_stay_reservation_lapsed_owner: {
+        title: "Reservation lapsed",
+        body: `A reservation for "${data.propertyTitle || "your home"}" lapsed because it was not confirmed within 24 hours.`
+      },
+      long_stay_inspection_passed: {
+        title: "Your home passed inspection",
+        body: `"${data.propertyTitle || "Your home"}" passed the NoLSAF inspection. It shows as inspected by NoLSAF for a year.`
+      },
+      long_stay_inspection_failed: {
+        title: "Your home did not pass inspection",
+        body: `"${data.propertyTitle || "Your home"}" did not pass the NoLSAF inspection.${data.note ? ` ${data.note}` : ""} Fix it and NoLSAF will inspect it again.`
+      },
+      long_stay_cancelled_owner: {
+        title: "Long stay cancelled by the tenant",
+        body: `The tenant cancelled their booking for "${data.propertyTitle || "your home"}". See Long stays for what happens to the first month.`
+      },
+      long_stay_notice_owner: {
+        title: "Tenant gave notice",
+        body: `The tenant of "${data.propertyTitle || "your home"}" will leave on ${data.leaveOn || ""}. Refund any unused prepaid months within 14 days of move-out.`
+      },
+      long_stay_overdue_owner: {
+        title: "Lease ended, move-out not confirmed",
+        body: `The lease for "${data.propertyTitle || "your home"}" has ended. Confirm the move-out in Long stays once the tenant has left.`
+      },
+      long_stay_renewal_reminder_owner: {
+        title: "Lease ending soon",
+        body: `The lease for "${data.propertyTitle || "your home"}" is coming to an end. The tenant has the first right to renew.`
+      },
+      long_stay_renewal_owner: {
+        title: "Tenant wants to renew",
+        body: `The tenant of "${data.propertyTitle || "your home"}" asked to renew. Confirm or decline within 24 hours in Long stays.`
+      },
+      long_stay_claim_owner: {
+        title: "Long-stay claim",
+        body: `NoLSAF confirmed you owe your tenant ${data.currency || ""} ${Number(data.amount || 0).toLocaleString("en-US")} for "${data.propertyTitle || "your home"}": ${data.reason || ""}. Pay the tenant within 14 days, or it is taken from your next long-stay payout and your long stays are paused.`
+      },
+      long_stay_claim_overdue_owner: {
+        title: "Long-stay claim past due",
+        body: `A claim of ${data.currency || ""} ${Number(data.amount || 0).toLocaleString("en-US")} was not paid within 14 days. Your long stays are paused and it will be taken from your next long-stay payout.`
+      },
+      long_stay_moved_in_owner: {
+        title: "Move-in confirmed",
+        body: `Move-in at "${data.propertyTitle || "your home"}" is confirmed. NoLSAF reviews and sends your first-month payout next.`
+      },
+      long_stay_confirm_move_in_owner: {
+        title: "Confirm the move-in",
+        body: `The tenant confirmed move-in at "${data.propertyTitle || "your home"}". Confirm the balance you received, or report a problem, within 72 hours.`
+      },
+      long_stay_payment_expired_owner: {
+        title: "Lease closed, not paid",
+        body: `The tenant did not pay the first month for "${data.propertyTitle || "your home"}" within 48 hours, so the lease was closed. Your home is open to new requests.`
+      },
+      long_stay_reserved_owner: {
+        title: "Home reserved",
+        body: `The tenant paid the first month for "${data.propertyTitle || "your home"}". NoLSAF holds it until move-in is confirmed.`
+      },
+      long_stay_lease_waiting: {
+        title: "Lease waiting for you",
+        body: `The tenant accepted the lease for "${data.propertyTitle || "your home"}". Accept it in Long stays so they can pay.`
+      },
+      long_stay_lease_signed_owner: {
+        title: "Lease signed",
+        body: `Both sides accepted the lease for "${data.propertyTitle || "your home"}". The tenant now has 48 hours to pay the first month.`
+      },
+      long_stay_message: {
+        title: "New message about a long stay",
+        body: `${data.fromName || "Someone"} wrote about "${data.propertyTitle || "a home"}". Open Long stays to reply.`
+      },
       assisted_listing_started: {
         title: "A NoLSAF partner is listing your property",
         body: `${data.partnerName || "A NoLSAF sales partner"} is preparing ${data.propertyTitle || "a property"} to go live on NoLSAF for you. You do not need to do anything. Not expecting this? Open ${data.noticeLink || "the link in this notice"} or contact NoLSAF support.`
@@ -674,10 +818,9 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
 }
 
 /**
- * Notify a user (customer) by userId
+ * Persist a user notification, optionally alongside the change that triggered it.
  */
-export async function notifyUser(userId: number, template: string, data: any) {
-  try {
+export async function createUserNotification(db: Pick<Prisma.TransactionClient, "notification">, userId: number, template: string, data: any) {
     const notificationTemplates: Record<string, { title: string; body: string }> = {
       nrms_agent_verification_decided: {
         title: data.decision === "VERIFIED" ? "Agency verified" : "Agency verification needs attention",
@@ -879,6 +1022,106 @@ export async function notifyUser(userId: number, template: string, data: any) {
         title: "Assisted listing paused",
         body: `"${data.propertyTitle || "A listing"}" was paused${data.reason ? `: ${data.reason}` : " while NoLSAF checks with the owner"}. You cannot edit it until NoLSAF resolves it.`
       },
+      long_stay_cancelled: {
+        title: "Long stay cancelled by the landlord",
+        body: `The landlord cancelled your booking for "${data.propertyTitle || "the home"}". You get the first month and the service fee back in full; NoLSAF will contact you about the refund.`
+      },
+      long_stay_notice: {
+        title: "Notice to end your stay",
+        body: `The landlord of "${data.propertyTitle || "your home"}" gave notice for you to leave on ${data.leaveOn || ""}.${data.reason ? ` Reason: ${data.reason}` : ""} Unused prepaid months must be refunded within 14 days of moving out. Report a problem in Long stays if this is wrong.`
+      },
+      long_stay_ended: {
+        title: "Stay ended",
+        body: `The landlord confirmed you moved out of "${data.propertyTitle || "the home"}". Any unused prepaid rent and your deposit are due back within 14 days.`
+      },
+      long_stay_overdue: {
+        title: "Your lease has ended",
+        body: `The lease for "${data.propertyTitle || "your home"}" has ended. Renew in Long stays, or agree your move-out with the landlord.`
+      },
+      long_stay_renewal_reminder: {
+        title: "Renew your stay?",
+        body: `Your lease for "${data.propertyTitle || "your home"}" is coming to an end. You have the first right to renew: open Long stays to renew, or give notice.`
+      },
+      long_stay_claim: {
+        title: "Money owed to you",
+        body: `NoLSAF confirmed the landlord of "${data.propertyTitle || "your home"}" owes you ${data.currency || ""} ${Number(data.amount || 0).toLocaleString("en-US")}. They have 14 days to pay you. Tell us in Long stays when you receive it.`
+      },
+      long_stay_moved_in: {
+        title: "Welcome home",
+        body: `Move-in at "${data.propertyTitle || "your home"}" is confirmed. The lease now governs your stay; notices and problems go through Long stays.`
+      },
+      long_stay_confirm_move_in: {
+        title: "Confirm your move-in",
+        body: `The landlord confirmed move-in at "${data.propertyTitle || "the home"}". Confirm on your side too, or report a problem, within 72 hours.`
+      },
+      long_stay_payout_paid: {
+        title: "Long-stay payout sent",
+        body: `NoLSAF sent your first-month payout${data.propertyTitle ? ` for "${data.propertyTitle}"` : ""}${data.amount ? ` (${Number(data.amount).toLocaleString("en-US")})` : ""}. Reference ${data.reference || ""}.`
+      },
+      long_stay_payment_expired: {
+        title: "Lease closed, not paid",
+        body: `The 48 hours to pay the first month for "${data.propertyTitle || "the home"}" have passed, so the lease was closed. You can ask to view the home again.`
+      },
+      long_stay_reserved: {
+        title: "Home reserved",
+        body: `Payment received for "${data.propertyTitle || "the home"}". On move-in day, inspect the home before paying the landlord the balance.`
+      },
+      long_stay_offer_accepted: {
+        title: "Reservation confirmed",
+        body: `The landlord confirmed your reservation of "${data.propertyTitle || "the home"}". Read and accept the lease in Long stays, then pay within 48 hours.`
+      },
+      long_stay_reservation_lapsed: {
+        title: "Reservation lapsed",
+        body: `The landlord did not confirm your reservation of "${data.propertyTitle || "the home"}" within 24 hours, so it lapsed. Nothing was charged.`
+      },
+      long_stay_enquiry_answered: {
+        title: "NoLSAF answered your question",
+        body: `NoLSAF answered your question about "${data.propertyTitle || "a long-stay home"}". Open Long stays to read it.`
+      },
+      long_stay_inspection_assigned: {
+        title: "Home inspection invitation",
+        body: `NoLSAF invites you to inspect "${data.propertyTitle || "a long-stay home"}". Accept or decline within 24 hours. Once you accept you get the landlord contact, the exact pin and 5 days to visit.`
+      },
+      long_stay_inspection_invite_lapsed: {
+        title: "Inspection invitation expired",
+        body: `Your invitation to inspect "${data.propertyTitle || "a long-stay home"}" expired without a reply, so NoLSAF will ask another partner.`
+      },
+      long_stay_inspection_redo: {
+        title: "Inspection to redo",
+        body: `Your inspection of "${data.propertyTitle || "a long-stay home"}" needs another visit.${data.note ? ` ${data.note}` : ""}`
+      },
+      long_stay_inspection_decided: {
+        title: "NoLSAF reviewed your inspection",
+        body: `"${data.propertyTitle || "The long-stay home"}" ${data.status === "PASSED" ? "passed" : "did not pass"} its inspection. Open the inspection for NoLSAF's decision.`
+      },
+      long_stay_visit_assigned: {
+        title: "Tenant visit to accompany",
+        body: `Accompany a tenant viewing "${data.propertyTitle || "a long-stay home"}". Open Long stays in your workspace for the time and contacts.`
+      },
+      long_stay_lease_waiting_tenant: {
+        title: "Lease ready for you",
+        body: `The landlord accepted the lease for "${data.propertyTitle || "the home"}". Read and accept it in Long stays.`
+      },
+      long_stay_lease_signed: {
+        title: "Lease signed",
+        body: `Both sides accepted the lease for "${data.propertyTitle || "the home"}". Pay the first month within ${data.hours || 48} hours to reserve it.`
+      },
+      long_stay_request_closed: {
+        title: "Reservation closed",
+        body: `Your reservation of "${data.propertyTitle || "a home"}" was closed.${data.reason ? ` ${data.reason}` : ""} Nothing was charged.`
+      },
+      long_stay_message_tenant: {
+        title: "New message about a long stay",
+        body: `${data.fromName || "The landlord"} wrote about "${data.propertyTitle || "a home"}". Open Long stays to reply.`
+      },
+      long_stay_id_approved: {
+        title: "Your ID is verified",
+        body: "NoLSAF checked your ID. You can now book long stays."
+      },
+      long_stay_id_rejected: {
+        title: "Your ID check needs attention",
+        body: `NoLSAF could not verify your ID.${data.reason ? ` ${data.reason}` : ""} Open Long-stay ID in your account to send it again.`
+      },
       sales_assisted_listing_cancelled: {
         title: "Assisted listing cancelled",
         body: `"${data.propertyTitle || "A listing"}" was cancelled by NoLSAF.${data.reason ? ` Reason: ${data.reason}` : ""}`
@@ -1070,7 +1313,7 @@ export async function notifyUser(userId: number, template: string, data: any) {
       body: "You have an update."
     };
 
-    const created = await prisma.notification.create({
+    return db.notification.create({
       data: {
         userId: Number(userId),
         ownerId: null,
@@ -1080,7 +1323,7 @@ export async function notifyUser(userId: number, template: string, data: any) {
         meta: { ...data, notificationKind: template },
         type: template.startsWith("agent_")
           ? "agent"
-          : template.startsWith("sales_partner_")
+          : template.startsWith("sales_partner_") || template.startsWith("long_stay_inspection_")
             ? "sales"
             : template.startsWith("cancellation")
               ? "cancellation"
@@ -1089,16 +1332,42 @@ export async function notifyUser(userId: number, template: string, data: any) {
                 : "system"
       }
     });
+}
 
-    // Best-effort realtime emit
-    try {
-      const io = (global as any).io;
-      if (io && typeof io.to === "function") {
-        io.to(`user:${userId}`).emit("notification:new", { id: created.id, userId, type: created.type, title: created.title, body: created.body, createdAt: created.createdAt });
-      }
-    } catch {
-      // ignore
+export const LONG_STAY_RESERVATION_RECEIVED = "long_stay_reservation_received";
+
+export function createOwnerReservationNotification(db: Pick<Prisma.TransactionClient, "notification">, ownerId: number, reservation: {
+  tenancyRef: string; propertyTitle: string | null; moveInDate: string; termMonths: number;
+}) {
+  return db.notification.create({
+    data: {
+      ownerId,
+      userId: ownerId,
+      unread: true,
+      type: "booking",
+      title: "New long-stay reservation",
+      body: `A tenant requested "${reservation.propertyTitle || "your home"}" for ${reservation.termMonths} months from ${reservation.moveInDate}. Review the request within 24 hours.`,
+      meta: { notificationKind: LONG_STAY_RESERVATION_RECEIVED, ...reservation },
+    },
+  });
+}
+
+export function publishUserNotification(created: Pick<Notification, "id" | "userId" | "type" | "title" | "body" | "createdAt">, notificationKind?: string) {
+  // Publish after commit. The inbox still reads from the database if sockets are unavailable.
+  try {
+    const io = (global as any).io;
+    if (io && typeof io.to === "function") {
+      const { id, userId, type, title, body, createdAt } = created;
+      io.to(`user:${userId}`).emit("notification:new", { id, userId, type, title, body, createdAt, ...(notificationKind ? { notificationKind } : {}) });
     }
+  } catch {
+    // Best effort.
+  }
+}
+
+export async function notifyUser(userId: number, template: string, data: any) {
+  try {
+    publishUserNotification(await createUserNotification(prisma, userId, template, data));
   } catch (err: any) {
     console.error("[notify] user failed", err?.message || err);
   }

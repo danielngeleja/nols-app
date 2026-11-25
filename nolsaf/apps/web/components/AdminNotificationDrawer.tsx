@@ -222,7 +222,8 @@ export default function AdminNotificationDrawer() {
   const groupOf = (list: NotificationItem[]) => {
     const groups = new Map<string, NotificationItem[]>();
     for (const item of list) {
-      const key = `${item.title}|${item.severity ?? ""}|${item.requiresAction ? 1 : 0}|${String(item.type ?? "")}`;
+      const isLongStay = String(item.meta?.notificationKind ?? "").startsWith("long_stay_");
+      const key = isLongStay ? `long-stay:${item.id}` : `${item.title}|${item.severity ?? ""}|${item.requiresAction ? 1 : 0}|${String(item.type ?? "")}|${item.meta?.accountOwnerId ?? ""}`;
       const bucket = groups.get(key);
       if (bucket) bucket.push(item);
       else groups.set(key, [item]);
@@ -314,7 +315,7 @@ export default function AdminNotificationDrawer() {
                 onClick={() => { for (const m of group.members) void markRead(m); setOpen(false); }}
                 className="inline-flex h-7 items-center gap-0.5 rounded-md px-2 font-semibold text-[#02665e] no-underline hover:bg-[#02665e]/10 hover:no-underline"
               >
-                {String(item.type) === "chatbot" ? "Open chat" : "Open"}<ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                {String(item.meta?.notificationKind).startsWith("owner_account_") ? "View owner activity" : String(item.type) === "chatbot" ? "Open chat" : "Open"}<ChevronRight className="h-3.5 w-3.5" aria-hidden />
               </Link>
               {needs ? (
                 <button

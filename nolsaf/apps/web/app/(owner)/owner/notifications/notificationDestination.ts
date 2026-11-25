@@ -12,6 +12,12 @@ export function notificationDestination(meta: Record<string, unknown>): Destinat
     return { href: `/owner/nrms/payments?property=${relatedPropertyId}&application=${applicationId}#application-status`, label: "View payment application" };
   }
   const bookingReference = typeof meta.bookingReference === "string" ? meta.bookingReference : "";
+  if (kind === "long_stay_reservation_received" || kind === "long_stay_reservation_lapsed_owner") {
+    const ref = typeof meta.tenancyRef === "string" ? meta.tenancyRef : "";
+    return /^tn_[A-Za-z0-9_-]{22}$/.test(ref)
+      ? { href: `/owner/long-stays/${ref}`, label: kind === "long_stay_reservation_received" ? "Review reservation" : "View reservation" }
+      : { href: "/owner/long-stays", label: "Open long stays" };
+  }
   if (/^bk_[A-Za-z0-9_-]{22}$/.test(bookingReference) && ["booking_created", "invoice_paid", "cancellation_reviewing", "cancellation_processing", "cancellation_refunded", "cancellation_rejected", "booking_cancelled_by_guest"].includes(kind)) {
     return { href: `/owner/bookings/checked-in/${bookingReference}`, label: "View booking" };
   }

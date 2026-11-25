@@ -20,7 +20,7 @@ import {
   resolveOwnerPayoutAmount,
 } from "../../lib/accommodationPayout.js";
 import { confirmedCustomerPaymentForBooking, PaymentCurrencyMismatchError } from "./eligibility.js";
-import { loadPayoutSafeguards } from "./riskScoring.js";
+import { destinationChangeAnchor, loadPayoutSafeguards } from "./riskScoring.js";
 import { ensureGuestCheckInConfirmation, guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
 
 export type PayoutReleaseStatus = "LOCKED" | "HELD" | "AVAILABLE" | "WITHDRAWING" | "RELEASED" | "CANCELLED";
@@ -388,7 +388,7 @@ export async function verifiedPayoutAccounts(ownerId: number) {
   return prisma.payoutAccount.findMany({
     where: { userId: ownerId, isActive: true, isVerified: true, type: "MOBILE_MONEY" },
     orderBy: [{ isDefault: "desc" }, { id: "asc" }],
-    select: { id: true, userId: true, provider: true, accountNumber: true, destinationChangedAt: true, createdAt: true },
+    select: { id: true, userId: true, provider: true, accountNumber: true, accountName: true, destinationChangedAt: true, createdAt: true },
   });
 }
 
@@ -400,12 +400,36 @@ async function payoutAccountProblem(ownerId: number, now: Date): Promise<{ probl
   if (!primary) return { problem: "Add and verify a mobile money payout account", accountNumbers };
 
   const { recentChangeHours } = await loadPayoutSafeguards();
-  const changedAt = primary.destinationChangedAt ?? primary.createdAt;
-  const unlockAt = changedAt.getTime() + recentChangeHours * HOUR_MS;
-  if (now.getTime() < unlockAt) {
-    return { problem: `Payout account changed recently, usable after ${new Date(unlockAt).toISOString()}`, accountNumbers };
+  const rawChangedAt = primary.destinationChangedAt ?? primary.createdAt;
+  // Only a real change from an earlier destination waits; an owner's first
+  // payout account is onboarding (destinationChangeAnchor).
+  const changedAt = now.getTime() < rawChangedAt.getTime() + recentChangeHours * HOUR_MS
+    ? await destinationChangeAnchor(primary)
+    : null;
+  const unlockAt = changedAt ? changedAt.getTime() + recentChangeHours * HOUR_MS : 0;
+  if (changedAt && now.getTime() < unlockAt) {
+    return {
+      problem: `Your payout account was changed recently. For your safety it can receive payouts from ${formatEatDateTime(new Date(unlockAt))}`,
+      accountNumbers,
+    };
   }
   return { problem: null, accountNumbers };
+}
+
+/** "28 Nov 2026, 09:12 EAT": owner-facing times are always East Africa Time. */
+export function formatEatDateTime(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Dar_es_Salaam",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    // h23, not hour12:false: some engines print midnight as "24:00" otherwise.
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("day")} ${get("month")} ${get("year")}, ${get("hour")}:${get("minute")} EAT`;
 }
 
 /** Loads everything decideRelease needs for one release. Reads only. */

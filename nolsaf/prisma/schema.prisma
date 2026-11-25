@@ -396,6 +396,19 @@ model User {
   paymentRefundsApproved       PaymentRefund[]       @relation("PaymentRefundApprovedBy")
   merchantAuditEvents          MerchantAuditEvent[]  @relation("MerchantAuditActor")
 
+  // Long-stay rentals (docs/LONG_STAY_RENTALS.md)
+  longStayGrant            LongStayLandlordGrant?  @relation("LongStayGrantLandlord")
+  longStayGrantsGiven      LongStayLandlordGrant[] @relation("LongStayGrantGrantedBy")
+  longStayTenantProfile    LongStayTenantProfile?  @relation("LongStayTenantProfileUser")
+  longStayTenantsReviewed  LongStayTenantProfile[] @relation("LongStayTenantProfileReviewer")
+  longStayInspectionsAssigned LongStayInspection[] @relation("LongStayInspectionAssignedBy")
+  longStayInspectionsReviewed LongStayInspection[] @relation("LongStayInspectionReviewer")
+  longStayEnquiries           LongStayEnquiry[]    @relation("LongStayEnquiryAuthor")
+  longStayEnquiriesAnswered   LongStayEnquiry[]    @relation("LongStayEnquiryAnswerer")
+  tenanciesAsLandlord      Tenancy[]               @relation("TenancyLandlord")
+  tenanciesAsTenant        Tenancy[]               @relation("TenancyTenant")
+  tenancyEvents            TenancyEvent[]          @relation("TenancyEventActor")
+
   @@index([role])
   @@index([role, registrationStatus])
   @@index([registrationSource])
@@ -469,6 +482,10 @@ model Property {
   // Aggregates / pricing
   basePrice      Decimal? @db.Decimal(12, 2)
   currency       String?  @default("TZS") @db.VarChar(3)
+  /// NIGHTLY (price per night) or LONG_STAY (monthly rent, minimum term; terms
+  /// in LongStayListing). Only landlords with an active LongStayLandlordGrant
+  /// may set LONG_STAY, and only on home types. See docs/LONG_STAY_RENTALS.md.
+  rentalMode     String   @default("NIGHTLY") @db.VarChar(12)
   totalBedrooms  Int?
   totalBathrooms Int?
   maxGuests      Int?
@@ -608,6 +625,12 @@ model Property {
   merchantLinks  MerchantPropertyLink[]
   paymentIntents PaymentIntent[]
 
+  // Long-stay rentals
+  longStayListing     LongStayListing?
+  tenancies           Tenancy[]
+  longStayInspections LongStayInspection[]
+  longStayEnquiries   LongStayEnquiry[]
+
   @@index([ownerId])
   // Supports: WHERE ownerId=? ORDER BY id DESC
   @@index([ownerId, id], map: "idx_Property_ownerId_id")
@@ -630,6 +653,7 @@ model Property {
   @@index([longitude])
   @@index([latitude, longitude]) // Composite index for location-based queries
   @@index([status, latitude, longitude]) // For filtering approved properties with locations
+  @@index([status, rentalMode, id])
   @@map("property")
 }
 
@@ -1114,6 +1138,11 @@ model UserDocument {
 
   /// Merchant applications that attached this upload as evidence.
   merchantApplicationLinks MerchantApplicationDocument[]
+
+  /// Long-stay tenant identity checks that use this upload.
+  longStayTenantProfiles     LongStayTenantProfile[] @relation("LongStayTenantIdFront")
+  longStayTenantIdBacks      LongStayTenantProfile[] @relation("LongStayTenantIdBack")
+  longStayTenantIdSelfies    LongStayTenantProfile[] @relation("LongStayTenantIdSelfie")
 
   @@index([userId])
   @@index([status])
@@ -2346,6 +2375,16 @@ model SystemSetting {
   /// Null means never.
   payoutUnclaimedAutoDays Int?
 
+  /// Largest FIRST payout (TZS) to a new owner that the AUTO lane may send
+  /// without a person. It still needs the AUTO lane on, a wallet holder name
+  /// that matches the owner, and clean risk. Null: every first payout is
+  /// checked by a person. Code ceiling 2,000,000 (autoLane.ts).
+  ownerFirstPayoutAutoMaxTzs Int?
+
+  /// Hours an owner withdrawal may wait for a person before finance is alerted
+  /// again. Clamped to 1..24.
+  ownerWithdrawalReviewAlertHours Int? @default(4)
+
   /// Sales partner withdrawals (docs/SALES_PAYOUT_WITHDRAWAL_POLICY.md). Off by
   /// default: every confirmed withdrawal then waits for an admin. Sales payouts
   /// that pass every rule share the owner AUTO lane, its kill switch and its
@@ -2433,6 +2472,22 @@ model SystemSetting {
   nolScopeCostVariancePercent  Decimal? @default(10.00) @db.Decimal(5, 2)
   /// Whether NoLScope is live for users
   nolScopeEnabled              Boolean? @default(true)
+
+  // ==================== Long-stay rentals ====================
+  /// Defaults only. Each Tenancy snapshots the rates and caps it was offered
+  /// under, so changing these never alters a signed lease.
+  /// Landlord commission on the lease term's rent (5.00 = 5%).
+  longStayLandlordPercent   Decimal @default(5.00) @db.Decimal(5, 2)
+  /// Tenant service fee on the lease term's rent (4.00 = 4%).
+  longStayTenantPercent     Decimal @default(4.00) @db.Decimal(5, 2)
+  /// Landlord commission cap, in months of rent (0.50 = half a month). Keeps
+  /// the commission inside the first month NoLSAF holds.
+  longStayLandlordCapMonths Decimal @default(0.50) @db.Decimal(4, 2)
+  /// Tenant fee cap, in months of rent (0.25 = a quarter of a month).
+  longStayTenantCapMonths   Decimal @default(0.25) @db.Decimal(4, 2)
+  /// Flat fee, in TZS, earned by the Sales Partner for each inspection report
+  /// NoLSAF accepts as genuine, whether the home passes or fails.
+  longStayInspectionFee     Decimal @default(25000.00) @db.Decimal(12, 2)
 
   @@map("systemsetting")
 }
@@ -8492,6 +8547,8 @@ model SalesPartnerProfile {
   capabilities        SalesPartnerCapability[]
   agencyLinks         SalesAgencyLink[]
   channelAttributions BookingChannelAttribution[]
+  longStayInspections LongStayInspection[]
+  longStayVisits      LongStayEnquiry[]
   clientAccounts      SalesClientAccount[]
   agencyGroupRequests SalesAgencyGroupRequest[]
   tourAttributions    TourBookingAttribution[]
@@ -10013,6 +10070,23 @@ model PayoutWithdrawalOtpGuard {
   @@map("payout_withdrawal_otp_guard")
 }
 
+/// Admin payout controls for one owner (admin owner page, Account activity,
+/// Payouts). holdAt pauses every withdrawal and keeps the owner out of the
+/// AUTO lane and unclaimed sends; alwaysReview sends every payout to a person.
+/// Placing either is immediate; lifting either needs the finance code.
+model OwnerPayoutControl {
+  ownerId            Int       @id
+  holdAt             DateTime?
+  holdReason         String?   @db.VarChar(300)
+  holdById           Int?
+  alwaysReview       Boolean   @default(false)
+  alwaysReviewReason String?   @db.VarChar(300)
+  alwaysReviewById   Int?
+  updatedAt          DateTime  @default(now()) @updatedAt
+
+  @@map("owner_payout_control")
+}
+
 /// Money an owner owes back after being paid for a stay that was later
 /// refunded or charged back (owner policy 6.3.3; docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md
 /// Phase 4). amount is the owner's share only: refund x (owner payout / guest
@@ -11205,4 +11279,385 @@ model PropertyPriceChange {
   @@index([propertyId, roomKey, createdAt])
   @@index([flagged, createdAt])
   @@map("property_price_change")
+}
+
+// =========================================================
+//  LONG-STAY RENTALS (docs/LONG_STAY_RENTALS.md)
+// =========================================================
+
+/// The admin switch that lets one landlord list long stays (decision 7).
+/// No row, or a paused row, means the landlord cannot set LONG_STAY.
+model LongStayLandlordGrant {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @unique
+  enabledAt   DateTime  @default(now())
+  enabledById Int?
+  pausedAt    DateTime?
+  pauseReason String?   @db.VarChar(300)
+  note        String?   @db.VarChar(300)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user      User  @relation("LongStayGrantLandlord", fields: [userId], references: [id], onDelete: Cascade)
+  enabledBy User? @relation("LongStayGrantGrantedBy", fields: [enabledById], references: [id], onDelete: SetNull)
+
+  @@index([enabledById])
+  @@map("long_stay_landlord_grant")
+}
+
+/// Monthly terms of a LONG_STAY property (section 3.1). v1 lets the whole
+/// listing; per-unit long stays come later.
+model LongStayListing {
+  id                    Int      @id @default(autoincrement())
+  propertyId            Int      @unique
+  monthlyRent           Decimal  @db.Decimal(12, 2)
+  currency              String   @default("TZS") @db.VarChar(3)
+  /// 3, 6 or 12 (decision 8).
+  minTermMonths         Int
+  maxTermMonths         Int?
+  /// Months prepaid at move-in in total (first month via NoLSAF + balance to
+  /// the landlord). Between 1 and minTermMonths; defaults to minTermMonths.
+  upfrontMonths         Int
+  /// FURNISHED | SEMI | UNFURNISHED
+  furnished             String   @db.VarChar(12)
+  /// { water, electricity, internet, security, serviceCharge }: INCLUDED | TENANT
+  utilities             Json
+  /// 0, 1 or 2. Collected by the landlord, never by NoLSAF.
+  securityDepositMonths Int      @default(0)
+  noticePeriodDays      Int      @default(30)
+  /// Subset of BANK, MOBILE_MONEY. Cash is not offered in v1.
+  balanceMethods        Json
+  /// { pets, maxOccupants, ... }
+  residencyRules        Json?
+  availableFrom         DateTime @db.Date
+  /// { m6, m12 }: percent off the monthly rent for leases of 6+ and 12+ months.
+  discounts             Json?
+  /// Monthly estimate for each bill the tenant pays, in the listing currency (a guide, never charged).
+  billEstimates         Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([availableFrom])
+  @@map("long_stay_listing")
+}
+
+/// A tenant's one-time identity check (decision 10), reused for later long
+/// stays. The full ID number is never stored: a keyed hash catches the same ID
+/// on two accounts, the last 4 digits help the reviewer.
+model LongStayTenantProfile {
+  id            Int       @id @default(autoincrement())
+  userId        Int       @unique
+  /// PASSPORT (ICAO 9303) | NATIONAL_ID (NIDA and EAC cards) | RES_PERMIT (Tanzania residence permit)
+  idType        String    @db.VarChar(12)
+  idNumberHash  String    @db.VarChar(64)
+  idNumberLast4 String    @db.VarChar(4)
+  /// Issuing state, ISO 3166-1 alpha-2.
+  idCountry     String?   @db.VarChar(2)
+  /// The document's expiry date as printed.
+  idExpiresOn   DateTime? @db.Date
+  /// The holder's name exactly as printed on the document.
+  holderName    String?   @db.VarChar(120)
+  dateOfBirth   DateTime? @db.Date
+  /// ISO 3166-1 alpha-2.
+  nationality   String?   @db.VarChar(2)
+  /// Front of the card, or the passport photo page.
+  documentId    Int?
+  /// Back of an ID card or residence permit (passports have none).
+  documentBackId   Int?
+  /// The tenant holding the document next to their face.
+  selfieDocumentId Int?
+  /// PENDING | APPROVED | REJECTED
+  status        String    @default("PENDING") @db.VarChar(12)
+  submittedAt   DateTime  @default(now())
+  reviewedAt    DateTime?
+  reviewedById  Int?
+  rejectReason  String?   @db.VarChar(300)
+  /// Set when a tenant is barred from long stays (section 6.6 point 4).
+  barredAt      DateTime?
+  barReason     String?   @db.VarChar(300)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user       User          @relation("LongStayTenantProfileUser", fields: [userId], references: [id], onDelete: Cascade)
+  document       UserDocument? @relation("LongStayTenantIdFront", fields: [documentId], references: [id], onDelete: SetNull)
+  documentBack   UserDocument? @relation("LongStayTenantIdBack", fields: [documentBackId], references: [id], onDelete: SetNull)
+  selfieDocument UserDocument? @relation("LongStayTenantIdSelfie", fields: [selfieDocumentId], references: [id], onDelete: SetNull)
+  reviewedBy     User?         @relation("LongStayTenantProfileReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status, submittedAt])
+  @@index([status, idExpiresOn])
+  @@index([idNumberHash])
+  @@index([documentId])
+  @@index([documentBackId])
+  @@index([selfieDocumentId])
+  @@index([reviewedById])
+  @@map("long_stay_tenant_profile")
+}
+
+/// One long-stay booking from viewing request to the end of the lease.
+/// Money columns are computed on the server from the snapshotted terms when
+/// the landlord accepts the offer, and never change after the lease is
+/// accepted. Status moves only through lib/longStay/tenancyState.ts.
+model Tenancy {
+  id         Int    @id @default(autoincrement())
+  /// Opaque tn_ reference used in every URL and API path.
+  publicRef  String @unique @db.VarChar(40)
+  propertyId Int
+  landlordId Int
+  tenantId   Int
+  status     String @default("REQUESTED") @db.VarChar(20)
+
+  // Viewing
+  /// IN_PERSON | VIDEO
+  viewingMode        String?   @db.VarChar(12)
+  viewingAt          DateTime?
+  viewingConfirmedAt DateTime?
+
+  // Offer
+  moveInDate      DateTime? @db.Date
+  termMonths      Int?
+  endDate         DateTime? @db.Date
+  offeredAt       DateTime?
+  offerAcceptedAt DateTime?
+
+  // Snapshot at offer acceptance
+  currency           String   @default("TZS") @db.VarChar(3)
+  monthlyRent        Decimal? @db.Decimal(12, 2)
+  upfrontMonths      Int?
+  landlordPercent    Decimal? @db.Decimal(5, 2)
+  tenantPercent      Decimal? @db.Decimal(5, 2)
+  landlordCapMonths  Decimal? @db.Decimal(4, 2)
+  tenantCapMonths    Decimal? @db.Decimal(4, 2)
+  tenantFee          Decimal? @db.Decimal(12, 2)
+  landlordCommission Decimal? @db.Decimal(12, 2)
+  /// First month + tenant fee: what the tenant pays NoLSAF by card.
+  bookingAmount      Decimal? @db.Decimal(12, 2)
+  /// Rent for the rest of the prepaid period, paid to the landlord at move-in.
+  balanceDue         Decimal? @db.Decimal(12, 2)
+  /// The listing terms the offer was accepted under (furnishing, utilities,
+  /// deposit, notice, balance methods).
+  termsSnapshot      Json?
+
+  // Lease
+  leaseVersion            String?   @db.VarChar(20)
+  /// SHA-256 of the exact lease text both sides accepted.
+  leaseHash               String?   @db.VarChar(64)
+  tenantLeaseAcceptedAt   DateTime?
+  landlordLeaseAcceptedAt DateTime?
+
+  // Booking payment (card)
+  paymentDueAt      DateTime?
+  paidAt            DateTime?
+  paidAmount        Decimal?  @db.Decimal(12, 2)
+  paymentRef        String?   @unique @db.VarChar(80)
+  checkoutSessionId String?   @unique @db.VarChar(120)
+
+  // Move-in confirmation (section 3.3 step 7)
+  landlordBalanceAmount Decimal?  @db.Decimal(12, 2)
+  /// BANK | MOBILE_MONEY
+  landlordBalanceMethod String?   @db.VarChar(20)
+  landlordConfirmedAt   DateTime?
+  tenantBalanceAmount   Decimal?  @db.Decimal(12, 2)
+  tenantBalanceMethod   String?   @db.VarChar(20)
+  tenantKeysReceived    Boolean?
+  tenantMatchesListing  Boolean?
+  tenantConfirmedAt     DateTime?
+  moveInConfirmedAt     DateTime?
+  /// BOTH | AUTO_LANDLORD | AUTO_TENANT | ADMIN
+  moveInConfirmedBy     String?   @db.VarChar(16)
+  balanceMismatch       Boolean   @default(false)
+
+  // Landlord payout of the first month
+  /// NONE | HELD | REVIEW | RELEASED | REFUNDED
+  payoutStatus     String    @default("NONE") @db.VarChar(16)
+  payoutAmount     Decimal?  @db.Decimal(12, 2)
+  /// Taken from this payout to cover the landlord's open claims on other
+  /// tenancies (lib/longStay/claims.ts). The landlord receives payout minus this.
+  payoutDeduction  Decimal?  @db.Decimal(12, 2)
+  payoutReleasedAt DateTime?
+
+  // Endings
+  cancelledAt   DateTime?
+  /// TENANT | LANDLORD | ADMIN | SYSTEM
+  cancelledBy   String?   @db.VarChar(12)
+  cancelReason  String?   @db.VarChar(300)
+  disputedAt    DateTime?
+  noticeGivenAt DateTime?
+  noticeGivenBy String?   @db.VarChar(12)
+  endedAt       DateTime?
+
+  /// Bumped on every write; transitions update WHERE version = expected so
+  /// two racing requests can never both move the same tenancy.
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Restrict: a tenancy is a financial record and is never deleted with the
+  /// property or either account.
+  property Property       @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  landlord User           @relation("TenancyLandlord", fields: [landlordId], references: [id], onDelete: Restrict)
+  tenant   User           @relation("TenancyTenant", fields: [tenantId], references: [id], onDelete: Restrict)
+  events   TenancyEvent[]
+  claims   TenancyClaim[]
+
+  @@index([propertyId, status])
+  @@index([landlordId, status])
+  @@index([tenantId, status])
+  @@index([status, paymentDueAt])
+  @@index([status, moveInDate])
+  @@map("tenancy")
+}
+
+/// Append-only audit trail of a tenancy: every transition and money fact.
+model TenancyEvent {
+  id         Int      @id @default(autoincrement())
+  tenancyId  Int
+  actorId    Int?
+  /// TENANT | LANDLORD | ADMIN | SYSTEM
+  actorRole  String   @db.VarChar(12)
+  type       String   @db.VarChar(40)
+  fromStatus String?  @db.VarChar(20)
+  toStatus   String?  @db.VarChar(20)
+  data       Json?
+  createdAt  DateTime @default(now())
+
+  tenancy Tenancy @relation(fields: [tenancyId], references: [id], onDelete: Restrict)
+  actor   User?   @relation("TenancyEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([tenancyId, createdAt])
+  @@index([actorId])
+  @@map("tenancy_event")
+}
+
+/// Money one side owes the other under the lease after move-in (section 6.6),
+/// confirmed by an admin. NoLSAF never pays it from its own money: the
+/// landlord pays the tenant within 14 days, or it is recovered from the
+/// landlord's future long-stay payouts and passed to the tenant.
+model TenancyClaim {
+  id              Int       @id @default(autoincrement())
+  tenancyId       Int
+  /// Denormalized for "open claims of this landlord" without a join.
+  landlordId      Int
+  tenantId        Int
+  /// UNUSED_RENT | BALANCE_RETURN | OTHER
+  kind            String    @db.VarChar(24)
+  amount          Decimal   @db.Decimal(12, 2)
+  currency        String    @db.VarChar(3)
+  reason          String    @db.VarChar(500)
+  /// OPEN | SETTLED | RECOVERING | RECOVERED | WAIVED
+  status          String    @default("OPEN") @db.VarChar(16)
+  dueAt           DateTime
+  recoveredAmount Decimal   @default(0) @db.Decimal(12, 2)
+  /// Set when the claim went past due and the landlord was paused.
+  escalatedAt     DateTime?
+  closedAt        DateTime?
+  closedNote      String?   @db.VarChar(500)
+  createdById     Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenancy Tenancy @relation(fields: [tenancyId], references: [id], onDelete: Restrict)
+
+  @@index([tenancyId])
+  @@index([landlordId, status])
+  @@index([status, dueAt])
+  @@map("tenancy_claim")
+}
+
+/// A NoLSAF Sales Partner's on-site inspection of a long-stay home
+/// (docs/LONG_STAY_RENTALS.md section 13). A long-stay listing cannot be
+/// approved, and takes no reservations, without a PASSED inspection whose
+/// validUntil has not gone by. Photos are private uploads hashed on receipt;
+/// the GPS position is compared with the listing's pin on the server.
+model LongStayInspection {
+  id             Int     @id @default(autoincrement())
+  /// Opaque li_ reference used in every URL.
+  publicRef      String  @unique @db.VarChar(40)
+  propertyId     Int
+  /// REQUESTED (waiting for a partner) | ASSIGNED | SUBMITTED | PASSED | FAILED | CANCELLED
+  status         String  @default("REQUESTED") @db.VarChar(12)
+  /// FIRST | YEARLY | AFTER_DISPUTE | RELISTED
+  reason         String  @default("FIRST") @db.VarChar(16)
+  salesPartnerId Int?
+  assignedById   Int?
+  assignedAt     DateTime?
+  dueBy          DateTime?
+
+  /// Partner's report: { item: "PASS" | "FAIL" | "NA" } for the fixed checklist.
+  checklist      Json?
+  /// [{ publicId, hash, bytes }] of the on-site photos.
+  photos         Json?
+  recommendation String?  @db.VarChar(8)
+  note           String?  @db.VarChar(1000)
+  latitude       Decimal? @db.Decimal(10, 6)
+  longitude      Decimal? @db.Decimal(10, 6)
+  accuracyMeters Int?
+  distanceMeters Int?
+  /// Warning signs worked out on the server, e.g. FAR_FROM_PIN.
+  flags          Json?
+  capturedAt     DateTime?
+  submittedAt    DateTime?
+
+  reviewedAt     DateTime?
+  reviewedById   Int?
+  reviewNote     String?  @db.VarChar(500)
+  /// A passed inspection lasts a year; an upheld dispute ends it at once.
+  validUntil     DateTime? @db.Date
+  /// The partner's fee, frozen when NoLSAF accepts the report.
+  feeAmount      Decimal? @db.Decimal(12, 2)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  property     Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  salesPartner SalesPartnerProfile? @relation(fields: [salesPartnerId], references: [id], onDelete: SetNull)
+  assignedBy   User?                @relation("LongStayInspectionAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+  reviewedBy   User?                @relation("LongStayInspectionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([propertyId, status])
+  @@index([status, createdAt])
+  @@index([salesPartnerId, status])
+  @@index([assignedById])
+  @@index([reviewedById])
+  @@map("long_stay_inspection")
+}
+
+/// A tenant's question about a long-stay home, or a request to visit it with
+/// a NoLSAF Sales Partner. It goes to NoLSAF, never straight to the landlord:
+/// NoLSAF answers, asking the landlord itself when needed.
+model LongStayEnquiry {
+  id             Int       @id @default(autoincrement())
+  /// Opaque le_ reference.
+  publicRef      String    @unique @db.VarChar(40)
+  propertyId     Int
+  userId         Int
+  /// QUESTION | VISIT
+  kind           String    @db.VarChar(10)
+  text           String    @db.VarChar(1000)
+  /// VISIT: up to 3 times that suit the tenant (ISO strings).
+  slots          Json?
+  /// OPEN | ANSWERED | CLOSED
+  status         String    @default("OPEN") @db.VarChar(10)
+  answer         String?   @db.VarChar(1000)
+  answeredById   Int?
+  answeredAt     DateTime?
+  /// VISIT: the agreed time and the partner who goes.
+  visitAt        DateTime?
+  salesPartnerId Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  property     Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user         User                 @relation("LongStayEnquiryAuthor", fields: [userId], references: [id], onDelete: Cascade)
+  answeredBy   User?                @relation("LongStayEnquiryAnswerer", fields: [answeredById], references: [id], onDelete: SetNull)
+  salesPartner SalesPartnerProfile? @relation(fields: [salesPartnerId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([propertyId])
+  @@index([userId, createdAt])
+  @@index([answeredById])
+  @@index([salesPartnerId])
+  @@map("long_stay_enquiry")
 }

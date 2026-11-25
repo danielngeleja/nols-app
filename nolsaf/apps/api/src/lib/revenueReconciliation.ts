@@ -13,13 +13,15 @@ import { GUEST_MONEY_IN, loadOwnerInvoiceDisbursements } from "./invoiceMoneySta
 import { moneyStageOf } from "./invoiceMoneyStage.js";
 import { adminRecordReference } from "./adminRecordReference.js";
 import { REVENUE_STREAMS, round2, type RevenueStream } from "./revenueLedger.js";
+import { LONG_STAY_FIGURE_FIELDS, longStayRevenueFigures } from "./longStay/revenueFigures.js";
 
-const OVERVIEW_KEY: Record<RevenueStream, "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions"> = {
+const OVERVIEW_KEY: Record<RevenueStream, "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions" | "longStay"> = {
   ACCOMMODATION: "accommodation",
   TOUR: "tours",
   TRANSPORT: "transport",
   GROUP_STAY: "groupStay",
   SUBSCRIPTION: "subscriptions",
+  LONG_STAY: "longStay",
 };
 const LABEL: Record<RevenueStream, string> = {
   ACCOMMODATION: "Accommodation",
@@ -27,6 +29,7 @@ const LABEL: Record<RevenueStream, string> = {
   TRANSPORT: "Transport",
   GROUP_STAY: "Group stay",
   SUBSCRIPTION: "Subscriptions",
+  LONG_STAY: "Long stay",
 };
 /** Differences under half a shilling are rounding, not a finding. */
 const TOLERANCE = 0.5;
@@ -116,6 +119,17 @@ async function overviewSources(range: DayRange): Promise<SourceFigure[]> {
     const amount = toTzs(n(p.amount), p.currency);
     out.push({ stream: "SUBSCRIPTION", sourceType: "NRMS_SERVICE_PAYMENT", sourceId: p.id, label: p.providerRef ? `${p.provider} ${p.providerRef}` : "NRMS payment", commissionTzs: amount, grossTzs: amount });
   }
+
+  // Long stay: lib/revenueRecognition.recognizeLongStayRevenue, row by row.
+  const tenancies = await db.tenancy.findMany({
+    where: { paidAt: { not: null }, OR: [{ moveInConfirmedAt: within ?? { not: null } }, { cancelledAt: within ?? { not: null } }] },
+    select: LONG_STAY_FIGURE_FIELDS,
+  });
+  for (const t of tenancies) {
+    const f = longStayRevenueFigures(t);
+    if (!f || (span && (f.at < span.from || f.at > span.to))) continue;
+    out.push({ stream: "LONG_STAY", sourceType: "TENANCY", sourceId: t.id, label: t.publicRef, commissionTzs: toTzs(f.commission, f.currency), grossTzs: toTzs(f.gross, f.currency) });
+  }
   return out;
 }
 
@@ -192,6 +206,11 @@ async function labelsFor(keys: Array<{ stream: RevenueStream; sourceType: string
   trips.forEach((r: any) => put("TRANSPORT", "TRANSPORT_BOOKING", r.id, r.tripCode));
   pays.forEach((r: any) => put("SUBSCRIPTION", "NRMS_SERVICE_PAYMENT", r.id, r.providerRef ? `${r.provider} ${r.providerRef}` : null));
   ids("GROUP_BOOKING").forEach((id) => put("GROUP_STAY", "GROUP_BOOKING", id, adminRecordReference("group-stay", id)));
+  const tenancyIds = [...ids("TENANCY"), ...ids("TENANCY_REFUND")];
+  if (tenancyIds.length) {
+    const rows = await db.tenancy.findMany({ where: { id: { in: tenancyIds } }, select: { id: true, publicRef: true } });
+    rows.forEach((r: any) => { put("LONG_STAY", "TENANCY", r.id, r.publicRef); put("LONG_STAY", "TENANCY_REFUND", r.id, `${r.publicRef} refund`); });
+  }
   return out;
 }
 

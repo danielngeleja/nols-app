@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -762,7 +762,7 @@ export default function AdminReportsPage() {
     const ownerCommText = ownerCommissionTotal === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(ownerCommissionTotal))}`;
     const driverCommText = driverCommissionTotal === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(driverCommissionTotal))}`;
     const tourCommText = tourCommissionTotal === null ? "—" : `${tourCommissionCurrency} ${fmtMoneyUSD(tourCommissionTotal)}`;
-    const subsText = subscriptionRevenueTotal === null ? "â€”" : `TZS ${fmtMoneyTZS(Math.round(subscriptionRevenueTotal))}`;
+    const subsText = subscriptionRevenueTotal === null ? "-" : `TZS ${fmtMoneyTZS(Math.round(subscriptionRevenueTotal))}`;
     const totalText = totalNoLSAFRevenue === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(totalNoLSAFRevenue))}`;
 
     const revenueSourcesSection = `

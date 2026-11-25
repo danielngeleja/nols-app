@@ -2,8 +2,21 @@ import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { calculateAvailabilityMock } = vi.hoisted(() => ({
+const { calculateAvailabilityMock, db } = vi.hoisted(() => ({
   calculateAvailabilityMock: vi.fn(),
+  db: {
+    $queryRaw: vi.fn(),
+    property: { count: vi.fn() },
+    propertyReview: { groupBy: vi.fn() },
+    longStayListing: { findMany: vi.fn() },
+    longStayInspection: { findMany: vi.fn() },
+  },
+}));
+
+vi.mock("@nolsaf/prisma", () => ({ prisma: db }));
+vi.mock("../lib/performance.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../lib/performance.js")>(),
+  withCache: (_key: string, load: () => unknown) => load(),
 }));
 
 vi.mock("../lib/availabilityCalculator.js", () => ({
@@ -11,6 +24,7 @@ vi.mock("../lib/availabilityCalculator.js", () => ({
 }));
 
 import publicPropertiesRouter from "./public.properties.js";
+import { extractPublicKeyFromSlug } from "../lib/publicPropertyKey.js";
 
 describe("public property availability room identity", () => {
   beforeEach(() => {
@@ -52,5 +66,30 @@ describe("public property availability room identity", () => {
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ error: "property_not_found" });
+  });
+});
+
+describe("approved browse cards", () => {
+  it("returns the nightly rate and the monthly rate with a public slug in the same result", async () => {
+    const app = express();
+    app.use("/api/public/properties", publicPropertiesRouter);
+    const publicKey = "cmg7t4q9v0001abcd2efghijk";
+    db.$queryRaw.mockResolvedValueOnce([{ id: 11 }, { id: 10 }]).mockResolvedValueOnce([
+      { id: 10, title: "Diary Hotel", rentalMode: "NIGHTLY", basePrice: 110000, nrmsBookingKey: "xyz7t4q9v0001abcd2efghijk" },
+      { id: 11, title: "Majaliwa Home", rentalMode: "LONG_STAY", nrmsBookingKey: publicKey },
+    ]);
+    db.property.count.mockResolvedValue(2);
+    db.propertyReview.groupBy.mockResolvedValue([]);
+    db.longStayListing.findMany.mockResolvedValue([{ propertyId: 11, monthlyRent: "450000", currency: "TZS" }]);
+    db.longStayInspection.findMany.mockResolvedValue([]);
+
+    const response = await request(app).get("/api/public/properties?rental=all");
+    expect(response.status).toBe(200);
+    expect(response.body.items).toMatchObject([
+      { id: 11, slug: `majaliwa-home-${publicKey}`, rentalMode: "LONG_STAY", basePrice: null, longStay: { monthlyRent: 450000, currency: "TZS", inspected: false } },
+      { id: 10, rentalMode: "NIGHTLY", basePrice: 110000, longStay: null },
+    ]);
+    expect(extractPublicKeyFromSlug(response.body.items[0].slug)).toBe(publicKey);
+    expect(db.property.count).toHaveBeenCalledWith({ where: { status: "APPROVED" } });
   });
 });

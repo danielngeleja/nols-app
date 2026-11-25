@@ -44,9 +44,11 @@ type Inv = {
     bankAccountName: string | null;
     bankName: string | null;
     bankAccountNumber: string | null;
+    bankAccountUnreadable?: boolean;
     bankBranch: string | null;
     mobileMoneyProvider: string | null;
     mobileMoneyNumber: string | null;
+    mobileMoneyUnreadable?: boolean;
   } | null;
 };
 
@@ -302,11 +304,13 @@ export default function Page(){
   const blocked = isOwnerClaim && validationRequired && !ownerValidated;
   const CARD = "min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]";
   const payout = inv.ownerPayout;
-  const hasPayoutDetails = Boolean(payout?.payoutPreferred || payout?.bankAccountNumber || payout?.mobileMoneyNumber);
+  const bankDestination = maskAccountNumber(payout?.bankAccountNumber);
+  const mobileDestination = maskAccountNumber(payout?.mobileMoneyNumber);
+  const hasPayoutDetails = Boolean(payout?.payoutPreferred || bankDestination || mobileDestination || payout?.bankAccountUnreadable || payout?.mobileMoneyUnreadable);
   const payoutReady = payout?.payoutPreferred === "BANK"
-    ? Boolean(payout.bankName && payout.bankAccountNumber)
+    ? Boolean(payout.bankName && bankDestination)
     : payout?.payoutPreferred === "MOBILE_MONEY"
-      ? Boolean(payout.mobileMoneyProvider && payout.mobileMoneyNumber)
+      ? Boolean(payout.mobileMoneyProvider && mobileDestination)
       : false;
   const needsPayoutReminder = isOwnerClaim && !isPaidOut && !payoutReady;
   const showDisbursementStamp = isOwnerClaim && isSuccessfulCompletion;
@@ -330,9 +334,9 @@ export default function Page(){
     : recordedPaymentMethod
       ? "Not recorded"
       : payout?.payoutPreferred === "MOBILE_MONEY"
-        ? maskAccountNumber(payout.mobileMoneyNumber)
+        ? mobileDestination
         : payout?.payoutPreferred === "BANK"
-          ? maskAccountNumber(payout.bankAccountNumber)
+          ? bankDestination
           : "";
 
   const history: Array<{ key: string; title: string; at: string; Icon: typeof CheckCircle2; by?: string | null; lines?: string[] }> = [
@@ -751,8 +755,8 @@ export default function Page(){
               </div>
               <dl className="m-0 space-y-2 p-4 text-[13px] sm:p-5">
                 {[
-                  { key: "BANK", label: payout?.bankName ? `Bank · ${payout.bankName}` : "Bank", value: payout?.bankAccountNumber ? maskAccountNumber(payout.bankAccountNumber) : null },
-                  { key: "MOBILE_MONEY", label: payout?.mobileMoneyProvider ? `Mobile money · ${payout.mobileMoneyProvider}` : "Mobile money", value: payout?.mobileMoneyNumber ? maskAccountNumber(payout.mobileMoneyNumber) : null },
+                  { key: "BANK", label: payout?.bankName ? `Bank · ${payout.bankName}` : "Bank", value: bankDestination, unreadable: payout?.bankAccountUnreadable },
+                  { key: "MOBILE_MONEY", label: payout?.mobileMoneyProvider ? `Mobile money · ${payout.mobileMoneyProvider}` : "Mobile money", value: mobileDestination, unreadable: payout?.mobileMoneyUnreadable },
                 ].map((row) => {
                   const preferred = payout?.payoutPreferred === row.key;
                   return (
@@ -761,7 +765,7 @@ export default function Page(){
                         {row.label}
                         {preferred ? <span className="ml-1.5 rounded-full bg-emerald-600 px-1.5 py-px text-[10px] font-bold text-white">Preferred</span> : null}
                       </dt>
-                      <dd className={`m-0 shrink-0 font-mono text-[12.5px] font-semibold ${row.value ? "text-neutral-900" : "text-neutral-400"}`}>{row.value || "Not provided"}</dd>
+                      <dd className={`m-0 shrink-0 text-[12.5px] font-semibold ${row.value ? "font-mono text-neutral-900" : row.unreadable ? "text-amber-800" : "text-neutral-500"}`}>{row.value || (row.unreadable ? "Unreadable" : "Not provided")}</dd>
                     </div>
                   );
                 })}
@@ -808,39 +812,9 @@ function fmt(n:any){
 function maskAccountNumber(account?: string | null): string | null {
   if (!account) return null;
 
-  const cleaned = String(account).trim().replace(/[\s\-\(\)]/g, "");
-  const digits = cleaned.replace(/\D/g, "");
-
-  const maskMiddle = (value: string, startVisible: number, endVisible: number): string => {
-    if (!value) return value;
-    if (value.length <= startVisible + endVisible) return value;
-    const start = value.slice(0, startVisible);
-    const end = value.slice(-endVisible);
-    const middleLen = value.length - startVisible - endVisible;
-    return `${start}${"*".repeat(middleLen)}${end}`;
-  };
-
-  // Phone numbers: show first 3 + last 2, mask the middle.
-  const looksLikePhonePrefix = /^(0|255|\+255|254|\+254)/.test(cleaned);
-  const looksLikePhoneDigits = digits.length >= 9 && digits.length <= 12;
-  const isPhoneNumber = looksLikePhonePrefix || looksLikePhoneDigits;
-
-  if (isPhoneNumber) {
-    let localNumber = digits;
-    if (localNumber.startsWith("255") || localNumber.startsWith("254")) {
-      localNumber = "0" + localNumber.slice(3);
-    }
-    if (!localNumber.startsWith("0") && localNumber.length >= 9) {
-      localNumber = "0" + localNumber;
-    }
-    if (localNumber.length > 10 && localNumber.startsWith("0")) {
-      localNumber = localNumber.slice(0, 10);
-    }
-    const basePhone = localNumber || digits || cleaned;
-    return maskMiddle(basePhone, 3, 2);
-  }
-
-  // Bank account (or other account identifiers): show first 3 + last 3, mask the middle.
-  const baseAccount = digits.length >= 6 ? digits : (cleaned || String(account).trim());
-  return maskMiddle(baseAccount, 3, 3);
+  const value = String(account).trim();
+  if (/^\*{4}[A-Za-z0-9]{1,4}$/.test(value)) return value;
+  const cleaned = /^[+\d\s()-]+$/.test(value) ? value.replace(/[+\s()-]/g, "") : value;
+  if (!/^[A-Za-z0-9]{4,40}$/.test(cleaned)) return null;
+  return `****${cleaned.slice(-Math.min(4, cleaned.length - 1))}`;
 }

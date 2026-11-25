@@ -15,6 +15,7 @@ import { router as ownerPropLayout } from "./owner.properties.layout";
 import { router as ownerReports } from "./owner.reports";
 import { router as ownerRevenue } from "./owner.revenue";
 import ownerAvailabilityRouter from "./owner.availability";
+import ownerLongStayRouter from "./owner.longStay.js";
 import ownerNrmsRouter from "./owner.nrms";
 import ownerNrmsRoomsRouter from "./owner.nrms.rooms";
 import ownerNrmsCalendarRouter from "./owner.nrms.calendar";
@@ -69,6 +70,7 @@ export function registerOwnerBusinessRoutes(app: Express): void {
   app.use("/api/owner/revenue", requireRole("OWNER") as RequestHandler, ownerRevenue);
   app.use("/api/owner/notifications", requireRole("OWNER") as RequestHandler, ownerNotificationsRouter as RequestHandler);
   app.use("/api/owner/availability", ownerAvailabilityRouter as RequestHandler);
+  app.use("/api/owner/long-stay", ownerLongStayRouter as RequestHandler);
   // NRMS (doc section 12): rooms router mounted first so /nrms/rooms/* never
   // falls through to the enrollment router's parameterized routes.
   app.use("/api/owner/nrms/rooms", ownerNrmsRoomsRouter as RequestHandler);

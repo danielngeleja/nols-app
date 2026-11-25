@@ -49,7 +49,10 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   payout_amount_mismatch: act("critical", "money"),
   payout_correlation_mismatch: act("critical", "money"),
   owner_payout_withdrawal_review: act("critical", "money"),
+  owner_payout_withdrawal_requested: act("attention", "money"),
+  owner_payout_withdrawal_overdue: act("critical", "money"),
   owner_payout_claim_submitted: act("attention", "money"),
+  owner_account_payout: info("money"),
   owner_payout_recovery_overdue: act("attention", "money"),
   payout_claim_submitted: act("attention", "money"),
   transport_payout_claim_submitted: act("attention", "money"),
@@ -75,6 +78,19 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
 
   // Properties and NRMS
   property_submitted: act("attention", "properties"),
+  long_stay_tenant_id_submitted: act("attention", "people"),
+  long_stay_reservation_created: info("bookings"),
+  long_stay_inspection_needed: act("attention", "support"),
+  long_stay_inspection_report: act("attention", "support"),
+  long_stay_enquiry: act("attention", "support"),
+  long_stay_payment_review: act("critical", "money"),
+  long_stay_payout_ready: act("attention", "money"),
+  long_stay_cancelled_paid: act("attention", "money"),
+  long_stay_landlord_notice: act("attention", "support"),
+  long_stay_overdue_admin: act("attention", "support"),
+  long_stay_claim_overdue: act("critical", "money"),
+  long_stay_dispute_opened: act("critical", "support"),
+  long_stay_move_in_silent: act("attention", "support"),
   property_approved: info("properties"),
   property_rejected: info("properties"),
   property_price_watch: act("attention", "properties"),
@@ -106,12 +122,14 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
 
   // People
   partner_account_registered: act("attention", "people"),
+  owner_account_profile: info("people"),
   careers_application_submitted: act("attention", "people"),
   // Tour operators: a profile waiting for review, and a signed agreement.
   operator_profile_submitted: act("attention", "people"),
   operator_contract_signed: info("people"),
 
   // Security and privacy
+  owner_account_security: info("security"),
   security_account_locked: act("critical", "security"),
   security_ip_burst: act("critical", "security"),
   security_admin_mfa_locked: act("critical", "security"),

@@ -12,6 +12,7 @@ import adminSalesFinanceRouter from "./admin.sales.finance.js";
 import salesContractsRouter from "./sales.contracts.js";
 import salesLeadsRouter from "./sales.leads.js";
 import salesVisitsRouter from "./sales.visits.js";
+import salesLongStayRouter from "./sales.longStay.js";
 import salesAssistedListingRouter from "./sales.assistedListing.js";
 import adminSalesAssistedListingsRouter from "./admin.sales.assistedListings.js";
 import { publicListingNoticeRouter } from "./public.listingNotice.js";
@@ -42,6 +43,7 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/sales", salesContractsRouter as RequestHandler);
   app.use("/api/sales", salesLeadsRouter as RequestHandler);
   app.use("/api/sales", salesVisitsRouter as RequestHandler);
+  app.use("/api/sales", salesLongStayRouter as RequestHandler);
   // Assisted listing: the partner lists a property for the owner (docs/SALES_ASSISTED_LISTING.md).
   app.use("/api/sales", salesAssistedListingRouter as RequestHandler);
   // The owner's "Not expecting this?" link from the SMS. Public, token only.

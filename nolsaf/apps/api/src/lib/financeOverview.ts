@@ -1,6 +1,7 @@
 import { prisma } from "@nolsaf/prisma";
 import { getFxRates, BASE_CURRENCY } from "./fx.js";
 import { accommodationTake, buildMargin } from "./platformMargin.js";
+import { LONG_STAY_FIGURE_FIELDS, longStayRevenueFigures } from "./longStay/revenueFigures.js";
 
 /**
  * Platform revenue across every stream, with NoLSAF's margin, for a period.
@@ -14,7 +15,7 @@ const n = (v: unknown): number => {
 };
 
 export type StreamSummary = {
-  key: "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions";
+  key: "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions" | "longStay";
   label: string;
   gmv: number; // realized gross, in TZS
   nolsafRevenue: number; // realized platform take, in TZS
@@ -236,7 +237,57 @@ export async function computeFinanceOverview(from?: string, to?: string, opts: {
     subscriptions.pendingCount += row._count._all;
   }
 
-  const streams = [accommodation, tours, transport, groupStay, subscriptions];
+  // ── Long stay (Tenancy) ─────────────────────────────────────────────────
+  // Realized when move-in is confirmed (same rule as the revenue ledger):
+  // NoLSAF earns the tenant fee and the landlord commission on the money it
+  // held (first month + fee). Refunded first months are not revenue. Pending:
+  // paid first months NoLSAF still holds before move-in.
+  const lsDate = dateClause();
+  const inRange = (at: Date) => !lsDate || ((!lsDate.gte || at >= lsDate.gte) && (!lsDate.lte || at <= lsDate.lte));
+  const [lsRows, lsPendingRows] = await Promise.all([
+    prisma.tenancy.findMany({
+      where: {
+        paidAt: { not: null },
+        OR: [
+          { moveInConfirmedAt: lsDate ?? { not: null } },
+          { cancelledAt: lsDate ?? { not: null } },
+        ],
+      },
+      select: LONG_STAY_FIGURE_FIELDS,
+    }),
+    prisma.tenancy.groupBy({
+      by: ["currency"],
+      where: { paidAt: { not: null }, moveInConfirmedAt: null, status: { in: ["RESERVED", "MOVE_IN", "DISPUTED"] }, ...(lsDate ? { paidAt: lsDate } : {}) },
+      _sum: { tenantFee: true, landlordCommission: true },
+      _count: { _all: true },
+    }),
+  ]);
+  const longStay: StreamSummary = {
+    key: "longStay",
+    label: "Long stay",
+    gmv: 0,
+    nolsafRevenue: 0,
+    partnerNet: 0,
+    realizedCount: 0,
+    pendingRevenue: 0,
+    pendingCount: 0,
+    note: "Realized at confirmed move-in, or at a cancellation where NoLSAF keeps fees. GMV is only what passed through NoLSAF; the balance is paid to the landlord directly.",
+  };
+  // Same rule as the revenue ledger (lib/longStay/revenueFigures.ts).
+  for (const row of lsRows) {
+    const f = longStayRevenueFigures(row);
+    if (!f || !inRange(f.at)) continue;
+    longStay.gmv += toTzs(f.gross, f.currency);
+    longStay.nolsafRevenue += toTzs(f.commission, f.currency);
+    longStay.partnerNet += toTzs(f.partnerNet, f.currency);
+    longStay.realizedCount += 1;
+  }
+  for (const row of lsPendingRows) {
+    longStay.pendingRevenue += toTzs(n(row._sum.tenantFee) + n(row._sum.landlordCommission), row.currency);
+    longStay.pendingCount += row._count._all;
+  }
+
+  const streams = [accommodation, tours, transport, groupStay, subscriptions, longStay];
 
   const totals = streams.reduce(
     (acc, s) => {

@@ -24,7 +24,7 @@ import {
   payoutReleaseEnabled,
 } from "../services/payouts/release.js";
 import { processWithdrawalJobs, remindUnclaimed, withdrawUnclaimed } from "../services/payouts/withdrawal.js";
-import { processAmountWithdrawalHandoffs } from "../services/payouts/partialWithdrawal.js";
+import { alertOverdueOwnerWithdrawals, processAmountWithdrawalHandoffs } from "../services/payouts/partialWithdrawal.js";
 import { loadAutoLaneSettings } from "../services/payouts/autoLane.js";
 import { requestOverdueRepayments } from "../services/payouts/recovery.js";
 import { authorizeAutoBatch, autoLaneAuthorizedToday, formAutoBatch } from "../services/payouts/batching.js";
@@ -188,6 +188,12 @@ export function startPayoutReleaseWorker({ intervalMs = DEFAULT_INTERVAL_MS }: {
       const amounts = await processAmountWithdrawalHandoffs();
       if (amounts.done || amounts.retried || amounts.review) {
         console.log(`[payout-release] amount withdrawal handoff: done ${amounts.done}, retrying ${amounts.retried}, review ${amounts.review}`);
+      }
+      try {
+        const overdue = await alertOverdueOwnerWithdrawals();
+        if (overdue) console.log(`[payout-release] owner withdrawals past the review target: alerted ${overdue}`);
+      } catch (err: any) {
+        console.error("[payout-release] overdue withdrawal alert failed", { message: err?.message });
       }
       const auto = await runAutoLanePass();
       if (auto.reminded || auto.unclaimed || auto.authorized || auto.skipped.length) {

@@ -50,6 +50,35 @@ export const SETTLE_RULES: Record<string, Rule> = {
       return out;
     },
   },
+  // Closes "Tenant ID to check" once an admin decided it, or it was replaced.
+  long_stay_tenant_id_submitted: {
+    field: "tenantProfileId",
+    check: async (client, ids) => byStatus(
+      await client.longStayTenantProfile.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } }), ids,
+      (s) => (s === "PENDING" ? null : `The ID check was ${lower(s)}.`), "The ID check no longer exists.",
+    ),
+  },
+  long_stay_inspection_needed: {
+    field: "inspectionId",
+    check: async (client, ids) => byStatus(
+      await client.longStayInspection.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } }), ids,
+      (s) => s === "REQUESTED" ? null : `The inspection is ${lower(s)}.`, "The inspection no longer exists.",
+    ),
+  },
+  long_stay_inspection_report: {
+    field: "inspectionId",
+    check: async (client, ids) => byStatus(
+      await client.longStayInspection.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } }), ids,
+      (s) => s === "SUBMITTED" ? null : `The inspection is ${lower(s)}.`, "The inspection no longer exists.",
+    ),
+  },
+  long_stay_enquiry: {
+    field: "enquiryId",
+    check: async (client, ids) => byStatus(
+      await client.longStayEnquiry.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } }), ids,
+      (s) => s === "OPEN" ? null : `The enquiry was ${lower(s)}.`, "The enquiry no longer exists.",
+    ),
+  },
   property_submitted: {
     field: "propertyId",
     check: async (client, ids) => byStatus(

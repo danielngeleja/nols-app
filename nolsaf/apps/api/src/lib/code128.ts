@@ -18,8 +18,8 @@ export const CODE128_PATTERNS = [
 export const CODE128_QUIET_ZONE_MODULES = 10;
 
 /** Start code B, data, mod-103 checksum and stop, as symbol indexes. */
-export function code128BValues(value: string): number[] {
-  const normalized = value.toUpperCase();
+export function code128BValues(value: string, options: { preserveCase?: boolean } = {}): number[] {
+  const normalized = options.preserveCase ? value : value.toUpperCase();
   if (!/^[\x20-\x7e]+$/.test(normalized)) {
     throw new Error("Code 128 receipt references must contain printable ASCII characters only");
   }
@@ -34,8 +34,8 @@ export function code128BValues(value: string): number[] {
  * Code 128 as a standalone SVG. Bars are drawn in whole modules on a
  * viewBox, so the symbol stays scannable at any printed width.
  */
-export function code128Svg(value: string, options: { height?: number; color?: string; title?: string } = {}): string {
-  const values = code128BValues(value);
+export function code128Svg(value: string, options: { height?: number; color?: string; title?: string; preserveCase?: boolean } = {}): string {
+  const values = code128BValues(value, options);
   const height = options.height ?? 40;
   const color = options.color ?? "#0f2e2b";
   const bars: string[] = [];

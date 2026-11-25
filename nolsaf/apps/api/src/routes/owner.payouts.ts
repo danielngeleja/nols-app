@@ -25,7 +25,7 @@ import { confirmWithdrawal, WithdrawalError } from "../services/payouts/withdraw
 import { confirmAmountWithdrawal, startAmountWithdrawal } from "../services/payouts/partialWithdrawal.js";
 import { OwnerWithdrawalLimitError, ownerWithdrawalAllowance } from "../services/payouts/ownerWithdrawalLimit.js";
 import { openRecoveryTotal } from "../services/payouts/recovery.js";
-import { loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
+import { destinationChangeAnchor, loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
 import { customerBookingReference, ownerInvoiceReference } from "../lib/customerBookingReference.js";
 import { requireOwnerStrongSession } from "../lib/ownerMfaPolicy.js";
 
@@ -50,7 +50,17 @@ router.get(
       orderBy: { createdAt: "desc" },
     });
     const { recentChangeHours } = await loadPayoutSafeguards();
-    res.json({ ok: true, accounts, securityWaitingHours: recentChangeHours });
+    // When the active destination can first receive payouts. Null when it can
+    // now, including an owner's first account, which never waits.
+    const active = accounts.find((a) => a.isActive && a.isVerified && a.isDefault) ?? accounts.find((a) => a.isActive && a.isVerified);
+    const anchor = active ? await destinationChangeAnchor(active) : null;
+    const usableFrom = anchor ? new Date(anchor.getTime() + recentChangeHours * 60 * 60 * 1000) : null;
+    res.json({
+      ok: true,
+      accounts,
+      securityWaitingHours: recentChangeHours,
+      activeUsableFrom: usableFrom && usableFrom.getTime() > Date.now() ? usableFrom.toISOString() : null,
+    });
   })
 );
 

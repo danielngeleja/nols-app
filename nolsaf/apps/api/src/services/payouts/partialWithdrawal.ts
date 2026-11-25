@@ -4,11 +4,13 @@ import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
 import { generate6, hashCode } from "../../lib/otp.js";
-import { decideRelease, loadReleaseContext, payoutReleaseEnabled, verifiedPayoutAccounts } from "./release.js";
+import { decideRelease, formatEatDateTime, loadReleaseContext, payoutReleaseEnabled, verifiedPayoutAccounts } from "./release.js";
 import { loadPayoutSafeguards } from "./riskScoring.js";
 import { openRecoveryTotal, recoveredFromClaim } from "./recovery.js";
 import { disbursementSendingEnabled } from "./senderSwitch.js";
-import { requestDisbursement } from "./ledger.js";
+import { approveDisbursementAutomatically, requestDisbursement } from "./ledger.js";
+import { decideOwnerPayoutLane, loadOwnerPayoutPolicy } from "./autoLane.js";
+import { HOLD_OWNER_MESSAGE, loadOwnerPayoutControl } from "./ownerPayoutControl.js";
 import { ensureRecoveryDeduction } from "./recovery.js";
 import { notifyAdmins, notifyOwner } from "../../lib/notifications.js";
 import { retentionFields } from "../../lib/auditRetention.js";
@@ -52,7 +54,7 @@ export function amountWithdrawalFingerprint(input: {
   })).digest("hex");
 }
 
-async function readyBalances(ownerId: number, now: Date) {
+export async function readyBalances(ownerId: number, now: Date) {
   const releases = await prisma.payoutRelease.findMany({
     where: { ownerId, status: "AVAILABLE" },
     select: { id: true, status: true, sourceId: true, bookingId: true, ownerId: true, releaseAt: true },
@@ -122,6 +124,7 @@ export async function startAmountWithdrawal(ownerId: number, amount: number, now
     throw new WithdrawalError("CHANGED", "Enter a whole TZS withdrawal amount greater than zero.", 400);
   }
   await assertWithdrawalOtpUnlocked(ownerId);
+  if ((await loadOwnerPayoutControl(ownerId)).hold) throw new WithdrawalError("ON_HOLD", HOLD_OWNER_MESSAGE, 423);
   const owner = await loadOwnerContact(ownerId);
   if (!owner) throw new WithdrawalError("NOT_FOUND", "Account not found.", 404);
   if (!(owner.phone && owner.phoneVerifiedAt) && !(owner.email && owner.emailVerifiedAt)) {
@@ -131,9 +134,13 @@ export async function startAmountWithdrawal(ownerId: number, amount: number, now
   const changedAt = [owner.phoneChangedAt, owner.emailChangedAt]
     .filter((date): date is Date => !!date).sort((a, b) => b.getTime() - a.getTime())[0];
   if (changedAt && now.getTime() < changedAt.getTime() + recentChangeHours * HOUR_MS) {
-    throw new WithdrawalError("CONTACT_RECENTLY_CHANGED", "Withdrawals are paused after a phone or email change.", 409, {
-      availableAfter: new Date(changedAt.getTime() + recentChangeHours * HOUR_MS).toISOString(),
-    });
+    const availableAfter = new Date(changedAt.getTime() + recentChangeHours * HOUR_MS);
+    throw new WithdrawalError(
+      "CONTACT_RECENTLY_CHANGED",
+      `Your phone or email was changed recently. For your safety, you can withdraw from ${formatEatDateTime(availableAfter)}. Your balance is safe.`,
+      409,
+      { availableAfter: availableAfter.toISOString() },
+    );
   }
   if (await prisma.payoutWithdrawalChallenge.count({
     where: { userId: ownerId, createdAt: { gte: new Date(now.getTime() - 15 * 60_000) } },
@@ -188,6 +195,8 @@ export async function confirmAmountWithdrawal(ownerId: number, challengeRef: str
   if (!payoutReleaseEnabled()) throw new WithdrawalError("FEATURE_OFF", "Withdrawals are not available yet.", 404);
   if (!disbursementSendingEnabled()) throw new WithdrawalError("SENDING_PAUSED", "Withdrawals are temporarily paused.", 503);
   await assertWithdrawalOtpUnlocked(ownerId);
+  // A pause placed between the code being sent and entered still stops it.
+  if ((await loadOwnerPayoutControl(ownerId)).hold) throw new WithdrawalError("ON_HOLD", HOLD_OWNER_MESSAGE, 423);
   const challenge = await prisma.payoutWithdrawalChallenge.findUnique({ where: { reference: challengeRef } });
   if (!challenge || challenge.userId !== ownerId || challenge.planVersion !== 2) {
     throw new WithdrawalError("NOT_FOUND", "This withdrawal request was not found. Start again.", 404);
@@ -278,6 +287,85 @@ export async function confirmAmountWithdrawal(ownerId: number, challengeRef: str
   };
 }
 
+export function formatTzsAmount(amount: number): string {
+  return `TZS ${Math.round(amount).toLocaleString("en-US")}`;
+}
+
+/**
+ * Re-alerts finance once for each owner withdrawal still waiting for approval
+ * after the review target (Settings, ownerWithdrawalReviewAlertHours, default
+ * 4). Marked in the audit log so it fires once.
+ */
+export async function alertOverdueOwnerWithdrawals(now = new Date(), limit = 20): Promise<number> {
+  const { reviewAlertHours } = await loadOwnerPayoutPolicy();
+  const cutoff = new Date(now.getTime() - reviewAlertHours * HOUR_MS);
+  // Ids only first: rows already alerted stay REQUESTED, so a plain "first N"
+  // page would keep returning them and starve newer withdrawals.
+  const candidates = await prisma.disbursement.findMany({
+    where: { sourceType: "OWNER_WITHDRAWAL", status: "REQUESTED", createdAt: { lte: cutoff } },
+    select: { id: true },
+    orderBy: { id: "asc" },
+  });
+  if (!candidates.length) return 0;
+  const alerted = await prisma.auditLog.findMany({
+    where: { action: "OWNER_WITHDRAWAL_OVERDUE_ALERTED", entity: "Disbursement", entityId: { in: candidates.map((d) => d.id) } },
+    select: { entityId: true },
+  });
+  const done = new Set(alerted.map((row) => row.entityId));
+  const dueIds = candidates.map((d) => d.id).filter((id) => !done.has(id)).slice(0, limit);
+  if (!dueIds.length) return 0;
+  const waiting = await prisma.disbursement.findMany({
+    where: { id: { in: dueIds }, status: "REQUESTED" },
+    select: { id: true, amount: true, createdAt: true, payoutAccount: { select: { user: { select: { name: true, fullName: true } } } } },
+    orderBy: { id: "asc" },
+  });
+  let sent = 0;
+  for (const row of waiting) {
+    const user = row.payoutAccount?.user;
+    await prisma.auditLog.create({
+      data: {
+        actorId: null, actorRole: "SYSTEM", action: "OWNER_WITHDRAWAL_OVERDUE_ALERTED", entity: "Disbursement", entityId: row.id,
+        ...retentionFields("FINANCIAL", now),
+      },
+    });
+    await notifyAdmins("owner_payout_withdrawal_overdue", {
+      disbursementId: row.id,
+      ownerName: user?.fullName || user?.name || null,
+      amount: Number(row.amount),
+      amountText: formatTzsAmount(Number(row.amount)),
+      hoursWaiting: Math.floor((now.getTime() - row.createdAt.getTime()) / HOUR_MS),
+      href: "/admin/disbursements",
+    }).catch(() => {});
+    sent++;
+  }
+  return sent;
+}
+
+/**
+ * Decides the lane for a REQUESTED amount-withdrawal transfer. AUTO approves
+ * it as the system; otherwise it stays REQUESTED for finance and the reason
+ * is returned. Never throws: a lane problem leaves the transfer with a person.
+ */
+async function startAmountWithdrawalLane(input: {
+  ownerId: number; challengeId: number; disbursementId: number; invoiceId: number; amount: number;
+  account: Awaited<ReturnType<typeof verifiedPayoutAccounts>>[number]; now: Date;
+}): Promise<string | null> {
+  try {
+    const decision = await decideOwnerPayoutLane({
+      ownerId: input.ownerId, invoiceId: input.invoiceId, amount: input.amount, account: input.account, now: input.now,
+      source: { type: "OWNER_WITHDRAWAL", id: input.challengeId, disbursementId: input.disbursementId },
+    });
+    if (decision.lane !== "AUTO") return decision.reason ?? "Checked by our payments team";
+    // While any refund debt is still open, a person looks at this owner's payouts.
+    if ((await openRecoveryTotal(input.ownerId)) > 0) return "A recovery from an earlier refund is still open";
+    await approveDisbursementAutomatically(input.disbursementId);
+    return null;
+  } catch (error: any) {
+    console.warn("[owner-withdrawal] automatic approval skipped", { disbursementId: input.disbursementId, message: error?.message });
+    return `Automatic approval could not run: ${String(error?.message ?? error).slice(0, 200)}`;
+  }
+}
+
 /** Durable bridge from a confirmed amount to one finance-controlled transfer.
  * A crash after requestDisbursement is idempotently recovered by finding the
  * active source; a failed source requires finance reconciliation. */
@@ -323,25 +411,45 @@ export async function processAmountWithdrawalHandoffs(now = new Date(), limit = 
       }
       const existing = await prisma.disbursement.findFirst({
         where: { sourceType: "OWNER_WITHDRAWAL", sourceId: challenge.id, status: { not: "FAILED" } },
-        select: { id: true, amount: true, payoutAccountId: true },
+        select: { id: true, amount: true, payoutAccountId: true, status: true },
       });
       if (existing && (existing.payoutAccountId !== account.id || Math.abs(Number(existing.amount) - Number(challenge.totalAmount)) > CENT)) {
         throw new Error("An existing transfer has a different amount or destination");
       }
+      let disbursementId = existing?.id ?? null;
       if (!existing) {
         const failed = await prisma.disbursement.findFirst({
           where: { sourceType: "OWNER_WITHDRAWAL", sourceId: challenge.id, status: "FAILED" }, select: { id: true },
         });
         if (failed) throw new Error("A failed transfer needs finance reconciliation before retrying");
-        await requestDisbursement({
+        const created = await requestDisbursement({
           sourceType: "OWNER_WITHDRAWAL", sourceId: challenge.id,
           payoutAccountId: account.id, requestedById: challenge.userId,
           remarks: "Owner amount withdrawal (OTP confirmed)",
         });
+        disbursementId = created.id;
       }
+      // Same lane rules as a full-claim withdrawal (autoLane.ts): the owner's
+      // first payout and anything unusual wait for a person; the rest is
+      // approved by the system and paid in an automatic batch under the cap.
+      const manualReason = disbursementId && (!existing || existing.status === "REQUESTED")
+        ? await startAmountWithdrawalLane({
+            ownerId: challenge.userId, challengeId: challenge.id, disbursementId,
+            invoiceId: allocations[0].invoiceId, amount: Number(challenge.totalAmount), account, now,
+          })
+        : null;
       await prisma.payoutWithdrawalChallenge.update({
         where: { id: challenge.id }, data: { handoffStatus: "DONE", handoffLeaseUntil: null },
       });
+      if (manualReason && disbursementId) {
+        const owner = await prisma.user.findUnique({ where: { id: challenge.userId }, select: { name: true, fullName: true } }).catch(() => null);
+        await notifyAdmins("owner_payout_withdrawal_requested", {
+          challengeId: challenge.id, disbursementId, ownerId: challenge.userId,
+          ownerName: owner?.fullName || owner?.name || null,
+          amount: Number(challenge.totalAmount), amountText: formatTzsAmount(Number(challenge.totalAmount)),
+          reason: manualReason, href: "/admin/disbursements",
+        }).catch(() => {});
+      }
       result.done++;
     } catch (error: any) {
       const attempts = challenge.handoffAttempts + 1;

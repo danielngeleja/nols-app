@@ -1,6 +1,6 @@
 # Long-Stay Rentals (monthly, minimum term)
 
-**Status:** ON HOLD. Agreed as something NoLSAF needs; parked until scheduled. Nothing built, no migrations.
+**Status:** IN BUILD since 2026-11-21 (see section 12). Migrations prepared, not applied.
 **Drafted:** 2026-11-20. Money model revised the same day to **first month through NoLSAF, balance paid to the landlord at move-in** (the group-stay deposit pattern).
 **Owner:** Daniel
 
@@ -67,9 +67,11 @@ Nightly listings use a date calendar. Long stay uses **tenancy periods**, not ni
 
 ### 3.3 Booking flow (replaces instant book)
 
-1. **Request viewing.** Tenant picks a slot, in person or video. No money.
-2. **Viewing confirmed** by landlord. Contact details stay masked inside NoLSAF messaging until this point.
-3. **Offer.** Tenant chooses move-in date and term (at least `minTermMonths`). Landlord accepts.
+*Changed 2026-11-21 (section 13): no viewing request and no offer haggling. The listing carries everything, and NoLSAF has inspected the home.*
+
+1. **Reserve at the listed terms.** The tenant picks a move-in date and a term the listing allows (3, 6 or 12 months within `minTermMonths` to `maxTermMonths`). No money. Needs a verified phone; the home must have a current NoLSAF inspection.
+2. **Landlord confirms within 24 hours,** or the reservation lapses (worker). Confirming freezes the money and the lease; other reservations on the same dates close. Questions before this go to NoLSAF (Ask NoLSAF), never to the landlord. Names, phones and messages open only once the first month is paid (RESERVED).
+3. *(was: offer)* The term and date chosen in step 1 are the offer.
 4. **Lease.** Both sides accept the NoLSAF standard lease (generated from the listing and offer). It states the term, the monthly rent, the amount paid through NoLSAF, and the **balance due to the landlord at move-in**. Acceptance is timestamped.
 5. **Booking payment.** Within 48 hours of lease acceptance, the tenant pays **first month + tenant service fee** by card. Allowed up to 60 days before move-in. The home shows **Reserved**.
 6. **Move-in day**, in this order:
@@ -329,10 +331,107 @@ All public references opaque (for example `tn_` prefix). MySQL 8 and MariaDB 11.
 5. After move-in, refunds are between the parties under the lease. NoLSAF enforces through records, recovery from future payouts and suspension, and never refunds money it does not hold.
 6. Deposits are held by the landlord, never by NoLSAF.
 
+**Locked (2026-11-21):**
+
+7. **Admin-granted switch.** The full v1 flow is built, but only landlords an admin switches on can list long stays. The pilot is run by choosing who gets it; opening wider needs no new code.
+8. **Minimum terms 3, 6 and 12 months.** One month is not offered.
+9. **Homes and apartments only:** house, apartment, condo, villa, townhouse, bungalow, and separate units. Hotels, lodges and guest houses stay nightly.
+10. **Tenant identity:** verified phone plus a passport (any country, ICAO 9303), a national ID card (NIDA, Kenya, Uganda, Rwanda, Burundi) or a Tanzania residence permit, with expiry, name and date of birth as printed, nationality, the back of a card and a selfie holding the document. Holder 18 or older, document valid at least 30 days and through the lease end. Approved once by an admin before the first booking payment, then reused until it nears expiry.
+
+**Locked (2026-11-21, section 13):**
+
+11. **NoLSAF is the bridge.** No viewing requests or direct messages before payment: the tenant reserves at the listed terms, the landlord confirms within 24 hours, and questions or visits go to NoLSAF. Contacts open once the first month is paid.
+12. **Every long-stay home is inspected on site by a NoLSAF Sales Partner** before approval and reservations, again every 12 months, and at once after an upheld complaint about the home. No other route.
+13. **Inspection fee:** NoLSAF pays the partner a flat fee (`SystemSetting.longStayInspectionFee`, default TZS 25,000) for every report it accepts, pass or fail, from its long-stay commission. The landlord pays nothing for it.
+
 **Open:**
 
 1. Lower landlord rate on renewals (3%) or same 5%, and how hard to push renewals through the app.
 2. Charge the card fee to the landlord when a listing is found not as described.
-3. Minimum terms offered: 1, 3, 6, 12 months, or 6 and 12 only.
-4. Whether cash is ever allowed for the balance (v1: no).
-5. Whether hotels and lodges can offer monthly rates under this model, or entire homes and apartments only.
+3. Whether cash is ever allowed for the balance (v1: no).
+
+## 12. Build plan
+
+Security posture for every milestone: every endpoint is role-scoped and ownership-checked; no numeric ids in URLs (`tn_` references); money amounts are computed only on the server from the snapshotted terms, never accepted from a client; state changes go through one transition table with conditional updates (no double-pay, no skipped steps); impersonated sessions cannot accept a lease, pay, confirm money or change payout details; every step writes an audit event.
+
+| # | Milestone | Contents |
+|---|---|---|
+| 1 | Foundations | Tables and migration (prepared), fee calculator, tenancy state machine, tests |
+| 2 | Landlord side | Admin grant switch; wizard rental-mode step and long-stay terms; admin moderation shows terms |
+| 3 | Tenant identity | ID upload, admin review queue, tenant bar |
+| 4 | Discovery and request | Public listing shows monthly terms and availability; viewing request and confirmation; masked messaging |
+| 5 | Offer and lease | Offer, landlord accept, NoLSAF standard lease generated and accepted by both (hash + timestamps) |
+| 6 | Booking payment | Card checkout for first month + tenant fee as a new hardened payment target; 48h payment window; Reserved |
+| 7 | Move-in and payout | Walk-through photos, two-sided balance confirmation with 72h auto-confirm, mismatch hold, payout (first one manual), revenue ledger entries |
+| 8 | After move-in | Notices, renewal reminders, claims and `PAYOUT_RECOVERY`, cancellations per 6.4 |
+
+Before go-live, outside code: lawyer review of the lease template and landlord listing terms (section 9).
+
+### Progress
+
+- **Milestone 1 (2026-11-21):** schema, migration `20261121100000_add_long_stay_rentals` (prepared, not applied), `lib/longStay/fees.ts`, `lib/longStay/tenancyState.ts`.
+- **Milestone 2 (2026-11-21):**
+  - Admin switch per landlord: `Long stays` card on the admin owner page, `/api/admin/long-stay/landlords/:ownerId` (ENABLE, PAUSE with reason, RESUME, DISABLE with reason; audited).
+  - Wizard: "How do you rent it out?" (By the night / Monthly) at the top of the rooms step, shown only to switched-on owners on home types. Monthly forces the whole place, hides the nightly price, and adds the "Monthly rent and terms" card with a fee preview from `/api/owner/long-stay/quote`.
+  - Terms are saved with the listing (`rentalMode` + `longStay` on the listing PUT/POST) and validated only in `lib/longStay/listing.ts`; a refusal leaves the listing untouched. Assisted listings cannot use long stay.
+  - Submit and admin approve re-check the switch, type and terms. **Approval of long-stay listings is refused while `LONG_STAY_BOOKINGS_OPEN` is false** (until milestones 4 to 6), so none can go on sale or be booked by the night; nightly booking also refuses any LONG_STAY property.
+  - Moderation shows a "Long stay" badge and a terms panel with the server's fee preview.
+- **Milestone 3 (2026-11-21):**
+  - Tenant page `/account/long-stay-id`: NIDA (20 digits, TZ) or passport (6 to 9 characters plus issuing country) and a photo. Traveller accounts only, phone must be verified, never during a support session, 6 submissions an hour. An approved ID cannot be replaced by the tenant; a pending one can.
+  - **ID standards (2026-11-21, migration `20261121120000_long_stay_id_standards`, not applied):** documents are PASSPORT (ICAO 9303 number, issuing state ISO 3166-1 alpha-2), NATIONAL_ID (per-country number format: TZ 20 digits, KE 7 to 9 digits, UG 14 starting CM/CF, RW 16 digits, BI 6 to 20; citizens only) and RES_PERMIT (TZ only, foreigners only). Expiry, holder name, date of birth and nationality are stored; front, back (cards) and a selfie are separate private uploads. The server refuses minors, documents expiring within 30 days, and (at lease acceptance and payment) IDs that expire before the lease ends. An approved ID may be replaced by the tenant within 60 days of expiry, and shows in the admin Expiring tab.
+  - Review: the admin page shows counters, search (name, phone, email, last 4) and document and country filters, a name match hint, and the automatic checks. **Approve needs every photo opened by that admin since submission (checked against the audit log server side) and both "name matches" and "face matches" ticked.** Viewing a photo fails closed if its audit row cannot be written.
+  - Storage: the photo is a private (authenticated) Cloudinary upload under `traveller-documents/long-stay-id/`, recorded as a `UserDocument`. The number is kept only as a keyed hash plus the last 4 characters (`lib/longStay/tenantIdentity.ts`). **Set `LONG_STAY_ID_HASH_SECRET` before go-live**; until then the hash falls back to the public link secret, and rotating that would stop duplicate IDs being spotted.
+  - Admin queue `/admin/long-stay/tenants` (sidebar: Tenant IDs): To check, Verified, Rejected, Barred. The photo opens through a 5-minute signed link and every view is audited; Approve stays disabled until the photo was opened. Reject and Bar need a reason; a check is decided once (a second admin gets 409); an admin cannot review their own ID. The same ID number on other accounts is flagged to the reviewer only.
+  - Admin alert `long_stay_tenant_id_submitted` closes itself once the check is decided; the tenant gets an in-app notice on approve or reject.
+  - `tenantPaymentRefusal()` is ready for milestone 6: only an approved, unbarred tenant may pay.
+- **Milestone 4 (2026-11-21):**
+  - **Opening switch is now env `LONG_STAY_OPEN=1`** (`longStayOpen()` in `lib/longStay/fees.ts`). Off by default and to stay off in production until milestone 6. While off: no long-stay approval, no viewing requests. Staging can switch it on to test.
+  - Public listing: the property API returns `rentalMode` and public terms (`publicLongStayView`: rent, term, up front, deposit, furnishing, bills, notice, occupants and pets, earliest move-in after any current tenancy). Balance methods stay private. The side card shows "per month" and **Request a viewing** instead of the nightly booking card. The main search lists nightly homes only; `?rental=long-stay` lists long stays.
+  - Viewing request: in person or video, 1 to 3 times (at least 2 hours out, within 60 days, EAT), optional earliest move-in and note. Traveller account, verified phone, not barred, never in a support session, 10 an hour, 5 open requests per tenant, one open request per home, not your own home, landlord's switch must be on. Creates a `REQUESTED` tenancy with a random `tn_` reference.
+  - Landlord (`/owner/long-stays`, shown in the sidebar only when switched on): confirm one of the proposed times or another (`VIEWING`), decline with a reason, message. Tenant (`/account/long-stays`): withdraw with a reason, message.
+  - Messages are tenancy events. Phone numbers, emails and links typed before the viewing is confirmed are replaced by "[number hidden]" and the like; once confirmed, each side sees the other's phone. Views never include row ids or the other side's email. Notices go to the other side on request, confirm, decline and message.
+- **Milestone 5 (2026-11-21):**
+  - Offer (tenant, after the viewing): move-in date and term. Term between the listing's minimum and maximum (24 if none); move-in from the later of "available from" and two days out, and **no more than 60 days out** (payment is allowed at most 60 days before move-in). Dates may not overlap another tenancy holding the home. The tenant sees a live preview from `/tenancies/:ref/quote`. The tenant can change the offer; the landlord can decline it with a reason; both return the request to `VIEWING`.
+  - Landlord accepts (`ACCEPTED`): the switch, listing, dates and overlap are checked again, then the money is computed once on the server and frozen on the tenancy (rent, up front, rates and caps, tenant fee, commission, booking amount, balance, landlord payout) with the lease inputs.
+  - Lease (`lib/longStay/lease.ts`, version `LS-2026.11-draft`): built only on the server from the frozen inputs; stored as its SHA-256. Each side accepts by sending the hash of the text it read; a wording change in code makes old hashes stop matching, so nobody can accept text they did not see. **The tenant needs an approved long-stay ID to accept.** When both accept, the tenancy moves to `AWAITING_PAYMENT` with `paymentDueAt` 48 hours out. Either side may still close the request before payment.
+  - **Legal:** the lease wording is a draft and must be reviewed by a Tanzanian lawyer before `LONG_STAY_OPEN` is switched on in production. Bump `LEASE_VERSION` on any wording change.
+- **Milestone 6 (2026-11-21):**
+  - Card checkout `POST /api/payments/coralcommerce/card/tenancy/initiate { ref }` (`lib/longStay/payment.ts`): tenant only, never in a support session, rate-limited, only while `AWAITING_PAYMENT` and before `paymentDueAt`, both leases accepted, tenant ID approved and not barred, landlord's switch still on. It charges the **frozen** `bookingAmount` in the tenancy's currency. One random `LST-` reference per tenancy, reused on retries.
+  - Settlement is a new target inside the existing Coral handler, so it inherits every postback hardening (only a verified callback, or a postback passing every strict check, can settle; postback-only settlements alert admins). PaymentEvent has no tenancy column, so the tenancy reference rides in the event payload and the same-target check compares it: one Coral transaction can never settle two targets.
+  - `settleTenancyPayment`: reserves once (compare-and-set to `RESERVED`, `payoutStatus HELD`); a repeat notice is a no-op; a different amount or currency never reserves and raises `long_stay_payment_review`; money arriving for a closed lease is recorded (`REFUND_DUE`) and raises the same alert for a refund. Both sides are notified on reserve. Coral notices carry no amount; the price is set by us at checkout from the frozen tenancy.
+  - Worker `longStayPayments` (every 15 minutes, leader only): closes `AWAITING_PAYMENT` leases unpaid past 48 hours (30 minutes' grace when a checkout was opened) and tells both sides; moves `RESERVED` to `MOVE_IN` on the move-in day (EAT).
+  - Tenant UI: "Pay {amount} by card" with the deadline, a banner on return from checkout, and the reserved / move-in-day steps.
+  - Left for milestone 7: revenue ledger entries (adding a `LONG_STAY` stream touches the finance overview and reconciliation), move-in confirmations, payout.
+- **Milestone 7 (2026-11-21):**
+  - Move-in (`lib/longStay/moveIn.ts`): each side confirms once on move-in day (a reserved tenancy whose date has come opens it on the spot). Landlord: balance received and method. Tenant: balance paid, method, keys received and home as listed; anything else is a dispute. Both confirmed, or one confirmed and the other silent for **72 hours** (worker), moves the tenancy to `ACTIVE`. Any confirmed balance that differs from the lease sets `balanceMismatch` and holds the payout (`REVIEW`). Nobody confirming for 7 days alerts admins once.
+  - Disputes: either side, from reserved to the end of the stay, with a reason; the tenancy goes to `DISPUTED` and a held or ready payout to `REVIEW`. Condition photos (up to 12 at a time, 20 sets) are tenancy events, shown to both sides.
+  - Payout (`lib/longStay/payout.ts`): `HELD` (paid) → `READY` or `REVIEW` (after move-in) → admin approval. **Every long-stay payout is approved by an admin in the pilot.** TZS goes through the shared payout ledger as a new `TENANCY` source (eligibility re-checks the tenancy, pays the frozen landlord payout, never more than was paid or one month's rent, to the landlord's verified mobile money account; the usual Disbursements approve, batch and release follow; PAID writes back `RELEASED`). AzamPay pays TZS mobile money only, so **USD payouts are paid by bank and recorded by hand** with the reference. Admins cannot act on a tenancy they are part of.
+  - Admin page `/admin/long-stay/tenancies` (sidebar: Long stays): Payouts, Problems, Refunds owed, Moving in, All; approve payout, record bank payout, decide (where the tenancy goes and what happens to the first month: pay landlord, keep reviewing, refund tenant), history. All audited.
+  - **Revenue ledger (2026-11-21, follow-up):** new `LONG_STAY` stream, recognized once at confirmed move-in (gross = first month + tenant fee, commission = tenant fee + landlord commission, partner net = landlord payout), reversed if an admin later refunds the first month. The finance overview shows a "Long stay" stream with the same rule, the reconciliation compares them per tenancy, and the backfill script covers it. See docs/REVENUE_LEDGER.md.
+- **Milestone 8 (2026-11-21):** migration `20261121110000_add_tenancy_claims` (prepared, not applied): table `tenancy_claim` and `tenancy.payoutDeduction`.
+  - **Cancellation after payment** (`lib/longStay/lifecycle.ts`, section 6.4), from `RESERVED` only, with a preview of the money first. Tenant more than 14 days out: first month refunded, fee kept. Tenant 14 days or less: landlord gets the first month less 5% (USD 4,275 in the spec), NoLSAF keeps fee + 5%. Landlord: everything back to the tenant; the second paid cancellation by a landlord pauses their long stays. The split is frozen on the tenancy (`termsSnapshot.cancellation`); refunds are `REFUND_DUE` for an admin, landlord shares are `READY` payouts.
+  - **One revenue rule** (`lib/longStay/revenueFigures.ts`) used by the ledger, the finance overview and the reconciliation: moved in, or cancelled with fees kept (earned at the cancellation). The backfill covers both.
+  - **Notice** (ACTIVE to ENDING): leave date at least the lease's notice period away and not after the lease end; a landlord must state a lawful ground (admins are alerted). The end date moves to the leave date, so the home shows available from then. **Move-out**: the landlord confirms from the end date (ENDED). **Overdue**: past the end by 3 days with no move-out, both sides and admins are told. **Renewal reminder** once, when the notice window opens. **Renewal**: the sitting tenant, within 60 days of the end, opens a new request straight at VIEWING and goes through offer, lease and first-month payment as usual, from the day the current lease ends.
+  - **Claims** (`lib/longStay/claims.ts`, section 6.6): an admin records what the landlord owes the tenant (unused months, a balance), within the lease's rent, due in 14 days; both sides see it; the tenant can confirm receipt. Past due: the landlord's long stays pause and the claim is recovered oldest first from the landlord's next long-stay payouts in the same currency (`payoutDeduction`; a payout fully used up sends nothing), then an admin passes it to the tenant and marks it paid. Admin tabs: Ending, Claims.
+  - **Not done, still open:** (1) none for the ledger. (2) Refunds marked `REFUND_DUE` are paid back by hand for now (no card refund automation). (3) Section 6.4 cancellation rules after payment (14-day split) are decided by admins through "Decide", not yet automatic.
+
+## 13. NoLSAF as the bridge: inspection, reserve, Ask NoLSAF (2026-11-21)
+
+Daniel's direction: the landlord lists everything (rent, terms, location, availability); the tenant decides from the listing; NoLSAF stands between them until money moves, and a NoLSAF Sales Partner verifies every home on site. Built 2026-11-21 (uncommitted), migration `20261121130000_long_stay_inspections_enquiries` (not applied).
+
+**Inspection (`lib/longStay/inspection.ts`, `long_stay_inspection`).**
+- Landlord submission opens an inspection request. An approval attempt without a current pass also opens a request if none is pending.
+- For localhost approval, set `LONG_STAY_OPEN=1` in the API environment and leave `LONG_STAY_REQUIRE_INSPECTION` unset or set it to `0`. The admin can approve while the inspection stays in the visit queue. Set `LONG_STAY_REQUIRE_INSPECTION=1` and restart the API to require a current pass before approval. Reservations require a current pass in either mode.
+- An admin assigns a partner by agent code. Never the owner, never the partner attributed to the home (no marking your own homework). 5 days to visit.
+- The partner reports from the home in `/sales/inspections`. The report includes phone GPS, exactly three different photos taken on site (entrance, main living area, and the most serious visible issue or a kitchen or bathroom), a 12-item checklist, a PASS or FAIL recommendation, and an overall note. Every No answer needs a short finding and can link to one of the three photos. All nine required items must be Yes to recommend PASS.
+- The server measures the distance from the listing pin and flags NO_PIN, FAR_FROM_PIN (over 300 m), LOW_ACCURACY (over 100 m), DUPLICATE_PHOTO (hash seen on another inspection) and LATE_UPLOAD. FAR_FROM_PIN and DUPLICATE_PHOTO block a pass.
+- Admin decides in `/admin/long-stay/inspections` after opening every photo (signed, audited): PASS (valid 12 months), FAIL (landlord told why), or REDO (back to the partner, no fee).
+- **Fee:** PASS and FAIL both credit the flat fee as a `LONG_STAY_INSPECTION` sales earning (`ELIGIBLE`, idempotent on `LONG_STAY_INSPECTION:<id>`, needs an earning contract). Same fee either way, so passing a weak home earns nothing extra; REDO earns nothing, so a lazy report costs the partner.
+- An upheld dispute can end the inspection and request a new visit through Decide. New reservations pause until the home passes again.
+- The public page shows the visit date, NoLSAF review date, validity and all recorded checklist results for homes with a current pass. Other homes show the current review status. Photos, location evidence, notes and inspector identities stay in the admin review.
+
+**Reserve (`offerService.createReservation`).** Tenant (verified phone, not barred, max 3 open) reserves at the listed terms; the tenancy starts at OFFERED with `offeredAt`. Landlord confirms (`acceptOffer`, within 24 hours and with a current inspection) or declines with a reason. The worker lapses unanswered reservations. Confirming closes other reservations whose dates now clash. Renewal is a reservation from the current end date. REQUESTED and VIEWING are gone from the state machine.
+
+**Ask NoLSAF (`lib/longStay/enquiry.ts`, `long_stay_enquiry`).** QUESTION or VISIT (up to 3 times, 4 hours to 30 days out), contacts typed by the tenant hidden, max 5 open per tenant. Admin answers in `/admin/long-stay/enquiries`, seeing the landlord's phone to ask on the tenant's behalf; a VISIT gets an agreed time and a Sales Partner, who sees it in `/sales/inspections`. Tenants read answers in `/account/long-stays`.
+
+**Contacts.** Names, phone numbers and the message thread open at RESERVED (first month paid). Before that `postMessage` refuses and the view hides the other side's name.

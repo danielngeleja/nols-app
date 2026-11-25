@@ -9,9 +9,11 @@ const mocks = vi.hoisted(() => ({
   userDocumentFindMany: vi.fn(),
   sessionUpdateMany: vi.fn(),
   accountFindUnique: vi.fn(),
+  accountCount: vi.fn(),
   transaction: vi.fn(),
   lookup: vi.fn(),
   audit: vi.fn(),
+  auditOrThrow: vi.fn(),
   txAccountFindUnique: vi.fn(),
   txAccountFindFirst: vi.fn(),
   txAccountCreate: vi.fn(),
@@ -22,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   sendSms: vi.fn(),
   sendMail: vi.fn(),
   systemSettingFindUnique: vi.fn(),
+  notificationCreate: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
@@ -29,8 +32,9 @@ vi.mock("@nolsaf/prisma", () => ({
     user: { findUnique: mocks.userFindUnique, findFirst: mocks.userFindFirst, update: mocks.userUpdate },
     userDocument: { findMany: mocks.userDocumentFindMany },
     session: { updateMany: mocks.sessionUpdateMany },
-    payoutAccount: { findUnique: mocks.accountFindUnique },
+    payoutAccount: { findUnique: mocks.accountFindUnique, count: mocks.accountCount },
     systemSetting: { findUnique: mocks.systemSettingFindUnique },
+    notification: { create: mocks.notificationCreate },
     $transaction: mocks.transaction,
   },
 }));
@@ -51,7 +55,7 @@ vi.mock("../lib/redisRateLimitStore.js", () => ({
 vi.mock("../lib/redis.js", () => ({ getRedis: () => null }));
 
 vi.mock("../services/azampay/disbursement/client.js", () => ({ azamPayNameLookup: mocks.lookup }));
-vi.mock("../lib/audit.js", () => ({ audit: mocks.audit }));
+vi.mock("../lib/audit.js", () => ({ audit: mocks.audit, auditOrThrow: mocks.auditOrThrow }));
 vi.mock("../lib/sms.js", () => ({ sendSms: mocks.sendSms }));
 vi.mock("../lib/mailer.js", () => ({
   sendMail: mocks.sendMail,
@@ -120,6 +124,7 @@ describe("secure payout destination update", () => {
     mocks.txAccountUpdateMany.mockResolvedValue({ count: 2 });
     mocks.txUserUpdate.mockResolvedValue({ id: 44 });
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
+    mocks.auditOrThrow.mockResolvedValue(undefined);
   });
 
   it("refuses the legacy owner account write path before it can bypass confirmation", async () => {
@@ -259,7 +264,9 @@ describe("secure payout destination update", () => {
     expect(response.body.data.payoutAccount.accountNumber).toBe("********0001");
     expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account added");
     expect(mocks.sendMail.mock.calls[0][2]).toContain("AzamPesa ending in 0001");
-    expect(mocks.sendMail.mock.calls[0][2]).toContain("72-hour security waiting period");
+    // A first account is onboarding: no waiting period is promised, the first payout is reviewed instead.
+    expect(mocks.sendMail.mock.calls[0][2]).not.toContain("security waiting period applies");
+    expect(mocks.sendMail.mock.calls[0][2]).toContain("Your first payout is checked by our team");
     expect(mocks.sendMail.mock.calls[0][2]).toContain("did not approve or send a payout");
     expect(mocks.sendMail.mock.calls[0][2]).not.toContain("255700000001");
     expect(mocks.sendSms.mock.calls[0][1]).toContain("payout account added");
@@ -289,26 +296,64 @@ describe("secure payout destination update", () => {
     const response = await request(app()).put("/account/payouts").send({ challengeToken: lookup.body.data.challengeToken });
 
     expect(response.status).toBe(200);
+    expect(mocks.auditOrThrow).toHaveBeenCalledWith(tx, expect.anything(), "USER_PAYOUT_DESTINATION_VERIFIED", "user:44", null,
+      expect.objectContaining({ change: "changed", accountNumber: expect.stringMatching(/^\*+0001$/), previousAccountNumber: expect.stringMatching(/^\*+0002$/) }), 44);
+    expect(JSON.stringify(mocks.auditOrThrow.mock.calls[0][5])).not.toContain("ASHA MTUMWA");
     expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account changed");
     expect(mocks.sendMail.mock.calls[0][2]).toContain("96-hour security waiting period");
     expect(mocks.sendMail.mock.calls[0][2]).not.toContain("255700000001");
     expect(mocks.sendSms.mock.calls[0][1]).toContain("payout account changed");
+    expect(mocks.notificationCreate).toHaveBeenCalledExactlyOnceWith({ data: expect.objectContaining({
+      userId: null,
+      ownerId: null,
+      title: "Changed the payout destination",
+      unread: true,
+      requiresAction: false,
+      meta: {
+        accountOwnerId: 44,
+        change: "payoutChanged",
+        changeTitle: "Changed the payout destination",
+        href: "/admin/owners/44?tab=activity&category=payout",
+        notificationKind: "owner_account_payout",
+        severity: "info",
+        category: "money",
+      },
+    }) });
+  });
+
+  it("rejects an owner payout confirmation when its transaction cannot write the audit event", async () => {
+    mocks.lookup.mockResolvedValue({ name: "ASHA MTUMWA", status: true, statusCode: 200, accountNumber: "255700000001", bankName: "azampesa" });
+    mocks.txAccountCreate.mockResolvedValue({ id: 10, type: "MOBILE_MONEY", provider: "azampesa", accountNumber: "255700000001" });
+    mocks.auditOrThrow.mockRejectedValueOnce(new Error("Audit unavailable"));
+
+    const lookup = await request(app()).post("/account/payouts/verify").send({ payoutPreferred: "MOBILE_MONEY", mobileMoneyProvider: "azampesa", mobileMoneyNumber: "255700000001" });
+    await request(app()).put("/account/payouts").send({ challengeToken: lookup.body.data.challengeToken }).expect(500);
+    expect(mocks.auditOrThrow).toHaveBeenCalledWith(tx, expect.anything(), "USER_PAYOUT_DESTINATION_VERIFIED", "user:44", null, expect.anything(), 44);
+    expect(mocks.sendMail).not.toHaveBeenCalled();
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(mocks.notificationCreate).not.toHaveBeenCalled();
   });
 
   it("alerts a repeated confirmation as reverified rather than changed", async () => {
     const now = new Date();
     mocks.userFindUnique.mockResolvedValue({ payout: { mobileMoneyNumber: "encrypted:255700000001" }, email: "owner@example.com", phone: null });
     mocks.txAccountFindFirst.mockResolvedValue({ provider: "azampesa", accountNumber: "255700000001" });
-    mocks.txAccountFindUnique.mockResolvedValue({ id: 9, verifiedAt: now });
+    const originallyChangedAt = new Date("2026-10-01T08:00:00.000Z");
+    mocks.txAccountFindUnique.mockResolvedValue({ id: 9, verifiedAt: now, destinationChangedAt: originallyChangedAt, createdAt: originallyChangedAt });
     mocks.txAccountUpdate.mockResolvedValue({ id: 9, userId: 44, type: "MOBILE_MONEY", provider: "azampesa", accountNumber: "255700000001", accountName: "ASHA MTUMWA", isVerified: true, verifiedAt: now, lastVerifiedAt: now, destinationChangedAt: now });
     mocks.lookup.mockResolvedValue({ name: "ASHA MTUMWA", status: true, statusCode: 200, accountNumber: "255700000001", bankName: "azampesa" });
 
     const lookup = await request(app()).post("/account/payouts/verify").send({ payoutPreferred: "MOBILE_MONEY", mobileMoneyProvider: "azampesa", mobileMoneyNumber: "255700000001" });
     const response = await request(app()).put("/account/payouts").send({ challengeToken: lookup.body.data.challengeToken });
+    expect(mocks.notificationCreate).not.toHaveBeenCalled();
 
     expect(response.status).toBe(200);
     expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account reverified");
-    expect(mocks.sendMail.mock.calls[0][2]).toContain("72-hour security waiting period");
+    expect(mocks.sendMail.mock.calls[0][2]).toContain("did not start a new security waiting period");
+    // Re-verifying the same wallet keeps its change time; it is not a new change.
+    expect(mocks.txAccountUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ destinationChangedAt: originallyChangedAt }),
+    }));
   });
 
   it("does not promise automatic payout when a bank account is first saved", async () => {
@@ -623,6 +668,67 @@ describe("secure payout destination update", () => {
     const locked = await request(app()).post("/account/contact/authorize-change").send({ field: "email", otp: "000000" });
     expect(locked.status).toBe(429);
     expect(locked.body.code).toBe("CONTACT_CHANGE_LOCKED");
+  });
+
+  async function addFirstEmail() {
+    const started = await request(app()).post("/account/contact/request-change").send({ field: "email", value: "owner-first@example.com" });
+    expect(started.status, JSON.stringify(started.body)).toBe(200);
+    if (started.body.data.stage === "AUTHORIZE_EXISTING") {
+      const smsCode = String(mocks.sendSms.mock.calls.at(-1)?.[1]).match(/\b(\d{6})\b/)?.[1];
+      const authorized = await request(app()).post("/account/contact/authorize-change").send({ field: "email", otp: smsCode });
+      expect(authorized.status).toBe(200);
+    }
+    const mailCode = String(mocks.sendMail.mock.calls.at(-1)?.[2]).match(/\b(\d{6})\b/)?.[1];
+    return request(app()).post("/account/contact/confirm-change").send({ field: "email", otp: mailCode });
+  }
+
+  const phoneOnlyOwner = {
+    id: 44,
+    email: null,
+    phone: "+255700000001",
+    emailVerifiedAt: null,
+    phoneVerifiedAt: new Date("2025-01-01T00:00:00.000Z"),
+    emailChangedAt: null,
+    phoneChangedAt: null,
+    passwordHash: "password-hash",
+    twoFactorEnabled: false,
+    twoFactorMethod: null,
+    totpSecretEnc: null,
+    payout: null,
+  };
+
+  it("does not start the payout cooling period when a new owner adds a first email before any payout account", async () => {
+    mocks.userFindUnique.mockResolvedValue(phoneOnlyOwner);
+    mocks.accountCount.mockResolvedValue(0);
+    mocks.userUpdate.mockResolvedValue({ ...phoneOnlyOwner, email: "owner-first@example.com", emailVerifiedAt: new Date() });
+
+    const confirmed = await addFirstEmail();
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    expect(confirmed.body.data.securityCooldownUntil).toBeNull();
+    const data = mocks.userUpdate.mock.calls.at(-1)?.[0]?.data ?? {};
+    expect(data.email).toBe("owner-first@example.com");
+    expect(data).not.toHaveProperty("emailChangedAt");
+  });
+
+  it("still starts the cooling period when a first email is added after a payout account exists", async () => {
+    mocks.userFindUnique.mockResolvedValue(phoneOnlyOwner);
+    mocks.accountCount.mockResolvedValue(1);
+    mocks.userUpdate.mockResolvedValue({ ...phoneOnlyOwner, email: "owner-first@example.com", emailChangedAt: new Date() });
+
+    const confirmed = await addFirstEmail();
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    expect(confirmed.body.data.securityCooldownUntil).toBeTruthy();
+    expect(mocks.userUpdate.mock.calls.at(-1)?.[0]?.data).toEqual(expect.objectContaining({ emailChangedAt: expect.any(Date) }));
+  });
+
+  it("still starts the cooling period when a first email is added after a payout destination was saved on the old profile", async () => {
+    mocks.userFindUnique.mockResolvedValue({ ...phoneOnlyOwner, payout: { mobileMoneyNumber: "encrypted:255700000001" } });
+    mocks.accountCount.mockResolvedValue(0);
+    mocks.userUpdate.mockResolvedValue({ ...phoneOnlyOwner, email: "owner-first@example.com", emailChangedAt: new Date() });
+
+    const confirmed = await addFirstEmail();
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    expect(confirmed.body.data.securityCooldownUntil).toBeTruthy();
   });
 
   it("blocks payout verification during the contact security cooling period", async () => {

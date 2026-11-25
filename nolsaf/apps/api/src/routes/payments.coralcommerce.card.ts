@@ -11,7 +11,9 @@ import multer from "multer";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
-import { requireAuth } from "../middleware/auth.js";
+import { blockImpersonated, requireAuth } from "../middleware/auth.js";
+import { checkTenancyPayable, isTenancyPaymentRef, newTenancyPaymentRef, settleTenancyPayment } from "../lib/longStay/payment.js";
+import { loadOwnTenancy, TenancyError } from "../lib/longStay/tenancyService.js";
 import { computeDraftBookingAvailability, unavailableDraftPaymentResponse } from "../lib/draftBookingAvailability.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import {
@@ -29,7 +31,7 @@ import { markInvoicePaid, markGroupBookingDepositPaid, markTourBookingPaid } fro
 import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 import { nrmsTokenFromCoralInitiationPayload } from "../lib/nrmsCoral.js";
 import { releaseFailedBookingPayment } from "../lib/bookingPaymentAttempt.js";
-import { notifyAdmins } from "../lib/notifications.js";
+import { notifyAdmins, notifyOwner, notifyUser } from "../lib/notifications.js";
 
 const router = Router();
 const coralFormParser = multer().none();
@@ -428,6 +430,144 @@ router.post("/initiate", requireAuth, coralUserLimiter, coralTargetLimiter, asyn
   }
 });
 
+/**
+ * POST /api/payments/coralcommerce/card/tenancy/initiate { ref }
+ * Long-stay first month + tenant fee (lib/longStay/payment.ts). Only the
+ * tenant of the tenancy, never during a support session, only while the
+ * 48-hour window is open, and only for the frozen booking amount.
+ */
+const tenancyInitiateSchema = z.object({ ref: z.string().min(10).max(40) }).strict();
+
+// Resolved per request so modules that mock the auth middleware without it still load.
+const noSupportSession = (req: any, res: any, next: any) => (blockImpersonated as any)(req, res, next);
+
+router.post("/tenancy/initiate", requireAuth, noSupportSession, coralUserLimiter, async (req, res) => {
+  try {
+    const parsed = tenancyInitiateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: "validation_error" });
+    const userId = Number((req as any).user?.id);
+
+    const cardGate = await getPaymentMethodAvailability("CARD");
+    if (!cardGate.enabled) return res.status(400).json({ error: "payment_method_unavailable", message: cardGate.reason });
+    const config = requiredCoralConfig();
+    if (!config) return res.status(503).json({ error: "payment_unavailable", message: "Card payments are not configured" });
+
+    let tenancy: any;
+    let charge: { amount: number; currency: "TZS" | "USD" };
+    try {
+      tenancy = await loadOwnTenancy(prisma, parsed.data.ref, "TENANT", userId);
+      charge = await checkTenancyPayable(prisma, tenancy, userId);
+    } catch (error) {
+      if (error instanceof TenancyError) return res.status(error.status).json({ error: "not_payable", message: error.message });
+      throw error;
+    }
+
+    // One reference per tenancy, reused on retries, so a late callback for an
+    // earlier attempt still finds its tenancy.
+    const paymentRef = tenancy.paymentRef ?? newTenancyPaymentRef();
+    const idemKey = `coral-tenancy-${tenancy.publicRef}`;
+    const cached = await idemGet(idemKey);
+    if (cached && tenancy.paymentRef) return res.json({ ok: true, cached: true, ...cached });
+
+    const payer = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true, name: true, email: true, phone: true } });
+    const property = await prisma.property.findUnique({ where: { id: tenancy.propertyId }, select: { title: true } });
+    const postbackParams = { kind: "long_stay" };
+    const coralBody = {
+      Transaction: {
+        Version: "3.16",
+        Username: config.username,
+        Password: config.password,
+        Destination: "ucfurl",
+        Submission: { Number: 1, Stamp: truncate(paymentRef, 40) },
+        Identifier: paymentRef,
+        Alias: config.alias,
+        Currency: charge.currency,
+        Order: {
+          Products: [{
+            ID: 1,
+            Code: "LONGSTAY",
+            Description: truncate(`NoLSAF long stay, first month: ${property?.title || "home"}`, 100),
+            Price: charge.amount,
+            Quantity: 1,
+            VAT: 0,
+            SubTotal: charge.amount,
+          }],
+          Delivery: { Auto: true },
+          ProductTotal: charge.amount,
+        },
+        UCF: {
+          CustomerFullName: truncate(String(payer?.fullName || payer?.name || "NoLSAF Tenant"), 100),
+          CustomerEmail: truncate(String(payer?.email || ""), 255),
+          CustomerMobile: truncate(String(payer?.phone || ""), 40),
+          CallbackUrl: config.callbackUrl,
+          CallbackFormat: "json",
+          CallbackMethod: "post",
+          // Coral's sender must use TLS 1.2: our hosts refuse older protocols.
+          CallbackProtocol: "tls12",
+          CallbackVar: "UCFCallback",
+          TransactionType: "03",
+          PostBackSuccessUrl: appendQueryParams(config.successUrl, postbackParams),
+          PostBackFailureUrl: appendQueryParams(config.failureUrl, postbackParams),
+          DisplayOrderSummary: "true",
+        },
+      },
+    };
+
+    let apiRes;
+    try {
+      apiRes = await coralPostJson64(coralBody);
+    } catch (err: any) {
+      console.error("[CoralCommerce/Card] long-stay request failed:", err?.message ?? "unknown");
+      return res.status(503).json({ error: "payment_unavailable", message: "Payment service temporarily unavailable" });
+    }
+    if (!apiRes.ok) {
+      console.error("[CoralCommerce/Card] long-stay non-2xx", JSON.stringify({ paymentRef, httpStatus: apiRes.status, bodyPreview: apiRes.body.slice(0, 300) }));
+      return res.status(502).json({ error: "payment_failed", message: "Card payment could not be started" });
+    }
+    let coralResult;
+    try {
+      coralResult = parseCoralInitiateResponse(apiRes.body);
+    } catch {
+      return res.status(502).json({ error: "payment_failed", message: "Unexpected response from payment provider" });
+    }
+    if (coralResult.code !== "000" || !coralResult.redirectUrl) {
+      console.error("[CoralCommerce/Card] long-stay initiation rejected", JSON.stringify({ paymentRef, code: coralResult.code, message: coralResult.message }));
+      return res.status(502).json({ error: "payment_failed", message: coralResult.message || "Card payment could not be started" });
+    }
+
+    // Bind the reference to this tenancy only while it is still awaiting payment.
+    const bound = await prisma.tenancy.updateMany({
+      where: { id: tenancy.id, status: "AWAITING_PAYMENT", paidAt: null, OR: [{ paymentRef: null }, { paymentRef }] },
+      data: { paymentRef, checkoutSessionId: truncate(paymentRef, 120) },
+    });
+    if (bound.count !== 1) return res.status(409).json({ error: "not_payable", message: "This lease changed. Refresh and try again." });
+
+    await prisma.paymentEvent.upsert({
+      where: { eventId: `${paymentRef}-INIT` },
+      update: { status: "PENDING", checkoutUrl: coralResult.redirectUrl.slice(0, 2048), rawStatus: coralResult.code },
+      create: {
+        provider: "CORALCOMMERCE",
+        eventId: `${paymentRef}-INIT`,
+        amount: charge.amount,
+        currency: charge.currency,
+        status: "PENDING",
+        paymentChannel: "CARD",
+        checkoutUrl: coralResult.redirectUrl.slice(0, 2048),
+        rawStatus: coralResult.code,
+        payload: { paymentRef, nolsafTenancyRef: tenancy.publicRef, client: "web" },
+      },
+    }).catch((dbErr: any) => console.warn("[CoralCommerce/Card] long-stay PaymentEvent failed:", dbErr?.message ?? dbErr));
+
+    const result = { paymentRef, checkoutUrl: coralResult.redirectUrl, status: "PENDING" };
+    await idemSet(idemKey, result);
+    return res.json({ ok: true, ...result });
+  } catch (err: any) {
+    console.error("[CoralCommerce/Card] /tenancy/initiate unhandled error:", err?.message ?? "unknown");
+    return res.status(500).json({ error: "internal_error", message: "An unexpected error occurred" });
+  }
+});
+
+
 function getCallbackValue(req: any, name: string): string | null {
   const body = req.body || {};
   const query = req.query || {};
@@ -485,7 +625,11 @@ function postbackSettleWaitMs(): number {
 }
 
 /** Read-only: has our own record of this payment target already settled? */
-async function coralTargetSettled(target: { invoice: any; tourBooking: any; groupBooking: any; nrmsPaymentToken: any }): Promise<boolean> {
+async function coralTargetSettled(target: { invoice: any; tourBooking: any; groupBooking: any; nrmsPaymentToken: any; tenancy?: any }): Promise<boolean> {
+  if (target.tenancy) {
+    const row = await prisma.tenancy.findUnique({ where: { id: target.tenancy.id }, select: { paidAt: true } });
+    return Boolean(row?.paidAt);
+  }
   try {
     if (target.invoice) {
       const row = await prisma.invoice.findUnique({ where: { id: target.invoice.id }, select: { status: true } });
@@ -538,8 +682,12 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     throw new Error("coral_missing_payment_ref");
   }
   const isNrmsReference = /^NRMS-/i.test(paymentRef);
+  // Long-stay first-month payments (lib/longStay/payment.ts) use their own LST- reference.
+  const tenancy = isTenancyPaymentRef(paymentRef)
+    ? await prisma.tenancy.findFirst({ where: { paymentRef }, select: { id: true, publicRef: true, status: true, paidAt: true, bookingAmount: true, currency: true } })
+    : null;
 
-  const invoice = isNrmsReference ? null : await prisma.invoice.findFirst({
+  const invoice = (isNrmsReference || tenancy) ? null : await prisma.invoice.findFirst({
     where: { paymentRef },
     select: {
       id: true,
@@ -550,7 +698,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     },
   });
 
-  const tourBooking = (isNrmsReference || invoice) ? null : await prisma.tourBooking.findFirst({
+  const tourBooking = (isNrmsReference || tenancy || invoice) ? null : await prisma.tourBooking.findFirst({
     where: { paymentRef },
     select: {
       id: true,
@@ -561,7 +709,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     },
   });
 
-  const groupBooking = (isNrmsReference || invoice || tourBooking) ? null : await prisma.groupBooking.findFirst({
+  const groupBooking = (isNrmsReference || tenancy || invoice || tourBooking) ? null : await prisma.groupBooking.findFirst({
     where: { paymentRef },
     select: {
       id: true,
@@ -618,7 +766,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     }
   }
 
-  if (!invoice && !tourBooking && !groupBooking && !nrmsPaymentToken) {
+  if (!invoice && !tourBooking && !groupBooking && !nrmsPaymentToken && !tenancy) {
     throw new Error("coral_payment_target_not_found");
   }
 
@@ -638,7 +786,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
   //     admins to check it against the Coral portal.
   //   "off" (once callbacks are confirmed arriving): display-only; only the
   //     server-to-server callback, which the payer never sees, settles.
-  const target = { invoice, tourBooking, groupBooking, nrmsPaymentToken };
+  const target = { invoice, tourBooking, groupBooking, nrmsPaymentToken, tenancy };
   const postbackApproval = kind === "postback" && postbackIsStrictApproval(notice);
   const postbackDecline = kind === "postback" && Boolean(notice.code) && notice.code !== "000";
   const settledBeforeNotice = kind === "postback" ? await coralTargetSettled(target) : false;
@@ -661,7 +809,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     // a human, so never let it pass silently.
     if (looksSuccessful && !settled) {
       await notifyAdmins("coral_postback_unverified", {
-        kind: invoice ? "Room booking" : tourBooking ? "Tour booking" : groupBooking ? "Group stay deposit" : "NRMS billing",
+        kind: invoice ? "Room booking" : tourBooking ? "Tour booking" : groupBooking ? "Group stay deposit" : tenancy ? "Long-stay first month" : "NRMS billing",
         coralTransactionId: notice.transactionId || null,
         paymentRef,
         reason: coralPostbackMode() === "off" ? "postback settlement is off and no callback arrived" : "the approval fields did not all agree",
@@ -674,6 +822,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
       tourBookingId: tourBooking?.id ?? null,
       groupBookingId: groupBooking?.id ?? null,
       nrmsToken: nrmsPaymentToken?.token ?? null,
+      tenancyRef: tenancy?.publicRef ?? null,
       status: (settled ? "SUCCESS" : looksFailed ? "FAILED" : "PENDING") as "SUCCESS" | "FAILED" | "PENDING",
       paymentRef,
       message: notice.message || null,
@@ -697,6 +846,8 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     ? Number(tourBooking?.grossAmount ?? 0)
     : groupBooking
     ? Math.round(Number(groupBooking?.depositAmount ?? 0))
+    : tenancy
+    ? Number(tenancy.bookingAmount ?? 0)
     : Math.round(Number(nrmsPaymentToken?.amount ?? 0));
 
   // For NRMS, a provider success is not yet a settled payment. Keep its event
@@ -718,11 +869,15 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
           ? resolveCoralCurrency(tourBooking?.currency)
           : groupBooking
           ? resolveCoralCurrency(groupBooking.currency)
+          : tenancy
+          ? resolveCoralCurrency(tenancy.currency)
           : resolveCoralCurrency(nrmsPaymentToken?.currency),
         status: statusBeforeSettlement,
         paymentChannel: "CARD",
         rawStatus: notice.status || notice.code || null,
-        payload: notice.raw,
+        // PaymentEvent has no tenancy column: the target rides in the payload
+        // and is compared below, so one Coral transaction can never settle two.
+        payload: tenancy ? { ...(notice.raw as any), nolsafTenancyRef: tenancy.publicRef } : notice.raw,
       },
     });
     createdEvent = true;
@@ -734,13 +889,14 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     // booking, so a genuine approval cannot be replayed onto another one.
     const existing = await prisma.paymentEvent.findUnique({
       where: { eventId },
-      select: { provider: true, invoiceId: true, tourBookingId: true, groupBookingId: true },
+      select: { provider: true, invoiceId: true, tourBookingId: true, groupBookingId: true, payload: true },
     });
     if (existing?.provider !== "CORALCOMMERCE") throw error;
     const sameTarget =
       (existing.invoiceId ?? null) === (invoice?.id ?? null) &&
       (existing.tourBookingId ?? null) === (tourBooking?.id ?? null) &&
-      (existing.groupBookingId ?? null) === (groupBooking?.id ?? null);
+      (existing.groupBookingId ?? null) === (groupBooking?.id ?? null) &&
+      (((existing.payload as any)?.nolsafTenancyRef ?? null) === (tenancy?.publicRef ?? null));
     if (!sameTarget) {
       console.error("[CoralCommerce/Card] transaction already bound to another target; refusing", { eventId, kind });
       throw new Error("coral_transaction_bound_to_other_target");
@@ -829,17 +985,39 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     }
   }
 
+  if (isSuccess && tenancy && !tenancy.paidAt) {
+    try {
+      // Coral notices carry no amount: the price was set by us at checkout from
+      // the frozen tenancy, so settlement checks that frozen amount again.
+      const settled = await settleTenancyPayment(
+        prisma,
+        { paymentRef, amount, currency: resolveCoralCurrency(tenancy.currency), providerRef: notice.transactionId || notice.gatewayId || paymentRef },
+        (alertKind, data) => notifyAdmins(alertKind, { ...data, href: "/admin/payments" }),
+      );
+      if (settled.ok && settled.outcome === "RESERVED") {
+        const row = await prisma.tenancy.findUnique({ where: { id: tenancy.id }, select: { tenantId: true, landlordId: true, property: { select: { title: true } } } });
+        if (row) {
+          await notifyUser(row.tenantId, "long_stay_reserved", { propertyTitle: row.property?.title }).catch(() => undefined);
+          await notifyOwner(row.landlordId, "long_stay_reserved_owner", { propertyTitle: row.property?.title }).catch(() => undefined);
+        }
+      }
+    } catch (err: any) {
+      console.error(`[CoralCommerce/Card] Failed to settle long-stay payment ${paymentRef}:`, err?.message ?? err);
+    }
+  }
+
   // Detective control: a payment confirmed by the browser postback alone is
   // flagged for a human to check against the Coral portal, so anything that
   // ever slips past the strict checks is caught within minutes.
   if (kind === "postback" && isSuccess) {
     await notifyAdmins("coral_postback_settlement", {
-      kind: invoice ? "Room booking" : tourBooking ? "Tour booking" : groupBooking ? "Group stay deposit" : "NRMS billing",
+      kind: invoice ? "Room booking" : tourBooking ? "Tour booking" : groupBooking ? "Group stay deposit" : tenancy ? "Long-stay first month" : "NRMS billing",
       amount,
       currency: invoice
         ? resolveCoralCurrency(invoice.booking?.property?.currency)
         : tourBooking ? resolveCoralCurrency(tourBooking.currency)
         : groupBooking ? resolveCoralCurrency(groupBooking.currency)
+        : tenancy ? resolveCoralCurrency(tenancy.currency)
         : resolveCoralCurrency(nrmsPaymentToken?.currency),
       coralTransactionId: notice.transactionId,
       paymentRef,
@@ -853,6 +1031,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     tourBookingId: tourBooking?.id ?? null,
     groupBookingId: groupBooking?.id ?? null,
     nrmsToken: nrmsPaymentToken?.token ?? null,
+    tenancyRef: tenancy?.publicRef ?? null,
     status: eventStatus,
     paymentRef,
     message: notice.message || null,
@@ -926,6 +1105,10 @@ router.all("/postback", coralFormParser, async (req, res) => {
 
     const webOrigin = (process.env.WEB_ORIGIN || "").replace(/\/$/, "");
     if (webOrigin) {
+      if (result.tenancyRef) {
+        const params = new URLSearchParams({ cardReturn });
+        return res.redirect(`${webOrigin}/account/long-stays/${encodeURIComponent(result.tenancyRef)}?${params.toString()}`);
+      }
       if (result.nrmsToken) {
         const params = new URLSearchParams({ cardReturn, ref: result.paymentRef });
         if (result.message) params.set("message", truncate(result.message, 160));

@@ -12,6 +12,7 @@ const authState = vi.hoisted(() => ({
   })),
   passwordHistory: vi.fn(async () => undefined),
   invalidateSession: vi.fn(async () => undefined),
+  strictAudit: vi.fn(async () => undefined),
 }));
 
 vi.mock("@nolsaf/prisma", () => {
@@ -80,6 +81,19 @@ vi.mock("@nolsaf/prisma", () => {
         })),
       },
       notification: { create: vi.fn(async () => ({})) },
+      $transaction: vi.fn(async (run: (tx: unknown) => Promise<void>) => {
+        const snapshot = authState.users.map((user) => ({ ...user }));
+        try {
+          await run({ user: { update: async ({ where, data }: { where: { id: number }; data: Record<string, any> }) => {
+            const user = authState.users.find((candidate) => candidate.id === where.id);
+            if (!user) throw new Error("Test user not found");
+            Object.assign(user, data);
+          } } });
+        } catch (error) {
+          authState.users.splice(0, authState.users.length, ...snapshot);
+          throw error;
+        }
+      }),
     },
   };
 });
@@ -93,7 +107,7 @@ vi.mock("../lib/sms.js", () => ({
   sendSms: vi.fn(async () => ({ success: true, provider: "test", messageId: "test-sms" })),
 }));
 
-vi.mock("../lib/audit.js", () => ({ audit: vi.fn(async () => undefined) }));
+vi.mock("../lib/audit.js", () => ({ audit: vi.fn(async () => undefined), auditOrThrow: authState.strictAudit }));
 vi.mock("../lib/redis.js", () => ({ getRedis: vi.fn(() => null) }));
 vi.mock("../lib/authSessionCache.js", () => ({
   invalidateAuthSessionCacheForToken: vi.fn(async () => undefined),
@@ -139,6 +153,7 @@ beforeEach(() => {
   authState.sentMail.mockClear();
   authState.passwordHistory.mockClear();
   authState.invalidateSession.mockClear();
+  authState.strictAudit.mockClear();
 });
 
 describe("account authentication lifecycle", () => {
@@ -244,6 +259,25 @@ describe("account authentication lifecycle", () => {
       .send({ token: resetToken, password: "Another@2026Safe" })
       .expect(400);
   }, 30_000);
+
+  it("keeps an owner's reset link usable when the audit write fails", async () => {
+    const email = "owner.reset@example.test";
+    await request(app).post("/api/auth/register")
+      .send({ email, name: "Owner Reset", phone: "+255700000004", password: "Start@2026Safe", role: "traveller" }).expect(201);
+    authState.users[0].role = "OWNER";
+    const oldHash = authState.users[0].passwordHash;
+    await request(app).post("/api/auth/forgot-password").send({ email }).expect(200);
+    const html = String([...authState.sentMail.mock.calls].reverse().find((call) => String(call[2]).includes("token="))?.[2] ?? "");
+    const token = html.match(/token=([a-f0-9]+)/i)![1];
+
+    authState.strictAudit.mockRejectedValueOnce(new Error("Audit unavailable"));
+    await request(app).post("/api/auth/reset-password").send({ token, password: "Changed@2026Safe" }).expect(503);
+    expect(authState.users[0]).toMatchObject({ passwordHash: oldHash });
+    expect(authState.invalidateSession).not.toHaveBeenCalled();
+
+    await request(app).post("/api/auth/reset-password").send({ token, password: "Changed@2026Safe" }).expect(200);
+    expect(authState.strictAudit).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), "ACCOUNT_PASSWORD_RESET", "user:1", null, { via: "emailed_link" }, 1);
+  });
 
   it("checks a link before use, masks the login, and still accepts links that carry a user id", async () => {
     const email = "link.check@example.test";

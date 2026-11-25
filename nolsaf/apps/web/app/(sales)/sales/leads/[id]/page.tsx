@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  ClipboardCheck,
   FileText,
   Mail,
   MapPin,
@@ -36,6 +37,7 @@ import SalesDateTimeField from "@/components/sales/SalesDateTimeField";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
 import VisitCheckIn from "@/components/sales/VisitCheckIn";
 import AssistedListingCard, { type AssistedListingSummary } from "@/components/sales/AssistedListingCard";
+import { inspectionDate } from "@/lib/salesInspection";
 
 type ActivityRecord = {
   id: number;
@@ -70,8 +72,47 @@ type Lead = {
   conversionRequestedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  homeInspection?: HomeInspection | null;
   activities: ActivityRecord[];
 };
+
+type HomeInspection = {
+  status: "REQUESTED" | "ASSIGNED" | "SUBMITTED" | "PASSED" | "FAILED";
+  dueBy: string | null;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  validUntil: string | null;
+  current: boolean;
+};
+
+function HomeInspectionStatus({ inspection }: { inspection: HomeInspection }) {
+  const expired = inspection.status === "PASSED" && Boolean(inspection.validUntil) && !inspection.current;
+  const validUntil = inspection.validUntil && new Date(inspection.validUntil).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+  const details = {
+    REQUESTED: { label: "Awaiting an inspector", detail: "NoLSAF will assign a partner to visit the home." },
+    ASSIGNED: {
+      label: inspection.reviewedAt ? "Return visit requested" : "Partner assigned",
+      detail: inspection.dueBy ? `Report due ${inspectionDate(inspection.dueBy)}.` : "The assigned partner will arrange the home visit.",
+    },
+    SUBMITTED: { label: "With NoLSAF for review", detail: inspection.submittedAt ? `Report received ${inspectionDate(inspection.submittedAt)}.` : "NoLSAF is reviewing the partner’s report." },
+    PASSED: {
+      label: expired ? "Expired" : "Passed",
+      detail: validUntil ? `${expired ? "Validity ended" : "Valid through"} ${validUntil}.` : "NoLSAF approved the inspection.",
+    },
+    FAILED: { label: "Did not pass", detail: inspection.reviewedAt ? `NoLSAF reviewed the report on ${inspectionDate(inspection.reviewedAt)}.` : "NoLSAF completed its review." },
+  }[inspection.status];
+
+  return (
+    <section className="mt-5 flex flex-wrap items-start gap-3 rounded-lg border border-solid border-slate-200 bg-white px-4 py-4" aria-labelledby="lead-home-inspection">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#02665e]/10 text-[#02665e]"><ClipboardCheck className="h-4 w-4" aria-hidden /></span>
+      <div className="min-w-0 flex-1">
+        <h2 id="lead-home-inspection" className="m-0 text-sm font-bold text-slate-900">Long-stay home inspection</h2>
+        <p className="m-0 mt-1 text-xs text-slate-600">{details.detail}</p>
+      </div>
+      <span className={`rounded-md px-2.5 py-1 text-xs font-semibold ${inspection.status === "FAILED" || expired ? "bg-rose-50 text-rose-800" : "bg-emerald-50 text-emerald-800"}`}>{details.label}</span>
+    </section>
+  );
+}
 
 function localDateTime(value: string | null): string {
   if (!value) return "";
@@ -383,6 +424,8 @@ export default function SalesLeadDetailPage() {
                 </div>
               )}
             />
+
+            {lead.homeInspection ? <HomeInspectionStatus inspection={lead.homeInspection} /> : null}
 
             {nextStep ? (() => {
               const tone = NEXT_TONE[nextStep.tone];

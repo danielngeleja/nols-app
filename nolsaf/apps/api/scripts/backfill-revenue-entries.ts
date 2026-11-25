@@ -24,6 +24,7 @@ import dotenv from "dotenv";
 import { prisma } from "@nolsaf/prisma";
 import {
   recognizeGroupStayRevenue,
+  recognizeLongStayRevenue,
   recognizeInvoiceRevenue,
   recognizeNrmsPaymentRevenue,
   recognizeTourRevenue,
@@ -183,7 +184,7 @@ async function compareWithOverview(planned: any[]) {
     cur.gross += Number(row.grossTzs); cur.commission += Number(row.commissionTzs);
     ledger.set(row.stream, cur);
   }
-  const keyOf: Record<string, RevenueStream> = { accommodation: "ACCOMMODATION", tours: "TOUR", transport: "TRANSPORT", groupStay: "GROUP_STAY", subscriptions: "SUBSCRIPTION" };
+  const keyOf: Record<string, RevenueStream> = { accommodation: "ACCOMMODATION", tours: "TOUR", transport: "TRANSPORT", groupStay: "GROUP_STAY", subscriptions: "SUBSCRIPTION", longStay: "LONG_STAY" };
   console.log("\nAll-time NoLSAF revenue, ledger after this run vs the finance overview today (TZS):");
   console.log(["stream", "ledger", "overview", "difference"].join("\t"));
   for (const s of overview.streams) {
@@ -239,6 +240,12 @@ async function main() {
   if (wanted("SUBSCRIPTION")) {
     const ids = await idsOf("nrmsServicePayment", { status: { in: ["VERIFIED", "MANUALLY_VERIFIED"] } });
     await replay("SUBSCRIPTION NRMS_SERVICE_PAYMENT", ids, (d, id) => recognizeNrmsPaymentRevenue(d, id), dryDb);
+  }
+  if (wanted("LONG_STAY")) {
+    // Moved-in tenancies; a first month refunded before the backfill is skipped
+    // (recognized and reversed would net to the same zero).
+    const ids = await idsOf("tenancy", { paidAt: { not: null }, OR: [{ moveInConfirmedAt: { not: null } }, { cancelledAt: { not: null } }] });
+    await replay("LONG_STAY TENANCY", ids, (d, id) => recognizeLongStayRevenue(d, id), dryDb);
   }
 
   // Reversals after recognitions, so each finds its original.

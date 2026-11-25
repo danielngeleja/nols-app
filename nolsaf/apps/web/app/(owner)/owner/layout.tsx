@@ -9,6 +9,7 @@ import OwnerFooter from "@/components/OwnerFooter";
 import OwnerSidebar from "@/components/OwnerSidebar";
 import MobileOwnerNav from "@/components/MobileOwnerNav";
 import apiClient, { clearAuthToken } from "@/lib/apiClient";
+import { useSocket } from "@/hooks/useSocket";
 
 export default function OwnerLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -31,6 +32,26 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
     signInEnforced: boolean;
     setupOnly: boolean;
   } | null>(null);
+  const { socket, connected } = useSocket(undefined, { enabled: !supportSession?.impersonated, joinDriverRoom: false });
+
+  useEffect(() => {
+    if (!socket) return;
+    const refreshNotifications = () => window.dispatchEvent(new Event("nols:owner-notification-arrived"));
+    const onNotification = (notice: { notificationKind?: string; title?: string; body?: string }) => {
+      refreshNotifications();
+      if (notice?.notificationKind === "long_stay_reservation_received") {
+        window.dispatchEvent(new CustomEvent("nols:toast", { detail: {
+          type: "info", title: notice.title || "New long-stay reservation", message: notice.body, duration: 7000,
+        } }));
+      }
+    };
+    socket.on("connect", refreshNotifications);
+    socket.on("notification:new", onNotification);
+    return () => {
+      socket.off("connect", refreshNotifications);
+      socket.off("notification:new", onNotification);
+    };
+  }, [socket]);
 
   // Owner MFA policy: paid owners need a passkey or authenticator app.
   useEffect(() => {
@@ -170,27 +191,35 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let latestUnreadRequest = 0;
     const refreshUnread = async () => {
+      const request = ++latestUnreadRequest;
       try {
         const response = await fetch("/api/owner/notifications?tab=unread&page=1&pageSize=1", {
           credentials: "include",
         });
-        if (!response.ok || !mounted) return;
+        if (!response.ok) return;
         const payload = await response.json();
-        setUnreadCount(Number(payload?.totalUnread ?? payload?.total ?? 0));
+        if (mounted && request === latestUnreadRequest) setUnreadCount(Number(payload?.totalUnread ?? payload?.total ?? 0));
       } catch {
         // Notification count is non-critical layout data.
       }
     };
     void refreshUnread();
     window.addEventListener("nols:owner-notifications-changed", refreshUnread);
+    window.addEventListener("nols:owner-notification-arrived", refreshUnread);
     window.addEventListener("focus", refreshUnread);
+    const interval = connected ? undefined : window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshUnread();
+    }, 45_000);
     return () => {
       mounted = false;
       window.removeEventListener("nols:owner-notifications-changed", refreshUnread);
+      window.removeEventListener("nols:owner-notification-arrived", refreshUnread);
       window.removeEventListener("focus", refreshUnread);
+      window.clearInterval(interval);
     };
-  }, []);
+  }, [connected]);
 
   useEffect(() => {
     const handler = () => {

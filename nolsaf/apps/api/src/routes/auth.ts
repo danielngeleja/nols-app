@@ -17,7 +17,7 @@ import { getWebAuthnRp } from '../lib/webauthnRp.js';
 import { recordSuccessfulSignIn } from '../lib/newSignInAlert.js';
 import { OWNER_MFA_SETUP_PATH, OWNER_MFA_SETUP_SESSION_SECONDS, ownerMfaState, ownerWeakSignInOutcome } from '../lib/ownerMfaPolicy.js';
 import { verifySignOutDeviceToken, userAgentsForDevice, LOGIN_DEVICE_FORGOTTEN } from '../lib/loginDevice.js';
-import { audit } from '../lib/audit.js';
+import { audit, auditOrThrow } from '../lib/audit.js';
 import { generateOperatorWelcomeEmail } from '../lib/operatorWelcomeEmail.js';
 import { readContractWorkflow } from '../lib/agentContractWorkflow.js';
 import { hashCode } from '../lib/otp.js';
@@ -42,6 +42,7 @@ import { attributePropertyShare } from '../lib/propertyShareAttribution.js';
 import { referralCandidates, type ReferralKind } from '../lib/referralCode.js';
 import { wantsNotification } from '../lib/notificationPrefs.js';
 import { notifyAdmins } from '../lib/notifications.js';
+import { notifyOwnerAccountChange } from '../lib/ownerAccountNotifications.js';
 
 /**
  * Who a referral code belongs to. A driver code only credits an actual driver;
@@ -1506,7 +1507,18 @@ async function ownerWeakSignInGate(
   method: string,
 ): Promise<boolean> {
   if (String(user.role || '').toUpperCase() !== 'OWNER') return false;
-  const outcome = await ownerWeakSignInOutcome(user);
+  let outcome: Awaited<ReturnType<typeof ownerWeakSignInOutcome>>;
+  try {
+    outcome = await ownerWeakSignInOutcome(user);
+  } catch (err) {
+    console.error('[auth] Owner MFA policy lookup failed', err);
+    res.status(503).json({
+      ok: false,
+      code: 'OWNER_MFA_UNAVAILABLE',
+      error: 'We could not check your account security. Please try again.',
+    });
+    return true;
+  }
   if (outcome === 'FULL') return false;
   if (outcome === 'PASSKEY_REQUIRED') {
     res.status(403).json({
@@ -2805,11 +2817,21 @@ router.post('/reset-password', limitPasswordResetSubmit, async (req, res) => {
 
     // Hash and update password
     const pwHash = await hashPassword(String(password));
+    const passwordAction = user.passwordHash ? "ACCOUNT_PASSWORD_RESET" : "ACCOUNT_PASSWORD_CREATED";
+    const passwordChangeAudit = { via: "emailed_link" };
+    const passwordUpdate = { where: { id: normalizedUserId }, data: { passwordHash: pwHash, resetPasswordToken: null, resetPasswordExpires: null, tokensValidAfter: new Date() } };
     try {
       // Bump tokensValidAfter so every JWT issued before now is rejected — this
       // is the account-recovery path, so any token an attacker still holds must
       // stop working the moment the rightful owner resets the password.
-      await prisma.user.update({ where: { id: normalizedUserId as any }, data: { passwordHash: pwHash as any, resetPasswordToken: null as any, resetPasswordExpires: null as any, tokensValidAfter: new Date() as any } as any });
+      if (user.role === "OWNER") {
+        await prisma.$transaction(async (tx) => {
+          await tx.user.update(passwordUpdate);
+          await auditOrThrow(tx, req, passwordAction, `user:${user.id}`, null, passwordChangeAudit, user.id);
+        });
+      } else {
+        await prisma.user.update(passwordUpdate);
+      }
       await invalidateAuthSessionCacheForUser(Number(user.id)).catch(() => {});
     } catch (e) {
       console.error('[reset-password] Failed to persist new password', e);
@@ -2823,10 +2845,11 @@ router.post('/reset-password', limitPasswordResetSubmit, async (req, res) => {
     try { await addPasswordToHistory(normalizedUserId, pwHash); } catch (e) { /* ignore */ }
     recordPasswordChangeSuccess(user.id);
     // On record, so admins can see when an invited account was actually set up.
-    await audit(req as any, user.passwordHash ? 'ACCOUNT_PASSWORD_RESET' : 'ACCOUNT_PASSWORD_CREATED', `user:${user.id}`, null, { via: 'emailed_link' }, Number(user.id));
+    if (user.role !== "OWNER") await audit(req, passwordAction, `user:${user.id}`, null, passwordChangeAudit, user.id);
 
     // Remove in-memory token
     if (resetTokenStore[hashed]) delete resetTokenStore[hashed];
+    await notifyOwnerAccountChange(user.role, user.id, passwordAction === "ACCOUNT_PASSWORD_RESET" ? "passwordReset" : "passwordCreated");
 
     // Send password-changed confirmation email (non-blocking)
     try {

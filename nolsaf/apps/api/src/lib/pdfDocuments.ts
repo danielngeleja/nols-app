@@ -136,8 +136,9 @@ export function drawCode128Barcode(
   y: number,
   width: number,
   height: number,
+  options?: { preserveCase?: boolean },
 ): void {
-  const values = code128BValues(value);
+  const values = code128BValues(value, options);
   const quietZoneModules = 10;
   const symbolModules = values.reduce(
     (sum, code) => sum + Array.from(CODE128_PATTERNS[code], Number).reduce((a, b) => a + b, 0),
@@ -416,6 +417,11 @@ export interface CustomerBookingReceiptData {
     balanceDue?: number;
     confirmationTitle?: string;
     confirmationCopy?: string;
+    referenceLabel?: string;
+    hideBalance?: boolean;
+    watermark?: string;
+    showBarcode?: boolean;
+    qrLabel?: string;
   };
 }
 
@@ -438,12 +444,21 @@ export async function generateCustomerBookingReceiptPdf(data: CustomerBookingRec
 
   return buildBuffer((doc) => {
     const fonts = registerNrmsFonts(doc);
+    const d = data.document ?? {};
     let y = M;
+
+    if (d.watermark) {
+      const center = { x: A5_W / 2, y: A5_H * 0.72 };
+      doc.save()
+        .rotate(-12, { origin: [center.x, center.y] })
+        .font(fonts.bold).fontSize(40).fillColor(TEAL).fillOpacity(0.11)
+        .text(d.watermark, M, center.y - 24, { width: W, align: "center", lineBreak: false });
+      doc.restore();
+    }
 
     doc.font(fonts.bold).fontSize(15).fillColor(TEXT_MAIN).text("NoLSAF", M, y, { lineBreak: false });
     doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
       .text("Quality Stay for Every Wallet", M, y + 19, { lineBreak: false });
-    const d = data.document ?? {};
     const balanceDue = Math.max(0, Number(d.balanceDue || 0));
     doc.font(fonts.bold).fontSize(17).fillColor(TEAL)
       .text(d.title || "BOOKING RECEIPT", M, y, { width: W, align: "right", lineBreak: false });
@@ -471,7 +486,7 @@ export async function generateCustomerBookingReceiptPdf(data: CustomerBookingRec
     }
     const reservationMeta = [
       data.propertyLocation,
-      `Code ${data.bookingCode}`,
+      `${d.referenceLabel || "Code"} ${data.bookingCode}`,
       data.invoiceNumber ? `Invoice ${data.invoiceNumber}` : null,
     ].filter(Boolean).join(" | ");
     doc.font(fonts.regular).fontSize(7.2).fillColor(TEXT_MUTED)
@@ -508,13 +523,15 @@ export async function generateCustomerBookingReceiptPdf(data: CustomerBookingRec
       .text("Amount received", totalsX, y, { width: 98, lineBreak: false });
     doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
       .text(fmtMoney(data.totalAmount, currency), totalsX + 98, y, { width: totalsW - 98, align: "right", lineBreak: false });
-    y += 17;
-    doc.strokeColor(BORDER).lineWidth(0.7).moveTo(totalsX, y).lineTo(M + W, y).stroke();
-    y += 8;
-    doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
-      .text("BALANCE", totalsX, y, { width: 98, lineBreak: false });
-    doc.font(fonts.bold).fontSize(9).fillColor(TEAL)
-      .text(fmtMoney(balanceDue, currency), totalsX + 98, y, { width: totalsW - 98, align: "right", lineBreak: false });
+    if (!d.hideBalance) {
+      y += 17;
+      doc.strokeColor(BORDER).lineWidth(0.7).moveTo(totalsX, y).lineTo(M + W, y).stroke();
+      y += 8;
+      doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
+        .text("BALANCE", totalsX, y, { width: 98, lineBreak: false });
+      doc.font(fonts.bold).fontSize(9).fillColor(TEAL)
+        .text(fmtMoney(balanceDue, currency), totalsX + 98, y, { width: totalsW - 98, align: "right", lineBreak: false });
+    }
     y += 34;
 
     doc.strokeColor(TEAL).lineWidth(0.8).moveTo(M, y).lineTo(M + W, y).stroke();
@@ -527,8 +544,15 @@ export async function generateCustomerBookingReceiptPdf(data: CustomerBookingRec
       try {
         doc.image(data.qrPng, M + W - 68, y - 2, { fit: [62, 62] });
         doc.font(fonts.bold).fontSize(5.5).fillColor(TEXT_MUTED)
-          .text("VERIFY", M + W - 68, y + 62, { width: 62, align: "center", lineBreak: false });
+          .text(d.qrLabel || "VERIFY", M + W - 68, y + 62, { width: 62, align: "center", lineBreak: false });
       } catch { /* QR remains optional. */ }
+    }
+
+    if (d.showBarcode) {
+      const barcodeY = A5_H - 107;
+      drawCode128Barcode(doc, data.receiptNumber, (A5_W - 218) / 2, barcodeY, 218, 24, { preserveCase: true });
+      doc.font("Courier-Bold").fontSize(7).fillColor(TEXT_MAIN)
+        .text(data.receiptNumber, M, barcodeY + 29, { width: W, align: "center", lineBreak: false });
     }
 
     doc.page.margins.bottom = 0;

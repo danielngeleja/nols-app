@@ -199,9 +199,11 @@ function normalizeOwnerPayout(payoutRaw: unknown): {
   bankAccountName: string | null;
   bankName: string | null;
   bankAccountNumber: string | null;
+  bankAccountUnreadable: boolean;
   bankBranch: string | null;
   mobileMoneyProvider: string | null;
   mobileMoneyNumber: string | null;
+  mobileMoneyUnreadable: boolean;
 } {
   const payout = payoutRaw && typeof payoutRaw === "object" ? (payoutRaw as any) : {};
 
@@ -211,15 +213,20 @@ function normalizeOwnerPayout(payoutRaw: unknown): {
     return s ? s : null;
   };
 
-  const maybeDecrypt = (v: any) => {
+  const readNumber = (v: unknown, kind: "bank" | "mobile") => {
     const s = safeStr(v);
     if (!s) return null;
+    const validate = (value: string) => {
+      const compact = /^[+\d\s()-]+$/.test(value) ? value.replace(/[\s()-]/g, "") : value;
+      return (kind === "bank" ? /^[A-Za-z0-9]{4,40}$/ : /^\+?\d{9,15}$/).test(compact) ? compact : null;
+    };
+    if (/^[+\d\s()-]+$/.test(s)) return validate(s);
     try {
-      const dec = decrypt(s, { log: false });
-      const out = String(dec ?? "").trim();
-      return out ? out : s;
+      return validate(decrypt(s, { log: false }).trim()) ?? validate(s);
     } catch {
-      return s;
+      // Old records can contain a plain bank identifier. Ciphertext is longer
+      // than the accepted account format or contains characters outside it.
+      return validate(s);
     }
   };
 
@@ -231,14 +238,18 @@ function normalizeOwnerPayout(payoutRaw: unknown): {
     return null;
   })();
 
+  const bankAccountNumber = readNumber(payout.bankAccountNumber, "bank");
+  const mobileMoneyNumber = readNumber(payout.mobileMoneyNumber, "mobile");
   return {
     payoutPreferred: pref,
     bankAccountName: safeStr(payout.bankAccountName),
     bankName: safeStr(payout.bankName),
-    bankAccountNumber: maybeDecrypt(payout.bankAccountNumber),
+    bankAccountNumber,
+    bankAccountUnreadable: Boolean(safeStr(payout.bankAccountNumber) && !bankAccountNumber),
     bankBranch: safeStr(payout.bankBranch),
     mobileMoneyProvider: safeStr(payout.mobileMoneyProvider),
-    mobileMoneyNumber: maybeDecrypt(payout.mobileMoneyNumber),
+    mobileMoneyNumber,
+    mobileMoneyUnreadable: Boolean(safeStr(payout.mobileMoneyNumber) && !mobileMoneyNumber),
   };
 }
 
@@ -544,10 +555,13 @@ async function getAdminRevenueInvoice(req: express.Request, res: express.Respons
       // Non-fatal; UI will fall back to stored fields.
     }
 
-    // Attach owner payout details (for admin payout processing / UI autofill)
+    // The invoice view needs a recognizable suffix. The payout workflows read
+    // the validated destination independently on the server.
     try {
       const owner = await prisma.user.findUnique({ where: { id: (inv as any).ownerId }, select: { payout: true } });
-      response.ownerPayout = normalizeOwnerPayout(owner?.payout);
+      const payout = normalizeOwnerPayout(owner?.payout);
+      const masked = (value: string | null) => value ? `****${value.slice(-Math.min(4, value.length - 1))}` : null;
+      response.ownerPayout = { ...payout, bankAccountNumber: masked(payout.bankAccountNumber), mobileMoneyNumber: masked(payout.mobileMoneyNumber) };
     } catch {
       response.ownerPayout = null;
     }

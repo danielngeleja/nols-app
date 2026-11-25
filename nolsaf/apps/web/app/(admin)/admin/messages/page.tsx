@@ -97,6 +97,7 @@ const URGENT_KINDS = new Set([
 
 function isUrgent(m: Message): boolean {
   const kind = String(m.meta?.notificationKind || "");
+  if (kind.startsWith("owner_account_")) return false;
   if (kind.startsWith("security_") || URGENT_KINDS.has(kind)) return true;
   if (kind === "nrms_channel_health_alert" && m.meta?.severity === "CRITICAL") return true;
   return String(m.type || "") === "system";
@@ -198,6 +199,15 @@ export default function Page() {
   }, [fetchTab]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    const refreshOwnerActivity = (event: Event) => {
+      const notification = (event as CustomEvent<Partial<Message>>).detail;
+      if (String(notification?.meta?.notificationKind).startsWith("owner_account_")) void fetchTab("unread");
+    };
+    window.addEventListener("nols:admin-notification", refreshOwnerActivity);
+    return () => window.removeEventListener("nols:admin-notification", refreshOwnerActivity);
+  }, [fetchTab]);
 
   const markRead = useCallback(async (m: Message) => {
     if (!m.unread) return;
@@ -491,6 +501,8 @@ export default function Page() {
               const isOpen = openId === m.id;
               const when = stamp(m);
               const meta = m.meta || {};
+              const isOwnerActivity = String(meta.notificationKind).startsWith("owner_account_");
+              const href = typeof meta.href === "string" && /^\/admin\/[A-Za-z0-9_\-/%.]*(\?[A-Za-z0-9_\-%.=&]*)?$/.test(meta.href) && !meta.href.includes("..") ? meta.href : null;
               const details: Array<{ label: string; value: React.ReactNode }> = [];
               if (meta.propertyId) {
                 details.push({
@@ -558,6 +570,11 @@ export default function Page() {
                       <span className="mt-1 block text-[11px] text-neutral-400">{ago(when)}{when ? ` · ${eat(when)}` : ""}</span>
                     </button>
                     <span className="flex shrink-0 items-center gap-1">
+                      {isOwnerActivity && href && (
+                        <Link href={href} onClick={() => { if (m.unread) void markRead(m); }} className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-solid border-emerald-200 bg-white px-2 text-xs font-semibold text-emerald-800 no-underline hover:bg-emerald-50">
+                          <span className="hidden sm:inline">View owner activity</span><span className="sm:hidden">View activity</span> <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                        </Link>
+                      )}
                       {m.unread && (
                         <button type="button" onClick={() => void markRead(m)} title="Mark as read" className="inline-flex h-8 items-center gap-1 rounded-lg border-0 bg-transparent px-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">
                           <Check className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Mark read</span>
@@ -606,8 +623,8 @@ export default function Page() {
                           {String(meta.notificationKind) === "security_data_export_locked" ? "Review and unlock" : "Open customer record"} <ExternalLink className="h-3.5 w-3.5" />
                         </Link>
                       )}
-                      {typeof meta.href === "string" && /^\/admin\/[A-Za-z0-9_\-/%.]*(\?[A-Za-z0-9_\-%.=&]*)?$/.test(meta.href) && !meta.href.includes("..") && (
-                        <Link href={meta.href} className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-[#123a33] hover:no-underline">
+                      {!isOwnerActivity && href && (
+                        <Link href={href} className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-[#123a33] hover:no-underline">
                           {String(meta.notificationKind).startsWith("booking_payment") ? "Open payment case" : String(meta.notificationKind) === "sales_partner_card_photo_review" ? "Check the photo" : "Open record"} <ExternalLink className="h-3.5 w-3.5" />
                         </Link>
                       )}

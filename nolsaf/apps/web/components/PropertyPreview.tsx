@@ -19,6 +19,7 @@ import {
   Save,
   X,
   ChevronLeft,
+  ChevronDown,
   ChevronRight,
   BedDouble,
   Bath,
@@ -60,7 +61,9 @@ import NeighborhoodGuide from "./NeighborhoodGuide";
 import TableRow from "./TableRow";
 import PropertyEditModal from "./PropertyEditModal";
 import PropertyPinEditor from "./admin/PropertyPinEditor";
-import PinHealthBadge from "./admin/PinHealthBadge";
+import AdminPinMap from "./admin/AdminPinMap";
+import { PropertyPhotoGrid } from "./PropertyPhotoGrid";
+import { PropertyPreviewError, PropertyPreviewSkeleton } from "./PropertyPreviewSkeleton";
 import PropertyAuditHistory from "./admin/PropertyAuditHistory";
 import NearbyServices from "./NearbyServices";
 import ServicesAndFacilities from "./ServicesAndFacilities";
@@ -84,6 +87,7 @@ import type {
   ReviewsData,
   AuditHistoryItem,
   RoomSpec,
+  RoomSpecRow,
   Review,
 } from "../lib/types/property";
 
@@ -168,6 +172,214 @@ function FillImage({
 // Icon mappings are imported from shared source to ensure consistency with owner submissions
 
 // RoomAmenityChip component matching public view - icon-only with hover tooltip
+/** "14:00 – 22:00", "From 14:00" or "Until 22:00" (as the owner wizard saves a window) into its two ends. */
+function splitTimeWindow(value: unknown): { from: string; to: string } {
+  const s = String(value ?? "").trim();
+  if (!s) return { from: "", to: "" };
+  const from = s.match(/^from\s+(.+)$/i);
+  if (from) return { from: from[1].trim(), to: "" };
+  const until = s.match(/^(until|by)\s+(.+)$/i);
+  if (until) return { from: "", to: until[2].trim() };
+  const parts = s.split(/\s*[–—-]\s*|\s+to\s+/i).map((p) => p.trim()).filter(Boolean);
+  return parts.length >= 2 ? { from: parts[0], to: parts[1] } : { from: s, to: "" };
+}
+
+/**
+ * One shape for house rules, whichever way they were saved: the wizard's saved
+ * keys (checkIn, checkOut, pets, smoking) or its working keys (checkInFrom,
+ * checkInTo, petsAllowed, smokingNotAllowed). Unknown keys are kept.
+ */
+function normalizeHouseRules(raw: any): any {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const bool = (...values: unknown[]) => {
+    for (const v of values) {
+      if (typeof v === "boolean") return v;
+      if (v === "true") return true;
+      if (v === "false") return false;
+    }
+    return null;
+  };
+  const inWin = splitTimeWindow(raw.checkIn);
+  const outWin = splitTimeWindow(raw.checkOut);
+  return {
+    ...raw,
+    checkInFrom: String(raw.checkInFrom || inWin.from || ""),
+    checkInTo: String(raw.checkInTo || inWin.to || ""),
+    checkOutFrom: String(raw.checkOutFrom || outWin.from || ""),
+    checkOutTo: String(raw.checkOutTo || outWin.to || ""),
+    petsAllowed: bool(raw.petsAllowed, raw.pets),
+    smokingNotAllowed: bool(raw.smokingNotAllowed, raw.smoking),
+    other: String(raw.other || ""),
+  };
+}
+
+/** A check-in or check-out window as a short phrase: "2:00 PM - 10:00 PM", "From 2:00 PM", "Until 10:00 AM". */
+function windowPhrase(from: string, to: string, lead: "From" | "By"): string | null {
+  // One time in the same 12-hour form a range uses ("14:00" -> "2:00 PM").
+  const one = (t: string) => (/^\d{1,2}:\d{2}$/.test(t) ? String(formatTimeRange(t, t)).split(" - ")[0] : t);
+  if (from && to) return formatTimeRange(from, to);
+  if (from) return `${lead === "By" ? "By" : "From"} ${one(from)}`;
+  if (to) return `${lead === "By" ? "By" : "Until"} ${one(to)}`;
+  return null;
+}
+
+/** A long-stay amenity with its name written out: the tenant signs for exactly this list. */
+function LabeledAmenity({ label }: { label: string }) {
+  const Icon = BATHROOM_ICONS[label] || OTHER_AMENITIES_ICONS[label] || CheckCircle2;
+  return (
+    <li className="flex min-w-0 items-center gap-2 rounded-md border border-solid border-slate-200 bg-white px-2.5 py-1.5 text-[12.5px] text-slate-700">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />
+      <span className="truncate" title={label}>{label}</span>
+    </li>
+  );
+}
+
+/** Sentences that appear more than once, a sign the owner pasted the same text again. */
+function repeatedSentences(text: string): number {
+  const parts = text.split(/(?<=[.!?])\s+/).map((s) => s.trim().toLowerCase()).filter((s) => s.length > 12);
+  return parts.length - new Set(parts).size;
+}
+
+function comparableRoomText(value: unknown) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function uniqueRoomLabels(labels: string[]) {
+  const seen = new Set<string>();
+  return labels.filter((label) => {
+    const key = comparableRoomText(label);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function roomReviewEntries(rooms: RoomSpec[]) {
+  const seen = new Map<string, number>();
+  const entries = rooms.map((room) => ({
+    code: [room?.code, room?.roomCode].find((value): value is string => typeof value === "string" && Boolean(value.trim()))?.trim(),
+    duplicate: false,
+  }));
+
+  rooms.forEach((room, index) => {
+    const { code } = entries[index];
+    if (!room) return;
+    // Older rows have no code. Compare their full saved data, including floor allocation.
+    const key = code ? `code:${comparableRoomText(code)}` : `spec:${JSON.stringify(room, (_field, value) => (
+      value && typeof value === "object" && !Array.isArray(value)
+        ? Object.fromEntries(Object.keys(value).sort().map((name) => [name, value[name]]))
+        : value
+    ))}`;
+    const first = seen.get(key);
+    if (first === undefined) seen.set(key, index);
+    else {
+      entries[first].duplicate = true;
+      entries[index].duplicate = true;
+    }
+  });
+  return entries;
+}
+
+function RoomReviewRow({ row: r, nightly }: {
+  row: RoomSpecRow;
+  nightly?: { currency?: string | null; code?: string; duplicate: boolean; listingDescription?: string; smoking?: string };
+}) {
+  const [open, setOpen] = useState(false);
+  const description = r.description.trim();
+  const repeatsListing = Boolean(nightly && description && comparableRoomText(description) === comparableRoomText(nightly.listingDescription));
+  const repeats = description ? repeatedSentences(description) : 0;
+  const long = description.length > 320;
+  const bath = nightly ? uniqueRoomLabels(r.bathItems) : [...new Set(r.bathItems)];
+  const amenities = nightly
+    ? uniqueRoomLabels(r.amenities).filter((label) => !bath.some((item) => comparableRoomText(item) === comparableRoomText(label)))
+    : [...new Set(r.amenities)];
+  const bedDimensions = nightly ? getBedDimensions(r.bedsSummary) : null;
+  const groups = [
+    { key: "room", title: nightly ? "Room amenities" : "In the home", items: amenities },
+    { key: "bath", title: "Bathroom", items: bath },
+  ].filter((g) => g.items.length);
+  return (
+    <div className="grid gap-5 border-0 border-t border-solid border-slate-100 px-5 py-5 first:border-t-0 lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
+      <div className="min-w-0 space-y-3">
+        <p className="m-0 flex flex-wrap items-center gap-2 break-words text-[15px] font-semibold text-slate-900">
+          {r.roomType}
+          {typeof r.roomsCount === "number" && r.roomsCount > (nightly ? 0 : 1) ? <span className="shrink-0 rounded-full border border-solid border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">{nightly ? `${r.roomsCount} ${r.roomsCount === 1 ? "room" : "rooms"}` : `x${r.roomsCount}`}</span> : null}
+        </p>
+        {nightly?.code ? <p className="m-0 break-words text-[11px] text-slate-500">{nightly.code}</p> : null}
+        {nightly ? (
+          <div className="rounded-lg border border-solid border-[#02665e]/10 bg-[#02665e]/5 px-3 py-2.5">
+            <p className="m-0 text-sm font-bold text-[#02665e]">
+              {r.pricePerNight != null && r.pricePerNight > 0 ? <>{fmtMoney(r.pricePerNight, nightly.currency)} <span className="text-xs font-normal text-slate-600">per night</span></> : "Nightly rate missing"}
+            </p>
+            <p className="m-0 mt-1 text-xs text-slate-600">{r.discountLabel || "No discount"}</p>
+          </div>
+        ) : null}
+        <dl className="m-0 space-y-2 rounded-lg bg-slate-50 p-3 text-[12.5px]">
+          <div className="flex items-start gap-2">
+            <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+            <div>
+              <dt className="text-[11px] font-semibold text-slate-500">Beds</dt>
+              <dd className="m-0 text-slate-700">
+                {r.bedsSummary === "—" ? "Not stated" : r.bedsSummary}
+                {bedDimensions ? <ul className="m-0 mt-1 list-none space-y-0.5 p-0 text-[11px] text-slate-500">
+                  {bedDimensions.split(" • ").map((dimensions) => <li key={dimensions}>{dimensions}</li>)}
+                </ul> : null}
+              </dd>
+            </div>
+          </div>
+          <div className="flex items-start gap-2"><Bath className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /><div><dt className="text-[11px] font-semibold text-slate-500">Bathroom</dt><dd className="m-0 text-slate-700">{r.bathPrivate === "yes" ? "Private" : r.bathPrivate === "no" ? "Shared" : "Not stated"}</dd></div></div>
+          {!nightly ? <div className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /><div><dt className="text-[11px] font-semibold text-slate-500">Comes with</dt><dd className="m-0 text-slate-700">{amenities.length + bath.length} {amenities.length + bath.length === 1 ? "item" : "items"}</dd></div></div> : null}
+        </dl>
+      </div>
+      <div className="min-w-0 space-y-4">
+        {nightly?.duplicate ? (
+          <p className="m-0 flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            {nightly.code ? "Another room entry uses this code." : "Another room entry has the same saved details."}
+          </p>
+        ) : null}
+        <div>
+          <p className="m-0 mb-1 text-[11.5px] font-semibold text-slate-500">Description</p>
+          {repeatsListing ? <p className="m-0 text-[13px] text-slate-600">Matches the listing description in About this place.</p> : description ? (
+            <>
+              <p className={`m-0 whitespace-pre-line text-[13.5px] leading-6 text-slate-700 ${!open && long ? "line-clamp-4" : ""}`}>{description}</p>
+              {long ? (
+                <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline [font-family:inherit]">
+                  {open ? "Show less" : "Read all"}
+                </button>
+              ) : null}
+              {repeats > 0 ? (
+                <p className="m-0 mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-900">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />The description repeats itself ({repeats} {repeats === 1 ? "sentence" : "sentences"} again). Ask the landlord to rewrite it before approving.
+                </p>
+              ) : null}
+            </>
+          ) : <p className="m-0 text-[13px] italic text-slate-400">No description</p>}
+        </div>
+        {groups.length ? groups.map((g) => (
+          <div key={g.key}>
+            <p className="m-0 mb-2 text-[11.5px] font-semibold text-slate-500">{g.title} <span className="font-normal text-slate-400">({g.items.length})</span></p>
+            <ul className="m-0 grid list-none grid-cols-2 gap-1.5 p-0 sm:grid-cols-3 xl:grid-cols-4">
+              {g.items.map((a) => <LabeledAmenity key={a} label={a} />)}
+            </ul>
+          </div>
+        )) : <p className="m-0 text-[13px] italic text-slate-400">No amenities ticked</p>}
+        {nightly && r.policies.some((policy) => policy.text !== "—") ? (
+          <div>
+            <p className="m-0 mb-2 text-[11.5px] font-semibold text-slate-500">Room policies</p>
+            <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-[12.5px] text-slate-700">
+              {r.policies.map((policy) => <li key={policy.text} className="inline-flex items-center gap-1.5">
+                {policy.Icon ? <policy.Icon className={`h-3.5 w-3.5 shrink-0 ${policy.iconColor || "text-slate-500"}`} aria-hidden /> : null}
+                {policy.text === "Smoking" && nightly.smoking === "yes" ? "Smoking allowed" : policy.text === "Smoking" && nightly.smoking === "no" ? "Smoke-free" : policy.text}
+              </li>)}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function RoomAmenityChip({ label }: { label: string }) {
   // Use exact match from the owner's icon mappings first
   const Icon = BATHROOM_ICONS[label] || OTHER_AMENITIES_ICONS[label] || Tags;
@@ -242,10 +454,17 @@ export default function PropertyPreview({
   onApproved,
   onRejected,
   onUpdated,
-  onClose
+  onClose,
+  rentalMode,
+  reviewChecks,
+  reviewPending,
+  adminTop,
 }: PropertyPreviewProps) {
+  const [showChecks, setShowChecks] = useState(false);
   const ownerPropertyHref = useOwnerPropertyHref();
   const [property, setProperty] = useState<Property | null>(null);
+  // A long stay rents the whole home by the month: no nightly price, no check-in times.
+  const isLongStay = rentalMode === "LONG_STAY" || (property as any)?.rentalMode === "LONG_STAY";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [adminNotice, setAdminNotice] = useState<null | { kind: "success" | "error" | "info"; title: string; body?: string }>(null);
@@ -288,8 +507,11 @@ export default function PropertyPreview({
   const [ownerAuditHistory, setOwnerAuditHistory] = useState<any[]>([]);
   const [ownerAuditLoading, setOwnerAuditLoading] = useState(false);
 
-  // Parse houseRules - can be a JSON string or object
-  const houseRules = useMemo(() => {
+  // Parse houseRules - can be a JSON string or object. The owner wizard saves
+  // { checkIn: "14:00 – 22:00", checkOut, pets, smoking, other }; older or
+  // in-progress data may use { checkInFrom, checkInTo, petsAllowed,
+  // smokingNotAllowed }. normalizeHouseRules gives this page both.
+  const houseRules = useMemo(() => normalizeHouseRules((() => {
     // Prefer `property.houseRules` if present, otherwise fall back to `services.houseRules`
     const direct = (property as any)?.houseRules;
     if (direct) {
@@ -332,7 +554,7 @@ export default function PropertyPreview({
       return viaServices;
     }
     return null;
-  }, [property]);
+  })()), [property]);
 
   // formatTimeRange is now imported from lib/propertyUtils
 
@@ -364,6 +586,7 @@ export default function PropertyPreview({
   async function loadProperty() {
     try {
       setLoading(true);
+      setError(null);
       const endpoint = mode === "admin" 
         ? `/api/admin/properties/${propertyId}`
         : mode === "owner"
@@ -393,6 +616,8 @@ export default function PropertyPreview({
   }
 
   useEffect(() => {
+    // A different property starts from the skeleton, never from the last one's data.
+    setProperty(null);
     loadProperty();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyId]);
@@ -783,8 +1008,16 @@ export default function PropertyPreview({
       });
     }
     
-    // Combine property photos first, then room photos
-    return [...propertyPhotos, ...roomPhotos];
+    // Property photos first, then room photos, each picture once: rooms keep the
+    // same files in both `photos` and `roomImages`, and some also sit in the
+    // property's own list, which used to double the count and repeat tiles.
+    const seen = new Set<string>();
+    return [...propertyPhotos, ...roomPhotos].filter((src) => {
+      const key = src.trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayPhotos, property?.photos, property?.roomsSpec]);
 
@@ -859,31 +1092,14 @@ export default function PropertyPreview({
       ? (property as any).totalFloors
       : derivedBuilding.floors;
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="mx-auto mb-4 h-14 w-14 rounded-2xl bg-gradient-to-br from-[#02665e] to-emerald-600 flex items-center justify-center shadow-lg animate-pulse">
-            <svg className="w-6 h-6 text-white animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          </div>
-          <p className="text-sm font-medium text-slate-600">Loading property...</p>
-        </div>
-      </div>
-    );
+  // First load: a skeleton shaped like the page. Later reloads (after a save)
+  // keep the page on screen and show a thin progress line instead.
+  if (loading && !property) {
+    return <PropertyPreviewSkeleton mode={mode} onClose={onClose} longStay={rentalMode === "LONG_STAY"} />;
   }
 
   if (error || !property) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <XCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <p className="text-gray-600">{error || "Property not found"}</p>
-        </div>
-      </div>
-    );
+    return <PropertyPreviewError message={error || "Property not found"} onRetry={() => void loadProperty()} onClose={onClose} />;
   }
 
   const photos = allImages;
@@ -1088,8 +1304,30 @@ export default function PropertyPreview({
     amenities.push({ key: "ac", label: "Air Conditioning", icon: AirVent, value: true });
   }
 
+  // Review progress: what a complete listing has, plus the long-stay steps the page passes in.
+  const listingChecks: Array<{ label: string; ok: boolean }> = [
+    { label: "Title and property type", ok: Boolean(String(property.title || "").trim() && property.type) },
+    { label: "At least 5 photos", ok: displayPhotos.length >= 5 },
+    { label: "Description of 80 characters or more", ok: String((property as any).description || "").trim().length >= 80 },
+    { label: isLongStay ? "The home's units described" : "Rooms and prices", ok: rooms.length > 0 },
+    { label: "Map pin on the home", ok: Boolean(pinCoords && pinCoords.lat && pinCoords.lng) },
+    { label: "Amenities listed", ok: amenities.length > 0 || effectiveServicesArray.length > 0 },
+    ...(isLongStay ? [] : [{ label: "House rules set", ok: Boolean(houseRules && (houseRules.checkInFrom || houseRules.checkInTo || houseRules.checkOutFrom || houseRules.checkOutTo || houseRules.petsAllowed != null || houseRules.smokingNotAllowed != null || String(houseRules.other || "").trim())) }]),
+  ];
+  const progressChecks = [...listingChecks, ...(reviewChecks ?? [])];
+  const progressDone = progressChecks.filter((c) => c.ok).length;
+  const progressPct = progressChecks.length ? Math.round((progressDone / progressChecks.length) * 100) : 0;
+  const progressTone = progressPct === 100 ? "#02665e" : progressPct >= 70 ? "#0d9488" : progressPct >= 40 ? "#d97706" : "#dc2626";
+
   return (
-    <div className="w-full bg-white">
+    <div className="w-full bg-white" aria-busy={loading || undefined}>
+      <style>{`@keyframes pp-refresh { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } } @media (prefers-reduced-motion: reduce) { [style*="pp-refresh"] { animation: none !important; } }`}</style>
+      {/* Reloading after a save: a thin line at the top, the page stays put */}
+      {loading ? (
+        <div className="fixed inset-x-0 top-0 z-[150] h-[3px] overflow-hidden bg-[#02665e]/15" role="progressbar" aria-label="Refreshing the property">
+          <div className="h-full w-1/3 bg-[#02665e]" style={{ animation: "pp-refresh 1.1s ease-in-out infinite" }} />
+        </div>
+      ) : null}
       {/* Admin command bar: back, identity, and the actions that fit the current status */}
       {mode === "admin" && (() => {
         const btn =
@@ -1107,9 +1345,51 @@ export default function PropertyPreview({
                   <ChevronLeft className="h-5 w-5" />
                 </button>
               )}
-              <div className="min-w-0 flex-1">
-                <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Properties / #{property.id}</p>
+              <div className="relative min-w-0 flex-1">
                 <p className="m-0 truncate text-[14px] font-semibold text-slate-900">{property.title || "Property details"}</p>
+                {/* Review progress toward 100%: click for what is left */}
+                <button
+                  type="button"
+                  onClick={() => setShowChecks((v) => !v)}
+                  aria-expanded={showChecks}
+                  aria-label={`Review progress ${progressPct}%, ${progressChecks.length - progressDone} left`}
+                  className="mt-1 flex w-full max-w-[420px] cursor-pointer items-center gap-2.5 border-0 bg-transparent p-0 text-left [font-family:inherit]"
+                >
+                  <span className="relative h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    {reviewPending ? (
+                      <span className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-slate-300" style={{ animation: "pp-refresh 1.1s ease-in-out infinite" }} />
+                    ) : (
+                      <span className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-700 ease-out" style={{ width: `${progressPct}%`, background: progressTone }} />
+                    )}
+                  </span>
+                  {reviewPending ? (
+                    <span className="shrink-0 text-[11.5px] font-semibold text-slate-400">Checking</span>
+                  ) : (
+                    <>
+                      <span className="shrink-0 text-[12px] font-bold tabular-nums" style={{ color: progressTone }}>{progressPct}%</span>
+                      <span className="hidden shrink-0 text-[11.5px] text-slate-500 sm:inline">
+                        {progressPct === 100 ? "Ready" : `${progressChecks.length - progressDone} to go`}
+                      </span>
+                    </>
+                  )}
+                  <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${showChecks ? "rotate-180" : ""}`} />
+                </button>
+                {showChecks ? (
+                  <div className="absolute left-0 top-full z-40 mt-2 w-[min(380px,calc(100vw-2rem))] rounded-xl border border-solid border-slate-200 bg-white p-3 shadow-lg">
+                    <p className="m-0 mb-2 flex items-center justify-between text-[12px] font-semibold text-slate-700">
+                      Review progress
+                      <span className="text-slate-500">{progressDone} of {progressChecks.length} done</span>
+                    </p>
+                    <ul className="m-0 list-none space-y-1.5 p-0">
+                      {[...progressChecks].sort((a, b) => Number(a.ok) - Number(b.ok)).map((c) => (
+                        <li key={c.label} className="flex items-center gap-2 text-[12.5px]">
+                          {c.ok ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <span className="h-4 w-4 shrink-0 rounded-full border-2 border-solid border-amber-400" aria-hidden />}
+                          <span className={c.ok ? "text-slate-500" : "font-semibold text-slate-800"}>{c.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {!isEditing ? (
@@ -1226,6 +1506,7 @@ export default function PropertyPreview({
 
       {/* Main Content Container (admin workspace already provides the page gutter) */}
       <div className={mode === "admin" ? "py-5" : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"}>
+        {mode === "admin" && adminTop ? adminTop : null}
         {/* Identity: status, type, title, address and owner */}
         {(() => {
           const soften = (v: unknown) => {
@@ -1325,117 +1606,13 @@ export default function PropertyPreview({
         {/* Gallery */}
         <div className="mt-6">
         {photos.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-solid border-slate-200">
-                  <button
-              type="button"
-              className={[
-                "relative md:col-span-2 aspect-[16/10] bg-slate-100 cursor-pointer rounded-2xl overflow-hidden",
-                "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
-                "motion-safe:hover:scale-[1.01] motion-safe:active:scale-[0.98]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-              ].join(" ")}
-                    onClick={() => {
-                      setSelectedImageIndex(0);
-                  setShowLightbox(true);
-                    }}
-              aria-label="Open photo gallery"
-                  >
-                    <FillImage
-                      src={photos[0]}
-                      alt=""
-                      className="object-cover"
-                      sizes="(min-width: 768px) 66vw, 100vw"
-                      priority
-                    />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
-              <div className="absolute left-4 bottom-4 inline-flex items-center gap-2 rounded-full bg-white/90 border border-solid border-white/70 px-3 py-1 text-xs font-semibold text-slate-900">
-                Approved photos • {photos.length}
-              </div>
-                  </button>
-            <div className="grid grid-cols-2 md:grid-cols-1 gap-3 bg-white p-3">
-              {/* Photo 2 */}
-              {photos[1] ? (
-                  <button
-                  type="button"
-                  className={[
-                    "relative aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden cursor-pointer",
-                    "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
-                    "motion-safe:hover:scale-[1.01] motion-safe:active:scale-[0.98]",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                  ].join(" ")}
-                    onClick={() => {
-                    setSelectedImageIndex(1);
-                      setShowLightbox(true);
-                    }}
-                  aria-label="Open photo 2"
-                    >
-                      <FillImage
-                        src={photos[1]}
-                        alt=""
-                        className="object-cover"
-                        sizes="(min-width: 768px) 22vw, 50vw"
-                      />
-                  </button>
-              ) : (
-                <div className="relative aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_25%,rgba(2,102,94,0.10),transparent_55%),linear-gradient(135deg,#f8fafc,#e2e8f0)]" />
-                  <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <ImageIcon className="w-6 h-6 text-slate-400" aria-hidden />
-          </div>
-      </div>
-              )}
-
-              {/* Photo 3 (or View all photos tile) */}
-              {photos[2] ? (
-              <button
-                  type="button"
-                  className={[
-                    "relative aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden cursor-pointer",
-                    "motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out",
-                    "motion-safe:hover:scale-[1.01] motion-safe:active:scale-[0.98]",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                  ].join(" ")}
-                onClick={() => {
-                    const hasMorePhotos = photos.length > 3;
-                    if (hasMorePhotos) {
-                      setSelectedImageIndex(0);
-                      setShowLightbox(true);
-                    } else {
-                      setSelectedImageIndex(2);
-                      setShowLightbox(true);
-                    }
-                    }}
-                  aria-label={photos.length > 3 ? "View all photos" : "Open photo 3"}
-                  >
-                    <FillImage
-                      src={photos[2]}
-                      alt=""
-                      className="object-cover"
-                      sizes="(min-width: 768px) 22vw, 50vw"
-                    />
-                  {photos.length > 3 && (
-                    <div className="absolute left-3 right-3 bottom-3 flex items-center justify-start">
-                      <div
-                        className="nls-blink inline-flex items-center gap-2 rounded-full bg-white/95 text-[#02665e] px-4 py-2 text-xs font-semibold shadow-sm ring-1 ring-black/5 whitespace-nowrap leading-none [animation-duration:1.8s]"
-                  >
-                        <Eye className="w-4 h-4 flex-shrink-0 text-[#02665e]" aria-hidden />
-                        <span className="leading-none">View all photos</span>
-            </div>
-          </div>
-            )}
-                </button>
-        ) : (
-                <div className="relative aspect-[16/10] bg-slate-100 rounded-xl overflow-hidden">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_25%,rgba(2,102,94,0.10),transparent_55%),linear-gradient(135deg,#f8fafc,#e2e8f0)]" />
-                  <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <ImageIcon className="w-6 h-6 text-slate-400" aria-hidden />
-                              </div>
-                          </div>
-              )}
-                        </div>
-              </div>
+          <PropertyPhotoGrid
+            photos={photos.slice(0, 48)}
+            total={photos.length}
+            title={property.title || "Property"}
+            onOpenPhoto={(index) => { setSelectedImageIndex(index); setShowLightbox(true); }}
+            onShowAll={() => { setSelectedImageIndex(0); setShowLightbox(true); }}
+          />
         ) : (
           <div>
             {/* Photo layout preview (until Cloudinary / approved photos are available) */}
@@ -1540,44 +1717,92 @@ export default function PropertyPreview({
         <div className="space-y-6">
 
             {/* Amenities - Match Public View */}
-            {/* About this place */}
-            <section className="border-b border-gray-200 pb-6">
-              <div className="rounded-2xl border border-solid border-slate-200 bg-white overflow-hidden">
-                <div className="p-5 sm:p-6">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                          <FileText className="w-5 h-5" aria-hidden />
+            {/* About this place: the owner's words, easy to read; admins and owners also see a quality check */}
+            {(() => {
+              const raw = about.raw;
+              const words = raw ? raw.split(/\s+/).filter(Boolean).length : 0;
+              const repeats = raw ? repeatedSentences(raw) : 0;
+              const helperText = /tick only what is really there|everything the tenant gets for the whole lease|select only amenities guests can actually use/i.test(raw);
+              const covers = [
+                { label: "Where it is", ok: /\b(located|location|near|close to|minutes?|km|walk|street|road|area|town|city|beach|centre|center)\b/i.test(raw) },
+                { label: "What stands out", ok: /\b(view|views|garden|pool|rooftop|terrace|balcony|quiet|spacious|modern|cosy|cozy|unique|special|best)\b/i.test(raw) },
+                { label: "What is nearby", ok: /\b(restaurant|shop|shops|mall|market|airport|bus|park|museum|attraction|attractions|hospital|nearby|school|university)\b/i.test(raw) },
+                { label: "Who it suits", ok: /\b(famil(y|ies)|business|couples?|travell?ers?|groups?|students?|guests?|tenants?|kids|children|professionals?)\b/i.test(raw) },
+              ];
+              const problems = (repeats > 0 ? 1 : 0) + (helperText ? 1 : 0);
+              const quality = !raw
+                ? { label: "Missing", cls: "bg-rose-50 text-rose-700 ring-rose-200" }
+                : problems
+                  ? { label: "Needs a rewrite", cls: "bg-rose-50 text-rose-700 ring-rose-200" }
+                  : raw.length < 80
+                    ? { label: "Too short", cls: "bg-amber-50 text-amber-800 ring-amber-200" }
+                    : raw.length >= 300 && covers.filter((c) => c.ok).length >= 3
+                      ? { label: "Strong", cls: "bg-emerald-50 text-emerald-800 ring-emerald-200" }
+                      : { label: "Good", cls: "bg-teal-50 text-teal-800 ring-teal-200" };
+              const reviewer = mode === "admin" || mode === "owner";
+              return (
+                <section className="border-b border-gray-200 pb-6">
+                  <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 sm:px-6">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]"><FileText className="h-5 w-5" aria-hidden /></span>
+                        <div className="min-w-0">
+                          <h2 className="m-0 text-lg font-semibold text-slate-900">About this place</h2>
+                          <p className="m-0 text-[12.5px] text-slate-500">{isLongStay ? "In the landlord's own words" : "In the host's own words"}</p>
+                        </div>
+                      </div>
+                      {reviewer ? (
+                        <span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-semibold ring-1 ring-inset ${quality.cls}`}>
+                          {quality.label}{raw ? <span className="font-normal opacity-75">· {words} words</span> : null}
                         </span>
-                        <div>
-                          <h2 className="text-lg font-semibold text-slate-900">About this place</h2>
-                          <div className="text-xs text-slate-500">What the host says about the property</div>
+                      ) : null}
                     </div>
-                </div>
-              </div>
-                    {about.hasMore ? (
-                      <button
-                        type="button"
-                        onClick={() => setAboutExpanded((v) => !v)}
-                        className="inline-flex items-center justify-center rounded-full border border-solid border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        {aboutExpanded ? "Show less" : "Read more"}
-                      </button>
-                    ) : null}
-            </div>
 
-                  <div className="mt-4 relative">
-                    <p className="text-[15px] sm:text-sm text-slate-700 leading-relaxed whitespace-pre-wrap italic">
-                      {aboutExpanded ? about.text : about.collapsed}
-                    </p>
-                    {!aboutExpanded && about.hasMore ? (
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-white to-white/0" />
+                    <div className="px-5 pb-5 pt-4 sm:px-6">
+                      {raw ? (
+                        <>
+                          <p className={`m-0 max-w-[75ch] whitespace-pre-line text-[15px] leading-7 text-slate-700 ${!aboutExpanded && about.hasMore ? "line-clamp-4" : ""}`}>{raw}</p>
+                          {about.hasMore ? (
+                            <button type="button" onClick={() => setAboutExpanded((v) => !v)}
+                              className="mt-2 inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[13.5px] font-semibold text-[#02665e] hover:underline [font-family:inherit]">
+                              {aboutExpanded ? "Show less" : "Read the full description"}
+                              <ChevronDown className={`h-4 w-4 transition-transform ${aboutExpanded ? "rotate-180" : ""}`} />
+                            </button>
+                          ) : null}
+                        </>
+                      ) : (
+                        <p className="m-0 text-[14px] italic text-slate-400">{reviewer ? "The owner has not written a description yet." : "No description provided yet."}</p>
+                      )}
+                    </div>
+
+                    {reviewer && raw ? (
+                      <div className="border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-5 py-3.5 sm:px-6">
+                        {problems ? (
+                          <ul className="m-0 mb-3 list-none space-y-1.5 p-0">
+                            {helperText ? (
+                              <li className="flex items-start gap-2 text-[12.5px] font-semibold text-rose-700"><AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-none" />Contains the listing form&apos;s own help text, not the owner&apos;s words.</li>
+                            ) : null}
+                            {repeats > 0 ? (
+                              <li className="flex items-start gap-2 text-[12.5px] font-semibold text-rose-700"><AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-none" />Repeats itself: {repeats} {repeats === 1 ? "sentence appears" : "sentences appear"} more than once.</li>
+                            ) : null}
+                          </ul>
+                        ) : null}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                          <span className="text-[11.5px] font-semibold text-slate-500">Covers</span>
+                          {covers.map((c) => (
+                            <span key={c.label} className={`inline-flex items-center gap-1.5 text-[12.5px] ${c.ok ? "text-slate-700" : "text-slate-400"}`}>
+                              {c.ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <span className="h-3.5 w-3.5 rounded-full border-2 border-solid border-slate-300" aria-hidden />}
+                              {c.label}
+                            </span>
+                          ))}
+                          <span className="ml-auto text-[12px] text-slate-400">{raw.length.toLocaleString("en-US")} characters</span>
+                        </div>
+                      </div>
                     ) : null}
-                        </div>
-                        </div>
-                </div>
-              </section>
+                  </div>
+                </section>
+              );
+            })()}
 
 
             {/* Services & Facilities - Simple List */}
@@ -1621,13 +1846,8 @@ export default function PropertyPreview({
 
                 {/* Nearby Services - Separate Section with Proper Spacing */}
                 {nearbyFacilities.length > 0 && (
-                  <div className="mt-8 pt-8 border-t border-slate-200">
-                    <NearbyServices
-                      facilities={nearbyFacilities}
-                      defaultExpanded={false}
-                      showExpandButton={nearbyFacilities.length > 2}
-                      maxInitialDisplay={2}
-                    />
+                  <div className="mt-6 border-0 border-t border-solid border-slate-200 pt-6">
+                    <NearbyServices facilities={nearbyFacilities} maxInitialDisplay={6} />
                   </div>
                 )}
               </section>
@@ -1703,8 +1923,41 @@ export default function PropertyPreview({
               </section>
             )}
 
-            {/* Rooms Section - Match Public View with Table */}
-            {rooms.length > 0 && (
+            {/* Admin uses the same room layout for both rental modes. */}
+            {rooms.length > 0 && (isLongStay || mode === "admin") && (() => {
+              const rows = normalizeRoomsSpec(rooms, property.currency ?? null, property.basePrice ?? null);
+              if (!rows.length) return null;
+              const nightlyRooms = isLongStay ? null : roomReviewEntries(rooms);
+              return (
+                <section className="border-b border-gray-200 pb-10">
+                  <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-slate-100 px-5 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]"><DoorClosed className="h-5 w-5" aria-hidden /></span>
+                        <div>
+                          <h2 className="m-0 text-lg font-semibold text-slate-900">{isLongStay ? "The home" : "Rooms & Pricing"}</h2>
+                          {isLongStay ? <p className="m-0 text-[12.5px] text-slate-500">Let whole, by the month. Everything the tenant gets for the lease.</p> : null}
+                        </div>
+                      </div>
+                    </div>
+                    {rows.map((row, index) => (
+                      <RoomReviewRow
+                        key={`${row.roomType}-${index}`}
+                        row={row}
+                        nightly={nightlyRooms ? {
+                          ...nightlyRooms[index],
+                          currency: property.currency,
+                          listingDescription: about.raw,
+                          smoking: comparableRoomText(rooms[index]?.smoking),
+                        } : undefined}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })()}
+
+            {rooms.length > 0 && !isLongStay && mode !== "admin" && (
               <section className="border-b border-gray-200 pb-10">
                 <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
                             <div className="flex items-center gap-2">
@@ -2271,9 +2524,9 @@ export default function PropertyPreview({
                       </div>
                     </div>
                   )}
-                  {(property.basePrice !== null && property.basePrice !== undefined && property.basePrice > 0) && (
+                  {!isLongStay && (property.basePrice !== null && property.basePrice !== undefined && property.basePrice > 0) && (
                     <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-500">
-                      <div className="text-sm sm:text-base text-slate-600 mb-2 font-medium">Base Price</div>
+                      <div className="text-sm sm:text-base text-slate-600 mb-2 font-medium">{mode === "admin" ? "Listing base rate with commission" : "Base Price"}</div>
                       <div className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#02665e] motion-safe:transition-transform motion-safe:duration-200 hover:scale-[1.02]">
                               {(() => {
                                 const basePrice = Number(property?.basePrice);
@@ -2291,57 +2544,33 @@ export default function PropertyPreview({
                 )}
                   
                   {property.owner && (
-                    <div className="pt-6 border-t border-slate-200/60 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 motion-safe:delay-100">
-                      <div className="text-sm sm:text-base font-semibold text-slate-900 mb-4">Owner Information</div>
-                      
-                      {/* Owner Profile Card - Modern 2026 */}
-                      <div className="relative rounded-2xl overflow-hidden shadow-lg">
-                        {/* Background with dot pattern */}
-                        <div className="absolute inset-0 bg-gradient-to-br from-[#02665e] via-[#02665e] to-[#014a44]" />
-                        <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.12) 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
-                        
-                        {/* Content */}
-                        <div className="relative p-5 sm:p-6">
-                          {/* Top row: avatar + name */}
-                          <div className="flex items-center gap-4 mb-5">
-                            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center flex-shrink-0 border border-solid border-white/20">
-                              <Users className="h-7 w-7 sm:h-8 sm:w-8 text-white" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              {property.owner.name && (
-                                <div className="font-bold text-base sm:text-lg text-white truncate">{property.owner.name}</div>
-                              )}
-                              <div className="flex items-center gap-1.5 mt-1">
-                                <BadgeCheck className="h-4 w-4 text-emerald-300 flex-shrink-0" />
-                                <span className="text-xs sm:text-sm text-emerald-200 font-medium">Verified Host</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Contact pills inside the card */}
-                          <div className="space-y-2">
-                            {property.owner.email && (
-                              <a
-                                href={`mailto:${property.owner.email}`}
-                                className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/10 backdrop-blur-sm border border-solid border-white/15 hover:bg-white/20 transition-colors no-underline"
-                              >
-                                <Mail className="h-4 w-4 text-white/80 flex-shrink-0" />
-                                <span className="text-sm text-white font-medium truncate">{property.owner.email}</span>
-                              </a>
-                            )}
-                            {property.owner.phone && (
-                              <a
-                                href={`tel:${property.owner.phone}`}
-                                className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/10 backdrop-blur-sm border border-solid border-white/15 hover:bg-white/20 transition-colors no-underline"
-                              >
-                                <Phone className="h-4 w-4 text-white/80 flex-shrink-0" />
-                                <span className="text-sm text-white font-medium">{property.owner.phone}</span>
-                              </a>
-                            )}
-                          </div>
+                    <div className="pt-5 border-0 border-t border-solid border-slate-200/60">
+                      {/* Owner: one compact row, name on the left, contacts on the right */}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-solid border-slate-200 bg-slate-50/60 px-4 py-3">
+                        <span className="grid h-10 w-10 flex-none place-items-center rounded-full bg-[#02665e] text-[13px] font-bold text-white" aria-hidden>
+                          {String(property.owner.name || "O").split(/\s+/).filter(Boolean).slice(0, 2).map((w: string) => w[0]?.toUpperCase()).join("") || <Users className="h-4 w-4" />}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="m-0 text-[11px] font-semibold text-slate-400">Owner</p>
+                          <p className="m-0 flex items-center gap-1.5 truncate text-[14px] font-bold text-slate-900">
+                            {property.owner.name || "Owner"}
+                            <BadgeCheck className="h-4 w-4 flex-none text-emerald-600" aria-label="Verified host" />
+                          </p>
+                        </div>
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          {property.owner.phone && (
+                            <a href={`tel:${property.owner.phone}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-2.5 text-[12.5px] font-semibold text-slate-700 no-underline hover:border-[#02665e]/40 hover:text-[#02665e]">
+                              <Phone className="h-3.5 w-3.5 flex-none" />{property.owner.phone}
+                            </a>
+                          )}
+                          {property.owner.email && (
+                            <a href={`mailto:${property.owner.email}`} className="inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-2.5 text-[12.5px] font-semibold text-slate-700 no-underline hover:border-[#02665e]/40 hover:text-[#02665e]">
+                              <Mail className="h-3.5 w-3.5 flex-none" /><span className="truncate">{property.owner.email}</span>
+                            </a>
+                          )}
                         </div>
                       </div>
-                </div>
+                    </div>
             )}
 
                   {property.lastSubmittedAt && (
@@ -2357,14 +2586,15 @@ export default function PropertyPreview({
             )}
 
             {/* House rules: the owner's rules first, missing ones flagged for admins, general guidelines last */}
-            {houseRules && (() => {
-              const checkIn = formatTimeRange(houseRules.checkInFrom, houseRules.checkInTo);
-              const checkOut = formatTimeRange(houseRules.checkOutFrom, houseRules.checkOutTo);
+            {/* Long stays carry living rules instead (shown in the long-stay review and written into the lease) */}
+            {houseRules && !isLongStay && (() => {
+              const checkIn = windowPhrase(houseRules.checkInFrom, houseRules.checkInTo, "From");
+              const checkOut = windowPhrase(houseRules.checkOutFrom, houseRules.checkOutTo, "By");
               const pets = houseRules.petsAllowed;
               const smokingBanned = houseRules.smokingNotAllowed;
               const items = [
-                { key: "in", label: "Check-in", Icon: Clock, value: checkIn ? `From ${checkIn}` : null, tone: "neutral" as const },
-                { key: "out", label: "Check-out", Icon: Clock, value: checkOut ? `By ${checkOut}` : null, tone: "neutral" as const },
+                { key: "in", label: "Check-in", Icon: Clock, value: checkIn, tone: "neutral" as const },
+                { key: "out", label: "Check-out", Icon: Clock, value: checkOut, tone: "neutral" as const },
                 {
                   key: "pets",
                   label: "Pets",
@@ -2593,49 +2823,35 @@ export default function PropertyPreview({
               <NeighborhoodGuide location={location} />
             )}
 
-            {/* Location */}
+            {/* Location: admins get the pin check card; guests and owners the map below */}
+            {mode === "admin" ? (
+              <section className="pb-8">
+                <AdminPinMap
+                  latitude={pinCoords?.lat ?? null}
+                  longitude={pinCoords?.lng ?? null}
+                  address={{ street: location.street, ward: location.ward, district: location.district, regionName: location.regionName, city: location.city }}
+                  onFix={openCoordinateEditor}
+                />
+              </section>
+            ) : (
             <section className="pb-8">
-              <div className={mode === "admin" ? "overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm" : ""}>
-                <div className={mode === "admin" ? "flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6" : "mb-5 flex flex-wrap items-center justify-between gap-3"}>
-                  <div className="flex min-w-0 items-start gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                      <MapPin className="h-5 w-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="m-0 text-lg font-semibold text-slate-900 sm:text-xl">{mode === "admin" ? "Location & pin" : "Where you'll be"}</h2>
-                      {mode === "admin" && (
-                        <p className="m-0 mt-1 text-sm text-slate-500">
-                          {[location.street, location.ward, location.district, location.regionName || location.city].filter(Boolean).join(", ") || "Add an address and pin to confirm this location"}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  {mode === "admin" && (
-                    <PinHealthBadge
-                      latitude={pinCoords?.lat ?? null}
-                      longitude={pinCoords?.lng ?? null}
-                      address={{
-                        street: location.street,
-                        ward: location.ward,
-                        district: location.district,
-                        regionName: location.regionName,
-                        city: location.city,
-                      }}
-                      onFix={openCoordinateEditor}
-                    />
-                  )}
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                    <MapPin className="h-5 w-5" aria-hidden />
+                  </span>
+                  <h2 className="m-0 text-lg font-semibold text-slate-900 sm:text-xl">Where you&apos;ll be</h2>
                 </div>
-
-              <div className={mode === "admin" ? "border-0 border-t border-solid border-slate-100" : "overflow-hidden rounded-2xl border border-solid border-slate-200 shadow-sm"}>
+              </div>
+              <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 shadow-sm">
                 {(() => {
                   const lat = pinCoords?.lat ?? 0;
                   const lng = pinCoords?.lng ?? 0;
                   const hasCoords = lat !== 0 && lng !== 0;
                   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
-
                   if (hasCoords && mapboxToken) {
                     return (
-                      <div className={mode === "admin" ? "relative h-[260px] bg-slate-100 sm:h-[320px]" : "relative aspect-[2/1] bg-slate-100 sm:aspect-[16/9]"}>
+                      <div className="relative aspect-[2/1] bg-slate-100 sm:aspect-[16/9]">
                         <Image
                           src={`https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/pin-l+02665e(${lng},${lat})/${lng},${lat},14,0/900x450@2x?access_token=${encodeURIComponent(mapboxToken)}`}
                           alt=""
@@ -2646,45 +2862,20 @@ export default function PropertyPreview({
                       </div>
                     );
                   }
-
-                  if (hasCoords) {
-                    return (
-                      <div className={mode === "admin" ? "flex items-center justify-between gap-4 bg-slate-50 px-5 py-6 sm:px-6" : "relative flex aspect-[2/1] items-center justify-center bg-slate-50 sm:aspect-[16/9]"}>
-                        <div className={mode === "admin" ? "flex items-center gap-3" : "text-center"}>
-                          <div className={mode === "admin" ? "flex h-10 w-10 items-center justify-center rounded-xl bg-[#02665e]/10" : "mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#02665e]/10"}>
-                            <MapPin className="h-5 w-5 text-[#02665e]" />
-                          </div>
-                          <div>
-                            {mode === "admin" && <p className="m-0 text-sm font-semibold text-slate-800">Pin saved</p>}
-                            <p className="m-0 mt-0.5 text-xs text-slate-500">{lat.toFixed(4)}, {lng.toFixed(4)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
                   return (
-                    <div className={mode === "admin" ? "flex flex-col gap-4 bg-amber-50/50 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-6" : "relative flex aspect-[2/1] items-center justify-center bg-slate-50 sm:aspect-[16/9]"}>
-                      <div className={mode === "admin" ? "flex items-start gap-3" : "text-center"}>
-                        <div className={mode === "admin" ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100" : "mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#02665e]/10"}>
-                          <MapPin className={mode === "admin" ? "h-5 w-5 text-amber-700" : "h-7 w-7 text-[#02665e]/40"} />
+                    <div className="relative flex aspect-[2/1] items-center justify-center bg-slate-50 sm:aspect-[16/9]">
+                      <div className="text-center">
+                        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#02665e]/10">
+                          <MapPin className={hasCoords ? "h-5 w-5 text-[#02665e]" : "h-7 w-7 text-[#02665e]/40"} />
                         </div>
-                        <div>
-                          {mode === "admin" ? (
-                            <>
-                              <p className="m-0 text-sm font-semibold text-slate-900">Location pin needed</p>
-                              <p className="m-0 mt-1 text-sm text-slate-600">Place the pin on the building to make directions and distance accurate.</p>
-                            </>
-                          ) : <p className="m-0 text-sm text-slate-400">No coordinates available</p>}
-                        </div>
+                        <p className="m-0 mt-0.5 text-xs text-slate-500">{hasCoords ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : "No coordinates available"}</p>
                       </div>
-                      {mode === "admin" && <button type="button" onClick={openCoordinateEditor} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014e47]"><MapPin className="h-4 w-4" /> Place pin</button>}
                     </div>
                   );
                 })()}
               </div>
-              </div>
             </section>
+            )}
 
             {/* Audit history - Admin Only */}
             {mode === "admin" && (

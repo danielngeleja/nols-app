@@ -480,6 +480,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
       select: {
         id: true,
         status: true,
+        rentalMode: true,
         title: true,
         basePrice: true,
         currency: true,
@@ -511,6 +512,10 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         reason: `Property status is ${property.status}`,
         requestId,
       });
+    }
+    // A long-stay home is rented by the month through a tenancy, never by the night.
+    if (property.rentalMode === "LONG_STAY") {
+      return res.status(400).json({ error: "This home is rented by the month, not by the night.", requestId });
     }
 
     const publishedRoomOptions = roomsSpecEntries(property.roomsSpec);

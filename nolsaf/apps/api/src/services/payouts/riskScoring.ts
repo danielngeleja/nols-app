@@ -92,6 +92,43 @@ export function clampRecentChangeHours(value: unknown): number {
   return Math.min(RECENT_CHANGE_HOURS_MAX, Math.max(RECENT_CHANGE_HOURS_MIN, Math.round(n)));
 }
 
+/**
+ * When this destination last changed, or null when there is nothing it
+ * changed FROM: the payee's first destination ever is onboarding, not a
+ * redirect, and must not start the cooling period. A destination added after
+ * any earlier one (active or not) keeps its anchor, so the takeover pattern
+ * (an established payee's money suddenly sent somewhere new) still waits.
+ */
+export async function destinationChangeAnchor(
+  account: Pick<PayoutAccount, "id" | "userId" | "destinationChangedAt" | "createdAt">
+): Promise<Date | null> {
+  const anchor = account.destinationChangedAt ?? account.createdAt;
+  if (!anchor) return null;
+  const earlier = await prisma.payoutAccount.count({
+    where: { userId: account.userId, id: { not: account.id }, createdAt: { lt: anchor } },
+  });
+  if (earlier > 0) return anchor;
+  // A destination that replaced one saved only on the old profile (no
+  // PayoutAccount row) is a change too. The save route records that as
+  // change "changed" in its strict audit row; fail closed if it cannot be read.
+  try {
+    const saves = await prisma.auditLog.findMany({
+      where: { action: "USER_PAYOUT_DESTINATION_VERIFIED", entity: `user:${account.userId}`, entityId: account.userId },
+      select: { afterJson: true },
+      orderBy: { id: "desc" },
+      take: 50,
+    });
+    const replacedProfileDestination = saves.some((row) => {
+      const after = row.afterJson && typeof row.afterJson === "object" && !Array.isArray(row.afterJson)
+        ? (row.afterJson as Record<string, unknown>) : {};
+      return after.payoutAccountId === account.id && after.change === "changed";
+    });
+    return replacedProfileDestination ? anchor : null;
+  } catch {
+    return anchor;
+  }
+}
+
 export async function loadPayoutSafeguards(): Promise<PayoutSafeguards> {
   try {
     const row = await prisma.systemSetting.findUnique({
@@ -158,9 +195,10 @@ export async function assessDisbursementRisk(
   // destinationChangedAt, which only moves when the number/name/provider
   // actually changes — never on verifiedAt, which routine re-verification
   // overwrites and which therefore says nothing about the destination.
-  const accountAnchor = payoutAccount.destinationChangedAt ?? payoutAccount.createdAt;
-  if (accountAnchor && hoursBetween(decisionTime, accountAnchor) <= limits.recentChangeHours) {
-    flags.push("RECENT_ACCOUNT_CHANGE");
+  // A payee's first destination is onboarding, not a change.
+  const rawAnchor = payoutAccount.destinationChangedAt ?? payoutAccount.createdAt;
+  if (rawAnchor && hoursBetween(decisionTime, rawAnchor) <= limits.recentChangeHours) {
+    if (await destinationChangeAnchor(payoutAccount)) flags.push("RECENT_ACCOUNT_CHANGE");
   }
 
   // Has this payee ever been paid to a DIFFERENT destination? This is the

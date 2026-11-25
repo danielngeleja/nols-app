@@ -75,6 +75,14 @@ describe("owner MFA policy", () => {
     expect(await ownerWeakSignInOutcome(owner, new Date("2026-12-05T00:00:00Z"))).toBe("FULL");
   });
 
+  it("blocks weak sign-in when the passkey lookup fails and requires the passkey on retry", async () => {
+    given({ passkeys: 1 });
+    const error = new Error("Passkey lookup unavailable");
+    passkeyCount.mockRejectedValueOnce(error);
+    await expect(ownerWeakSignInOutcome(owner, now)).rejects.toBe(error);
+    await expect(ownerWeakSignInOutcome(owner, now)).resolves.toBe("PASSKEY_REQUIRED");
+  });
+
   it("needs a strong session for money actions from day one, even inside grace", async () => {
     const inGrace = new Date("2026-12-05T00:00:00Z");
     given({ passkeys: 0 });

@@ -36,6 +36,8 @@ import { notifyAdmins } from "../lib/notifications.js";
 import { limitSalesLeadCheck, limitSalesLeadRead, limitSalesLeadWrite } from "../middleware/rateLimit.js";
 import { availabilityRefusal, loadLeadAvailability, type LeadAvailability } from "../lib/salesLeadAvailability.js";
 import { leadRef, resolvePartnerLead } from "../lib/salesReference.js";
+import { inspectionCurrent } from "../lib/longStay/inspection.js";
+import { todayInEat } from "../lib/longStay/listing.js";
 
 const router = Router();
 const db = prisma as any;
@@ -553,6 +555,7 @@ router.get("/leads/:id", limitSalesLeadRead as any, asyncHandler(async (req: Sal
     where: { id: parsed.data!.id, salesPartnerId: scopedPartnerId },
     select: {
       ...leadSelect(),
+      assistedListing: { select: { propertyId: true } },
       activities: {
         orderBy: { createdAt: "desc" },
         take: 200,
@@ -568,7 +571,16 @@ router.get("/leads/:id", limitSalesLeadRead as any, asyncHandler(async (req: Sal
     },
   });
   if (!lead) return res.status(404).json({ error: "Lead not found" });
-  return res.json({ lead: publicLead(lead) });
+  const { assistedListing, ...leadData } = lead;
+  const propertyId = lead.convertedPropertyId ?? assistedListing?.propertyId;
+  const inspection = propertyId ? await db.longStayInspection.findFirst({
+    where: { propertyId, status: { in: ["REQUESTED", "INVITED", "ASSIGNED", "SUBMITTED", "PASSED", "FAILED"] } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { status: true, dueBy: true, submittedAt: true, reviewedAt: true, validUntil: true },
+  }) : null;
+  const homeInspection = inspection ? { ...inspection, current: inspectionCurrent(inspection, todayInEat()) } : null;
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({ lead: { ...publicLead(leadData), homeInspection } });
 }));
 
 /** PATCH /api/sales/leads/:id */

@@ -3,6 +3,7 @@ import customerBookingsRouter from "./customer.bookings";
 import customerBookingPaymentCasesRouter from "./customer.bookingPaymentCases.js";
 import customerCancellationsRouter from "./customer.cancellations";
 import customerGroupStaysRouter from "./customer.groupStays";
+import customerLongStayRouter from "./customer.longStay.js";
 import customerKaribuRouter from "./customer.karibu";
 import customerNotificationsRouter from "./customer.notifications";
 import customerPushDevicesRouter from "./customer.pushDevices.js";
@@ -20,6 +21,7 @@ export function registerCustomerRoutes(app: Express): void {
   app.use("/api/customer/cancellations", customerCancellationsRouter as RequestHandler);
   app.use("/api/customer/rides", customerRidesRouter as RequestHandler);
   app.use("/api/customer/group-stays", customerGroupStaysRouter as RequestHandler);
+  app.use("/api/customer/long-stay", customerLongStayRouter as RequestHandler);
   app.use("/api/customer/karibu", customerKaribuRouter as RequestHandler);
   app.use("/api/customer/notifications", customerNotificationsRouter as RequestHandler);
   app.use("/api/customer/push-devices", customerPushDevicesRouter as RequestHandler);

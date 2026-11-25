@@ -88,6 +88,7 @@ const STREAMS = [
   { key: "AGENCY_STAY", label: "Agency stays" },
   { key: "AGENCY_GROUP", label: "Agency group stays" },
   { key: "AGENCY_TOUR", label: "Agency tours" },
+  { key: "LONG_STAY_INSPECTION", label: "Long-stay inspections" },
   { key: "PERFORMANCE_BONUS", label: "Performance bonus" },
   { key: "MANUAL_ADJUSTMENT", label: "Adjustments" },
 ];
@@ -189,8 +190,9 @@ export default function SalesEarningsPage() {
       { key: "NRMS_USAGE", label: "NRMS", amount: s.byStream.NRMS_USAGE || 0, bar: "bg-[#02665e]" },
       { key: "MARKETPLACE_BOOKING", label: "Marketplace", amount: s.byStream.MARKETPLACE_BOOKING || 0, bar: "bg-sky-500" },
       { key: "AGENCY", label: "Agency Desk", amount: (s.byStream.AGENCY_STAY || 0) + (s.byStream.AGENCY_GROUP || 0) + (s.byStream.AGENCY_TOUR || 0), bar: "bg-violet-500" },
+      { key: "INSPECTION", label: "Inspections", amount: s.byStream.LONG_STAY_INSPECTION || 0, bar: "bg-teal-400" },
       { key: "OTHER", label: "Bonus and adjustments", amount: (s.byStream.PERFORMANCE_BONUS || 0) + (s.byStream.MANUAL_ADJUSTMENT || 0), bar: "bg-amber-400" },
-    ].filter((r) => r.key !== "AGENCY" || r.amount > 0);
+    ].filter((r) => (r.key !== "AGENCY" && r.key !== "INSPECTION") || r.amount > 0);
     const sum = rows.reduce((t, r) => t + Math.max(0, r.amount), 0);
     return rows.map((r) => ({ ...r, share: sum > 0 ? Math.max(0, r.amount) / sum : 0 }));
   }, [s]);

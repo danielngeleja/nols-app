@@ -8,6 +8,8 @@ import { motion } from "framer-motion";
 import VerifiedIcon from "./VerifiedIcon";
 import { getPropertyCommission, calculatePriceWithCommission } from "../lib/priceUtils";
 import { PriceDisplay } from "./PriceDisplay";
+import { formatMoney } from "../lib/money";
+import { propertyDetailHref } from "../lib/propertyNavigation";
 
 export type PublicApprovedPropertyCardData = {
   id?: number;
@@ -17,6 +19,8 @@ export type PublicApprovedPropertyCardData = {
   primaryImage: string | null;
   basePrice: number | null;
   currency: string | null;
+  rentalMode?: "NIGHTLY" | "LONG_STAY";
+  longStay?: { monthlyRent: number; currency: string; inspected: boolean } | null;
   services?: any;
   /** Guest rating from visible reviews; null or missing when there are none. */
   rating?: { average: number; count: number } | null;
@@ -54,16 +58,19 @@ export default function PublicApprovedPropertyCard({
   p,
   systemCommission = 0,
   priorityImage = false,
+  resultsHref,
 }: {
   p: PublicApprovedPropertyCardData;
   systemCommission?: number;
   priorityImage?: boolean;
+  resultsHref?: string;
 }) {
-  const href = `/public/properties/${p.slug}`;
+  const href = propertyDetailHref(p.slug, resultsHref);
   const rating = p.rating && p.rating.count > 0 && p.rating.average > 0 ? p.rating : null;
+  const isLongStay = p.rentalMode === "LONG_STAY";
 
   // Calculate final price with commission (TZS — money of record).
-  const finalPrice = p.basePrice
+  const finalPrice = !isLongStay && p.basePrice
     ? calculatePriceWithCommission(p.basePrice, getPropertyCommission(p, systemCommission))
     : null;
 
@@ -104,14 +111,18 @@ export default function PublicApprovedPropertyCard({
               <PhotoPlaceholder />
             )}
 
-            {/* Verification badge — top-right */}
-            <VerifiedIcon />
+            {isLongStay ? (
+              <span className="absolute left-2 top-2 rounded-md bg-[#064d46] px-2 py-1 text-[11px] font-semibold text-white sm:left-3 sm:top-3">
+                Long stay
+              </span>
+            ) : null}
+            {!isLongStay || p.longStay?.inspected ? <VerifiedIcon /> : null}
           </div>
         </div>
 
         {/* Location, price and action button */}
         <div className="px-3 pb-3 sm:px-4 sm:pb-4 mt-2 sm:mt-3">
-          {/* One row at every width: location and rating on the left, price and "per night" on the right. */}
+          {/* Location and rating on the left, listed rate on the right. */}
           <div className="flex items-start justify-between gap-2 sm:gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 text-xs text-slate-600">
@@ -130,12 +141,14 @@ export default function PublicApprovedPropertyCard({
               ) : null}
             </div>
             <div className="text-right flex-shrink-0">
-              <PriceDisplay
-                amountTzs={finalPrice}
-                className="text-sm font-bold text-slate-900"
-                showNote={false}
-              />
-              <div className="text-[11px] text-slate-500">per night</div>
+              {isLongStay ? (
+                <span className="text-sm font-bold text-[#07574f]">
+                  {p.longStay ? formatMoney(p.longStay.monthlyRent, p.longStay.currency) : "–"}
+                </span>
+              ) : (
+                <PriceDisplay amountTzs={finalPrice} className="text-sm font-bold text-slate-900" showNote={false} />
+              )}
+              <div className={`text-[11px] ${isLongStay ? "text-[#49746b]" : "text-slate-500"}`}>{isLongStay ? "per month" : "per night"}</div>
             </div>
           </div>
 

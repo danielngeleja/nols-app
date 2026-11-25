@@ -32,7 +32,13 @@ export default function SalesAdminHeader<K extends string>({
   tabs,
   activeTab,
   onTab,
+  kicker = "Sales",
+  actions,
 }: {
+  /** The small section label above the title. */
+  kicker?: string;
+  /** Extra buttons beside the figures, e.g. an export. */
+  actions?: ReactNode;
   title: string;
   description: string;
   badge?: string;
@@ -46,10 +52,10 @@ export default function SalesAdminHeader<K extends string>({
 }) {
   return (
     <header className="rounded-lg border border-solid border-[#12342f] bg-[#0b2420] text-white">
-      <div className="flex flex-col gap-4 px-5 pt-4 md:flex-row md:items-start md:justify-between">
+      <div className="flex flex-col gap-3 px-4 pt-4 sm:px-5 xl:flex-row xl:items-start xl:justify-between xl:gap-6">
         <div className="min-w-0">
           <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300/80">
-            Sales
+            {kicker}
             {badge && (
               <span className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white/70">
                 <Lock className="h-3 w-3" /> {badge}
@@ -60,11 +66,11 @@ export default function SalesAdminHeader<K extends string>({
           <p className="m-0 mt-0.5 max-w-2xl text-[13px] text-white/60">{description}</p>
         </div>
 
-        <div className="flex w-full min-w-0 items-stretch gap-2 md:w-auto">
+        <div className="flex w-full min-w-0 items-stretch gap-2 xl:w-auto xl:shrink-0">
           {metrics.length > 0 && (
-            <dl className="m-0 flex min-w-0 flex-1 items-stretch overflow-hidden rounded-md border border-solid border-white/15 bg-white/[0.04] md:flex-none">
+            <dl className="m-0 flex min-w-0 flex-1 items-stretch overflow-hidden rounded-md border border-solid border-white/15 bg-white/[0.04] xl:flex-none">
               {metrics.map((m, i) => (
-                <div key={m.label} className={`min-w-0 flex-1 px-4 py-2 md:min-w-[88px] md:max-w-[220px] md:flex-none ${i ? "border-0 border-l border-solid border-white/10" : ""}`}>
+                <div key={m.label} className={`min-w-0 flex-1 px-3 py-2 sm:px-4 xl:min-w-[88px] xl:max-w-[220px] xl:flex-none ${i ? "border-0 border-l border-solid border-white/10" : ""}`}>
                   <dt className="truncate text-[11px] text-white/55">{m.label}</dt>
                   <dd className={`m-0 truncate text-lg font-bold tabular-nums leading-tight ${TONE[m.tone ?? "default"]}`} title={m.title}>{m.value}</dd>
                   {m.sub ? <dd className="m-0 truncate text-[11px] text-white/45">{m.sub}</dd> : null}
@@ -72,6 +78,7 @@ export default function SalesAdminHeader<K extends string>({
               ))}
             </dl>
           )}
+          {actions}
           {onRefresh && (
             <button
               type="button"

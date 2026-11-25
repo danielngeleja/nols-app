@@ -22,6 +22,8 @@ import {
   Wallet,
   WashingMachine,
   Waves,
+  Sun,
+  Warehouse,
 } from "lucide-react";
 import { AddPropertySection } from "./AddPropertySection";
 import { NearbyPlacesCard } from "./NearbyPlacesCard";
@@ -86,6 +88,40 @@ const PARKING: { v: "no" | "free" | "paid"; label: string; Icon: Icon }[] = [
   { v: "free", label: "Free parking", Icon: Car },
   { v: "paid", label: "Paid parking", Icon: Wallet },
 ];
+/** Long stay: a tenant parks every day, so parking is part of the rent or a monthly extra. */
+const PARKING_MONTHLY: { v: "no" | "free" | "paid"; label: string; Icon: Icon }[] = [
+  { v: "no", label: "No parking", Icon: Ban },
+  { v: "free", label: "Included in the rent", Icon: Car },
+  { v: "paid", label: "Extra each month", Icon: Wallet },
+];
+
+/** Long stay: what a tenant can use in the compound or building, not hotel services. */
+const HOME_FACILITY_GROUPS: typeof SERVICE_GROUPS = [
+  {
+    label: "In the compound",
+    items: [
+      { key: "pool", label: "Swimming pool", hint: "A pool the tenant can use", Icon: Waves },
+      { key: "gym", label: "Gym", hint: "A gym in the building or compound", Icon: Dumbbell },
+      { key: "playground", label: "Children's play area", hint: "A safe place for children to play", Icon: PartyPopper },
+      { key: "sportsGames", label: "Sports court", hint: "Basketball, tennis or a games room", Icon: Gamepad },
+    ],
+  },
+  {
+    label: "Services for the tenant",
+    items: [
+      { key: "security24", label: "Guard on duty, 24 hours", hint: "A guard at the gate day and night", Icon: Shield },
+      { key: "cleaningService", label: "Cleaning service", hint: "Cleaning the tenant can book; say in the description if it costs extra", Icon: Package },
+      { key: "laundry", label: "Laundry service", hint: "Someone can wash clothes for the tenant", Icon: WashingMachine },
+    ],
+  },
+  {
+    label: "Safety",
+    items: [
+      { key: "fireExtinguisher", label: "Fire extinguisher", hint: "Fire extinguishers in the home or building", Icon: FireExtinguisher },
+      { key: "firstAid", label: "First aid kit", hint: "A first aid kit in the home", Icon: Bandage },
+    ],
+  },
+];
 
 export function ServicesStep({
   isVisible,
@@ -101,6 +137,7 @@ export function ServicesStep({
   numOrEmpty,
   nearbyFacilities,
   setNearbyFacilities,
+  monthly = false,
 }: {
   isVisible: boolean;
   sectionRef: (el: HTMLElement | null) => void;
@@ -115,6 +152,8 @@ export function ServicesStep({
   numOrEmpty: (v: any) => number | "";
   nearbyFacilities: any[];
   setNearbyFacilities: (updater: (prev: any[]) => any[]) => void;
+  /** Long stay: parking by the month and facilities a tenant lives with. */
+  monthly?: boolean;
 }) {
   const [showMoreServices, setShowMoreServices] = useState(false);
   const hotelStyle = HOTEL_TYPES.has(propertyType);
@@ -178,6 +217,11 @@ export function ServicesStep({
 
   const parking = services?.parking || "no";
   const parkingPrice = services?.parkingPrice;
+  const parkingSpaces = Number(services?.parkingSpaces) || 1;
+  const parkingOptions = monthly ? PARKING_MONTHLY : PARKING;
+  // Monthly listings price parking per month; the period is saved so it is shown right everywhere.
+  const setParking = (patch: Record<string, unknown>) => setServices((s: any) => ({ ...s, ...patch, ...(monthly ? { parkingPeriod: "month" } : { parkingPeriod: undefined }) }));
+  const homeFacilityCount = HOME_FACILITY_GROUPS.reduce((sum, g) => sum + g.items.filter((i) => !!services?.[i.key]).length, 0);
 
   return (
     <AddPropertySection as="section" sectionRef={sectionRef} isVisible={isVisible} className="add-property-step-surface">
@@ -191,8 +235,8 @@ export function ServicesStep({
               <header className="ap-card-head">
                 <span className="ap-card-head-no">1</span>
                 <div className="ap-card-head-copy">
-                  <h3 className="ap-card-title">Parking</h3>
-                  <p className="ap-card-sub">Can guests park at the property?</p>
+                  <h3 className="ap-card-title">{monthly ? "Parking for the tenant" : "Parking"}</h3>
+                  <p className="ap-card-sub">{monthly ? "Can the tenant park a car at the home every day?" : "Can guests park at the property?"}</p>
                 </div>
                 <span className={`ap-card-tag${parking === "no" ? " is-todo" : ""}`}>
                   {parking === "no" ? (
@@ -201,24 +245,117 @@ export function ServicesStep({
                     <>
                       <Check className="h-3.5 w-3.5" aria-hidden />
                       {parking === "free"
-                        ? "Free"
+                        ? (monthly ? `In the rent${parkingSpaces > 1 ? `, ${parkingSpaces} cars` : ""}` : "Free")
                         : Number(parkingPrice) > 0
-                          ? `TZS ${Number(parkingPrice).toLocaleString("en-US")} a day`
+                          ? `TZS ${Number(parkingPrice).toLocaleString("en-US")} a ${monthly ? "month" : "day"}`
                           : "Paid"}
                     </>
                   )}
                 </span>
               </header>
+              {monthly ? (
+                <div className="ap-card-body space-y-5">
+                  {/* 1. Is there parking, and who pays */}
+                  <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Parking for the tenant">
+                    {([
+                      { v: "no", title: "No parking", detail: "The tenant parks on the street or nearby", Icon: Ban },
+                      { v: "free", title: "Included in the rent", detail: "No extra cost to the tenant", Icon: Car },
+                      { v: "paid", title: "Extra each month", detail: "You set a monthly price", Icon: Wallet },
+                    ] as const).map(({ v, title, detail, Icon: TileIcon }) => {
+                      const on = parking === v;
+                      return (
+                        <button key={v} type="button" role="radio" aria-checked={on} onClick={() => setParking({ parking: v })}
+                          className={`relative flex cursor-pointer items-start gap-3 rounded-xl border border-solid p-3.5 text-left [font-family:inherit] transition-colors ${on ? "border-teal-400/70 bg-teal-400/[0.08]" : "border-white/10 bg-white/[0.02] hover:border-white/25"}`}>
+                          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${on ? "bg-teal-400/20 text-teal-200" : "bg-white/[0.06] text-white/50"}`}><TileIcon className="h-[18px] w-[18px]" /></span>
+                          <span className="min-w-0 flex-1">
+                            <span className={`block text-[14px] font-semibold ${on ? "text-white" : "text-white/80"}`}>{title}</span>
+                            <span className="mt-0.5 block text-[12px] leading-4 text-white/45">{detail}</span>
+                          </span>
+                          <span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border border-solid ${on ? "border-teal-300 bg-teal-400 text-[#0b2420]" : "border-white/25"}`}>{on ? <Check className="h-3 w-3" /> : null}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {parking !== "no" ? (
+                    <div className="grid gap-4 rounded-xl border border-solid border-white/10 bg-white/[0.02] p-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+                      {/* 2. How many cars: tap a space */}
+                      <div>
+                        <p className="m-0 text-[13px] font-semibold text-white">Parking spaces for the tenant</p>
+                        <p className="m-0 mt-0.5 text-[12px] text-white/45">Tap how many cars fit.</p>
+                        <div className="mt-2.5 grid grid-cols-6 gap-1.5" role="radiogroup" aria-label="Parking spaces">
+                          {[1, 2, 3, 4, 5, 6].map((count) => {
+                            const filled = count <= parkingSpaces;
+                            return (
+                              <button key={count} type="button" role="radio" aria-checked={parkingSpaces === count} aria-label={`${count} car${count === 1 ? "" : "s"}`} onClick={() => setParking({ parkingSpaces: count })}
+                                className={`flex h-14 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed [font-family:inherit] transition-colors ${filled ? "border-teal-300/70 bg-teal-400/15 text-teal-200" : "border-white/15 bg-transparent text-white/25 hover:border-white/35 hover:text-white/50"}`}>
+                                <Car className="h-5 w-5" />
+                                <span className="text-[11px] font-semibold">{count}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 3. Open or covered */}
+                      <div>
+                        <p className="m-0 text-[13px] font-semibold text-white">Kind of parking</p>
+                        <p className="m-0 mt-0.5 text-[12px] text-white/45">Covered protects the car from sun and rain.</p>
+                        <div className="mt-2.5 grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Kind of parking">
+                          {([[false, "Open", "In the compound", Sun], [true, "Covered", "Shade or garage", Warehouse]] as const).map(([v, l, d, KindIcon]) => {
+                            const on = Boolean(services?.parkingCovered) === v;
+                            return (
+                              <button key={l} type="button" role="radio" aria-checked={on} onClick={() => setParking({ parkingCovered: v })}
+                                className={`flex h-14 cursor-pointer items-center gap-2.5 rounded-lg border border-solid px-3 text-left [font-family:inherit] transition-colors ${on ? "border-teal-400/70 bg-teal-400/[0.08]" : "border-white/10 bg-transparent hover:border-white/25"}`}>
+                                <KindIcon className={`h-5 w-5 shrink-0 ${on ? "text-teal-200" : "text-white/40"}`} />
+                                <span className="min-w-0">
+                                  <span className={`block text-[13px] font-semibold ${on ? "text-white" : "text-white/75"}`}>{l}</span>
+                                  <span className="block truncate text-[11.5px] text-white/40">{d}</span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 4. Monthly price, only when it is extra */}
+                      {parking === "paid" ? (
+                        <div className="lg:col-span-2">
+                          <label htmlFor="parking-price" className="m-0 block text-[13px] font-semibold text-white">Price each month{parkingSpaces > 1 ? ", for all spaces" : ""}</label>
+                          <div className={`ap-price mt-2 max-w-[320px]${Number(parkingPrice) > 0 ? " is-set" : ""}`}>
+                            <span className="ap-price-unit">TZS</span>
+                            <input id="parking-price" type="text" inputMode="numeric" autoFocus placeholder="30,000"
+                              value={parkingPrice === "" || parkingPrice == null ? "" : Number(parkingPrice).toLocaleString("en-US")}
+                              onChange={(e) => setParking({ parkingPrice: numOrEmpty(e.target.value.replace(/[^0-9]/g, "")) })} />
+                            <span className="ap-price-unit">/ month</span>
+                          </div>
+                          <p className="m-0 mt-1.5 text-[12px] text-white/45">Paid by the tenant to you with the rent. It is not part of what NoLSAF collects.</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {/* What tenants will read */}
+                  <p className="m-0 flex items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-2.5 text-[12.5px] text-white/60">
+                    <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-white/50">Tenants see</span>
+                    <span className="min-w-0 text-white/85">
+                      {parking === "no"
+                        ? "No parking at the home."
+                        : `${services?.parkingCovered ? "Covered parking" : "Open parking"} for ${parkingSpaces} car${parkingSpaces === 1 ? "" : "s"}, ${parking === "free" ? "included in the rent" : Number(parkingPrice) > 0 ? `TZS ${Number(parkingPrice).toLocaleString("en-US")} a month` : "extra each month"}.`}
+                    </span>
+                  </p>
+                </div>
+              ) : (
               <div className="ap-card-body">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                   <div className="ap-toggles lg:max-w-[560px] lg:flex-1" role="radiogroup" aria-label="Parking">
-                    {PARKING.map(({ v, label, Icon }) => (
+                    {parkingOptions.map(({ v, label, Icon }) => (
                       <button
                         key={v}
                         type="button"
                         role="radio"
                         aria-checked={parking === v}
-                        onClick={() => setServices((s: any) => ({ ...s, parking: v }))}
+                        onClick={() => setParking({ parking: v })}
                         className={`ap-toggle${parking === v ? " is-on" : ""}`}
                       >
                         <Icon className="h-4 w-4" />
@@ -229,7 +366,7 @@ export function ServicesStep({
                   {parking === "paid" ? (
                     <div className="lg:w-[280px]">
                       <label htmlFor="parking-price" className="ap-label">
-                        Daily price
+                        {monthly ? "Price each month" : "Daily price"}
                       </label>
                       <div className={`ap-price${Number(parkingPrice) > 0 ? " is-set" : ""}`}>
                         <span className="ap-price-unit">TZS</span>
@@ -238,16 +375,17 @@ export function ServicesStep({
                           type="text"
                           inputMode="numeric"
                           value={parkingPrice === "" || parkingPrice == null ? "" : Number(parkingPrice).toLocaleString("en-US")}
-                          onChange={(e) => setServices((s: any) => ({ ...s, parkingPrice: numOrEmpty(e.target.value.replace(/[^0-9]/g, "")) }))}
-                          placeholder="5,000"
+                          onChange={(e) => setParking({ parkingPrice: numOrEmpty(e.target.value.replace(/[^0-9]/g, "")) })}
+                          placeholder={monthly ? "30,000" : "5,000"}
                           autoFocus
                         />
-                        <span className="ap-price-unit">/ day</span>
+                        <span className="ap-price-unit">/ {monthly ? "month" : "day"}</span>
                       </div>
                     </div>
                   ) : null}
                 </div>
               </div>
+              )}
             </section>
 
             {/* On-site services suggested for this property type; every other service remains available. */}
@@ -255,19 +393,25 @@ export function ServicesStep({
               <header className="ap-card-head">
                 <span className="ap-card-head-no">2</span>
                 <div className="ap-card-head-copy">
-                  <h3 className="ap-card-title">On-site services</h3>
-                  <p className="ap-card-sub">Select services guests can use at this {propertyType ? propertyType.toLowerCase() : "property"}.</p>
+                  <h3 className="ap-card-title">{monthly ? "Shared facilities" : "On-site services"}</h3>
+                  <p className="ap-card-sub">{monthly ? "What the tenant can use in the compound or building, beyond the home itself." : `Select services guests can use at this ${propertyType ? propertyType.toLowerCase() : "property"}.`}</p>
                 </div>
-                {onSiteCount > 0 ? (
+                {(monthly ? homeFacilityCount : onSiteCount) > 0 ? (
                   <span className="ap-card-tag">
                     <Check className="h-3.5 w-3.5" aria-hidden />
-                    {onSiteCount} selected
+                    {monthly ? homeFacilityCount : onSiteCount} selected
                   </span>
                 ) : (
                   <span className="ap-card-tag is-todo">Optional</span>
                 )}
               </header>
 
+              {monthly ? (
+                <>
+                  <div className="ap-service-context">The kitchen, furniture, water, power and security of the home itself are set in Rooms. Meals and room service are for nightly stays, so they are not offered here.</div>
+                  {renderGroups(HOME_FACILITY_GROUPS)}
+                </>
+              ) : <>
               <div className="ap-service-context">{hotelStyle ? "Common hotel services appear first. Add any other service guests can actually use." : "Kitchen, cooking and amenities inside the booked space are set in Rooms and beds. Add property services here."}</div>
               {hotelStyle ? <div className="ap-service-breakfast-wrap">{breakfastPicker}</div> : null}
               {renderGroups(priorityGroups)}
@@ -283,6 +427,7 @@ export function ServicesStep({
                 </button>
                 {showMoreServices ? <div className="ap-service-more-content">{!hotelStyle ? breakfastPicker : null}{renderGroups(moreGroups)}</div> : null}
               </div>
+              </>}
               {services?.nearbyMall ? <div className="ap-service-legacy-mall"><span>“Mall nearby” was saved in the old service list. Add the named mall under Nearby places, then clear this old flag.</span><button type="button" onClick={() => setServices((previous: any) => ({ ...previous, nearbyMall: false }))}>Clear old flag</button></div> : null}
             </section>
 

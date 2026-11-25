@@ -7,8 +7,10 @@ import * as readline from "readline";
 //   npx tsx src/dev/bootstrap-admin.ts              -> local .env + optional .env.local
 //   npx tsx src/dev/bootstrap-admin.ts --staging    -> .env.staging + optional .env.staging.local
 //   npx tsx src/dev/bootstrap-admin.ts --production -> .env.production + optional .env.production.local
+//   Add --use-current-env on hosted services to use their injected environment.
 const isProd = process.argv.includes("--production");
 const isStaging = process.argv.includes("--staging");
+const useCurrentEnv = process.argv.includes("--use-current-env");
 const isLocal = !isProd && !isStaging;
 
 if (isProd && isStaging) {
@@ -40,7 +42,15 @@ function loadEnvFiles(files: string[]): void {
   }
 }
 
-if (isProd) {
+if (useCurrentEnv) {
+  if (isLocal) {
+    throw new Error("[bootstrap] --use-current-env requires --staging or --production.");
+  }
+  process.env.NODE_ENV = isProd ? "production" : (process.env.NODE_ENV || "staging");
+  requireEnv(["DATABASE_URL", "ENCRYPTION_KEY", "JWT_SECRET"], isProd ? "PRODUCTION" : "STAGING");
+  const databaseHost = new URL(process.env.DATABASE_URL!).hostname;
+  console.log(`[bootstrap] Target: ${isProd ? "PRODUCTION" : "STAGING"} (current environment, database ${databaseHost})`);
+} else if (isProd) {
   clearBootstrapEnv();
   process.env.NODE_ENV = "production";
   loadEnvFiles([".env.production", ".env.production.local"]);

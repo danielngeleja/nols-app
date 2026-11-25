@@ -1,4 +1,8 @@
 import { Router } from "express";
+import { publicLongStayView, todayInEat } from "../lib/longStay/listing.js";
+import { publicInspectionReport } from "../lib/longStay/inspection.js";
+import { longStayOpen } from "../lib/longStay/fees.js";
+import { extractPublicKeyFromSlug } from "../lib/publicPropertyKey.js";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { nightlyPriceOptions, serviceTagSet, toPublicCard, toPublicDetail } from "../lib/publicPropertyDto.js";
@@ -175,12 +179,6 @@ function parseAmenities(v: any): string[] {
   return out.slice(0, 50);
 }
 
-function extractPublicKeyFromSlug(idOrSlug: string): string | null {
-  const raw = String(idOrSlug || "").trim().toLowerCase();
-  if (!raw) return null;
-  const key = raw.includes("-") ? raw.slice(raw.lastIndexOf("-") + 1) : raw;
-  return /^[a-z0-9]{20,40}$/.test(key) ? key : null;
-}
 
 function bboxFromKm(lat: number, lng: number, radiusKm: number) {
   // Very good approximation for small radii.
@@ -332,6 +330,29 @@ async function resolveLegacyPhotoUrls(propertyId: number, limit = 24): Promise<s
  * GET /api/public/properties
  * Public browse/search endpoint for APPROVED properties only.
  */
+async function browseCards(rows: Array<any>) {
+  const ids = rows.filter((row) => row.rentalMode === "LONG_STAY").map((row) => Number(row.id));
+  if (!ids.length) return attachReviewRatings(rows.map(toPublicCard));
+
+  const [terms, inspections] = await Promise.all([
+    prisma.longStayListing.findMany({
+      where: { propertyId: { in: ids } },
+      select: { propertyId: true, monthlyRent: true, currency: true },
+    }),
+    prisma.longStayInspection.findMany({
+      where: { propertyId: { in: ids }, status: "PASSED", validUntil: { gte: new Date(`${todayInEat()}T00:00:00Z`) } },
+      select: { propertyId: true },
+    }),
+  ]);
+  const byProperty = new Map(terms.map((row) => [row.propertyId, row]));
+  const inspected = new Set(inspections.map((row) => row.propertyId));
+  return attachReviewRatings(rows.map((row) => toPublicCard({
+    ...row,
+    longStayListing: byProperty.get(Number(row.id)),
+    longStayInspected: inspected.has(Number(row.id)),
+  })));
+}
+
 const listPublicProperties: RequestHandler = async (req, res) => {
   const q = String((req.query as any)?.q ?? "").trim();
   const region = String((req.query as any)?.region ?? "").trim();
@@ -363,9 +384,16 @@ const listPublicProperties: RequestHandler = async (req, res) => {
   const skip = (page - 1) * pageSize;
 
   const sort = String((req.query as any)?.sort ?? "newest");
+  const priceDirection = sort === "price_asc" ? "asc" : sort === "price_desc" ? "desc" : null;
+  const hasPriceRange = minPrice !== undefined || maxPrice !== undefined;
+  const rental = req.query.rental === "long-stay" ? "LONG_STAY"
+    : req.query.rental === "all" && !hasPriceRange && !priceDirection ? null : "NIGHTLY";
+  const rentalClause = rental ? Prisma.sql` AND rentalMode = ${rental}` : Prisma.empty;
+  const qualifiedRentalClause = rental ? Prisma.sql` AND p.rentalMode = ${rental}` : Prisma.empty;
 
   const where: any = {
     status: "APPROVED",
+    ...(rental ? { rentalMode: rental } : {}),
   };
 
   // IMPORTANT: Do not filter via relation `tourismSite.slug` here.
@@ -494,11 +522,13 @@ const listPublicProperties: RequestHandler = async (req, res) => {
   // Price filter: match the prices guests actually see and book. Many stays have
   // no basePrice and are priced per room in roomsSpec, so filtering the column
   // alone hid them even though their card showed a price inside the range.
-  if (minPrice !== undefined || maxPrice !== undefined) {
+  if (hasPriceRange && rental === "LONG_STAY") {
+    where.longStayListing = { is: { currency: "TZS", monthlyRent: { gte: minPrice, lte: maxPrice } } };
+  } else if (hasPriceRange) {
     const lo = minPrice ?? 0;
     const hi = maxPrice ?? Number.POSITIVE_INFINITY;
     const candidates = await prisma.property.findMany({
-      where: { status: "APPROVED", ...(where.id ? { id: where.id } : {}) },
+      where,
       select: { id: true, basePrice: true, roomsSpec: true },
     });
     const ids = candidates
@@ -527,8 +557,8 @@ const listPublicProperties: RequestHandler = async (req, res) => {
   const orderBy: any[] = [];
   // NOTE: Avoid MySQL "Out of sort memory" errors on large tables by sorting on indexed PK.
   // "newest" is approximated by highest id (monotonic in our schema).
-  if (sort === "price_asc") orderBy.push({ basePrice: "asc" }, { id: "desc" });
-  else if (sort === "price_desc") orderBy.push({ basePrice: "desc" }, { id: "desc" });
+  if (priceDirection && rental === "LONG_STAY") orderBy.push({ longStayListing: { currency: "asc" } }, { longStayListing: { monthlyRent: priceDirection } }, { id: "desc" });
+  else if (priceDirection) orderBy.push({ basePrice: priceDirection }, { id: "desc" });
   else orderBy.push({ id: "desc" });
 
   try {
@@ -540,7 +570,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
       tourismSiteSlug, parkPlacement,
       minPrice, maxPrice, guests,
       nearLat, nearLng, radiusKm,
-      page, pageSize, sort,
+      page, pageSize, sort, rental,
     });
 
     const { result, duration } = await measureTime('public.properties.list', async () => {
@@ -606,7 +636,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
               const rows = (await prisma.$queryRaw(
                 Prisma.sql`
                   SELECT
-                    p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
+                    p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName, p.rentalMode,
                     p.district, p.ward, p.street, p.city, p.country,
                     p.services, p.basePrice, p.currency, p.roomsSpec,
                     p.maxGuests, p.totalBedrooms, p.totalBathrooms,
@@ -642,6 +672,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                     GROUP BY entityId
                   ) latestApproval ON latestApproval.entityId = p.id
                   WHERE p.status = 'APPROVED'
+                    ${qualifiedRentalClause}
                     AND p.type IN (${Prisma.join(typeFilters.map((t) => Prisma.sql`${t}`))})
                   ORDER BY COALESCE(latestApproval.approvedAt, p.updatedAt, p.createdAt) DESC, p.id DESC
                   LIMIT ${pageSize} OFFSET ${skip}
@@ -671,6 +702,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   FROM \`property\`
                   FORCE INDEX (PRIMARY)
                   WHERE status = 'APPROVED'
+                    ${rentalClause}
                     AND tourismSiteId = ${tourismSiteId}
                     ${placementClause}
                     ${typeClause}
@@ -688,7 +720,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   ? (prisma.$queryRaw(
                       Prisma.sql`
                         SELECT
-                          p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
+                          p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName, p.rentalMode,
                           p.district, p.ward, p.street, p.city, p.country,
                           p.services, p.basePrice, p.currency, p.roomsSpec,
                           p.maxGuests, p.totalBedrooms, p.totalBathrooms,
@@ -741,6 +773,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   FROM \`property\`
                   FORCE INDEX (PRIMARY)
                   WHERE status = 'APPROVED'
+                  ${rentalClause}
                   ${typeClause}
                   ORDER BY id DESC
                   LIMIT ${pageSize} OFFSET ${skip}
@@ -756,7 +789,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   ? (prisma.$queryRaw(
                       Prisma.sql`
                         SELECT
-                          p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
+                          p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName, p.rentalMode,
                           p.district, p.ward, p.street, p.city, p.country,
                           p.services, p.basePrice, p.currency, p.roomsSpec,
                           p.maxGuests, p.totalBedrooms, p.totalBathrooms,
@@ -805,6 +838,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   select: {
                     id: true,
                     nrmsBookingKey: true,
+                    rentalMode: true,
                     title: true,
                     type: true,
                     parkPlacement: true,
@@ -846,6 +880,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   select: {
                     id: true,
                     nrmsBookingKey: true,
+                    rentalMode: true,
                     title: true,
                     type: true,
                     parkPlacement: true,
@@ -870,7 +905,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                 (fbItems as any[]).map((p: any) => Number(p.id)).filter((n: number) => Number.isFinite(n))
               );
               const fbItemsWithImages = applyPrimaryImages(fbItems as any[], fbImgMap);
-              const dto = await attachReviewRatings(fbItemsWithImages.map(toPublicCard));
+              const dto = await browseCards(fbItemsWithImages);
               return {
                 items: dto,
                 total: fbCnt as number,
@@ -893,6 +928,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                 select: {
                   id: true,
                   nrmsBookingKey: true,
+                  rentalMode: true,
                   title: true,
                   type: true,
                   parkPlacement: true,
@@ -918,7 +954,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
             total = minCnt as number;
           }
 
-          const dto = await attachReviewRatings((items || []).map(toPublicCard));
+          const dto = await browseCards(items);
           return { items: dto, total, page, pageSize };
         },
         {
@@ -987,6 +1023,8 @@ const getPublicProperty: RequestHandler = async (req, res) => {
               ownerId: true, // Include ownerId to check ownership on frontend
               nrmsActivatedAt: true,
               nrmsMenuPublic: true,
+              rentalMode: true,
+              longStayListing: true,
               images: {
                 where: {
                   // Show all uploaded images on public details as long as they're not rejected.
@@ -1070,7 +1108,7 @@ const getPublicProperty: RequestHandler = async (req, res) => {
             physicalVerification: {
               status: "VERIFIED",
               verifiedAt: physicalVerification?.verifiedAt ?? null,
-              method: physicalVerification?.method ?? DEFAULT_PROPERTY_VERIFICATION_METHOD,
+              method: physicalVerification?.method ?? (p.rentalMode === "LONG_STAY" ? "Listing review" : DEFAULT_PROPERTY_VERIFICATION_METHOD),
               note: physicalVerification?.note ?? "This stay is listed publicly after NoLSAF approval.",
               checklist: physicalVerification?.checklist ?? null,
               verifier: physicalVerification?.verifier ?? null,
@@ -1078,6 +1116,22 @@ const getPublicProperty: RequestHandler = async (req, res) => {
               qrCodeDataUrl,
             },
           });
+          // Long stay (docs/LONG_STAY_RENTALS.md): monthly terms instead of nights.
+          if (p.rentalMode === "LONG_STAY") {
+            const [tenancies, inspection] = await Promise.all([
+              prisma.tenancy.findMany({ where: { propertyId: id }, select: { status: true, endDate: true } }),
+              publicInspectionReport(prisma, id, todayInEat()),
+            ]);
+            (dto as any).rentalMode = "LONG_STAY";
+            (dto as any).longStay = {
+              ...publicLongStayView(p.longStayListing, tenancies),
+              inspected: inspection.inspected,
+              inspectionReport: inspection.report,
+              open: longStayOpen() && Boolean(inspection.inspected),
+            };
+          } else {
+            (dto as any).rentalMode = "NIGHTLY";
+          }
           return { property: dto };
         },
         {

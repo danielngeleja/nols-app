@@ -20,6 +20,8 @@ export type PublicPropertyCard = {
   services: string[];
   basePrice: number | null;
   currency: string | null;
+  rentalMode: "NIGHTLY" | "LONG_STAY";
+  longStay: { monthlyRent: number; currency: string; inspected: boolean } | null;
   maxGuests: number | null;
   totalBedrooms: number | null;
   totalBathrooms: number | null;
@@ -339,7 +341,11 @@ export function formatLocation(p: {
 export function toPublicCard(p: any): PublicPropertyCard {
   const id = Number(p.id);
   const slug = buildPropertySlug(String(p.title || ""), String(p.nrmsBookingKey || ""));
-  const effectiveBasePrice = extractEffectiveBasePrice(p);
+  const rentalMode = p.rentalMode === "LONG_STAY" ? "LONG_STAY" : "NIGHTLY";
+  const monthlyRent = Number(p.longStayListing?.monthlyRent);
+  const longStay = rentalMode === "LONG_STAY" && Number.isFinite(monthlyRent) && monthlyRent > 0
+    ? { monthlyRent, currency: p.longStayListing.currency ?? "TZS", inspected: p.longStayInspected === true }
+    : null;
   // If primaryImage is pre-extracted (e.g. from a raw SQL query using JSON_EXTRACT or
   // batchResolvePrimaryImages), use it directly — but still validate it's a renderable URL
   // so base64 data URIs from the legacy photos JSON field can never reach the browser.
@@ -377,8 +383,10 @@ export function toPublicCard(p: any): PublicPropertyCard {
     parkPlacement: p.parkPlacement === "INSIDE" || p.parkPlacement === "NEARBY" ? p.parkPlacement : null,
     primaryImage,
     services: p.services ?? null, // Preserve full services object (may contain commissionPercent, discountRules)
-    basePrice: effectiveBasePrice,
+    basePrice: rentalMode === "NIGHTLY" ? extractEffectiveBasePrice(p) : null,
     currency: p.currency ?? null,
+    rentalMode,
+    longStay,
     maxGuests: typeof p.maxGuests === "number" ? p.maxGuests : (p.maxGuests != null ? Number(p.maxGuests) : null),
     totalBedrooms: typeof p.totalBedrooms === "number" ? p.totalBedrooms : (p.totalBedrooms != null ? Number(p.totalBedrooms) : null),
     totalBathrooms: typeof p.totalBathrooms === "number" ? p.totalBathrooms : (p.totalBathrooms != null ? Number(p.totalBathrooms) : null),

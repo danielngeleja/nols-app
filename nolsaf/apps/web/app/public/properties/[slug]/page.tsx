@@ -1,5 +1,10 @@
 "use client";
 
+import LongStayRequestCard, { type PublicLongStay } from "./LongStayRequestCard";
+import LongStayInspectionReport from "./LongStayInspectionReport";
+import LongStayHomeLayout, { bedroomBedsLabel } from "./LongStayHomeLayout";
+import PropertyOfferings, { isParkingAmenity } from "./PropertyOfferings";
+import ShortStayServices from "./ShortStayServices";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 import Image from "next/image";
@@ -19,6 +24,7 @@ import type { ComponentType } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchAccountSession } from "@/lib/accountSession";
 import { captureShareToken, createShareLink } from "@/lib/propertyShareToken";
+import { goBackFromProperty, propertyShareFallbackUrl } from "@/lib/propertyNavigation";
 
 import {
   MapPin,
@@ -32,21 +38,12 @@ import {
   FileText,
   Tag,
   Car,
-  Coffee,
   UtensilsCrossed,
-  Beer,
-  Waves,
+  Coffee,
   Thermometer,
-  WashingMachine,
-  ConciergeBell,
+  Waves,
   Shield,
-  Bandage,
-  FireExtinguisher,
-  ShoppingBag,
   Store,
-  PartyPopper,
-  Gamepad2,
-  Dumbbell,
   CreditCard,
   Banknote,
   Building2,
@@ -122,215 +119,13 @@ import {
 import { BATHROOM_ICONS, OTHER_AMENITIES_ICONS } from "../../../../lib/amenityIcons";
 import { PriceDisplay } from "@/components/PriceDisplay";
 
-function isCloudinaryImage(src: string) {
-  try {
-    return new URL(src).hostname === "res.cloudinary.com";
-  } catch {
-    return src.includes("res.cloudinary.com");
-  }
-}
-
-function cloudinaryPreviewUrl(src: string, sizes: string, className: string) {
-  if (!isCloudinaryImage(src)) return src;
-  const uploadMarker = "/image/upload/";
-  const uploadIndex = src.indexOf(uploadMarker);
-  if (uploadIndex === -1) return src;
-
-  const beforeUpload = src.slice(0, uploadIndex + uploadMarker.length);
-  const afterUpload = src.slice(uploadIndex + uploadMarker.length);
-  const firstSegment = afterUpload.split("/")[0] || "";
-  const alreadyTransformed = /^(c_|f_|g_|h_|q_|w_|ar_|e_)/.test(firstSegment) || firstSegment.includes(",");
-  if (alreadyTransformed) return src;
-
-  const isThumbnail = sizes.includes("120px") || sizes.includes("260px");
-  const isSideGalleryTile = sizes.includes("22vw") || sizes.includes("50vw");
-  const isCoverTile = className.includes("object-cover");
-  const transform = isThumbnail
-    ? "f_auto,q_auto,w_360,c_fill,g_auto"
-    : isSideGalleryTile
-      ? "f_auto,q_auto,w_600,c_fill,g_auto"
-    : isCoverTile
-      ? "f_auto,q_auto,w_900,c_fill,g_auto"
-      : "f_auto,q_auto,w_1400";
-
-  return `${beforeUpload}${transform}/${afterUpload}`;
-}
-
-function PropertyGalleryImage({
-  src,
-  alt,
-  sizes,
-  priority = false,
-  className = "object-cover",
-}: {
-  src: string;
-  alt: string;
-  sizes: string;
-  priority?: boolean;
-  className?: string;
-}) {
-  // Keep a neutral background while the file arrives, but never hide the real
-  // image behind a full-load gate. Remote property images load directly so the
-  // visitor does not wait for a second server-side optimization request.
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    setLoaded(false);
-    setFailed(false);
-  }, [src]);
-
-  if (/^data:image\//i.test(src)) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={src} alt={alt} className={`h-full w-full ${className}`} loading={priority ? "eager" : "lazy"} />;
-  }
-
-  const imageSrc = cloudinaryPreviewUrl(src, sizes, className);
-  const bypassNextOptimizer =
-    /^https?:\/\//i.test(src) ||
-    src.startsWith("http://localhost") ||
-    src.startsWith("http://127.0.0.1");
-
-  return (
-    <>
-      {!loaded && !failed ? (
-        <span aria-hidden className="pv-skeleton absolute inset-0" />
-      ) : null}
-      {failed ? (
-        <span aria-hidden className="absolute inset-0 flex items-center justify-center bg-slate-100 text-slate-400">
-          <ImageIcon className="h-6 w-6" />
-        </span>
-      ) : null}
-      {!failed ? (
-        <Image
-          src={imageSrc}
-          alt={alt}
-          fill
-          className={`${className} opacity-100`}
-          sizes={sizes}
-          priority={priority}
-          unoptimized={bypassNextOptimizer}
-          onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
-        />
-      ) : null}
-    </>
-  );
-}
-
-/**
- * Stay photos above the fold.
- * Desktop: one large photo with a 2x2 block beside it, all on one grid with
- * even gaps, and a clear "Show all photos" button. Fewer photos fill the
- * same frame without empty placeholders.
- * Phones: a full-width swipe carousel with a "1 / N" counter.
- */
-function PropertyPhotoGrid({
-  photos,
-  total,
-  title,
-  onOpenPhoto,
-  onShowAll,
-}: {
-  photos: string[];
-  total: number;
-  title: string;
-  onOpenPhoto: (index: number) => void;
-  onShowAll: () => void;
-}) {
-  const [slide, setSlide] = useState(0);
-  const tiles = photos.slice(1, 5);
-  // Where each side tile sits for 1 to 4 side photos, so the frame is always full.
-  const tileSpan = (i: number): string => {
-    if (tiles.length === 1) return "col-span-2 row-span-2";
-    if (tiles.length === 2) return "col-span-2";
-    if (tiles.length === 3) return i === 0 ? "col-span-2" : "";
-    return "";
-  };
-  const tileButton =
-    "group relative block h-full w-full cursor-pointer overflow-hidden rounded-md border-0 bg-slate-100 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#02665e]";
-  const dim = "pointer-events-none absolute inset-0 bg-black/0 transition-colors duration-200 group-hover:bg-black/10";
-  const showAllButton = total > 1 ? (
-    <button
-      type="button"
-      onClick={onShowAll}
-      className="absolute bottom-3 right-3 z-[1] inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-md border border-solid border-slate-900/10 bg-white px-3 text-[13px] font-semibold text-slate-900 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#02665e]"
-    >
-      <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
-      Show all {total} photos
-    </button>
-  ) : null;
-
-  return (
-    <>
-      {/* Desktop and tablet */}
-      <div className="relative hidden md:block">
-        <div className={`grid h-[clamp(320px,38vw,480px)] gap-2 overflow-hidden rounded-lg ${tiles.length ? "grid-cols-4 grid-rows-2" : "grid-cols-1"}`}>
-          <button
-            type="button"
-            onClick={() => onOpenPhoto(0)}
-            aria-label={`Open photo 1 of ${total}`}
-            className={`${tileButton} ${tiles.length ? "col-span-2 row-span-2" : ""}`}
-          >
-            <PropertyGalleryImage src={photos[0]} alt={`${title} photo 1`} sizes="(min-width: 768px) 50vw, 100vw" priority />
-            <span className={dim} aria-hidden />
-          </button>
-          {tiles.map((src, i) => (
-            <button
-              key={src}
-              type="button"
-              onClick={() => onOpenPhoto(i + 1)}
-              aria-label={`Open photo ${i + 2} of ${total}`}
-              className={`${tileButton} ${tileSpan(i)}`}
-            >
-              <PropertyGalleryImage src={src} alt={`${title} photo ${i + 2}`} sizes="(min-width: 768px) 25vw, 50vw" priority={i < 2} />
-              <span className={dim} aria-hidden />
-            </button>
-          ))}
-        </div>
-        {showAllButton}
-      </div>
-
-      {/* Phones: swipe through, tap to open */}
-      <div className="relative md:hidden">
-        <div
-          className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain rounded-lg [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            const next = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
-            if (next !== slide) setSlide(next);
-          }}
-          aria-label="Photos"
-        >
-          {photos.map((src, i) => (
-            <button
-              key={src}
-              type="button"
-              onClick={() => onOpenPhoto(i)}
-              aria-label={`Open photo ${i + 1} of ${total}`}
-              className="relative aspect-[4/3] w-full flex-none cursor-pointer snap-center overflow-hidden border-0 bg-slate-100 p-0"
-            >
-              <PropertyGalleryImage src={src} alt={`${title} photo ${i + 1}`} sizes="100vw" priority={i === 0} />
-            </button>
-          ))}
-        </div>
-        {total > 1 ? (
-          <button
-            type="button"
-            onClick={onShowAll}
-            aria-label={`Show all ${total} photos`}
-            className="absolute bottom-3 right-3 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-black/60 px-2.5 text-[12px] font-semibold tabular-nums text-white backdrop-blur-sm"
-          >
-            <LayoutGrid className="h-3 w-3" aria-hidden />
-            {Math.min(slide + 1, photos.length)} / {total}
-          </button>
-        ) : null}
-      </div>
-    </>
-  );
-}
+import { PropertyGalleryImage, PropertyPhotoGrid } from "@/components/PropertyPhotoGrid";
 
 type PublicPropertyDetail = {
   id: number;
+  /** NIGHTLY or LONG_STAY (docs/LONG_STAY_RENTALS.md). */
+  rentalMode?: "NIGHTLY" | "LONG_STAY";
+  longStay?: PublicLongStay | null;
   slug: string;
   title: string;
   type: string;
@@ -378,6 +173,10 @@ type PublicPropertyDetail = {
     parties?: string;
     safetyMeasures?: string[];
     other?: string;
+    smokingPolicy?: string;
+    overnightGuests?: string;
+    overnightNights?: number;
+    quietHours?: string;
   } | null;
   faq?: Array<{ question?: string; answer?: string; q?: string; a?: string }> | null;
 
@@ -441,34 +240,7 @@ type RoomSpecRow = {
 
 };
 
-function amenityMeta(label: string): { Icon: any; colorClass: string } {
-  const key = String(label || "").trim().toLowerCase();
-  const map: Record<string, { Icon: any; colorClass: string }> = {
-    "free parking": { Icon: Car, colorClass: "text-blue-600" },
-    "breakfast included": { Icon: Coffee, colorClass: "text-amber-600" },
-    "breakfast available": { Icon: Coffee, colorClass: "text-orange-600" },
-    restaurant: { Icon: UtensilsCrossed, colorClass: "text-rose-600" },
-    bar: { Icon: Beer, colorClass: "text-purple-600" },
-    pool: { Icon: Waves, colorClass: "text-cyan-600" },
-    sauna: { Icon: Thermometer, colorClass: "text-orange-600" },
-    laundry: { Icon: WashingMachine, colorClass: "text-indigo-600" },
-    "room service": { Icon: ConciergeBell, colorClass: "text-emerald-700" },
-    "24h security": { Icon: Shield, colorClass: "text-red-600" },
-    "first aid": { Icon: Bandage, colorClass: "text-green-700" },
-    "fire extinguisher": { Icon: FireExtinguisher, colorClass: "text-red-600" },
-    "on-site shop": { Icon: ShoppingBag, colorClass: "text-pink-600" },
-    "nearby mall": { Icon: Store, colorClass: "text-pink-600" },
-    "social hall": { Icon: PartyPopper, colorClass: "text-yellow-600" },
-    "sports & games": { Icon: Gamepad2, colorClass: "text-yellow-700" },
-    gym: { Icon: Dumbbell, colorClass: "text-slate-700" },
-    "free wi-fi": { Icon: Wifi, colorClass: "text-cyan-700" },
-    "air conditioning": { Icon: Thermometer, colorClass: "text-sky-700" },
-  };
-  return map[key] ?? { Icon: Tag, colorClass: "text-slate-500" };
-
-}
-
-function normalizeOwnerDeclaredServices(servicesObj: any, servicesArray: string[]) {
+function normalizeOwnerDeclaredServices(servicesObj: any, servicesArray: string[], longStay: boolean) {
   const normalizeBoolean = (value: any) =>
     value === true ||
     value === "true" ||
@@ -499,12 +271,23 @@ function normalizeOwnerDeclaredServices(servicesObj: any, servicesArray: string[
   };
 
   const parking = String(servicesObj?.parking || "").toLowerCase();
+  const monthlyParking = longStay || servicesObj?.parkingPeriod === "month";
+  const spaces = Number(servicesObj?.parkingSpaces);
+  const covered = servicesObj?.parkingCovered;
+  const parkingType = covered == null ? "Parking" : normalizeBoolean(covered) ? "Covered parking" : "Open parking";
+  const parkingKind = `${parkingType}${Number.isInteger(spaces) && spaces > 0 ? ` for ${spaces} car${spaces === 1 ? "" : "s"}` : ""}`;
   if (parking === "free") {
-    addAmenity("Free parking", true);
+    addAmenity(monthlyParking || parkingKind !== "Parking" ? parkingKind : "Free parking", true);
   } else if (parking === "paid") {
     const price = String(servicesObj?.parkingPrice || "").trim();
-    addAmenity(price ? `Paid parking (${price} TZS)` : "Paid parking");
+    const amount = Number(price);
+    const shown = Number.isFinite(amount) && amount > 0 ? `TZS ${amount.toLocaleString("en-US")}` : "";
+    addAmenity(monthlyParking ? `${parkingKind}${shown ? `, ${shown} a month` : ", extra each month"}` : price ? `Paid parking (${price} TZS)` : "Paid parking");
+  } else if (longStay && parking === "no") {
+    addAmenity("No parking");
   }
+  if (normalizeBoolean(servicesObj?.playground)) addAmenity("Children's play area");
+  if (normalizeBoolean(servicesObj?.cleaningService)) addAmenity("Cleaning service");
 
   if (normalizeBoolean(servicesObj?.breakfastIncluded)) addAmenity("Breakfast included", true);
   if (normalizeBoolean(servicesObj?.breakfastAvailable)) addAmenity("Breakfast available");
@@ -527,6 +310,7 @@ function normalizeOwnerDeclaredServices(servicesObj: any, servicesArray: string[
   if (normalizeBoolean(servicesObj?.ac)) addAmenity("Air conditioning", true);
 
   allRawLabels
+    .filter((service) => !/^(free|paid|no)$/.test(parking) || !isParkingAmenity(service))
     .filter((service) => !/^payment:\s*/i.test(service))
     .filter((service) => !/^(free cancellation|group stay)$/i.test(service))
     .filter((service) => !/^near\s+/i.test(service))
@@ -913,15 +697,6 @@ function bedsToSummary(beds: any): string {
     .filter(Boolean) as string[];
   return parts.length ? parts.join(", ") : "-";
 
-}
-
-function bedroomBedsLabel(summary: string): string {
-  if (!summary || summary === "-") return "Beds not listed";
-  return summary.split(",").map((part) => {
-    const match = part.trim().match(/^(\d+)\s+(Twin|Full|Queen|King)$/i);
-    if (!match) return part.trim();
-    return `${match[1]} ${match[2].toLowerCase()} ${Number(match[1]) === 1 ? "bed" : "beds"}`;
-  }).join(" · ");
 }
 
 function getBedDimensions(bedsSummary: string): string | null {
@@ -2279,6 +2054,7 @@ function RoomQuickViewModal({
 export default function PublicPropertyDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const goBack = () => goBackFromProperty((href) => router.replace(href));
   const slug = String((params as any)?.slug ?? "");
 
   // A visitor arriving on ?s=<token> came through someone's shared link. Record
@@ -2345,8 +2121,6 @@ export default function PublicPropertyDetailPage() {
   });
   const [aboutExpanded, setAboutExpanded] = useState(false);
   const [verificationDetailsOpen, setVerificationDetailsOpen] = useState(false);
-  const [priceServicesOpen, setPriceServicesOpen] = useState(false);
-  const [roomAmenityHint, setRoomAmenityHint] = useState<string | null>(null);
   const [systemCommission, setSystemCommission] = useState<number>(0);
   const [isOwner, setIsOwner] = useState<boolean>(false);
   const [isFavorite, setIsFavorite] = useState(false);
@@ -2615,31 +2389,33 @@ export default function PublicPropertyDetailPage() {
     return calculatePriceWithCommission(property.basePrice, commission);
   }, [property, systemCommission]);
 
+  const roomRows = useMemo(() => property
+    ? normalizeRoomsSpec(property.roomsSpec, property.currency, property.basePrice, property, systemCommission)
+    : [], [property, systemCommission]);
+
   // Guest-facing nightly price per room type, matched the same way the confirm
   // page matches it (room code first, then room type name), so the base stay
   // price in the booking card uses the same nightly rate as checkout.
   const roomNightlyPrice = useMemo(() => {
-    const rows = property ? normalizeRoomsSpec(property.roomsSpec as any[], property.currency, property.basePrice, property, systemCommission) : [];
     return (code: string | null | undefined): number | null => {
       if (!code || code === "default") return null;
       const key = String(code).trim();
       const row =
-        rows.find((r) => r.roomCode === key || r.roomType === key) ??
-        rows.find((r) => String(r.roomCode ?? r.roomType).replace(/-\d+$/, "") === key.replace(/-\d+$/, ""));
+        roomRows.find((r) => r.roomCode === key || r.roomType === key) ??
+        roomRows.find((r) => String(r.roomCode ?? r.roomType).replace(/-\d+$/, "") === key.replace(/-\d+$/, ""));
       const price = Number(row?.pricePerNight);
       return Number.isFinite(price) && price > 0 ? price : null;
     };
-  }, [property, systemCommission]);
+  }, [roomRows]);
 
 
   const roomOptionInfo = useMemo(() => {
-    const rows = property ? normalizeRoomsSpec(property.roomsSpec as any[], property.currency, property.basePrice, property, systemCommission) : [];
     return (code: string | null | undefined): { title: string; detail: string | null } | null => {
       if (!code || code === "default") return null;
       const key = String(code).trim();
       const row =
-        rows.find((r) => r.roomCode === key || r.roomType === key) ??
-        rows.find((r) => String(r.roomCode ?? r.roomType).replace(/-\d+$/, "") === key.replace(/-\d+$/, ""));
+        roomRows.find((r) => r.roomCode === key || r.roomType === key) ??
+        roomRows.find((r) => String(r.roomCode ?? r.roomType).replace(/-\d+$/, "") === key.replace(/-\d+$/, ""));
       if (!row) return null;
       const parts: string[] = [];
       if (row.bookingMode === "ENTIRE_UNIT" && row.bedrooms.length > 0) parts.push(`${row.bedrooms.length} bedroom${row.bedrooms.length === 1 ? "" : "s"}`);
@@ -2647,7 +2423,7 @@ export default function PublicPropertyDetailPage() {
       if (row.maxGuestsPerUnit) parts.push(`sleeps ${row.maxGuestsPerUnit}`);
       return { title: row.roomType, detail: parts.length ? parts.join(" · ") : null };
     };
-  }, [property, systemCommission]);
+  }, [roomRows]);
 
   const about = useMemo(() => {
     const fallback = "No description provided yet.";
@@ -2826,6 +2602,11 @@ export default function PublicPropertyDetailPage() {
       if (typeof hr.smokingNotAllowed === "boolean") out.smoking = hr.smokingNotAllowed;
       if (Array.isArray(hr.safetyMeasures)) out.safetyMeasures = hr.safetyMeasures;
       if (typeof hr.other === "string" && hr.other.trim()) out.other = hr.other.trim();
+      // Long-stay living rules (written into the lease as well).
+      if (typeof hr.smokingPolicy === "string" && hr.smokingPolicy) out.smokingPolicy = hr.smokingPolicy;
+      if (typeof hr.overnightGuests === "string" && hr.overnightGuests) out.overnightGuests = hr.overnightGuests;
+      if (Number(hr.overnightNights)) out.overnightNights = Number(hr.overnightNights);
+      if (typeof hr.quietHours === "string" && hr.quietHours.trim()) out.quietHours = hr.quietHours.trim();
       return Object.keys(out).length ? out : null;
     };
     // Prefer direct `property.houseRules` if it exists (future-proof), otherwise fallback to `services.houseRules`
@@ -2849,9 +2630,9 @@ export default function PublicPropertyDetailPage() {
     const freeCancellation = servicesArray.some((s) => s.toLowerCase() === "free cancellation");
     const groupStay = servicesArray.some((s) => s.toLowerCase() === "group stay");
     const nearby = servicesArray.filter((s) => /^near\s+/i.test(s));
-    const { amenities, included, available } = normalizeOwnerDeclaredServices(servicesObj, servicesArray);
+    const { amenities, included, available } = normalizeOwnerDeclaredServices(servicesObj, servicesArray, property?.rentalMode === "LONG_STAY");
     return { paymentModes: finalPaymentModes, freeCancellation, groupStay, nearby, amenities, included, available };
-  }, [servicesArray, servicesObj]);
+  }, [servicesArray, servicesObj, property?.rentalMode]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const [allPhotosOpen, setAllPhotosOpen] = useState(false);
@@ -2899,11 +2680,6 @@ export default function PublicPropertyDetailPage() {
     if (!lightboxOpen) return;
     document.getElementById(`lb-thumb-${activeIdx}`)?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   }, [activeIdx, lightboxOpen]);
-  useEffect(() => {
-    if (!roomAmenityHint) return;
-    const t = window.setTimeout(() => setRoomAmenityHint(null), 1200);
-    return () => window.clearTimeout(t);
-  }, [roomAmenityHint]);
   // Photo tour sections: room photos are matched to their room type through the
   // owner's room groups; everything else belongs to the property itself.
   const photoSections = useMemo(() => {
@@ -3099,7 +2875,7 @@ export default function PublicPropertyDetailPage() {
         <div className="public-container py-10">
           <button
             type="button"
-            onClick={() => router.back()}
+            onClick={goBack}
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-slate-900"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -3118,6 +2894,7 @@ export default function PublicPropertyDetailPage() {
       </main>
     );
   }
+  const isLongStay = property.rentalMode === "LONG_STAY";
   return (
     <main className="min-h-screen bg-white text-slate-900 header-offset">
       <div className="public-container pb-8 pt-3 sm:py-8">
@@ -3131,7 +2908,7 @@ export default function PublicPropertyDetailPage() {
               <div className="flex items-center justify-between gap-3 mb-5">
                 <button
                   type="button"
-                  onClick={() => router.back()}
+                  onClick={goBack}
                   className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
                   style={{ color: '#02665e', background: 'rgba(2,102,94,0.07)', border: '1px solid rgba(2,102,94,0.15)' }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(2,102,94,0.13)')}
@@ -3259,9 +3036,10 @@ export default function PublicPropertyDetailPage() {
                               <button
                                 type="button"
                                 onClick={async () => {
+                                  const fallback = propertyShareFallbackUrl(window.location.href);
                                   const url = property?.id
-                                    ? await createShareLink(property.id, "COPY_LINK", window.location.href)
-                                    : window.location.href;
+                                    ? await createShareLink(property.id, "COPY_LINK", fallback)
+                                    : fallback;
                                   navigator.clipboard.writeText(url).then(() => {
                                     setCopyLinkSuccess(true);
                                     setTimeout(() => setCopyLinkSuccess(false), 2000);
@@ -3319,9 +3097,10 @@ export default function PublicPropertyDetailPage() {
                                   type="button"
                                   onClick={async () => {
                                     setShowShareMenu(false);
+                                    const fallback = propertyShareFallbackUrl(window.location.href);
                                     const url = property?.id
-                                      ? await createShareLink(property.id, target.key, window.location.href)
-                                      : window.location.href;
+                                      ? await createShareLink(property.id, target.key, fallback)
+                                      : fallback;
                                     const destination = target.build(url);
                                     if (target.newTab) {
                                       window.open(destination, "_blank", "noopener,noreferrer");
@@ -3343,9 +3122,10 @@ export default function PublicPropertyDetailPage() {
                               <button
                                 type="button"
                                 onClick={async () => {
+                                  const fallback = propertyShareFallbackUrl(window.location.href);
                                   const url = property?.id
-                                    ? await createShareLink(property.id, "NATIVE", window.location.href)
-                                    : window.location.href;
+                                    ? await createShareLink(property.id, "NATIVE", fallback)
+                                    : fallback;
                                   try {
                                     await navigator.share({ title: property.title, url });
                                     setShowShareMenu(false);
@@ -3400,12 +3180,26 @@ export default function PublicPropertyDetailPage() {
                             <Star className="h-3.5 w-3.5" aria-hidden /> New on NoLSAF
                           </span>
                         )}
+                        {isLongStay && roomRows.length > 0 ? (
+                          <a href="#roomsSection" className="inline-flex min-h-8 items-center gap-1.5 rounded-sm px-2 text-[13px] font-semibold text-[#28645a] underline underline-offset-4 hover:bg-[#edf6f3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#39796d]">
+                            <LayoutGrid className="size-3.5" aria-hidden /> View home layout
+                          </a>
+                        ) : null}
                       </div>
                     );
                   })()}
                 </div>
 
-                {/* Verification seal: fills the right side and replaces the old full-width strip */}
+                {isLongStay ? (
+                  <a href="#long-stay-inspection" className="box-border flex w-full min-w-0 max-w-full flex-none items-center gap-3 rounded-[5px] border border-solid border-slate-200 bg-white px-4 py-3 text-slate-900 no-underline hover:border-[#02665e]/50 sm:w-auto">
+                    <ShieldCheck className="h-5 w-5 shrink-0 text-[#02665e]" aria-hidden />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold">{property.longStay?.inspected ? "Inspected by NoLSAF" : "On-site inspection"}</span>
+                      <span className="block text-xs text-slate-600">{property.longStay?.inspected ? "View the inspection report" : "View inspection status"}</span>
+                    </span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />
+                  </a>
+                ) : (
                 <div className="relative box-border flex w-full flex-none items-center gap-3.5 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white px-4 py-3 sm:w-auto lg:min-w-[340px]">
                   <span className="relative flex h-10 w-10 flex-none items-center justify-center rounded-md bg-[#02665e]/[0.08] ring-1 ring-inset ring-[#02665e]/15">
                     <ShieldCheck className="h-5 w-5 text-[#02665e]" aria-hidden />
@@ -3430,6 +3224,7 @@ export default function PublicPropertyDetailPage() {
                     </ul>
                   </div>
                 </div>
+                )}
               </div>
             </div>
           </div>
@@ -3507,10 +3302,18 @@ export default function PublicPropertyDetailPage() {
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main */}
           <div className="lg:col-span-2 space-y-6">
+            {isLongStay && roomRows.length > 0 ? (
+              <LongStayHomeLayout
+                homes={roomRows}
+                totalBedrooms={property.totalBedrooms}
+                totalBathrooms={property.totalBathrooms}
+                maxOccupants={property.longStay?.residencyRules?.maxOccupants}
+              />
+            ) : null}
             {/* Key facts. A hotel is booked by the room, so building-wide guest and
                 bathroom totals mean nothing to a guest there: show rooms and room
                 types. A home is booked whole: show guests, bedrooms, bathrooms. */}
-            {(() => {
+            {(!isLongStay || roomRows.length === 0) && (() => {
               const roomTypeCount = Array.isArray(property.roomsSpec) ? property.roomsSpec.length : 0;
               const style = listingBookingStyle(property.roomsSpec);
               const entireUnit = style === "ENTIRE";
@@ -3592,7 +3395,9 @@ export default function PublicPropertyDetailPage() {
                 </p>
               </div>
             </div>
-            {/* Physical Verification - Our Competitive Advantage */}
+            {isLongStay ? (
+              <LongStayInspectionReport report={property.longStay?.inspectionReport} inspected={property.longStay?.inspected} />
+            ) : (
             <div className="overflow-hidden rounded-2xl border border-solid border-[#02665e]/15 bg-white shadow-sm">
               <div className="relative bg-[#02665e]/5 px-5 py-5 sm:px-6">
                 <div className="flex justify-center">
@@ -3608,13 +3413,13 @@ export default function PublicPropertyDetailPage() {
                           { label: "Reviewed", Icon: FileText },
                           { label: "Verified", Icon: ShieldCheck },
                           { label: "Approved", Icon: BadgeCheck },
-                        ].map(({ label, Icon }, idx) => (
+                        ].map(({ label, Icon }, idx, steps) => (
                           <div key={label} className="flex min-w-0 flex-shrink items-center gap-1 sm:gap-2">
                             <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-1 text-[#02665e] ring-1 ring-[#02665e]/15 sm:gap-1.5 sm:px-2.5">
                               <Icon className="h-3.5 w-3.5" aria-hidden />
                               {label}
                             </span>
-                            {idx < 2 ? <span className="h-px w-3 bg-[#02665e]/30 sm:w-6" aria-hidden /> : null}
+                            {idx < steps.length - 1 ? <span className="h-px w-3 bg-[#02665e]/30 sm:w-6" aria-hidden /> : null}
                           </div>
                         ))}
                       </div>
@@ -3687,100 +3492,19 @@ export default function PublicPropertyDetailPage() {
                 {verificationDetailsOpen ? (
                   <div className="mt-5 flex items-start gap-2 border-t border-slate-100 pt-4 text-xs text-slate-600">
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                    <span>Verification details are maintained by NoLSAF and refreshed when a property is inspected again.</span>
+                    <span>NoLSAF updates this record after reviewing the property.</span>
                   </div>
                 ) : null}
               </div>
             </div>
-            {/* What's included and the live menu: moved out of the booking card so it stays focused */}
-            {(servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 || property.nrmsMenuUrl) ? (
-              <div className="rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3.5 sm:px-5">
-              {servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 ? (() => {
-                // Keep included items, other available services, and safety distinct.
-                // Safety features are never presented as paid extras.
-                const SAFETY = /security|guard|first aid|fire|extinguisher|smoke|alarm|cctv|emergency|safe\b/i;
-                const safety = servicesByCategory.available.filter((item: string) => SAFETY.test(item));
-                const extras = servicesByCategory.available.filter((item: string) => !SAFETY.test(item));
-                const LIMIT = 8;
-                const shownExtras = priceServicesOpen ? extras : extras.slice(0, LIMIT);
-                const hiddenCount = extras.length - LIMIT;
-                return (
-                  <div>
-                    <h3 className="m-0 text-[15px] font-bold text-slate-900">What this place offers</h3>
-                    {/* One compact list: a short label on the left, the items on one line on the right */}
-                    <dl className="m-0 mt-1.5">
-                      {servicesByCategory.included.length > 0 && (
-                        <div className="grid items-center gap-x-3 gap-y-1 py-1 sm:grid-cols-[96px_minmax(0,1fr)]">
-                          <dt><span className="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200"><CheckCircle2 className="h-3 w-3" aria-hidden />Included</span></dt>
-                          <dd className="m-0 flex flex-wrap items-center gap-x-3.5 gap-y-1">
-                            {servicesByCategory.included.map((item: string) => {
-                              const meta = amenityMeta(item);
-                              // The label already says "included", so "Free parking" reads as "Parking".
-                              const short = item
-                                .replace(/\b(free|included|inclusive|complimentary)\b/gi, "")
-                                .replace(/\s{2,}/g, " ")
-                                .trim();
-                              const label = short ? short.charAt(0).toUpperCase() + short.slice(1) : item;
-                              return (
-                                <span key={item} title={item} className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-slate-800">
-                                  <meta.Icon className="h-4 w-4 flex-none text-emerald-600" aria-hidden />
-                                  {label}
-                                </span>
-                              );
-                            })}
-                          </dd>
-                        </div>
-                      )}
-                      {extras.length > 0 && (
-                        <div className="grid items-center gap-x-3 gap-y-1 py-1 sm:grid-cols-[96px_minmax(0,1fr)]">
-                          <dt><span className="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200"><Tags className="h-3 w-3" aria-hidden />On site</span></dt>
-                          <dd className="m-0 flex flex-wrap items-center gap-x-3.5 gap-y-1">
-                            {shownExtras.map((item: string) => {
-                              const meta = amenityMeta(item);
-                              return (
-                                <span key={item} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-700">
-                                  <meta.Icon className="h-4 w-4 flex-none text-slate-400" aria-hidden />
-                                  {item}
-                                </span>
-                              );
-                            })}
-                            {hiddenCount > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setPriceServicesOpen((v) => !v)}
-                                aria-expanded={priceServicesOpen}
-                                className="border-0 bg-transparent p-0 text-[13px] font-semibold text-brand underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 [font-family:inherit]"
-                              >
-                                {priceServicesOpen ? "Show less" : `+${hiddenCount} more`}
-                              </button>
-                            )}
-                            <span className="text-[11.5px] text-slate-400">may cost extra</span>
-                          </dd>
-                        </div>
-                      )}
-                      {safety.length > 0 && (
-                        <div className="grid items-center gap-x-3 gap-y-1 py-1 sm:grid-cols-[96px_minmax(0,1fr)]">
-                          <dt><span className="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold bg-sky-50 text-sky-800 ring-1 ring-inset ring-sky-200"><ShieldCheck className="h-3 w-3" aria-hidden />Safety</span></dt>
-                          <dd className="m-0 flex flex-wrap items-center gap-x-3.5 gap-y-1">
-                            {safety.map((item: string) => {
-                              const meta = amenityMeta(item);
-                              return (
-                                <span key={item} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-700">
-                                  <meta.Icon className="h-4 w-4 flex-none text-slate-400" aria-hidden />
-                                  {item}
-                                </span>
-                              );
-                            })}
-                          </dd>
-                        </div>
-                      )}
-                    </dl>
-                  </div>
-                );
-              })() : null}
+            )}
+            {isLongStay ? (
+              <PropertyOfferings included={servicesByCategory.included} available={servicesByCategory.available} units={roomRows} />
+            ) : (
+              <ShortStayServices included={servicesByCategory.included} available={servicesByCategory.available} />
+            )}
 
-              {property.nrmsMenuUrl ? (
-                <Link
+            {property.nrmsMenuUrl ? (                <Link
                   href={property.nrmsMenuUrl}
                   className="group mt-3 flex items-center gap-3 rounded-2xl p-3.5 no-underline shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
                   style={{ border: "1.5px solid rgba(2, 102, 94, 0.45)", background: "linear-gradient(135deg, rgba(2,102,94,0.07), rgba(2,102,94,0.02))" }}
@@ -3802,8 +3526,6 @@ export default function PublicPropertyDetailPage() {
                     <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
                   </span>
                 </Link>
-              ) : null}
-              </div>
             ) : null}
             {/* Payment Methods (mobile/tablet only; on large screens it sits in the right column) */}
             <div className="lg:hidden rounded-2xl border border-solid border-slate-200 bg-white p-5">
@@ -3829,7 +3551,9 @@ export default function PublicPropertyDetailPage() {
           {/* Side / CTA */}
           <aside className="lg:sticky lg:top-24 h-fit space-y-6">
             {/* Booking card: price, dates, live availability and the next step, in reading order */}
-            {(() => {
+            {property.rentalMode === "LONG_STAY" && property.longStay ? (
+              <LongStayRequestCard propertySlug={property.slug} propertyTitle={displayTitle(property.title)} longStay={property.longStay} />
+            ) : (() => {
               const { checkIn: ci, checkOut: co } = selectedDates;
               const hasDates = Boolean(ci && co);
               const nights = hasDates
@@ -4069,7 +3793,7 @@ export default function PublicPropertyDetailPage() {
             router={router}
           />
         )}
-        {/* Rooms (full-width on large screens; no horizontal scroll) */}
+        {!isLongStay && (
         <div id="roomsSection" className="mt-6 rounded-2xl border border-solid border-slate-200 bg-white p-5">
           <div className="flex items-center gap-2">
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
@@ -4078,18 +3802,18 @@ export default function PublicPropertyDetailPage() {
             <h2 className="text-lg font-semibold text-slate-900">{listingBookingStyle(property.roomsSpec) === "UNITS" ? "Units" : listingBookingStyle(property.roomsSpec) === "ENTIRE" ? "The entire place" : "Rooms"}</h2>
           </div>
           {(() => {
-            const rows = normalizeRoomsSpec(property.roomsSpec, property.currency, property.basePrice, property, systemCommission);
+            const rows = roomRows;
             if (!rows.length) return <p className="mt-2 text-sm text-slate-600">Room details coming soon.</p>;
             return (
               <div className="mt-5 space-y-4">
                 {rows.map((r, idx) => {
                   const descOpen = openRoomDesc.has(idx);
                   const amenOpen = openRoomAmen.has(idx);
-                  const bath = r.bathItems || [];
+                  const bath = r.bathItems;
                   const allAmenities = r.amenities.length + bath.length;
                   const TOP = 5;
                   const dims = getBedDimensions(r.bedsSummary);
-                  const iconOf = (label: string) => (BATHROOM_ICONS as any)[label] || (OTHER_AMENITIES_ICONS as any)[label] || Tags;
+                  const iconOf = (label: string) => BATHROOM_ICONS[label] || OTHER_AMENITIES_ICONS[label] || Tags;
                   // Policies arrive as short phrases ("Towels: White", "No smoking"); turn them into label and value
                   const specOf = (text: string) => {
                     const t = String(text || "").trim();
@@ -4288,7 +4012,9 @@ export default function PublicPropertyDetailPage() {
                                                     className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] text-slate-700"
                                                     style={{ backgroundColor: g.t.soft, boxShadow: `inset 0 0 0 1px ${g.t.ring}` }}
                                                   >
-                                                    <A className="h-3.5 w-3.5" style={{ color: g.t.accent }} aria-hidden />
+                                                    <span className="inline-flex" style={{ color: g.t.accent }} aria-hidden>
+                                                      <A className="h-3.5 w-3.5" />
+                                                    </span>
                                                     {a}
                                                   </span>
                                                 );
@@ -4306,7 +4032,6 @@ export default function PublicPropertyDetailPage() {
                         ) : null}
                       </div>
 
-                      {/* Price and action */}
                       <div className="flex flex-shrink-0 items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 px-4 py-3.5 md:w-56 md:flex-col md:items-stretch md:justify-center md:border-l md:border-t-0 md:px-5 md:py-5">
                         <div className="min-w-0">
                           {r.listPricePerNight ? (
@@ -4349,6 +4074,7 @@ export default function PublicPropertyDetailPage() {
             );
           })()}
         </div>
+        )}
         {/* Guest reviews: the verdict on the left, the voices on the right */}
         <div className="mt-6 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
           <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4 sm:px-6">
@@ -4666,7 +4392,12 @@ export default function PublicPropertyDetailPage() {
             const smokingKnown = houseRules.smoking !== undefined;
             const petsOk = houseRules.pets === true;
             const smokingOk = houseRules.smoking === false; // smoking === true means not allowed
+            const living = [
+              houseRules.overnightGuests === "none" ? "No overnight visitors" : houseRules.overnightGuests === "limited" ? `Overnight visitors up to ${houseRules.overnightNights || 7} nights a month` : houseRules.overnightGuests === "allowed" ? "Overnight visitors welcome, within the occupant limit" : "",
+              houseRules.quietHours ? `Quiet hours ${houseRules.quietHours}` : "",
+            ].filter(Boolean);
             const safety = [
+              ...living,
               "Keep the property clean and tidy",
               "Return all keys and access cards at check-out",
               "Report any incident or damage straight away",
@@ -4796,7 +4527,7 @@ export default function PublicPropertyDetailPage() {
                       known={smokingKnown}
                       ok={smokingOk}
                       okText="Smoking is permitted"
-                      noText="A smoke-free property"
+                      noText={houseRules.smokingPolicy === "outside" ? "No smoking inside; outside is fine" : "A smoke-free property"}
                       Icon={smokingOk ? Cigarette : CigaretteOff}
                     />
                   </div>
@@ -4975,7 +4706,7 @@ export default function PublicPropertyDetailPage() {
                   const far = Math.max(1, ...places.map((x) => x.distanceKm ?? 0));
                   return (
                     <div className="p-4 pt-0 lg:pl-0 lg:pt-4">
-                    <div className="relative flex flex-col overflow-hidden rounded-xl border border-solid border-white/10 bg-[#0a1110] p-4 text-white shadow-[0_18px_40px_-24px_rgba(0,0,0,0.6)] lg:h-[340px]" style={{ isolation: "isolate" }}>
+                    <div className="relative flex flex-col overflow-hidden rounded-md border border-solid border-white/10 bg-[#0a1110] p-4 text-white shadow-[0_18px_40px_-24px_rgba(0,0,0,0.6)] lg:h-[340px]" style={{ isolation: "isolate" }}>
                       <div
                         aria-hidden
                         className="pointer-events-none absolute -right-24 -top-24 -z-10 h-72 w-72 rounded-full"
@@ -5017,7 +4748,7 @@ export default function PublicPropertyDetailPage() {
                                   aria-selected={on}
                                   onClick={() => setNearbyKind(k.key)}
                                   className={[
-                                    "min-w-0 cursor-pointer rounded-xl border border-solid px-2.5 py-2 text-left transition-colors",
+                                    "min-w-0 cursor-pointer rounded-sm border border-solid px-2.5 py-2 text-left transition-colors",
                                     on ? "border-[#02665e] bg-[#02665e]/35" : "border-white/10 bg-white/[0.05] hover:bg-white/[0.09]",
                                   ].join(" ")}
                                 >
@@ -5055,7 +4786,7 @@ export default function PublicPropertyDetailPage() {
                                       <span className={`relative z-[1] inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ring-4 ring-[#0a1110] ${i === 0 ? "bg-[#02665e] text-white" : "bg-[#132422] text-[#5ec8bb]"}`}>
                                         <Icon className="h-4 w-4" aria-hidden />
                                       </span>
-                                      <div className="min-w-0 flex-1 rounded-xl border border-solid border-white/[0.08] bg-white/[0.04] px-3 py-2 transition-colors hover:bg-white/[0.07]">
+                                      <div className="min-w-0 flex-1 rounded-sm border border-solid border-white/[0.08] bg-white/[0.04] px-3 py-2 transition-colors hover:bg-white/[0.07]">
                                         <div className="flex items-start justify-between gap-3">
                                           <div className="min-w-0">
                                             <div className="flex min-w-0 items-center gap-1.5">

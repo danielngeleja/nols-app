@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/auth.js";
-import { audit } from "../lib/audit.js";
+import { audit, auditOrThrow } from "../lib/audit.js";
 import { currentLoginDeviceTag, listRecognisedDevices, LOGIN_DEVICE_FORGOTTEN, userAgentsForDevice } from "../lib/loginDevice.js";
 import { requireOwnerStrongSession } from "../lib/ownerMfaPolicy.js";
 import { customerBookingReference, customerRecordReference } from "../lib/customerBookingReference.js";
@@ -22,6 +22,7 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { limitContactChangeOtp, limitContactChangeConfirm, limitDataExportCode } from "../middleware/rateLimit.js";
 import { cancelDataExportChallenge, DATA_EXPORT_REASON_LABEL, DATA_EXPORT_LOCKED_ACTION, DATA_EXPORT_MAX_ATTEMPTS, dataExportLockState, dataExportRequestInput, maskDestination, readDataExportGrant, startDataExportChallenge, verifyDataExportCode } from "../lib/dataExportVerification.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { notifyOwnerAccountChange } from "../lib/ownerAccountNotifications.js";
 
 const DATA_EXPORT_LOCKED_MESSAGE = "Data downloads are locked on your account after too many wrong codes. Contact NoLSAF support at support@nolsaf.com to unlock them.";
 import { sendSms } from "../lib/sms.js";
@@ -969,6 +970,7 @@ const upsertMyDocument: RequestHandler = async (req, res) => {
     // ignore audit errors
   }
 
+  await notifyOwnerAccountChange((req as AuthedRequest).user?.role, userId, "documentUpdated");
   return sendSuccess(res, { doc });
 };
 router.put("/documents", upsertMyDocument as unknown as RequestHandler);
@@ -1151,6 +1153,10 @@ const updateProfile: RequestHandler = async (req, res) => {
       // Best-effort audit
     }
     
+    const hasProfileChange = Object.keys(data).some((field) =>
+      Object.prototype.hasOwnProperty.call(updated, field) && updated[field] !== (user as any)[field],
+    );
+    if (hasProfileChange) await notifyOwnerAccountChange(user.role, userId, "profileUpdated");
     sendSuccess(res, null, "Profile updated successfully");
   } catch (error: any) {
     console.error('account.profile.update failed', error);
@@ -1260,7 +1266,15 @@ async function sendPayoutDestinationSecurityAlerts(
   const actionText = action === "added" ? "added" : action === "changed" ? "changed" : "reverified";
   const bankNote = "Automated bank payouts are not enabled; any bank transfer is handled manually.";
   const waitingHours = isBank ? null : (await loadPayoutSafeguards()).recentChangeHours;
-  const mobileNote = waitingHours === null ? "" : `A ${waitingHours}-hour security waiting period applies before this account can be used for payouts. Additional eligibility and approval checks still apply.`;
+  // Only a real change waits (riskScoring.destinationChangeAnchor): a first
+  // account is onboarding and a re-verification moves nothing.
+  const mobileNote = waitingHours === null
+    ? ""
+    : action === "changed"
+      ? `A ${waitingHours}-hour security waiting period applies before this account can be used for payouts. Additional eligibility and approval checks still apply.`
+      : action === "added"
+        ? "This account can receive payouts once a stay is ready. Your first payout is checked by our team before it is sent."
+        : "Re-verifying the same account did not start a new security waiting period. Additional eligibility and approval checks still apply.";
   const waitingNote = isBank ? bankNote : mobileNote;
   const noPayoutNote = "Saving this account did not approve or send a payout.";
   const details = `${provider} ending in ${lastFour}`;
@@ -1279,7 +1293,7 @@ async function sendPayoutDestinationSecurityAlerts(
       ["When", `${escapeContactHtml(savedAtEat)} EAT`],
     ])}
     ${proDivider()}
-    ${proNoteCard(BRAND_TEAL, isBank ? "Bank payouts" : "Security waiting period", `${escapeContactHtml(waitingNote)} ${noPayoutNote}`)}
+    ${proNoteCard(BRAND_TEAL, isBank ? "Bank payouts" : action === "changed" ? "Security waiting period" : "Payouts", `${escapeContactHtml(waitingNote)} ${noPayoutNote}`)}
     <div style="height:16px;font-size:0;line-height:0;">&nbsp;</div>
     ${proNoteCard(RED, "If this wasn't you", `If you did not ${verb} this account, contact <a href="mailto:support@nolsaf.com" style="color:${RED};font-weight:bold;text-decoration:none;">support@nolsaf.com</a> immediately so we can stop any payout.`, RED_BG)}
     ${proDivider()}
@@ -1295,7 +1309,9 @@ async function sendPayoutDestinationSecurityAlerts(
     ));
   }
   if (user.phone) {
-    const smsPolicy = isBank ? "Automated bank payouts unavailable; transfers are manual." : `${waitingHours}h security hold applies.`;
+    const smsPolicy = isBank
+      ? "Automated bank payouts unavailable; transfers are manual."
+      : action === "changed" ? `${waitingHours}h security hold applies.` : "No security hold started.";
     tasks.push(sendSms(user.phone, `NoLSAF security: payout account ${actionText}: ${details}, ${savedAtEat} EAT. ${smsPolicy} Saving it did not approve or send a payout. If not you, contact support@nolsaf.com.`));
   }
   await Promise.allSettled(tasks);
@@ -1534,7 +1550,17 @@ const confirmContactChange: RequestHandler = async (req, res) => {
     const changedAtField = field === "email" ? "emailChangedAt" : "phoneChangedAt";
     const oldValue = field === "email" ? before.email : before.phone;
     const actualChange = String(oldValue ?? "").toLowerCase() !== entry.value.toLowerCase();
-    const changedAt = actualChange ? new Date() : null;
+    // Adding a phone or email for the first time during onboarding is not a
+    // takeover signal, so it does not start the payout cooling period. Once a
+    // payout destination exists, any new contact (first-time or not) does,
+    // because the withdrawal code could then be steered to it.
+    const firstContact = !String(oldValue ?? "").trim();
+    const hasPayoutDestination = firstContact
+      ? (await prisma.payoutAccount.count({ where: { userId } })) > 0 ||
+        hasSavedPayoutDestination((await prisma.user.findUnique({ where: { id: userId }, select: { payout: true } }))?.payout)
+      : true;
+    const startsCooldown = actualChange && (!firstContact || hasPayoutDestination);
+    const changedAt = startsCooldown ? new Date() : null;
     const resultingIdentity = {
       name: before.name,
       fullName: before.fullName,
@@ -1547,7 +1573,7 @@ const confirmContactChange: RequestHandler = async (req, res) => {
       data: {
         [field]: entry.value,
         [verifiedAtField]: new Date(),
-        ...(actualChange ? { [changedAtField]: changedAt } : {}),
+        ...(startsCooldown ? { [changedAtField]: changedAt } : {}),
         registrationStatus,
         ...(registrationStatus === 'COMPLETE' && !before.profileCompletedAt
           ? { profileCompletedAt: new Date() }
@@ -1591,9 +1617,12 @@ const confirmContactChange: RequestHandler = async (req, res) => {
       // best-effort audit
     }
 
+    if (actualChange) {
+      await notifyOwnerAccountChange((req as AuthedRequest).user?.role, userId, field === "email" ? "emailChanged" : "phoneChanged");
+    }
     sendSuccess(res, {
       user: updated,
-      securityCooldownUntil: actualChange ? new Date(Date.now() + CONTACT_SECURITY_COOLDOWN_MS).toISOString() : null,
+      securityCooldownUntil: startsCooldown ? new Date(Date.now() + CONTACT_SECURITY_COOLDOWN_MS).toISOString() : null,
     }, `Your ${FIELD_LABEL[field]} has been updated securely.`);
   } catch (error) {
     console.error("account.contact.confirmChange failed", error);
@@ -1809,6 +1838,7 @@ const updatePayouts: RequestHandler = async (req, res) => {
       });
     }
     const before = currentUser.payout || null;
+    const ownerChange = (req as AuthedRequest).user?.role === "OWNER";
 
     const now = new Date();
     const payoutData = isBank
@@ -1826,7 +1856,7 @@ const updatePayouts: RequestHandler = async (req, res) => {
           mobileMoneyAccountName: resolvedName,
         };
 
-    const { account, action } = await prisma.$transaction(async (tx) => {
+    const { account, action, auditDetails } = await prisma.$transaction(async (tx) => {
       const previous = await tx.payoutAccount.findFirst({
         where: { userId, isActive: true },
         orderBy: { isDefault: "desc" },
@@ -1847,7 +1877,9 @@ const updatePayouts: RequestHandler = async (req, res) => {
               isVerified: true,
               verifiedAt: existing.verifiedAt ?? now,
               lastVerifiedAt: now,
-              destinationChangedAt: now,
+              // Re-verifying the destination already in use is not a change;
+              // moving it would restart the payout cooling period for nothing.
+              destinationChangedAt: action === "reverified" ? existing.destinationChangedAt ?? existing.createdAt : now,
               isDefault: true,
               isActive: true,
             },
@@ -1888,17 +1920,25 @@ const updatePayouts: RequestHandler = async (req, res) => {
           payoutAccount: accountNumber,
         },
       });
-      return { account: verified, action };
+      const auditDetails = {
+        change: action,
+        payoutPreferred: data.payoutPreferred,
+        provider,
+        accountNumber: maskSensitiveDestination(accountNumber),
+        previousAccountNumber: previous ? maskSensitiveDestination(previous.accountNumber) : null,
+        payoutAccountId: verified.id,
+        destinationChangedAt: now.toISOString(),
+      };
+      if (ownerChange) {
+        await auditOrThrow(tx, req, "USER_PAYOUT_DESTINATION_VERIFIED", `user:${userId}`, null, auditDetails, userId);
+      }
+      return { account: verified, action, auditDetails };
     });
 
-    await audit(req as AuthedRequest, "USER_PAYOUT_DESTINATION_VERIFIED", `user:${userId}`, before, {
-      payoutPreferred: data.payoutPreferred,
-      provider,
-      accountName: resolvedName,
-      accountNumber: maskSensitiveDestination(accountNumber),
-      payoutAccountId: account.id,
-      destinationChangedAt: account.destinationChangedAt,
-    });
+    if (!ownerChange) await audit(req, "USER_PAYOUT_DESTINATION_VERIFIED", `user:${userId}`, null, auditDetails, userId);
+    if (action !== "reverified") {
+      await notifyOwnerAccountChange((req as AuthedRequest).user?.role, userId, action === "added" ? "payoutAdded" : "payoutChanged");
+    }
     await sendPayoutDestinationSecurityAlerts(currentUser, payoutMethodLabel(isBank, provider), accountNumber, action, now, isBank);
 
     sendSuccess(
@@ -1980,6 +2020,7 @@ const changePassword: RequestHandler = async (req, res) => {
       // Track failure
       attempt.failures += 1;
       attempt.lastFailure = now;
+      if (user.role === "OWNER") await audit(req, "USER_PASSWORD_CHANGE_FAILED", `user:${userId}`, null, null, userId);
       
       // Lock after 3 consecutive failures for 5 minutes
       if (attempt.failures >= 3) {
@@ -2024,7 +2065,15 @@ const changePassword: RequestHandler = async (req, res) => {
 
     // Update password
     const newHash = await hashPassword(newPassword);
-    await prisma.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+    if (user.role === "OWNER") {
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+        await auditOrThrow(tx, req, "USER_PASSWORD_CHANGE", `user:${user.id}`, null, null, user.id);
+      });
+    } else {
+      await prisma.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+    }
+    await notifyOwnerAccountChange(user.role, user.id, "passwordChanged");
     
     // Record the new hash in password history (best-effort)
     try {
@@ -2050,7 +2099,7 @@ const changePassword: RequestHandler = async (req, res) => {
       clearAuthCookie(res);
     }
 
-    await audit(req as AuthedRequest, "USER_PASSWORD_CHANGE", `user:${user.id}`);
+    if (user.role !== "OWNER") await audit(req, "USER_PASSWORD_CHANGE", `user:${user.id}`);
     sendSuccess(res, { forceLogout, cooldownUntil: now + (30 * 60 * 1000) }, "Password changed successfully");
   } catch (error: any) {
     console.error('account.password.change failed', error);
@@ -2153,6 +2202,7 @@ const verifyTotp: RequestHandler = async (req, res) => {
     });
     
     await audit(req as AuthedRequest, "USER_2FA_ENABLED", `user:${user.id}`);
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorEnabled");
     const token = await issueAccountMfaSession(res as Response, user.id);
 
     // Return plaintext codes ONCE
@@ -2270,6 +2320,7 @@ const postSecurity2fa: RequestHandler = async (req, res) => {
       } catch {
         // ignore
       }
+      await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorDisabled");
       return res.json({ ok: true });
     }
 
@@ -2306,6 +2357,7 @@ const postSecurity2fa: RequestHandler = async (req, res) => {
     } catch {
       // ignore
     }
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, fresh.id, "twoFactorEnabled");
     const token = await issueAccountMfaSession(res as Response, (fresh as any).id);
 
     return res.json({ ok: true, backupCodes: plainCodes, ...(token ? { token } : {}) });
@@ -2846,6 +2898,7 @@ const disable2FA: RequestHandler = async (req, res) => {
     });
     
     await audit(req as AuthedRequest, "USER_2FA_DISABLED", `user:${user.id}`);
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorDisabled");
     sendSuccess(res, null, "2FA disabled successfully");
   } catch (error: any) {
     console.error('account.2fa.disable failed', error);
@@ -2881,6 +2934,7 @@ const regenCodes: RequestHandler = async (req, res) => {
     });
     
     await audit(req as AuthedRequest, "USER_2FA_CODES_REGEN", `user:${user.id}`);
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "backupCodesReplaced");
     sendSuccess(res, { backupCodes: plainCodes }, "Backup codes regenerated successfully");
   } catch (error: any) {
     console.error('account.2fa.codes.regenerate failed', error);
@@ -3044,6 +3098,7 @@ const verifySms2FA: RequestHandler = async (req, res) => {
     }
 
     await audit(req as AuthedRequest, "USER_2FA_ENABLED", `user:${user.id}`, null, { method: "SMS" });
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorEnabled");
     sendSuccess(res, null, "SMS 2FA enabled successfully");
   } catch (error: any) {
     console.error('account.2fa.sms.verify failed', error);
@@ -3175,6 +3230,7 @@ const disableSms2FA: RequestHandler = async (req, res) => {
     }
 
     await audit(req as AuthedRequest, "USER_2FA_DISABLED", `user:${user.id}`, null, { method: "SMS" });
+    await notifyOwnerAccountChange((req as AuthedRequest).user?.role, user.id, "twoFactorDisabled");
     sendSuccess(res, null, "SMS 2FA disabled successfully");
   } catch (error: any) {
     console.error('account.2fa.sms.disable failed', error);
