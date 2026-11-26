@@ -239,6 +239,7 @@ const adminDetails: Item[] = [
 /** Long stays are their own program (like Group Stay and No4P Agents), not part of Owners. */
 const longStayDetails: Item[] = [
   { href: "/admin/long-stay", label: "Dashboard", Icon: LayoutDashboard },
+  { href: "/admin/long-stay/requests", label: "Partner requests", Icon: Handshake },
   { href: "/admin/long-stay/tenancies", label: "Tenancies", Icon: Home },
   { href: "/admin/long-stay/payments", label: "Payments", Icon: Wallet },
   { href: "/admin/long-stay/inspections", label: "Inspections", Icon: ClipboardCheck },
@@ -386,11 +387,12 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const twigaWaiting = useTwigaQueueCount();
   const nav = useAdminNavCounts();
   const ownerQueueCount = nav?.listings ?? 0;
-  const longStayQueueCount = (nav?.tenantIds ?? 0) + (nav?.longStays ?? 0) + (nav?.inspections ?? 0) + (nav?.enquiries ?? 0);
+  const longStayQueueCount = (nav?.tenantIds ?? 0) + (nav?.longStays ?? 0) + (nav?.inspections ?? 0) + (nav?.enquiries ?? 0) + (nav?.longStayRequests ?? 0);
   const [longStayOpen, setLongStayOpen] = useState(false);
   const badges: Record<string, number> = {
     "/admin/agents/ai": twigaWaiting,
     "/admin/properties/previews": nav?.listings ?? 0,
+    "/admin/long-stay/requests": nav?.longStayRequests ?? 0,
     "/admin/long-stay/tenants": nav?.tenantIds ?? 0,
     "/admin/long-stay/tenancies": nav?.longStays ?? 0,
     "/admin/long-stay/inspections": nav?.inspections ?? 0,

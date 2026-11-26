@@ -21,6 +21,7 @@ import { useAdminHomeKpis, useAdminMonitoring, useAdminPerformanceHighlights, us
 import TanzaniaMap, { matchRegion, type PendingListing } from "./TanzaniaMap";
 import { useSocket } from "@/hooks/useSocket";
 import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
+import { useAdminNavCounts } from "@/lib/useAdminNavCounts";
 
 const Chart = dynamic(() => import("../../../../components/Chart"), { ssr: false });
 
@@ -99,6 +100,7 @@ export default function AdminHomePage() {
   const { monitoring } = useAdminMonitoring();
   const { recentActivities, refresh: refreshRecentActivities } = useAdminRecentActivities();
   const { driversPending, usersNew, paymentsWaiting, paymentExceptions, payoutsInProgress } = useAdminHomeKpis();
+  const navCounts = useAdminNavCounts();
   const { highlights } = useAdminPerformanceHighlights(30);
 
   const [stamp, setStamp] = useState<string>("");
@@ -275,6 +277,7 @@ export default function AdminHomePage() {
     { key: "payouts", count: Number(paymentsWaiting ?? 0), label: "Owner payouts to send", href: "/admin/payments", why: "Approved invoices, money not yet sent" },
     { key: "exceptions", count: Number(paymentExceptions ?? 0), label: "Payments to match", href: "/admin/payments", why: "Money received with no booking attached" },
     { key: "trips", count: Number(driversPending ?? 0), label: "Driver trips to settle", href: "/admin/drivers", why: "Completed trips not yet paid" },
+    { key: "longStayRequests", count: Number(navCounts?.longStayRequests ?? 0), label: "Long stay requests", href: "/admin/long-stay/requests", why: "Sales partners asking to switch long stay on for an owner" },
   ];
   const live = queue.filter((q) => q.count > 0).sort((a, b) => b.count - a.count);
   const clear = queue.filter((q) => q.count === 0);

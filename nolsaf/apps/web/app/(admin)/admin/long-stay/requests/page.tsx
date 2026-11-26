@@ -132,6 +132,7 @@ function RequestRow({ request: r, expanded, onToggle, onDecided }: { request: Re
     setError("");
     try {
       const { data } = await apiClient.post(`/api/admin/long-stay/access-requests/${r.ref}/decide`, { decision, note: note.trim() || null });
+      window.dispatchEvent(new Event("nols:admin-long-stay-queue-change"));
       onDecided(decision === "APPROVED"
         ? `Long stay is on for ${r.owner.name || "the owner"}.${data?.ownerTold === false ? " The owner SMS could not be sent; call them." : " The owner was told by SMS."}`
         : "Request declined. The partner was told why.");

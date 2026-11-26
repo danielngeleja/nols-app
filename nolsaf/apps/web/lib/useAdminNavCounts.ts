@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 
-export type AdminNavCounts = { listings: number; payouts: number; trips: number; groupStays: number; cancellations: number; tenantIds: number; inspections: number; enquiries: number; longStays: number };
+export type AdminNavCounts = { listings: number; payouts: number; trips: number; groupStays: number; cancellations: number; tenantIds: number; inspections: number; enquiries: number; longStays: number; longStayRequests: number };
 
 /**
  * What waits in each admin section (GET /api/admin/nav-counts). Shared by the
