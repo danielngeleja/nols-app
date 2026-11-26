@@ -351,7 +351,7 @@ const RENT_TERMS_SELECT = {
 
 const RENT_ROW_SELECT = {
   id: true, status: true, ownerUserId: true, ownerAccountOutcome: true,
-  rentTermsFingerprint: true, rentConfirmSentAt: true, rentConfirmedFingerprint: true, rentConfirmedAt: true, rentConfirmedVia: true,
+  rentTermsFingerprint: true, rentConfirmSentAt: true, rentLinkOpenedAt: true, rentConfirmedFingerprint: true, rentConfirmedAt: true, rentConfirmedVia: true,
   property: { select: { title: true, rentalMode: true, longStayListing: { select: RENT_TERMS_SELECT } } },
   owner: { select: { name: true, fullName: true, phone: true } },
   salesPartner: { select: { userId: true, user: { select: { name: true, fullName: true } } } },
@@ -362,9 +362,15 @@ export type OwnerRentState = {
   via: string | null;
   confirmedAt: Date | null;
   sentAt: Date | null;
+  /** First open of the latest rent link, if the owner opened it. */
+  openedAt: Date | null;
   fingerprint: string;
   summary: string;
   lines: Array<{ label: string; value: string }>;
+  /** For the admin who calls the owner. Never sent to public responses. */
+  ownerName: string | null;
+  ownerPhone: string | null;
+  partnerName: string | null;
 };
 
 function rentStateOf(row: any): OwnerRentState | null {
@@ -372,14 +378,19 @@ function rentStateOf(row: any): OwnerRentState | null {
   if (!row || row.property?.rentalMode !== "LONG_STAY" || !terms) return null;
   const fingerprint = rentTermsFingerprint(terms);
   const confirmed = row.rentConfirmedFingerprint === fingerprint;
+  const current = row.rentTermsFingerprint === fingerprint;
   return {
     confirmed,
     via: confirmed ? row.rentConfirmedVia ?? null : null,
     confirmedAt: confirmed ? row.rentConfirmedAt ?? null : null,
-    sentAt: row.rentTermsFingerprint === fingerprint ? row.rentConfirmSentAt ?? null : null,
+    sentAt: current ? row.rentConfirmSentAt ?? null : null,
+    openedAt: current && row.rentConfirmSentAt ? row.rentLinkOpenedAt ?? null : null,
     fingerprint,
     summary: rentTermsSummary(terms),
     lines: rentTermsLines(terms),
+    ownerName: row.owner?.fullName || row.owner?.name || null,
+    ownerPhone: row.owner?.phone || null,
+    partnerName: row.salesPartner?.user?.fullName || row.salesPartner?.user?.name || null,
   };
 }
 
@@ -424,7 +435,8 @@ export async function requestOwnerRentConfirmation(assistedId: number): Promise<
       await notifyOwner(row.ownerUserId, "assisted_listing_rent_confirm", { partnerName, propertyTitle: propertyName, rentSummary: state.summary, noticeLink: link }).catch(() => undefined);
     }
     const told = Boolean(sms?.success && sms.provider !== "suppressed") || existing;
-    if (told) await db.salesAssistedListing.update({ where: { id: row.id }, data: { rentConfirmSentAt: new Date() } });
+    // A new link: "opened" starts again for it.
+    if (told) await db.salesAssistedListing.update({ where: { id: row.id }, data: { rentConfirmSentAt: new Date(), rentLinkOpenedAt: null } });
     return told ? "SENT" : "NOT_SENT";
   } catch (error) {
     console.error("[assisted-listing] rent confirmation SMS failed", (error as any)?.message ?? error);
@@ -457,6 +469,21 @@ export async function confirmOwnerRentByToken(raw: string, shownFingerprint: str
   await recordRentConfirmation(row, state, "OWNER");
   await notifyAdmins("sales_assisted_owner_rent_confirmed", { propertyTitle: row.property?.title, rentSummary: state.summary }).catch(() => undefined);
   return "CONFIRMED";
+}
+
+/** Admin "Resend SMS": a fresh link with the current terms. */
+export async function resendOwnerRentConfirmation(propertyId: number) {
+  const row = await db.salesAssistedListing.findUnique({ where: { propertyId }, select: { id: true } });
+  if (!row) return "NOT_LONG_STAY" as const;
+  return requestOwnerRentConfirmation(row.id);
+}
+
+/** The owner opened their link while the rent waits: records the first open. Never throws. */
+export async function markRentLinkOpened(assistedId: number): Promise<void> {
+  await db.salesAssistedListing.updateMany({
+    where: { id: assistedId, rentLinkOpenedAt: null, rentConfirmSentAt: { not: null } },
+    data: { rentLinkOpenedAt: new Date() },
+  }).catch(() => undefined);
 }
 
 /** An admin called the owner and the owner agreed the rent (recorded as ADMIN_CALL). */

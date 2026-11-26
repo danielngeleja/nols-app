@@ -27,7 +27,7 @@ import {
   sendRestrictionOpenedEmail,
   sendRestrictionResolvedEmail,
 } from "../lib/restrictionCases.js";
-import { confirmOwnerRentByAdmin, onAssistedPropertyApproved, onAssistedPropertyRejected, ownerRentState } from "../lib/salesAssistedListing.js";
+import { confirmOwnerRentByAdmin, onAssistedPropertyApproved, onAssistedPropertyRejected, ownerRentState, resendOwnerRentConfirmation } from "../lib/salesAssistedListing.js";
 import { longStaySubmitRefusal } from "../lib/longStay/listing.js";
 import { longStayOpen } from "../lib/longStay/fees.js";
 import { longStayInspectionRequiredForApproval, prepareInspectionForApproval } from "../lib/longStay/inspection.js";
@@ -1311,6 +1311,33 @@ router.post("/images/:imageId/process", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 /** POST /admin/properties/:id/approve */
+/**
+ * POST /api/admin/properties/:id/owner-rent/resend
+ * Assisted long stay: text the owner a fresh link to confirm the rent.
+ */
+router.post("/:id/owner-rent/resend", (async (req: AuthedRequest, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const before = await ownerRentState(id);
+  if (!before) { res.status(404).json({ error: "This is not a partner-listed long stay." }); return; }
+  if (before.confirmed) { res.json({ ok: true, alreadyConfirmed: true }); return; }
+  const outcome = await resendOwnerRentConfirmation(id);
+  const after = await ownerRentState(id);
+  await auditLog({
+    actorId: req.user!.id,
+    actorRole: req.user!.role,
+    action: "PROPERTY_OWNER_RENT_LINK_RESENT",
+    entity: "PROPERTY",
+    entityId: id,
+    before: { sentAt: before.sentAt },
+    after: { outcome, sentAt: after?.sentAt ?? null },
+    ip: req.ip,
+    ua: req.headers["user-agent"] as string,
+  });
+  if (outcome !== "SENT") { res.status(502).json({ error: "The SMS could not be sent. Call the owner instead." }); return; }
+  res.json({ ok: true, sentAt: after?.sentAt ?? null, openedAt: after?.openedAt ?? null });
+}) as RequestHandler);
+
 router.post("/:id/approve", (async (req: AuthedRequest, res) => {
   const id = Number(req.params.id);
   const parse = ApprovePropertyInput.safeParse(req.body);
@@ -1372,6 +1399,14 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
           error: `The owner has not confirmed the rent yet: ${rent.summary}.${rent.sentAt ? " They were sent a link by SMS." : " The SMS could not be sent; call them."}`,
           code: "OWNER_RENT_UNCONFIRMED",
           rentSummary: rent.summary,
+          ownerRent: {
+            lines: rent.lines,
+            sentAt: rent.sentAt,
+            openedAt: rent.openedAt,
+            ownerName: rent.ownerName,
+            ownerPhone: rent.ownerPhone,
+            partnerName: rent.partnerName,
+          },
         });
         return;
       }

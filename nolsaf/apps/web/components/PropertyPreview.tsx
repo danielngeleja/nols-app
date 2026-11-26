@@ -54,6 +54,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
+import OwnerRentDialog, { type OwnerRentBlock } from "@/components/admin/properties/OwnerRentDialog";
 import apiClient from "@/lib/apiClient";
 import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import { motion } from "framer-motion";
@@ -468,6 +469,8 @@ export default function PropertyPreview({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [adminNotice, setAdminNotice] = useState<null | { kind: "success" | "error" | "info"; title: string; body?: string; action?: { label: string; run: () => void } }>(null);
+  // Approval refused because the owner has not confirmed the long-stay rent.
+  const [ownerRentBlock, setOwnerRentBlock] = useState<OwnerRentBlock | null>(null);
   // Success toasts close themselves; errors and toasts with an action stay until dismissed
   useEffect(() => {
     if (!adminNotice || adminNotice.kind === "error" || adminNotice.action) return;
@@ -686,6 +689,7 @@ export default function PropertyPreview({
     try {
       setSaving(true);
       await api.post(`/api/admin/properties/${propertyId}/approve`, { note: "", ...(ownerRentConfirmedByPhone ? { ownerRentConfirmedByPhone: true } : {}) });
+      setOwnerRentBlock(null);
       await loadProperty();
       await loadAuditHistory();
       onApproved?.();
@@ -696,15 +700,10 @@ export default function PropertyPreview({
       });
     } catch (err: any) {
       const msg = err?.response?.data?.error || "Failed to approve property";
-      // Assisted long stay: the owner has not agreed the rent. An admin who
-      // called the owner can record that and approve in one step.
-      if (err?.response?.data?.code === "OWNER_RENT_UNCONFIRMED") {
-        setAdminNotice({
-          kind: "info",
-          title: "Waiting for the owner to confirm the rent",
-          body: typeof msg === "string" ? `${msg} If you called the owner and they agreed, approve now.` : undefined,
-          action: { label: "Owner agreed by phone, approve", run: () => { setAdminNotice(null); void confirmApprove(true); } },
-        });
+      // Assisted long stay: the owner has not agreed the rent. The dialog shows
+      // the SMS status; an admin who called the owner approves from there.
+      if (err?.response?.data?.code === "OWNER_RENT_UNCONFIRMED" && err.response.data.ownerRent) {
+        setOwnerRentBlock({ summary: String(err.response.data.rentSummary || ""), ...err.response.data.ownerRent });
         return;
       }
       setAdminNotice({
@@ -1480,6 +1479,16 @@ export default function PropertyPreview({
           </div>
         );
       })()}
+
+      {mode === "admin" && ownerRentBlock && propertyId ? (
+        <OwnerRentDialog
+          propertyId={Number(propertyId)}
+          block={ownerRentBlock}
+          busy={saving}
+          onClose={() => setOwnerRentBlock(null)}
+          onApproveByPhone={() => void confirmApprove(true)}
+        />
+      ) : null}
 
       {/* Admin notice as a toast, so it never pushes the page down */}
       {mode === "admin" && adminNotice && typeof document !== "undefined"

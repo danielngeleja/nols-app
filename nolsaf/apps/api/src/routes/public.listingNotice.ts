@@ -15,7 +15,7 @@ import { z } from "zod";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { limitAssistedListingNotice } from "../middleware/rateLimit.js";
 import { sanitizeText } from "../lib/sanitize.js";
-import { confirmOwnerRentByToken, findByNoticeToken, isNoticeToken, ownerRentState, recordObjection } from "../lib/salesAssistedListing.js";
+import { confirmOwnerRentByToken, findByNoticeToken, isNoticeToken, markRentLinkOpened, ownerRentState, recordObjection } from "../lib/salesAssistedListing.js";
 
 export const publicListingNoticeRouter = Router();
 
@@ -32,6 +32,8 @@ publicListingNoticeRouter.get("/:token", limitAssistedListingNotice as any, asyn
   if (!row) return res.status(404).json(NOT_FOUND);
   // Long stay: the money terms the owner is asked to confirm (section 15.1).
   const rent = await ownerRentState(row.propertyId).catch(() => null);
+  // NoLSAF sees "opened" on the admin side while the rent waits.
+  if (rent && !rent.confirmed) await markRentLinkOpened(row.id);
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Referrer-Policy", "no-referrer");
   return res.json({

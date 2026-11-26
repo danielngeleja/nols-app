@@ -8606,6 +8606,8 @@ model SalesAssistedListing {
   /// SHA-256 of the money terms, so any later change needs a new confirmation.
   rentTermsFingerprint     String?   @db.Char(64)
   rentConfirmSentAt        DateTime?
+  /// First time the owner opened the latest rent link (reset on each new SMS).
+  rentLinkOpenedAt         DateTime?
   rentConfirmedFingerprint String?   @db.Char(64)
   rentConfirmedAt          DateTime?
   /// OWNER (tapped the link) or ADMIN_CALL (an admin confirmed it by phone)
