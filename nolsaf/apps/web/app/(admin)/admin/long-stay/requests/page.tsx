@@ -28,6 +28,7 @@ type Request = {
   property: { title: string | null; type: string | null; area: string | null };
   owner: { name: string | null; phone: string | null; newAccount: boolean; phoneVerified: boolean };
   partner: { name: string | null; code: string | null };
+  regionalRecommendation?: { regionName: string; leadName: string; note: string | null; at: string } | null;
 };
 type Payload = { view: View; counts: Record<string, number>; requests: Request[]; migrationNeeded?: boolean };
 
@@ -156,6 +157,12 @@ function RequestRow({ request: r, expanded, onToggle, onDecided }: { request: Re
       {expanded && (
         <div className="border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-4 py-4">
           <p className="m-0 text-sm text-slate-800">&ldquo;{r.reason}&rdquo;</p>
+          {r.regionalRecommendation && (
+            <p className="m-0 mt-2 inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+              <CheckCircle2 className="size-3.5" aria-hidden /> Recommended by the {r.regionalRecommendation.regionName} lead, {r.regionalRecommendation.leadName}
+              {r.regionalRecommendation.note ? <span className="font-normal">: {r.regionalRecommendation.note}</span> : null}
+            </p>
+          )}
           <dl className="m-0 mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
             <div className="flex items-start gap-2">
               <MapPin className="mt-0.5 size-3.5 shrink-0 text-slate-400" aria-hidden />

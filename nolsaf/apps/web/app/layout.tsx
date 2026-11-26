@@ -9,6 +9,7 @@ import ToastContainer from "../components/ToastContainer";
 import SuspendedAccessOverlay from "../components/SuspendedAccessOverlay";
 import MobilePublicNav from "../components/MobilePublicNav";
 import CookieConsent from "../components/CookieConsent";
+import AcquisitionTracker from "../components/AcquisitionTracker";
 import GlobalAlertGuard from "../components/GlobalAlertGuard";
 import ClientErrorReporter from "../components/ClientErrorReporter";
 import PerformanceMeasureGuard from "../components/PerformanceMeasureGuard";
@@ -113,6 +114,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <MobilePublicNav />
         </Suspense>
         <CookieConsent />
+        <AcquisitionTracker />
       </body>
     </html>
   );

@@ -17,6 +17,7 @@ import {
   Mail,
   MessageSquare,
   Phone,
+  QrCode,
   Receipt,
   Send,
   ShieldCheck,
@@ -283,13 +284,24 @@ export default function SalesPropertyDetailPage() {
               title={property.title}
               description={placeLine(property)}
               actions={
-                <Link
-                  href="/sales/properties"
-                  className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
-                >
-                  <ArrowLeft className="h-4 w-4" aria-hidden />
-                  Portfolio
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                  {property.status === "APPROVED" ? (
+                    <Link
+                      href={`/sales/properties/${propertyId}/sticker`}
+                      className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-solid border-[#087f68] bg-[#087f68] px-4 text-sm font-bold text-white no-underline transition hover:bg-[#066a57]"
+                    >
+                      <QrCode className="h-4 w-4" aria-hidden />
+                      Booking sticker
+                    </Link>
+                  ) : null}
+                  <Link
+                    href="/sales/properties"
+                    className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                  >
+                    <ArrowLeft className="h-4 w-4" aria-hidden />
+                    Portfolio
+                  </Link>
+                </div>
               }
             />
 

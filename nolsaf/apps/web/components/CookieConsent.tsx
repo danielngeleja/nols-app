@@ -47,6 +47,8 @@ export default function CookieConsent() {
     } catch {
       // Storage can be blocked by the browser; still respect the choice for this view.
     }
+    // Lets the source tracker save or drop the visit's source at once.
+    try { window.dispatchEvent(new CustomEvent("nolsaf-consent-changed")); } catch { /* old browsers */ }
     setVisible(false);
     setManaging(false);
   };

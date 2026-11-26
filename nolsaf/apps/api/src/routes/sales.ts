@@ -20,6 +20,9 @@ import salesCardRouter from "./sales.card.js";
 import salesLeaderboardRouter from "./sales.leaderboard.js";
 import salesTeamRouter from "./sales.team.js";
 import adminSalesTeamsRouter from "./admin.sales.teams.js";
+import adminSalesRegionsRouter from "./admin.sales.regions.js";
+import salesRegionRouter from "./sales.region.js";
+import adminSalesVisitRequestsRouter from "./admin.sales.visitRequests.js";
 import salesPropertiesRouter from "./sales.properties.js";
 import { adminSalesMaterialsRouter, salesMaterialsRouter } from "./sales.materials.js";
 import salesEarningsRouter from "./sales.earnings.js";
@@ -53,6 +56,8 @@ export function registerSalesRoutes(app: Express): void {
   // team router, which admits team leads only.
   app.use("/api/sales", salesLeaderboardRouter as RequestHandler);
   app.use("/api/sales", salesTeamRouter as RequestHandler);
+  // Regional leads only (docs/SALES_REGIONS.md); 404 to everyone else.
+  app.use("/api/sales", salesRegionRouter as RequestHandler);
   app.use("/api/sales", salesPropertiesRouter as RequestHandler);
   app.use("/api/sales", salesMaterialsRouter as RequestHandler);
   app.use("/api/sales", salesEarningsRouter as RequestHandler);
@@ -74,6 +79,8 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/admin/sales", adminSalesMaterialsRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesFinanceRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesTeamsRouter as RequestHandler);
+  app.use("/api/admin/sales", adminSalesRegionsRouter as RequestHandler);
+  app.use("/api/admin/sales", adminSalesVisitRequestsRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesAgencyRouter as RequestHandler);
   app.use("/api/admin/sales", adminSalesAssistedListingsRouter as RequestHandler);
 }

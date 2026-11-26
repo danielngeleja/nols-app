@@ -7,6 +7,7 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { limitSalesAdminRead, limitSalesAdminWrite } from "../middleware/rateLimit.js";
 import { COMMISSION_STATUSES, COMMISSION_TYPES, PAYOUT_STATUSES, maskPayoutAccount } from "../lib/salesPartner.js";
+import { recommendationsFor } from "../lib/salesRegions.js";
 import { notifyUser } from "../lib/notifications.js";
 import { CANCELLED_BOOKING_STATUSES, SETTLED_CANCELLATION_STATUSES } from "../lib/salesCommission.js";
 import { sanitizeText } from "../lib/sanitize.js";
@@ -343,9 +344,15 @@ router.get("/payouts", limitSalesAdminRead, asyncHandler(async (req: AuthedReque
       },
     }),
   ]);
+  // A Regional lead's recommendation is advice for the reviewer, never an approval.
+  const recommended = await recommendationsFor(db, "SALES_PAYOUT", payouts.map((p: any) => p.id));
   // The rate the next approval will apply, so the review screen previews the
   // same net figure the server will record.
-  res.json({ total, page, pageSize, payouts: payouts.map(publicPayout), withholdingTaxRate: salesWithholdingTaxRate() });
+  res.json({
+    total, page, pageSize,
+    payouts: payouts.map((p: any) => ({ ...publicPayout(p), regionalRecommendation: recommended.get(p.id) ?? null })),
+    withholdingTaxRate: salesWithholdingTaxRate(),
+  });
 }));
 
 /** Partners whose withdrawals are frozen, newest first. */

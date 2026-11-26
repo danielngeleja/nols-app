@@ -15,6 +15,7 @@ import { LARGE_CHANGE_PERCENT, checkPriceChange } from "../lib/priceGuardrails.j
 import { notifyAdmins } from "../lib/notifications.js";
 import { requestInspection } from "../lib/longStay/inspection.js";
 import { customerRecordReference } from "../lib/customerBookingReference.js";
+import { bookingStickerSelect, buildBookingSticker, stickerUnavailableReason } from "../lib/propertyBookingSticker.js";
 import {
   LongStayListingError,
   RENTAL_MODES,
@@ -782,6 +783,27 @@ export const getListingProperty = (async (req: AuthedRequest, res) => {
   }
 }) as RequestHandler;
 router.get("/:id", getListingProperty);
+
+/**
+ * GET /api/owner/properties/:id/booking-sticker
+ * The printable "Book this place on NoLSAF" sticker for the owner's own
+ * approved property (lib/propertyBookingSticker.ts).
+ */
+router.get("/:id/booking-sticker", (async (req: AuthedRequest, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid property" });
+  try {
+    const property = await prisma.property.findFirst({ where: { id, ownerId: req.user!.id }, select: bookingStickerSelect });
+    if (!property) return res.status(404).json({ error: "Property not found" });
+    const reason = stickerUnavailableReason(property);
+    if (reason) return res.status(409).json({ error: reason });
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ sticker: await buildBookingSticker(property) });
+  } catch (err: any) {
+    console.error("Error in GET /api/owner/properties/:id/booking-sticker:", err?.message || err);
+    return res.status(500).json({ error: "Could not prepare the sticker. Please try again." });
+  }
+}) as RequestHandler);
 
 // ---------- CREATE ----------
 router.post("/", (async (req: AuthedRequest, res) => {

@@ -114,6 +114,9 @@ export default function NrmsPublicPitch() {
                 <p className="mt-4 text-xs text-neutral-500">
                   Already have a NoLSAF owner account? <Link href="/account/login" className="font-bold text-emerald-700 no-underline hover:underline">Sign in</Link> and open NRMS from your dashboard.
                 </p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Prefer to talk it through in person? <Link href="/public/request-a-visit" className="font-bold text-emerald-700 no-underline hover:underline">Request a free NoLSAF visit</Link>.
+                </p>
               </div>
 
               <NrmsWorkspacePreview />

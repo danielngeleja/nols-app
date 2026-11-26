@@ -27,6 +27,7 @@ import { issuePasswordSetupToken, ONBOARDING_SETUP_HOURS, passwordSetupLink } fr
 import { notifyAdmins, notifyOwner, notifyUser } from "./notifications.js";
 import { invalidateCache, cacheKeys } from "./performance.js";
 import { revokeLongStayFromCancelledListing, withdrawLongStayRequests } from "./longStay/accessRequest.js";
+import { regionLeadUserFor } from "./salesRegions.js";
 
 /** Before migration 20261126100000 the request table does not exist; nothing to withdraw then. */
 function ignoreMissingRequestTable(error: any) {
@@ -513,6 +514,7 @@ export async function findByNoticeToken(raw: string) {
       status: true,
       objectedAt: true,
       propertyId: true,
+      salesPartnerId: true,
       property: { select: { title: true, status: true } },
       salesPartner: { select: { agentCode: true, userId: true, user: { select: { name: true, fullName: true } } } },
     },
@@ -560,6 +562,15 @@ export async function recordObjection(raw: string, note: string | null): Promise
     }),
     notifyUser(row.salesPartner.userId, "sales_assisted_listing_paused", { propertyTitle: row.property?.title }),
   ]).catch(() => undefined);
+  // The partner's Regional lead hears it too (docs/SALES_REGIONS.md).
+  const regionLead = await regionLeadUserFor(db, row.salesPartnerId);
+  if (regionLead) {
+    await notifyUser(regionLead.userId, "sales_region_owner_objection", {
+      propertyTitle: row.property?.title,
+      partnerName: row.salesPartner?.user?.fullName || row.salesPartner?.user?.name || row.salesPartner?.agentCode,
+      actionPath: "/sales/region",
+    }).catch(() => undefined);
+  }
   return "PAUSED";
 }
 

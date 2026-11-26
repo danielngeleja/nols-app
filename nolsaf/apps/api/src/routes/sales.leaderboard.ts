@@ -17,6 +17,7 @@ import { partnerIdFor, requireActivePartnerContract, requireWorkspaceAccess, typ
 import { limitSalesLeaderboard } from "../middleware/rateLimit.js";
 import { aggregateBoard, computeBoard, monthKey, quarterMonths, rankEntries, shiftMonth, targetFor, topTeamOfMonth } from "../lib/salesLeaderboard.js";
 import { ledTeamOf, teamIdOf } from "../lib/salesTeam.js";
+import { regionLedBy } from "../lib/salesRegions.js";
 
 const router = Router();
 const db = prisma as any;
@@ -32,14 +33,17 @@ const querySchema = z.object({
 router.get("/team/status", asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
   const partnerId = partnerIdFor(req);
   if (!partnerId) return res.status(403).json({ error: "Sales partner context required" });
-  const [team, myTeamId, topTeam] = await Promise.all([
+  const [team, myTeamId, topTeam, region] = await Promise.all([
     ledTeamOf(db, partnerId),
     teamIdOf(db, partnerId),
     topTeamOfMonth(shiftMonth(monthKey(), -1)).catch(() => null),
+    regionLedBy(db, partnerId),
   ]);
   res.setHeader("Cache-Control", "no-store");
   res.json({
     isTeamLead: Boolean(team),
+    // "My region" appears only for Regional leads; /api/sales/region re-checks.
+    isRegionLead: Boolean(region),
     team,
     // Last month's winning team, and whether it is this partner's team.
     topTeam: topTeam ? { name: topTeam.name, month: topTeam.month, mine: topTeam.teamId === myTeamId } : null,

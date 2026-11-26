@@ -58,6 +58,8 @@ type Payout = {
   paymentReference: string | null;
   lane?: "AUTO" | "REVIEW" | null;
   reviewFlags?: Array<{ code: string; severity: "SUSPICIOUS" | "REVIEW" | "INFO"; message: string }> | null;
+  /** Advice from the partner's Regional lead (docs/SALES_REGIONS.md); never an approval. */
+  regionalRecommendation?: { regionName: string; leadName: string; note: string | null } | null;
   salesPartner: {
     id: number;
     agentCode: string;
@@ -653,6 +655,12 @@ export default function AdminSalesFinancePage() {
                         <Wallet className="mr-1 inline h-3.5 w-3.5 align-[-2px] text-neutral-400" />
                         {humanize(item.payoutMethod)} ending {item.payoutAccount || "unknown"} · {item._count.items} ledger {item._count.items === 1 ? "item" : "items"}
                       </p>
+                      {reviewable && item.regionalRecommendation && (
+                        <p className="m-0 mt-1 text-xs font-semibold text-emerald-700">
+                          Recommended by the {item.regionalRecommendation.regionName} lead, {item.regionalRecommendation.leadName}
+                          {item.regionalRecommendation.note ? <span className="font-normal text-emerald-800">: {item.regionalRecommendation.note}</span> : null}
+                        </p>
+                      )}
                       <p className="m-0 mt-0.5 text-[11px] text-neutral-400">Requested {when(item.requestedAt)}{item.paymentReference ? ` · Ref ${item.paymentReference}` : ""}</p>
                       {item.lane ? (
                         <p className="m-0 mt-1.5 flex flex-wrap items-center gap-1.5">

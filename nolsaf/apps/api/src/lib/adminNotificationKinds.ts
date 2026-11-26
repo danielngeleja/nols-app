@@ -114,6 +114,8 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   sales_partner_payout_review: act("attention", "sales"),
   sales_partner_payout_hold: act("critical", "sales"),
   sales_team_at_risk: act("attention", "sales"),
+  sales_region_recommendation: info("sales"),
+  sales_visit_request_new: act("attention", "sales"),
   sales_partner_card_photo_review: act("attention", "sales"),
   sales_team_invite_review: act("attention", "sales"),
   sales_partner_owner_disputed: act("attention", "sales"),

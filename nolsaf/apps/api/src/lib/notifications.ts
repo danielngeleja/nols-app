@@ -224,6 +224,14 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Sales partner payout awaiting review",
           body: `Payout ${data.referenceNumber || ""} for ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} is ready for finance review.`
         },
+        sales_region_recommendation: {
+          title: "Regional lead recommendation",
+          body: `The ${data.regionName || "regional"} lead recommends ${data.type === "SALES_PAYOUT" ? "a partner's first withdrawal" : "switching on long stay for an owner"} (${data.ref || ""}). It still needs your decision.`
+        },
+        sales_visit_request_new: {
+          title: "Owner asked for a visit",
+          body: `${data.contactName || "An owner"} asked for a NoLSAF visit to ${data.propertyName || "their property"} in ${data.location || "an unnamed place"}${data.regionName ? ` (${data.regionName})` : " (no region chosen)"}. Request ${data.ref || ""}. ${data.regionLead ? "The regional lead was told too; assign it if they have not." : "Assign a Sales Partner in Sales, Visit requests."}`
+        },
         sales_team_at_risk: {
           title: "Sales team at risk",
           body: `${data.teamName || "A sales team"} (lead ${data.leadName || "unknown"}) is at risk: ${data.reason || "warning signs found"} Review it in Sales, Teams.`
@@ -1187,6 +1195,26 @@ export async function createUserNotification(db: Pick<Prisma.TransactionClient, 
       sales_partner_team_joined: {
         title: "You joined a team",
         body: `You are now part of ${data.teamName || "a sales team"}. Your team lead can help with your leads and targets.`
+      },
+      sales_region_lead_appointed: {
+        title: "You lead a sales region",
+        body: `NoLSAF appointed you Regional lead for ${data.regionName || "your region"}. Open My region to see its teams, partners and what is waiting.`
+      },
+      sales_region_team_at_risk: {
+        title: "A team in your region is at risk",
+        body: `${data.teamName || "A team"} (lead ${data.leadName || "unknown"}) is at risk: ${data.reason || "warning signs found"} Check in with the lead this week.`
+      },
+      sales_region_visit_request: {
+        title: "Owner asked for a visit in your region",
+        body: `An owner asked for a NoLSAF visit to ${data.propertyName || "their property"} in ${data.location || "your region"}. Open My region and assign a partner (request ${data.ref || ""}).`
+      },
+      sales_partner_visit_assigned: {
+        title: "New visit request for you",
+        body: `${data.by || "NoLSAF"} assigned you an owner who asked for a visit: ${data.propertyName || "a property"} in ${data.location || "your area"}. Call them within 48 hours. It is in your leads.`
+      },
+      sales_region_owner_objection: {
+        title: "Owner query in your region",
+        body: `An owner said they were not expecting "${data.propertyTitle || "a listing"}" prepared by ${data.partnerName || "a partner"} in your region. NoLSAF is checking; talk to the partner.`
       },
       sales_partner_team_health_tip: {
         title: "This week for your team",

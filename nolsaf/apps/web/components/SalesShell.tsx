@@ -28,6 +28,7 @@ import {
   FileSignature,
   FileText,
   Handshake,
+  MapPinned,
   Headphones,
   IdCard,
   Trophy,
@@ -62,6 +63,7 @@ const NAV = [
   { href: "/sales/inspections", label: "Inspections", Icon: ClipboardCheck },
   { href: "/sales/leaderboard", label: "Leaderboard", Icon: Trophy },
   { href: "/sales/team", label: "My team", Icon: Users, teamLeadOnly: true },
+  { href: "/sales/region", label: "My region", Icon: MapPinned, regionLeadOnly: true },
   { href: "/sales/agency", label: "Agency Desk", Icon: Handshake, agencyOnly: true },
   { href: "/sales/earnings", label: "Earnings", Icon: WalletCards },
   { href: "/sales/payouts", label: "Payouts", Icon: Send },
@@ -74,9 +76,9 @@ const NAV = [
 ];
 
 const NAV_GROUPS = [
-  { label: "Workspace", items: NAV.slice(0, 7) },
-  { label: "Finance", items: NAV.slice(7, 10) },
-  { label: "Resources", items: NAV.slice(10) },
+  { label: "Workspace", items: NAV.slice(0, 8) },
+  { label: "Finance", items: NAV.slice(8, 11) },
+  { label: "Resources", items: NAV.slice(11) },
 ];
 
 /** Status pill colours, per doc section 9.7. */
@@ -186,6 +188,8 @@ export default function SalesShell({ children }: { children: ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0);
   // "My team" appears only for team leads; the server enforces it on every request.
   const [isTeamLead, setIsTeamLead] = useState(false);
+  // "My region" appears only for Regional leads; the server enforces it too.
+  const [isRegionLead, setIsRegionLead] = useState(false);
   // Last month's winning team, when it is this partner's team.
   const [topTeamMonth, setTopTeamMonth] = useState<string | null>(null);
   const [hasAgencyDesk, setHasAgencyDesk] = useState(false);
@@ -196,6 +200,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
       .then(({ data }) => {
         if (!alive) return;
         setIsTeamLead(Boolean(data?.isTeamLead));
+        setIsRegionLead(Boolean(data?.isRegionLead));
         setTopTeamMonth(data?.topTeam?.mine ? String(data.topTeam.month) : null);
       })
       .catch(() => undefined);
@@ -365,7 +370,7 @@ export default function SalesShell({ children }: { children: ReactNode }) {
             ) : null}
             <div className="space-y-0.5">
               {group.items
-                .filter((item) => (!("teamLeadOnly" in item) || isTeamLead) && (!("agencyOnly" in item) || hasAgencyDesk))
+                .filter((item) => (!("teamLeadOnly" in item) || isTeamLead) && (!("regionLeadOnly" in item) || isRegionLead) && (!("agencyOnly" in item) || hasAgencyDesk))
                 .map((item) => {
                 const active = item.href === "/sales" ? pathname === "/sales" : pathname?.startsWith(item.href);
                 const pending = navigation

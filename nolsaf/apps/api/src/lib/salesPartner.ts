@@ -226,6 +226,8 @@ export const COMMISSION_TYPES = [
   "LONG_STAY_INSPECTION",
   /** Share of NoLSAF's long-stay fees on a home the partner brought, earned at move-in. */
   "LONG_STAY_TENANCY",
+  /** A Regional lead's override on their region's partners' commissions (docs/SALES_REGIONS.md). */
+  "REGIONAL_OVERRIDE",
   "PERFORMANCE_BONUS",
   "MANUAL_ADJUSTMENT",
 ] as const;

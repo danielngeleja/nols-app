@@ -12,6 +12,7 @@ import {
   longStayShareSourceKey,
 } from "../lib/salesCommission.js";
 import { syncLongStaySalesCommission } from "../lib/longStay/salesShare.js";
+import { overrideBaseReady, runRegionalOverrides } from "../lib/salesRegions.js";
 import { accrueAgencySalesCommission } from "../lib/salesAgency.js";
 import { GROUP_CANCELLED_STATUSES, accrueAgencyGroupCommission, groupIdFromSourceKey } from "../lib/salesAgencyGroups.js";
 import { TOUR_REFUNDED_STATUSES, accrueAgencyTourCommission, tourIdFromSourceKey } from "../lib/salesAgencyTours.js";
@@ -206,12 +207,19 @@ export async function runSalesCommissionLifecycle(now = new Date()): Promise<{
     return { accrued: 0, reversed: 0 };
   });
 
+  // Regional leads: accrue their override on region partners' commissions,
+  // and reverse overrides whose base was reversed (docs/SALES_REGIONS.md).
+  const regional = await runRegionalOverrides(db, now).catch((error: any) => {
+    console.error("[sales-commission] regional override pass failed:", error?.message || error);
+    return { accrued: 0, reversed: 0 };
+  });
+
   // 1. A cancelled or refunded stay earns no commission. Reverse what is still
   //    open, and offset what was already paid so it comes out of the next payout.
   const { autoReversed: stayReversed, lockedInPayout: stayLocked } = await reverseCancelledBookingCommissions(now);
   const groupReversal = await reverseCancelledGroupCommissions(now);
   const tourReversal = await reverseRefundedTourCommissions(now);
-  const autoReversed = stayReversed + groupReversal.autoReversed + tourReversal.autoReversed + longStay.reversed;
+  const autoReversed = stayReversed + groupReversal.autoReversed + tourReversal.autoReversed + longStay.reversed + regional.reversed;
   const lockedInPayout = stayLocked + groupReversal.lockedInPayout + tourReversal.lockedInPayout;
 
   // 2. Promote commissions whose validation window has passed. Marketplace
@@ -255,6 +263,11 @@ export async function runSalesCommissionLifecycle(now = new Date()): Promise<{
         continue;
       }
     }
+    // An override is never withdrawable before the commission it came from.
+    if (candidate.type === "REGIONAL_OVERRIDE" && !(await overrideBaseReady(db, candidate.sourceKey))) {
+      await db.salesCommission.updateMany({ where: { id: candidate.id, status: "VALIDATING" }, data: { eligibleAt: new Date(now.getTime() + DAY_MS) } });
+      continue;
+    }
     if (STAY_COMMISSION_TYPES.includes(candidate.type)) {
       const booking = bookingById.get(candidate.sourceBookingId);
       if (bookingWasCancelled(booking)) continue; // handled by the reversal sweep
@@ -297,7 +310,7 @@ export async function runSalesCommissionLifecycle(now = new Date()): Promise<{
     }, COMMISSION_TRANSACTION_OPTIONS);
     if (changed) madeEligible += 1;
   }
-  return { nrmsAccrued, marketplaceAccrued, agencyAccrued, longStayAccrued: longStay.accrued, madeEligible, autoReversed, lockedInPayout };
+  return { nrmsAccrued, marketplaceAccrued, agencyAccrued, longStayAccrued: longStay.accrued + regional.accrued, madeEligible, autoReversed, lockedInPayout };
 }
 
 /**

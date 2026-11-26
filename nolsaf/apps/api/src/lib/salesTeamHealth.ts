@@ -15,6 +15,7 @@
  * Read only; carries no money.
  */
 import { computeBoard, monthKey, shiftMonth, type BoardEntry } from "./salesLeaderboard.js";
+import { regionLeadUserFor } from "./salesRegions.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STALE_DAYS = 14;
@@ -237,6 +238,11 @@ export async function teamHealthNotices(
     }
     if (team.label === "AT_RISK" && !done.has(ALERT_ACTION)) {
       await notify.admins("sales_team_at_risk", { teamName: team.name, leadName: team.lead.name, reason: team.reasons[0], link: "/admin/sales/teams" }).catch(() => undefined);
+      // The region's lead hears it too (docs/SALES_REGIONS.md).
+      const regionLead = await regionLeadUserFor(db, team.lead.partnerId);
+      if (regionLead && regionLead.userId !== team.lead.userId) {
+        await notify.user(regionLead.userId, "sales_region_team_at_risk", { teamName: team.name, leadName: team.lead.name, reason: team.reasons[0], actionPath: "/sales/region" }).catch(() => undefined);
+      }
       await db.auditLog.create({ data: { actorId: null, actorRole: "SYSTEM", action: ALERT_ACTION, entity: "SALES_TEAM", entityId: team.teamId, afterJson: { reasons: team.reasons } } });
       alerted++;
     }

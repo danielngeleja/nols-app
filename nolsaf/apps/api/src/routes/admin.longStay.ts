@@ -62,6 +62,7 @@ import { sendSms } from "../lib/sms.js";
 import { gatewayFeeRates } from "../lib/gatewayFees.js";
 import { AccessRequestError, decideLongStayAccess, isAccessRequestRef } from "../lib/longStay/accessRequest.js";
 import { sendLongStayOwnerNotice } from "../lib/salesAssistedListing.js";
+import { recommendationsFor } from "../lib/salesRegions.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -180,6 +181,8 @@ router.get("/access-requests", asyncHandler(async (req: AuthedRequest, res: Resp
       })
     : [];
   const byId = new Map(assisted.map((a: any) => [a.id, a]));
+  // A Regional lead's recommendation is advice only (docs/SALES_REGIONS.md).
+  const recommended = await recommendationsFor(prisma, "LONG_STAY_REQUEST", rows.map((r) => r.id));
   const deciders = rows.map((r) => r.decidedById).filter((id): id is number => Number.isInteger(id));
   const admins = deciders.length ? await prisma.user.findMany({ where: { id: { in: deciders } }, select: { id: true, name: true, fullName: true } }) : [];
   const adminName = new Map(admins.map((a: any) => [a.id, a.fullName || a.name || "Admin"]));
@@ -208,6 +211,7 @@ router.get("/access-requests", asyncHandler(async (req: AuthedRequest, res: Resp
           phoneVerified: Boolean(a?.owner?.phoneVerifiedAt),
         },
         partner: { name: a?.salesPartner?.user?.fullName || a?.salesPartner?.user?.name || null, code: a?.salesPartner?.agentCode ?? null },
+        regionalRecommendation: recommended.get(r.id) ?? null,
       };
     }),
   });

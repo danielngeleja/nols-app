@@ -18,6 +18,7 @@ import { ATTRIBUTION_STATUSES, COMMISSION_STATUSES, PRODUCT_TYPES } from "../lib
 import { loadOnboarding } from "../lib/salesOnboarding.js";
 import { nrmsLapsesAt } from "../lib/salesAttribution.js";
 import { leadRef, propertyRef, resolvePartnerProperty } from "../lib/salesReference.js";
+import { bookingStickerSelect, buildBookingSticker, stickerUnavailableReason } from "../lib/propertyBookingSticker.js";
 
 const router = Router();
 const db = prisma as any;
@@ -252,6 +253,27 @@ router.get("/properties/:propertyId", asyncHandler(async (req: SalesAuthedReques
       currency: "TZS",
     },
   });
+}));
+
+/**
+ * GET /api/sales/properties/:propertyId/booking-sticker
+ * The printable "Book this place on NoLSAF" sticker, for a property attributed
+ * to this partner. Same public link as the owner's sticker.
+ */
+router.get("/properties/:propertyId/booking-sticker", asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const parsed = idSchema.safeParse(req.params);
+  if (invalid(res, parsed)) return;
+  const partnerId = scopedPartnerId(req, res);
+  if (!partnerId) return;
+  const property = await db.property.findFirst({
+    where: { id: parsed.data!.propertyId, salesAttributions: { some: { salesPartnerId: partnerId } } },
+    select: bookingStickerSelect,
+  });
+  if (!property) return res.status(404).json({ error: "Attributed property not found" });
+  const reason = stickerUnavailableReason(property);
+  if (reason) return res.status(409).json({ error: reason });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ sticker: await buildBookingSticker(property) });
 }));
 
 /** GET /api/sales/properties/:propertyId/earnings */

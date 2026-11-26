@@ -20,6 +20,7 @@ import {
   Pencil,
   Plus,
   ArrowUpRight,
+  QrCode,
   Trees
 } from "lucide-react";
 import VerifiedIcon from "@/components/VerifiedIcon";
@@ -490,6 +491,14 @@ export default function ApprovedProps() {
                           <ArrowUpRight className="h-4 w-4" aria-hidden />
                         </Link>
                       ) : null}
+                      <Link
+                        href={`/owner/properties/${ownerPropertyRefOrId(property.id)}/sticker`}
+                        title="Print a booking sticker"
+                        aria-label="Print a booking sticker"
+                        className="grid h-10 w-10 place-items-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                      >
+                        <QrCode className="h-4 w-4" aria-hidden />
+                      </Link>
                     </div>
                   </div>
                 </div>

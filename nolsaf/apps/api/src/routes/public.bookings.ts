@@ -22,6 +22,7 @@ import { discountedNightlyNet, roomDiscountPercent } from "../lib/roomDiscount.j
 import { bedsPerSellableUnit } from "../lib/roomSpecBeds.js";
 import { guestOccupancyPricing } from "../lib/guestOccupancyPricing.js";
 import { recordAgencyAttribution } from "../lib/salesAgency.js";
+import { recordAcquisitionSource } from "../lib/acquisitionSource.js";
 
 /**
  * Both booking transactions take a `SELECT ... FOR UPDATE` lock on the property
@@ -1428,6 +1429,9 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         console.warn("[sales-agency] attribution skipped:", error?.message || String(error));
       });
     }
+
+    // Marketing channel (reporting only, needs the visitor's consent cookie).
+    await recordAcquisitionSource(prisma, { type: "BOOKING", id: result.bookingId }, req.headers.cookie);
 
     // NOTE: do not broadcast transport offers here.
     // The transport auto-dispatch worker issues targeted offers (top drivers) based on live locations.

@@ -353,6 +353,7 @@ const managementDetails: Item[] = [
 export const ADMIN_NAV_PAGES: Array<{ href: string; label: string; section: string }> = [
   { href: "/admin/home", label: "Home", section: "Pages" },
   { href: "/admin/finance", label: "All Revenue", section: "Pages" },
+  { href: "/admin/channels", label: "Channels", section: "Pages" },
   { href: "/admin/expenses", label: "Expenses", section: "Pages" },
   { href: "/admin/action-center", label: "Action Center", section: "Pages" },
   { href: "/admin/disbursements", label: "Disbursements", section: "Pages" },
@@ -703,6 +704,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Platform-wide revenue across every stream; not owner-specific, so it stands at the top. */}
         <Item href="/admin/finance" label="All Revenue" Icon={TrendingUp} exact collapsed={collapsed} path={path} variant={variant} />
+
+        {/* Which marketing channel brought each booking, and what it earned. */}
+        <Item href="/admin/channels" label="Channels" Icon={BarChart3} collapsed={collapsed} path={path} variant={variant} />
 
         {/* NoLSAF's own costs; turns All Revenue into a contribution and net margin. */}
         <Item href="/admin/expenses" label="Expenses" Icon={Receipt} collapsed={collapsed} path={path} variant={variant} />
