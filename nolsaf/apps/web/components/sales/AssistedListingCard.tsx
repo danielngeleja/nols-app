@@ -270,7 +270,9 @@ export default function AssistedListingCard({ leadRef, onChanged, onState }: { l
             ) : null}
 
             {state.longStay && listing.status !== "CANCELLED" ? (
-              <LongStayRequestPanel leadRef={leadRef} access={state.longStay} editable={listing.editable} onChanged={load} />
+              <div id="long-stay-request" className="scroll-mt-24">
+                <LongStayRequestPanel leadRef={leadRef} access={state.longStay} editable={listing.editable} onChanged={load} />
+              </div>
             ) : null}
 
             {listing.editable ? (

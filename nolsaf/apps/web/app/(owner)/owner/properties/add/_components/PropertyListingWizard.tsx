@@ -253,6 +253,8 @@ export type ListingWizardAdapter = {
    * so a partner can write monthly terms once NoLSAF allows it (section 15).
    */
   longStayApiBase?: string;
+  /** Assisted mode: where a partner asks NoLSAF to switch long stay on. */
+  longStayRequestHref?: string;
 };
 
 export const OWNER_LISTING_ADAPTER: ListingWizardAdapter = {
@@ -802,6 +804,15 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   const canOfferLongStay = Boolean(longStayApiBase)
     && Boolean(longStayEligibility?.granted && !longStayEligibility.paused)
     && Boolean(longStayEligibility?.propertyTypes?.includes(toServerType(type)));
+  // Assisted listing, home type fits, but NoLSAF has not switched long stay on:
+  // point the partner at the request instead of hiding Monthly silently.
+  const longStayAskHref = adapter.longStayRequestHref
+    && longStayEligibility
+    && !longStayEligibility.granted
+    && !longStayEligibility.paused
+    && longStayEligibility.propertyTypes?.includes(toServerType(type))
+    ? adapter.longStayRequestHref
+    : null;
 
   const changePropertyType = (nextType: string) => {
     setType(nextType);
@@ -2287,6 +2298,17 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
               onKeepNightly={() => setMonthlyAsk(false)}
               lockedReason={!canOfferLongStay && isLongStay ? (longStayEligibility?.refusal || "Long stays are not available for this listing type.") : null}
             />
+          ) : longStayAskHref ? (
+            <a
+              href={longStayAskHref}
+              className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-solid border-slate-200 bg-white px-3 py-2.5 text-sm no-underline transition hover:border-[#02665e]/40 hover:bg-[#02665e]/[0.04] hover:no-underline"
+            >
+              <span className="min-w-0">
+                <span className="block font-semibold text-slate-900">Monthly tenants?</span>
+                <span className="block text-xs text-slate-500">Ask NoLSAF to switch on long stay for this owner.</span>
+              </span>
+              <span className="shrink-0 text-xs font-semibold text-[#02665e]">Request</span>
+            </a>
           ) : null}
           longStaySlot={isLongStay ? (
             <div className="mt-4">

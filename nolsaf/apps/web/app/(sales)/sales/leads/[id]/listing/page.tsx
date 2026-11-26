@@ -76,6 +76,7 @@ export default function SalesAssistedListingPage() {
         await apiClient.post(`${base}/submit`);
       },
       doneHref: () => `/sales/leads/${leadRef}#assisted-listing`,
+      longStayRequestHref: `/sales/leads/${leadRef}#long-stay-request`,
       doneLabel: "Back to the lead",
       doneNote: "Follow its progress on the lead page.",
       successTitle: "Sent to NoLSAF for review",
