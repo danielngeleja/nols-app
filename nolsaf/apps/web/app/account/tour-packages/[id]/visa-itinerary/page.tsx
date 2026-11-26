@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Check, Clock, Download, FileCheck2, Printer } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Ban, CalendarCheck, Check, Clock, Download, FileCheck2, FileLock2, Lock, MapPinned, Printer, ReceiptText, RotateCw, ShieldCheck } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 
 export default function TourVisaItineraryPage() {
@@ -13,6 +13,36 @@ export default function TourVisaItineraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
+  // The API's reason when the document cannot be issued (visa_itinerary_not_available, _cancelled, ...).
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  // Unpaid: the trip and its open payment link, so the notice can say what is due and pay straight away.
+  const [trip, setTrip] = useState<{ title: string; dates: string; travelers: number; amount: string; payUrl: string | null; payExpiresAt: number | null } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (errorCode !== "visa_itinerary_not_available" || !tourReference) return;
+    let alive = true;
+    fetch(`/api/customer/tour-bookings/${encodeURIComponent(tourReference)}`, { credentials: "include", cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((item) => {
+        if (!alive || !item) return;
+        const fmt = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" }) : "");
+        const expires = new Date(item?.paymentResume?.paymentAccessTokenExpiresAt || "").getTime();
+        const status = String(item?.paymentResume?.paymentAccessTokenStatus || "").toUpperCase();
+        const url = typeof item?.paymentResume?.paymentUrl === "string" ? item.paymentResume.paymentUrl : null;
+        setTrip({
+          title: String(item.title || item.destination || "Your trip"),
+          dates: [fmt(item.startDate), fmt(item.endDate)].filter(Boolean).join(" to "),
+          travelers: Number(item.travelerCount || 0),
+          amount: item.grossAmount ? `${item.currency || ""} ${Number(item.grossAmount).toLocaleString("en-US")}`.trim() : "",
+          payUrl: url && status !== "EXPIRED" && Number.isFinite(expires) && expires > Date.now() ? url : null,
+          payExpiresAt: Number.isFinite(expires) ? expires : null,
+        });
+      })
+      .catch(() => undefined);
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [errorCode, tourReference]);
   const [checks, setChecks] = useState<Array<{ key: string; label: string; ok: boolean; detail: string }>>([]);
   const [pdfUrl, setPdfUrl] = useState("");
   const [fileName, setFileName] = useState("Visa Itinerary.pdf");
@@ -46,6 +76,7 @@ export default function TourVisaItineraryPage() {
           const payload = await response.json().catch(() => null);
           if (alive && Array.isArray(payload?.missing)) setMissing(payload.missing.map(String));
           if (alive && Array.isArray(payload?.checks)) setChecks(payload.checks);
+          if (alive && typeof payload?.error === "string") setErrorCode(payload.error);
           throw new Error(payload?.message || "This visa-support itinerary is not currently available.");
         }
         if (!response.ok) throw new Error(`We could not generate this itinerary (${response.status}).`);
@@ -72,6 +103,44 @@ export default function TourVisaItineraryPage() {
     if (missing.length > 0) {
       const done = checks.filter((c) => c.ok).length;
       const closed = checks.some((c) => c.key === "upcoming" && !c.ok);
+      // The trip already happened: no checklist to work through, just say so
+      // and point to the documents that still matter after travel.
+      if (closed) {
+        const endCheck = checks.find((c) => c.key === "end" || /end/i.test(c.label));
+        // "Start date has passed": under way, not over yet.
+        const underWay = checks.some((c) => c.key === "upcoming" && /start date has passed/i.test(c.detail));
+        return (
+          <div id="visa-closed" className="flex min-h-[60vh] w-full items-center justify-center px-4 py-10">
+            <style>{"#visa-closed, #visa-closed * { box-sizing: border-box; }"}</style>
+            <section role="status" className="w-full max-w-[380px] rounded-[20px] border border-solid border-slate-200 bg-white px-6 py-10 text-center shadow-[0_18px_40px_-30px_rgba(15,23,42,0.45)]">
+              <div className="flex justify-center">
+                <span className="flex h-[76px] w-[76px] items-center justify-center rounded-full bg-[#02665e]/[0.06] text-[#02665e]" style={{ boxShadow: "inset 0 0 0 2.5px #02665e" }}>
+                  <CalendarCheck className="h-8 w-8" aria-hidden />
+                </span>
+              </div>
+              <p className="m-0 mt-5 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Visa-support itinerary</p>
+              <h1 className="m-0 mt-1 text-[20px] font-bold tracking-[-0.01em] text-slate-900">{underWay ? "This trip is under way" : "This trip has ended"}</h1>
+              <p className="m-0 mt-1.5 text-[14px] leading-relaxed text-slate-600">
+                {underWay
+                  ? "Visa itineraries are issued before travel starts, for your visa application."
+                  : `Visa itineraries are only issued for upcoming travel${endCheck?.ok && endCheck.detail ? `, and this one finished on ${endCheck.detail.replace(/\s*\(.*\)\s*$/, "")}` : ""}.`}{" "}
+                Your receipt and voucher stay available for your records.
+              </p>
+              <div className="mt-6 flex flex-col items-center gap-3">
+                <Link href={`${backHref}/receipt`} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-[#02665e] px-[18px] text-[14px] font-semibold text-white no-underline hover:bg-[#014e47]">
+                  <ReceiptText className="h-4 w-4" aria-hidden /> View receipt
+                </Link>
+                <div className="flex items-center justify-center gap-4 text-[14px]">
+                  <Link href={`${backHref}/voucher`} className="text-slate-600 no-underline hover:text-[#02665e]">Voucher</Link>
+                  <span className="text-slate-300" aria-hidden>·</span>
+                  <Link href={backHref} className="text-slate-600 no-underline hover:text-[#02665e]">Back to trip</Link>
+                </div>
+              </div>
+              <p className="m-0 mt-5 text-[12px] text-slate-400">Travelling again? Book a new trip and its itinerary is issued once paid.</p>
+            </section>
+          </div>
+        );
+      }
       return (
         <div id="visa-not-ready" className="w-full py-2 sm:py-4">
           <style>{"#visa-not-ready, #visa-not-ready * { box-sizing: border-box; }"}</style>
@@ -129,7 +198,82 @@ export default function TourVisaItineraryPage() {
         </div>
       );
     }
-    return <div className="mx-auto max-w-4xl px-4 py-8"><div className="rounded-2xl border border-solid border-gray-200 bg-white p-6"><div className="text-sm font-medium text-slate-700">{error || "Visa itinerary unavailable"}</div><Link href={backHref} className="mt-4 inline-block text-[#02665e] underline">Back to trip</Link></div></div>;
+    const awaitingPayment = errorCode === "visa_itinerary_not_available";
+    const cancelled = errorCode === "visa_itinerary_cancelled";
+    // A centered notice, like the global error screen: icon in a ring, one
+    // title, one line, then the action to take.
+    const payOpen = Boolean(trip?.payUrl && trip.payExpiresAt && trip.payExpiresAt > now);
+    const minutesLeft = payOpen && trip?.payExpiresAt ? Math.max(1, Math.round((trip.payExpiresAt - now) / 60_000)) : 0;
+    const view = awaitingPayment
+      ? { ring: "#f59e0b", tint: "#fffbeb", ink: "#b45309", Icon: FileLock2, title: "Unlocks after payment", body: "Embassies only accept a visa itinerary for a paid trip. Pay, and it is ready here instantly." }
+      : cancelled
+        ? { ring: "#94a3b8", tint: "#f1f5f9", ink: "#475569", Icon: Ban, title: "Trip cancelled", body: "A visa-support itinerary is only issued for an active booking." }
+        : { ring: "#ef4444", tint: "#fef2f2", ink: "#b91c1c", Icon: AlertTriangle, title: "Itinerary unavailable", body: error || "We could not prepare it right now. Please try again." };
+    return (
+      <div id="visa-unavailable" className="flex min-h-[60vh] w-full items-center justify-center px-4 py-10">
+        <style>{"#visa-unavailable, #visa-unavailable * { box-sizing: border-box; }"}</style>
+        <section role="alert" className="w-full max-w-[380px] rounded-[20px] border border-solid border-slate-200 bg-white px-6 py-10 text-center shadow-[0_18px_40px_-30px_rgba(15,23,42,0.45)]">
+          <div className="flex justify-center">
+            <span
+              className="flex h-[76px] w-[76px] items-center justify-center rounded-full"
+              style={{ boxShadow: `inset 0 0 0 2.5px ${view.ring}`, background: view.tint, color: view.ink }}
+            >
+              <view.Icon className="h-8 w-8" aria-hidden />
+            </span>
+          </div>
+          <p className="m-0 mt-5 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">Visa-support itinerary</p>
+          <h1 className="m-0 mt-1 text-[20px] font-bold tracking-[-0.01em] text-slate-900">{view.title}</h1>
+          <p className="m-0 mt-1.5 text-[14px] leading-relaxed text-slate-600">{view.body}</p>
+
+          {/* The trip this is for, and what is due */}
+          {awaitingPayment && trip ? (
+            <div className="mt-5 overflow-hidden rounded-xl border border-solid border-slate-200 text-left">
+              <div className="flex items-center gap-3 px-4 py-3">
+                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/10 text-[#02665e]"><MapPinned className="h-4 w-4" aria-hidden /></span>
+                <div className="min-w-0">
+                  <p className="m-0 truncate text-[13.5px] font-semibold text-slate-900">{trip.title}</p>
+                  <p className="m-0 truncate text-[12px] text-slate-500">{[trip.dates, trip.travelers ? `${trip.travelers} traveller${trip.travelers === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ")}</p>
+                </div>
+              </div>
+              {trip.amount ? (
+                <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 bg-slate-50/70 px-4 py-2.5">
+                  <span className="text-[12px] font-medium text-slate-500">Amount due</span>
+                  <span className="text-[15px] font-bold tabular-nums text-slate-900">{trip.amount}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
+            {awaitingPayment ? (
+              payOpen && trip?.payUrl ? (
+                <a href={trip.payUrl} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-[#02665e] px-[18px] text-[14px] font-semibold text-white no-underline hover:bg-[#014e47]">
+                  <Lock className="h-4 w-4" aria-hidden /> Pay {trip.amount || "now"} <ArrowRight className="h-4 w-4" aria-hidden />
+                </a>
+              ) : (
+                <Link href={backHref} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-[#02665e] px-[18px] text-[14px] font-semibold text-white no-underline hover:bg-[#014e47]">
+                  Complete payment <ArrowRight className="h-4 w-4" aria-hidden />
+                </Link>
+              )
+            ) : !cancelled ? (
+              <button type="button" onClick={() => window.location.reload()} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[10px] border border-solid border-slate-300 bg-white px-[18px] text-[14px] font-semibold text-slate-900 hover:bg-slate-50">
+                <RotateCw className="h-4 w-4" aria-hidden /> Try again
+              </button>
+            ) : null}
+            <Link href={backHref} className={cancelled ? "inline-flex h-10 items-center justify-center rounded-[10px] border border-solid border-slate-300 bg-white px-[18px] text-[14px] font-semibold text-slate-900 no-underline hover:bg-slate-50" : "text-[14px] text-slate-600 no-underline hover:text-[#02665e]"}>
+              Back to trip
+            </Link>
+          </div>
+
+          {awaitingPayment ? (
+            <p className="m-0 mt-5 flex items-center justify-center gap-1.5 text-[12px] text-slate-400">
+              <ShieldCheck className="h-3.5 w-3.5 text-[#02665e]" aria-hidden />
+              {payOpen ? `Secure payment · link valid ${minutesLeft} min` : "Secure payment · mobile money or card"}
+            </p>
+          ) : null}
+        </section>
+      </div>
+    );
   }
 
   return (
