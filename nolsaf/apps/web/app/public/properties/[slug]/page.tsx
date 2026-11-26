@@ -104,6 +104,7 @@ import DatePicker from "../../../../components/ui/DatePicker";
 
 import { PropertyVisualizationPreview } from "@/app/(owner)/owner/properties/add/_components/PropertyVisualizationPreview";
 import { discountedNightlyNet, roomDiscountPercent } from "@/lib/roomDiscount";
+import { photoAreaLabel, photoAreaOrder, readPhotoAreas } from "@/lib/photoAreas";
 import "@/styles/photo-tour.css";
 import { parseFloorUses } from "@/app/(owner)/owner/properties/add/_components/floorUses";
 import FloorSwitcherMobile from "./_components/FloorSwitcherMobile";
@@ -2700,9 +2701,22 @@ export default function PublicPropertyDetailPage() {
         rooms.set(label, [...(rooms.get(label) || []), i]);
       }
     }
-    const propertyIdx = lightboxImages.map((_, i) => i).filter((i) => !claimed.has(i));
+    // Areas the owner labelled (kitchen, bedroom, ...), in a fixed walk-through
+    // order. Photos without an area stay together under "The property".
+    const areaOf = readPhotoAreas((property as any)?.photoAreas);
+    const areas = new Map<string, number[]>();
+    const propertyIdx: number[] = [];
+    lightboxImages.forEach((u, i) => {
+      if (claimed.has(i)) return;
+      const area = areaOf[u];
+      if (area) areas.set(area, [...(areas.get(area) || []), i]);
+      else propertyIdx.push(i);
+    });
+    const areaSections = Array.from(areas, ([area, idxs]) => ({ key: `area-${area.toLowerCase()}`, label: photoAreaLabel(area), idxs }))
+      .sort((a, b) => photoAreaOrder(a.key.slice(5).toUpperCase()) - photoAreaOrder(b.key.slice(5).toUpperCase()));
+    const unlabelled = { key: "property", label: areaSections.length ? "More photos" : "The property", idxs: propertyIdx };
     return [
-      { key: "property", label: "The property", idxs: propertyIdx },
+      ...(areaSections.length ? [...areaSections, unlabelled] : [unlabelled]),
       ...Array.from(rooms, ([label, idxs], n) => ({ key: `room-${n}`, label, idxs })),
     ].filter((sec) => sec.idxs.length > 0);
   }, [lightboxImages, property]);
@@ -2710,7 +2724,9 @@ export default function PublicPropertyDetailPage() {
     setActiveTourKey(key);
     document.getElementById(`photo-tour-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const [activeTourKey, setActiveTourKey] = useState<string>("property");
+  const [activeTourKey, setActiveTourKey] = useState<string>("");
+  // Until the reader scrolls, the first section (not always "property") is active.
+  const shownTourKey = photoSections.some((s) => s.key === activeTourKey) ? activeTourKey : photoSections[0]?.key;
   // Highlight the section being viewed in the index as the tour scrolls
   useEffect(() => {
     if (!allPhotosOpen) return;
@@ -5037,7 +5053,7 @@ export default function PublicPropertyDetailPage() {
                       key={sec.key}
                       type="button"
                       onClick={() => scrollToPhotoSection(sec.key)}
-                      className={`pt-chip${activeTourKey === sec.key ? " is-active" : ""}`}
+                      className={`pt-chip${shownTourKey === sec.key ? " is-active" : ""}`}
                     >
                       {sec.label} · {sec.idxs.length}
                     </button>
@@ -5054,8 +5070,8 @@ export default function PublicPropertyDetailPage() {
                         key={sec.key}
                         type="button"
                         onClick={() => scrollToPhotoSection(sec.key)}
-                        className={`pt-index-item${activeTourKey === sec.key ? " is-active" : ""}`}
-                        aria-current={activeTourKey === sec.key ? "true" : undefined}
+                        className={`pt-index-item${shownTourKey === sec.key ? " is-active" : ""}`}
+                        aria-current={shownTourKey === sec.key ? "true" : undefined}
                       >
                         <span className="pt-index-thumb">
                           <PropertyGalleryImage src={lightboxImages[sec.idxs[0]]} alt="" sizes="56px" className="object-cover" />

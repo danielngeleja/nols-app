@@ -15,6 +15,7 @@ import { LARGE_CHANGE_PERCENT, checkPriceChange } from "../lib/priceGuardrails.j
 import { notifyAdmins } from "../lib/notifications.js";
 import { publicInspectionReport, requestInspection } from "../lib/longStay/inspection.js";
 import { customerRecordReference } from "../lib/customerBookingReference.js";
+import { longStayPhotoAreaRefusal, sanitizePhotoAreas } from "../lib/photoAreas.js";
 import { bookingStickerSelect, buildBookingSticker, stickerUnavailableReason } from "../lib/propertyBookingSticker.js";
 import {
   LongStayListingError,
@@ -65,6 +66,8 @@ const baseBodySchema = z.object({
 
   // media
   photos: z.array(z.string()).default([]),
+  // { [photoUrl]: area key }; unknown keys/photos are dropped by sanitizePhotoAreas
+  photoAreas: z.record(z.string(), z.string()).optional().nullable(),
 
   // hotel-specific
   hotelStar: z.number().int().min(1).max(5).optional().nullable(),
@@ -409,6 +412,7 @@ async function findOwnerPropertyById(ownerId: number, id: number) {
         ...baseSelect,
         tourismSiteId: true,
         parkPlacement: true,
+        photoAreas: true,
       },
     });
   } catch (err: any) {
@@ -895,6 +899,7 @@ router.post("/", (async (req: AuthedRequest, res) => {
         maxGuests: parsed.maxGuests,
         // media …
         photos: parsed.photos,
+        photoAreas: sanitizePhotoAreas(parsed.photoAreas, parsed.photos) ?? Prisma.DbNull,
         // hotel …
         hotelStar: normalizeHotelStar(parsed.hotelStar),
         // room & services …
@@ -1240,6 +1245,8 @@ export const updateListingProperty = (async (req: AuthedRequest, res) => {
         maxGuests: parsed.maxGuests,
         // media …
         photos: parsed.photos,
+        // Omitted by an older client: keep what is stored.
+        photoAreas: parsed.photoAreas === undefined ? undefined : (sanitizePhotoAreas(parsed.photoAreas, parsed.photos) ?? Prisma.DbNull),
         // hotel …
         hotelStar: typeof parsed.hotelStar === "undefined" ? undefined : normalizeHotelStar(parsed.hotelStar),
         // room & services …
@@ -1367,6 +1374,7 @@ export const submitListingProperty = (async (req: AuthedRequest, res) => {
         latitude: true,
         longitude: true,
         photos: true,
+        photoAreas: true,
         roomsSpec: true,
         _count: { select: { images: true } },
       },
@@ -1414,6 +1422,10 @@ export const submitListingProperty = (async (req: AuthedRequest, res) => {
       }
     }
     if (longStayRefusal) return res.status(400).json({ error: longStayRefusal, code: "LONG_STAY" });
+    if (p.rentalMode === "LONG_STAY") {
+      const photoRefusal = longStayPhotoAreaRefusal(p.photos, p.photoAreas);
+      if (photoRefusal) return res.status(400).json({ error: photoRefusal, code: "PHOTO_AREAS" });
+    }
     if (p.rentalMode === "LONG_STAY") {
       const opened = await requestInspection(prisma, id, "FIRST").catch(() => null);
       if (opened?.created) await notifyAdmins("long_stay_inspection_needed", { inspectionId: opened.inspection.id, inspectionRef: opened.inspection.publicRef, propertyTitle: p.title });

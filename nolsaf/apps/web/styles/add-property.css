@@ -2064,6 +2064,30 @@
   background: rgba(0, 0, 0, 0.72);
 }
 
+/* Which area of the home the photo shows (lib/photoAreas.ts). Sits on the top
+   row between the photo number and the remove button. */
+.ap-shot-area {
+  @apply absolute left-10 right-10 top-1.5 flex;
+}
+
+.ap-shot-area select {
+  @apply h-7 max-w-full cursor-pointer appearance-none truncate rounded-md border-0 py-0 pl-2 pr-6 text-[11px] font-semibold text-white outline-none;
+  background: rgba(0, 0, 0, 0.72) url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 7px center;
+}
+
+.ap-shot-area select:focus-visible {
+  box-shadow: 0 0 0 2px #02665e;
+}
+
+.ap-shot-area select option {
+  color: #0f172a;
+  background: #fff;
+}
+
+.ap-shot-area.is-missing select {
+  background-color: #b45309;
+}
+
 .ap-drop-veil {
   @apply pointer-events-none absolute inset-2 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed text-[14px] font-semibold text-white;
   border-color: #02665e;

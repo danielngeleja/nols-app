@@ -472,6 +472,7 @@ model Property {
   // Media & details
   description  String? @db.Text
   photos       Json? // Array of URLs (legacy, use PropertyImage now)
+  photoAreas   Json? // { [photoUrl]: area key } e.g. KITCHEN, BEDROOM (lib/photoAreas.ts)
   hotelStar    String? // basic, simple, moderate, high, luxury
   buildingType String? // SINGLE_STORY, LOW_RISE, MID_RISE, HIGH_RISE, VILLA_COMPLEX, LODGE_CAMPUS
   totalFloors  Int? // Total number of floors (auto-calculated or manual)

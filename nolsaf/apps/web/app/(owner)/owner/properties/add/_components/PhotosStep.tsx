@@ -5,6 +5,7 @@ import { Armchair, Bath, BedDouble, Check, DoorOpen, Home, Plus, Star, Upload, U
 import Image from "next/image";
 import { AddPropertySection } from "./AddPropertySection";
 import { StepFooter } from "./StepFooter";
+import { LONG_STAY_REQUIRED_AREAS, PHOTO_AREAS, isPhotoArea, type PhotoArea } from "@/lib/photoAreas";
 
 const readFileAsDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -20,15 +21,18 @@ const readFileAsDataUrl = (file: File): Promise<string> =>
     fileReader.readAsDataURL(file);
   });
 
-/** The shots a guest expects, in the order they look. The first three are required. */
-const SHOTS = [
-  { label: "The outside", Icon: Home },
-  { label: "Entrance or reception", Icon: DoorOpen },
-  { label: "Living area", Icon: Armchair },
-  { label: "A bedroom", Icon: BedDouble },
-  { label: "A bathroom", Icon: Bath },
-  { label: "Dining or kitchen", Icon: UtensilsCrossed },
-] as const;
+/**
+ * The shots a guest expects, in the order they look. The first three are
+ * required. A photo added from a slot is labelled with that slot's area.
+ */
+const SHOTS: ReadonlyArray<{ label: string; area: PhotoArea; Icon: typeof Home }> = [
+  { label: "The outside", area: "OUTSIDE", Icon: Home },
+  { label: "Entrance or reception", area: "ENTRANCE", Icon: DoorOpen },
+  { label: "Living area", area: "LIVING", Icon: Armchair },
+  { label: "A bedroom", area: "BEDROOM", Icon: BedDouble },
+  { label: "A bathroom", area: "BATHROOM", Icon: Bath },
+  { label: "The kitchen", area: "KITCHEN", Icon: UtensilsCrossed },
+];
 
 export function PhotosStep({
   isVisible,
@@ -36,6 +40,9 @@ export function PhotosStep({
   photosSaved,
   photosUploading,
   pickPropertyPhotos,
+  photoAreas = {},
+  setPhotoArea,
+  monthly = false,
   setPhotos,
   setPhotosSaved,
   setPhotosUploading,
@@ -47,7 +54,12 @@ export function PhotosStep({
   photos: string[];
   photosSaved: boolean[];
   photosUploading: boolean[];
-  pickPropertyPhotos?: (files: FileList | null) => void | Promise<void>;
+  pickPropertyPhotos?: (files: FileList | null, area?: PhotoArea | null) => void | Promise<void>;
+  /** { [photoUrl]: area }; without setPhotoArea the area picker is hidden. */
+  photoAreas?: Record<string, PhotoArea>;
+  setPhotoArea?: (url: string, area: PhotoArea | null) => void;
+  /** Long stay: every photo needs an area, and the kitchen, a bedroom and a bathroom are required. */
+  monthly?: boolean;
   setPhotos: React.Dispatch<React.SetStateAction<string[]>>;
   setPhotosSaved: React.Dispatch<React.SetStateAction<boolean[]>>;
   setPhotosUploading: React.Dispatch<React.SetStateAction<boolean[]>>;
@@ -63,15 +75,17 @@ export function PhotosStep({
 
   const [isDragging, setIsDragging] = useState(false);
   const dragDepth = useRef(0);
+  // Area of the slot that opened the file picker; cleared by the plain "Add" buttons.
+  const pendingArea = useRef<PhotoArea | null>(null);
 
   const handleUpload = useCallback(
-    async (files: FileList | null) => {
+    async (files: FileList | null, area: PhotoArea | null = null) => {
       if (!files?.length) {
         return;
       }
 
       if (pickPropertyPhotos) {
-        await pickPropertyPhotos(files);
+        await pickPropertyPhotos(files, area);
         return;
       }
 
@@ -153,10 +167,20 @@ export function PhotosStep({
   const anyUploading = photosUploading.some(Boolean);
   const emptySlots = SHOTS.slice(Math.min(photosCount, SHOTS.length));
 
+  const showAreas = Boolean(setPhotoArea);
+  const areaOf = (url: string): PhotoArea | null => (isPhotoArea(photoAreas[url]) ? photoAreas[url] : null);
+  const shownAreas = new Set(photos.map(areaOf).filter(Boolean));
+  const unlabelled = photos.filter((url) => !areaOf(url)).length;
+
   const checks = [
     { label: `${minRequired} photos or more`, done: photosOk },
     { label: "A cover photo", done: photosCount >= 1 },
-    { label: "5 or more for a full tour", done: photosCount >= 5 },
+    ...(monthly && showAreas
+      ? [
+          { label: "Kitchen, bedroom and bathroom", done: LONG_STAY_REQUIRED_AREAS.every((a) => shownAreas.has(a)) },
+          { label: "Every photo has an area", done: photosCount > 0 && unlabelled === 0 },
+        ]
+      : [{ label: "5 or more for a full tour", done: photosCount >= 5 }]),
     { label: "All uploaded", done: photosCount > 0 && !anyUploading },
   ];
 
@@ -173,7 +197,8 @@ export function PhotosStep({
               className="sr-only"
               aria-label="Upload property photos"
               onChange={(e) => {
-                void handleUpload(e.target.files);
+                void handleUpload(e.target.files, pendingArea.current);
+                pendingArea.current = null;
                 e.target.value = "";
               }}
             />
@@ -248,6 +273,22 @@ export function PhotosStep({
                           {index + 1}
                         </span>
 
+                        {showAreas ? (
+                          <span className={`ap-shot-area${monthly && !areaOf(photo) ? " is-missing" : ""}`}>
+                            <select
+                              value={areaOf(photo) ?? ""}
+                              onChange={(e) => setPhotoArea?.(photo, isPhotoArea(e.target.value) ? e.target.value : null)}
+                              aria-label={`Area shown in photo ${index + 1}`}
+                              title="Which area of the home is this?"
+                            >
+                              <option value="">Which area?</option>
+                              {PHOTO_AREAS.map((a) => (
+                                <option key={a.key} value={a.key}>{a.label}</option>
+                              ))}
+                            </select>
+                          </span>
+                        ) : null}
+
                         <button
                           type="button"
                           onClick={() => removePhoto(index)}
@@ -260,13 +301,14 @@ export function PhotosStep({
                       </div>
                     ))}
 
-                    {emptySlots.map(({ label, Icon }, i) => {
+                    {emptySlots.map(({ label, area, Icon }, i) => {
                       const position = photosCount + i;
                       const isNext = i === 0;
                       return (
                         <label
                           key={label}
                           htmlFor="propertyPhotosInput"
+                          onClick={() => { pendingArea.current = area; }}
                           className={`ap-shot is-empty${position === 0 ? " is-cover" : ""}${isNext ? " is-next" : ""}`}
                         >
                           <span className="ap-shot-index">{position === 0 ? "CV" : String(position).padStart(2, "0")}</span>
@@ -283,7 +325,7 @@ export function PhotosStep({
                     })}
 
                     {photosCount >= SHOTS.length ? (
-                      <label htmlFor="propertyPhotosInput" className="ap-shot is-empty">
+                      <label htmlFor="propertyPhotosInput" className="ap-shot is-empty" onClick={() => { pendingArea.current = null; }}>
                         <span className="ap-photo-ico">
                           <Plus className="h-4 w-4" />
                         </span>
@@ -330,7 +372,7 @@ export function PhotosStep({
                     <li>JPG, PNG or WEBP, up to 10MB each</li>
                   </ul>
 
-                  <label htmlFor="propertyPhotosInput" className="ap-btn is-primary is-block">
+                  <label htmlFor="propertyPhotosInput" className="ap-btn is-primary is-block" onClick={() => { pendingArea.current = null; }}>
                     <Upload className="h-4 w-4" />
                     Add photos
                   </label>
