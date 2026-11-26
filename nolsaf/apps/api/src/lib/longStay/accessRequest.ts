@@ -159,6 +159,45 @@ export async function revokeLongStayFromCancelledListing(db: any, assistedListin
   return { revoked: true };
 }
 
+export type SettledRequest = { id: number; publicRef: string; salesPartnerId: number; propertyId: number; assistedListingId: number };
+
+/**
+ * Long stay is switched on per owner, for all their homes. Once it is on (one
+ * request approved, or the owner page switch), every other waiting request for
+ * that owner is settled as approved, so no partner waits on a decision that was
+ * already made. Returns the requests it settled, for the caller to notify.
+ */
+export async function settleRequestsForSwitchedOnOwner(db: any, input: { ownerUserId: number; adminId: number | null; note: string; now?: Date }): Promise<SettledRequest[]> {
+  const now = input.now ?? new Date();
+  const waiting: SettledRequest[] = await db.longStayAccessRequest.findMany({
+    where: { ownerUserId: input.ownerUserId, status: "PENDING" },
+    select: { id: true, publicRef: true, salesPartnerId: true, propertyId: true, assistedListingId: true },
+  });
+  if (!waiting.length) return [];
+  await db.longStayAccessRequest.updateMany({
+    where: { id: { in: waiting.map((r) => r.id) }, status: "PENDING" },
+    data: { status: "APPROVED", decidedById: input.adminId, decidedAt: now, decisionNote: input.note.slice(0, 300) },
+  });
+  return waiting;
+}
+
+/**
+ * Settles waiting requests whose owner already has long stay on (and not
+ * paused), e.g. switched on before this request or by a path that did not
+ * settle it. Safe to run on every list load.
+ */
+export async function settleRequestsAlreadySwitchedOn(db: any, now = new Date()): Promise<SettledRequest[]> {
+  const waiting = await db.longStayAccessRequest.findMany({ where: { status: "PENDING" }, select: { ownerUserId: true }, take: 500 });
+  const owners = [...new Set(waiting.map((r: any) => r.ownerUserId))];
+  if (!owners.length) return [];
+  const on = await db.longStayLandlordGrant.findMany({ where: { userId: { in: owners }, pausedAt: null }, select: { userId: true } });
+  const settled: SettledRequest[] = [];
+  for (const grant of on) {
+    settled.push(...await settleRequestsForSwitchedOnOwner(db, { ownerUserId: grant.userId, adminId: null, note: "Long stay was already on for this owner.", now }));
+  }
+  return settled;
+}
+
 /** A listing that is cancelled or objected to takes its waiting request with it. */
 export async function withdrawLongStayRequests(db: any, assistedListingId: number, now = new Date()) {
   return db.longStayAccessRequest.updateMany({

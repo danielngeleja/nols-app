@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+﻿import { beforeEach, describe, expect, it } from "vitest";
 import {
   AccessRequestError,
   decideLongStayAccess,
   isAccessRequestRef,
   requestLongStayAccess,
   revokeLongStayFromCancelledListing,
+  settleRequestsAlreadySwitchedOn,
+  settleRequestsForSwitchedOnOwner,
 } from "./accessRequest.js";
 
 /** An in-memory store shaped like the Prisma calls the service makes. */
@@ -131,5 +133,38 @@ describe("owner objects and the listing is cancelled", () => {
     await requestLongStayAccess(db, ASK);
     await revokeLongStayFromCancelledListing(db, 40, 900, 30);
     expect(db.state.requests[0].status).toBe("WITHDRAWN");
+  });
+});
+
+describe("one switch for all the owner's homes", () => {
+  function switchDb(requests: any[], grants: any[] = []) {
+    return {
+      requests,
+      longStayAccessRequest: {
+        findMany: async ({ where }: any) => requests.filter((r) => r.status === where.status && (where.ownerUserId == null || r.ownerUserId === where.ownerUserId)),
+        updateMany: async ({ where, data }: any) => {
+          const rows = requests.filter((r) => where.id.in.includes(r.id) && r.status === where.status);
+          rows.forEach((r) => Object.assign(r, data));
+          return { count: rows.length };
+        },
+      },
+      longStayLandlordGrant: { findMany: async ({ where }: any) => grants.filter((g) => where.userId.in.includes(g.userId) && g.pausedAt === null) },
+    };
+  }
+  const waiting = (id: number, ownerUserId: number) => ({ id, publicRef: `lr_${id}`, ownerUserId, salesPartnerId: 5, propertyId: id, assistedListingId: id, status: "PENDING" });
+
+  it("approving for an owner settles that owner's other waiting requests, and only theirs", async () => {
+    const db = switchDb([waiting(1, 900), waiting(2, 900), waiting(3, 901)]);
+    const settled = await settleRequestsForSwitchedOnOwner(db, { ownerUserId: 900, adminId: 7, note: "Approved together" });
+    expect(settled.map((r) => r.publicRef)).toEqual(["lr_1", "lr_2"]);
+    expect(db.requests.map((r: any) => r.status)).toEqual(["APPROVED", "APPROVED", "PENDING"]);
+    expect(db.requests[0].decidedById).toBe(7);
+  });
+
+  it("closes waiting requests for owners already switched on, not paused ones", async () => {
+    const db = switchDb([waiting(1, 900), waiting(2, 901)], [{ userId: 900, pausedAt: null }, { userId: 901, pausedAt: new Date() }]);
+    const settled = await settleRequestsAlreadySwitchedOn(db);
+    expect(settled.map((r) => r.publicRef)).toEqual(["lr_1"]);
+    expect(db.requests.map((r: any) => r.status)).toEqual(["APPROVED", "PENDING"]);
   });
 });

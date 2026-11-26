@@ -52,9 +52,11 @@ import {
   PawPrint,
   CigaretteOff,
   AlertCircle,
+  Zap,
 } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 import OwnerRentDialog, { type OwnerRentBlock } from "@/components/admin/properties/OwnerRentDialog";
+import { electricityEstimate, electricityHeadline, guestPaysElectricity, readElectricityRule } from "@/lib/electricityRule";
 import apiClient from "@/lib/apiClient";
 import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import { motion } from "framer-motion";
@@ -2699,6 +2701,24 @@ export default function PropertyPreview({
                         ))}
                       </div>
                     )}
+
+                    {(() => {
+                      // Electricity during the stay: admins and owners always see the answer.
+                      const power = readElectricityRule((houseRules as any).electricity);
+                      if (!guestPaysElectricity(power) && mode !== "admin" && mode !== "owner") return null;
+                      return (
+                        <div className={`flex items-start gap-3 border-0 border-t border-solid border-slate-100 px-4 py-3.5 sm:px-5 ${guestPaysElectricity(power) ? "bg-amber-50/60" : ""}`}>
+                          <span className={`flex h-9 w-9 flex-none items-center justify-center rounded-lg ${guestPaysElectricity(power) ? "bg-amber-100 text-amber-700" : "bg-emerald-50 text-emerald-600"}`}>
+                            <Zap className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-[11.5px] font-medium text-slate-500">Electricity</span>
+                            <span className="block text-[14.5px] font-semibold text-slate-900">{electricityHeadline(power)}</span>
+                            {electricityEstimate(power) ? <span className="mt-0.5 block text-[12px] text-slate-500">{electricityEstimate(power)}</span> : null}
+                          </span>
+                        </div>
+                      );
+                    })()}
 
                     {other && (
                       <div className="border-0 border-t border-solid border-slate-100 px-4 py-3.5 sm:px-5">

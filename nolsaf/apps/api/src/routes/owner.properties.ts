@@ -16,6 +16,7 @@ import { notifyAdmins } from "../lib/notifications.js";
 import { publicInspectionReport, requestInspection } from "../lib/longStay/inspection.js";
 import { customerRecordReference } from "../lib/customerBookingReference.js";
 import { longStayPhotoAreaRefusal, sanitizePhotoAreas } from "../lib/photoAreas.js";
+import { withCleanElectricity } from "../lib/electricityRule.js";
 import { bookingStickerSelect, buildBookingSticker, stickerUnavailableReason } from "../lib/propertyBookingSticker.js";
 import {
   LongStayListingError,
@@ -868,7 +869,7 @@ router.post("/", (async (req: AuthedRequest, res) => {
         servicesForSave = { tags: servicesForSave };
       }
       if (servicesForSave && typeof servicesForSave === "object" && !Array.isArray(servicesForSave)) {
-        servicesForSave.houseRules = parsed.houseRules;
+        servicesForSave.houseRules = withCleanElectricity(parsed.houseRules);
       }
     }
 
@@ -1216,7 +1217,7 @@ export const updateListingProperty = (async (req: AuthedRequest, res) => {
         servicesForSave = { tags: servicesForSave };
       }
       if (servicesForSave && typeof servicesForSave === "object" && !Array.isArray(servicesForSave)) {
-        servicesForSave.houseRules = parsed.houseRules;
+        servicesForSave.houseRules = withCleanElectricity(parsed.houseRules);
       }
     }
 

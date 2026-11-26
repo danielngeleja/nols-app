@@ -1,9 +1,131 @@
 "use client";
 
 import { Fragment, useMemo } from "react";
-import { ArrowRight, BedDouble, Check, Cigarette, CigaretteOff, Dog, FileText, Lock, Minus, MoonStar, PawPrint, Plus, ShieldCheck, Tag, Users } from "lucide-react";
+import { ArrowRight, BedDouble, Check, Cigarette, CigaretteOff, Dog, FileText, Gauge, Lock, Minus, MoonStar, PawPrint, Plus, ShieldCheck, Tag, Users, Zap, ZapOff } from "lucide-react";
 import { AddPropertySection } from "./AddPropertySection";
 import { StepFooter } from "./StepFooter";
+import { electricityEstimate, electricityHeadline, readElectricityRule, type ElectricityMode, type ElectricityRule } from "@/lib/electricityRule";
+
+/**
+ * Nightly stays: who pays for electricity. Many apartments let even a 5-night
+ * guest buy their own LUKU tokens; the guest must know before paying.
+ */
+function ElectricityQuestion({ rule, onChange }: { rule: ElectricityRule; onChange: (next: ElectricityRule) => void }) {
+  const set = (patch: Partial<ElectricityRule>) => onChange({ ...rule, ...patch });
+  const options: Array<{ mode: ElectricityMode; label: string; hint: string; Icon: typeof Zap }> = [
+    { mode: "INCLUDED", label: "Included", hint: "In the nightly price", Icon: Zap },
+    { mode: "LIMITED", label: "Up to a limit", hint: "Free units, then top up", Icon: Gauge },
+    { mode: "GUEST_PAYS", label: "Guest buys LUKU", hint: "Guest pays all power", Icon: ZapOff },
+  ];
+  const units = rule.freeUnitsPerDay ?? 0;
+  const stepUnits = (delta: number) => set({ freeUnitsPerDay: Math.min(1000, Math.max(1, (units || 0) + delta)) });
+  const num = (v: string) => { const n = Math.round(Number(v.replace(/[^\d]/g, ""))); return Number.isFinite(n) && n > 0 ? n : null; };
+  const paying = rule.mode !== "INCLUDED";
+  const estimate = electricityEstimate(rule);
+  const stepper = "grid h-9 w-9 cursor-pointer place-items-center rounded-md border-0 bg-white/[0.06] p-0 text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30";
+  const chip = (on: boolean) => `h-7 cursor-pointer rounded-md border-0 px-2.5 text-[12px] font-semibold tabular-nums transition ${on ? "bg-teal-400/20 text-teal-200" : "bg-white/[0.05] text-white/55 hover:bg-white/10 hover:text-white/85"}`;
+
+  return (
+    <div className="ap-card-body ap-divided">
+      <div className={RULE_ROW.replace("first:border-t-0", "border-t-0 py-0")}>
+        <RuleLabel Icon={Zap} label="Electricity during a stay" hint="Guests see it before booking and tick it before paying" />
+
+        <div className="min-w-0 space-y-3">
+          {/* The three answers, each saying what it means */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Electricity during a stay">
+            {options.map((o) => {
+              const on = rule.mode === o.mode;
+              return (
+                <button
+                  key={o.mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => set({ mode: o.mode, ...(o.mode === "LIMITED" && !rule.freeUnitsPerDay ? { freeUnitsPerDay: 10 } : {}) })}
+                  className={`flex cursor-pointer items-center gap-3 rounded-lg border border-solid px-3 py-2.5 text-left transition ${on ? "border-teal-400/50 bg-teal-400/[0.08]" : "border-white/[0.08] bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]"}`}
+                >
+                  <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-md ${on ? "bg-teal-400/20 text-teal-200" : "bg-white/[0.06] text-white/50"}`}>
+                    <o.Icon className="h-4 w-4" aria-hidden />
+                  </span>
+                  <span className="min-w-0">
+                    <span className={`block text-[13px] font-semibold ${on ? "text-white" : "text-white/75"}`}>{o.label}</span>
+                    <span className="block truncate text-[11.5px] text-white/40">{o.hint}</span>
+                  </span>
+                  <span className={`ml-auto grid h-4 w-4 shrink-0 place-items-center rounded-full border border-solid ${on ? "border-teal-300 bg-teal-300" : "border-white/25"}`} aria-hidden>
+                    {on ? <Check className="h-2.5 w-2.5 text-[#0b2420]" /> : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {paying ? (
+            <div className="grid gap-3 rounded-lg bg-white/[0.03] p-3 sm:grid-cols-2">
+              {rule.mode === "LIMITED" ? (
+                <div>
+                  <span className="ap-stat-label mb-2 block">Free units a day</span>
+                  <div className="flex items-center gap-2">
+                    <button type="button" aria-label="Fewer units" disabled={units <= 1} onClick={() => stepUnits(-1)} className={stepper}><Minus className="h-3.5 w-3.5" /></button>
+                    <label className="relative flex-1">
+                      <span className="sr-only">Free units a day</span>
+                      <input
+                        value={units || ""}
+                        onChange={(e) => set({ freeUnitsPerDay: num(e.target.value) })}
+                        inputMode="numeric"
+                        placeholder="10"
+                        style={{ paddingRight: "5.25rem", paddingLeft: "0.75rem" }}
+                        className="ap-input text-[15px] font-semibold tabular-nums"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-white/40">units/day</span>
+                    </label>
+                    <button type="button" aria-label="More units" disabled={units >= 1000} onClick={() => stepUnits(1)} className={stepper}><Plus className="h-3.5 w-3.5" /></button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {[5, 10, 15, 20].map((n) => (
+                      <button key={n} type="button" onClick={() => set({ freeUnitsPerDay: n })} className={chip(units === n)}>{n}</button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className={rule.mode === "LIMITED" ? "" : "sm:col-span-2"}>
+                <span className="ap-stat-label mb-2 block">{rule.mode === "LIMITED" ? "Usual top-up a day" : "Usual cost a day"} <span className="ap-label-opt">optional</span></span>
+                <label className="relative block">
+                  <span className="sr-only">Usual cost a day in Tanzanian shillings</span>
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[12px] font-semibold text-white/40">TSh</span>
+                  <input
+                    value={rule.perDayTzs ? rule.perDayTzs.toLocaleString("en-US") : ""}
+                    onChange={(e) => set({ perDayTzs: num(e.target.value) })}
+                    inputMode="numeric"
+                    placeholder="3,000"
+                    // Inline so the .ap-input padding cannot override it and hide the text under "TSh".
+                    style={{ paddingLeft: "3.25rem" }}
+                    className="ap-input text-[15px] font-semibold tabular-nums"
+                  />
+                </label>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[2000, 3000, 5000, 10000].map((n) => (
+                    <button key={n} type="button" onClick={() => set({ perDayTzs: rule.perDayTzs === n ? null : n })} className={chip(rule.perDayTzs === n)}>{n.toLocaleString("en-US")}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Exactly what guests will see on the listing */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-white/35">Guests see</span>
+            <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-semibold ${paying ? "bg-amber-400/15 text-amber-200" : "bg-emerald-400/10 text-emerald-200"}`}>
+              {paying ? <ZapOff className="h-3.5 w-3.5" aria-hidden /> : <Zap className="h-3.5 w-3.5" aria-hidden />}
+              {electricityHeadline(rule)}{estimate ? ` · ${estimate.replace(/^About/, "about")}` : ""}
+            </span>
+            {paying ? <span className="text-[11.5px] text-white/40">and must tick it before paying</span> : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type NumSetter = (v: number | "") => void;
 
@@ -87,6 +209,7 @@ export function TotalsStep({
     overnightNights?: number;
     quietFrom?: string;
     quietTo?: string;
+    electricity?: ElectricityRule;
   };
   setHouseRules: (updater: (prev: any) => any) => void;
   goToPreviousStep: () => void;
@@ -455,6 +578,12 @@ export function TotalsStep({
                   </div>
                 </div>
               </div>
+
+              {/* Electricity: who pays during a stay. Guests see it before they book. */}
+              <ElectricityQuestion
+                rule={readElectricityRule(houseRules.electricity)}
+                onChange={(electricity) => setRule({ electricity })}
+              />
 
               {/* Row two: the written parts */}
               <div className="ap-card-body ap-divided">

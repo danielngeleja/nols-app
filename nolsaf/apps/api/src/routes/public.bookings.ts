@@ -351,6 +351,9 @@ const createBookingSchema = z.object({
   // Agency Desk link token. Only ever credits the booking to a partner after it
   // is created; it never changes price, availability or who pays.
   agencyRef: z.string().max(64).optional().nullable(),
+  // The guest ticked that they pay for electricity (services.houseRules.electricity).
+  // The web checkout requires it; app clients that do not send it are not refused yet.
+  acceptElectricity: z.boolean().optional(),
 }).superRefine((data, ctx) => {
   if (data.roomCode && isExplicitRoomUnitCode(data.roomCode) && (data.rooms ?? 1) > 1) {
     ctx.addIssue({

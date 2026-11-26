@@ -13,6 +13,7 @@ import { bookingModeOfEntries, defaultBookingModeForPropertyType, isRoomOnlyProp
 import { TotalsStep } from "./TotalsStep";
 import { PhotosStep } from "./PhotosStep";
 import { readPhotoAreas, type PhotoArea } from "@/lib/photoAreas";
+import { readElectricityRule, type ElectricityRule } from "@/lib/electricityRule";
 import { ROOM_ITEMS, UNIT_AMENITY_ITEMS, RoomsStep } from "./RoomsStep";
 import LeasePreviewDialog, { leaseRulesPayload, livingRuleLines } from "@/components/longStay/LeasePreviewDialog";
 import { LongStayApiBaseContext, OWNER_LONG_STAY_API } from "@/components/longStay/longStayApiBase";
@@ -418,6 +419,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                         overnightNights: Number((hrObj as any).overnightNights) || 7,
                         quietFrom: String((hrObj as any).quietHours || "").split(" to ")[0] || "",
                         quietTo: String((hrObj as any).quietHours || "").split(" to ")[1] || "",
+                        electricity: readElectricityRule((hrObj as any).electricity),
                       };
                     });
                   }
@@ -730,6 +732,8 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     overnightNights?: number;
     quietFrom?: string;
     quietTo?: string;
+    /** Nightly stays: who pays for electricity (lib/electricityRule.ts). */
+    electricity?: ElectricityRule;
   }>({
     checkInFrom: "",
     checkInTo: "",
@@ -1708,6 +1712,9 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
       if (living?.smokingPolicy) { out.smokingPolicy = living.smokingPolicy; out.smoking = living.smokingPolicy !== "allowed"; }
       if (living?.overnightGuests) { out.overnightGuests = living.overnightGuests; if (living.overnightGuests === "limited") out.overnightNights = living.overnightNights; }
       if (living?.quietHours) out.quietHours = living.quietHours;
+      // Nightly stays only: a long stay sets its bills in the monthly terms.
+      const electricity = readElectricityRule((hr as any).electricity);
+      if (!isLongStay && electricity.mode !== "INCLUDED") out.electricity = electricity;
 
       return Object.keys(out).length ? out : null;
     })();

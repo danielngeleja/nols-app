@@ -60,7 +60,24 @@ import { sampleLeaseText } from "../lib/longStay/leasePreview.js";
 import { ledgerRow } from "../lib/longStay/paymentLedger.js";
 import { sendSms } from "../lib/sms.js";
 import { gatewayFeeRates } from "../lib/gatewayFees.js";
-import { AccessRequestError, decideLongStayAccess, isAccessRequestRef } from "../lib/longStay/accessRequest.js";
+import { AccessRequestError, decideLongStayAccess, isAccessRequestRef, settleRequestsAlreadySwitchedOn, settleRequestsForSwitchedOnOwner, type SettledRequest } from "../lib/longStay/accessRequest.js";
+
+/** Tells each partner their waiting request was settled because long stay is now on for the owner. */
+async function notifySettledRequests(settled: SettledRequest[]) {
+  for (const request of settled) {
+    try {
+      const [propertyTitle, partner] = await Promise.all([
+        propertyTitleOf(request.propertyId),
+        prisma.salesPartnerProfile.findUnique({ where: { id: request.salesPartnerId }, select: { userId: true } }),
+      ]);
+      if (!partner?.userId) continue;
+      const notice = await createUserNotification(prisma, partner.userId, "long_stay_access_decided", { decision: "APPROVED", propertyTitle, note: "Long stay is on for this owner." }).catch(() => null);
+      if (notice) publishUserNotification(notice);
+    } catch {
+      // A missed notice never undoes the switch; the partner sees it on the lead.
+    }
+  }
+}
 import { sendLongStayOwnerNotice } from "../lib/salesAssistedListing.js";
 import { recommendationsFor } from "../lib/salesRegions.js";
 
@@ -133,6 +150,11 @@ router.post("/landlords/:id", asyncHandler(async (req: AuthedRequest, res: Respo
     granted: Boolean(before),
     pausedAt: before?.pausedAt ?? null,
   }, { action, reason }, ownerId);
+  // Switched on here: partners waiting for this owner are answered too.
+  if (action === "ENABLE" || action === "RESUME") {
+    const settled = await settleRequestsForSwitchedOnOwner(prisma, { ownerUserId: ownerId, adminId: req.user!.id, note: "Long stay was switched on for this owner from the owner's page." }).catch(() => []);
+    await notifySettledRequests(settled);
+  }
   return res.json({ ok: true, ...(await landlordSummary(ownerId)) });
 }) as RequestHandler);
 
@@ -155,6 +177,9 @@ router.get("/access-requests", asyncHandler(async (req: AuthedRequest, res: Resp
   let rows: any[] = [];
   let counts: Record<string, number> = {};
   try {
+    // An owner switched on some other way leaves nothing to decide here.
+    const settled = await settleRequestsAlreadySwitchedOn(prisma);
+    if (settled.length) await notifySettledRequests(settled);
     const [list, grouped] = await Promise.all([
       prisma.longStayAccessRequest.findMany({
         where: view === "ALL" ? {} : { status: view },
@@ -186,6 +211,12 @@ router.get("/access-requests", asyncHandler(async (req: AuthedRequest, res: Resp
   const deciders = rows.map((r) => r.decidedById).filter((id): id is number => Number.isInteger(id));
   const admins = deciders.length ? await prisma.user.findMany({ where: { id: { in: deciders } }, select: { id: true, name: true, fullName: true } }) : [];
   const adminName = new Map(admins.map((a: any) => [a.id, a.fullName || a.name || "Admin"]));
+  // The owner's switch right now: one switch covers all their homes.
+  const ownerIds = [...new Set(rows.map((r) => r.ownerUserId))];
+  const grants = ownerIds.length
+    ? await prisma.longStayLandlordGrant.findMany({ where: { userId: { in: ownerIds } }, select: { userId: true, pausedAt: true } })
+    : [];
+  const switchOf = new Map(grants.map((g) => [g.userId, g.pausedAt ? "PAUSED" : "ON"]));
   res.setHeader("Cache-Control", "no-store");
   return res.json({
     view,
@@ -195,6 +226,7 @@ router.get("/access-requests", asyncHandler(async (req: AuthedRequest, res: Resp
       return {
         ref: r.publicRef,
         status: r.status,
+        ownerSwitch: switchOf.get(r.ownerUserId) ?? "OFF",
         reason: r.reason,
         createdAt: r.createdAt,
         decidedAt: r.decidedAt,
@@ -244,7 +276,14 @@ router.post("/access-requests/:ref/decide", asyncHandler(async (req: AuthedReque
   }
   // The owner hears it from NoLSAF, with a fresh "Not expecting this?" link.
   const ownerTold = body.data.decision === "APPROVED" ? await sendLongStayOwnerNotice(request.assistedListingId) : null;
-  return res.json({ ok: true, status: body.data.decision, ownerTold });
+  // One switch for all the owner's homes: other waiting requests for this owner close too.
+  let alsoSettled = 0;
+  if (body.data.decision === "APPROVED") {
+    const settled = await settleRequestsForSwitchedOnOwner(prisma, { ownerUserId: request.ownerUserId, adminId: req.user!.id, note: `Approved together with ${ref}: long stay is on for this owner.` }).catch(() => []);
+    alsoSettled = settled.length;
+    await notifySettledRequests(settled);
+  }
+  return res.json({ ok: true, status: body.data.decision, ownerTold, alsoSettled });
 }) as RequestHandler);
 
 // ---------- Tenant identity checks (decision 10) ----------
