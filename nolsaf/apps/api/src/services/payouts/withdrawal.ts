@@ -129,8 +129,7 @@ function formatTzs(amount: number): string {
 
 /** "Vodacom ***456": enough for the owner to recognise it, never the full number. */
 export function maskDestination(provider: string, accountNumber: string): string {
-  const digits = String(accountNumber).replace(/\D/g, "");
-  return `${provider} ***${digits.slice(-3)}`;
+  return `${provider} ***${String(accountNumber).trim().slice(-3)}`;
 }
 
 /** Locks a queued withdrawal to the account details the owner confirmed. */
@@ -301,7 +300,7 @@ export async function startWithdrawal(ownerId: number, now = new Date()) {
   if (releases.length === 0) throw new WithdrawalError("NOTHING_AVAILABLE", "There is nothing ready to withdraw right now.");
 
   const account = (await verifiedPayoutAccounts(ownerId))[0];
-  if (!account) throw new WithdrawalError("NO_PAYOUT_ACCOUNT", "Add and verify a mobile money payout account first.");
+  if (!account) throw new WithdrawalError("NO_PAYOUT_ACCOUNT", "Add and verify a payout account first.");
 
   const total = Math.round(releases.reduce((sum, r) => sum + r.amount, 0) * 100) / 100;
   // Debts from earlier refunds are taken first (policy 6.3.3); the owner is

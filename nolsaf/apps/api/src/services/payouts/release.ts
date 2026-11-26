@@ -386,7 +386,7 @@ function emailKey(value: unknown): string | null {
 /** The owner's usable payout destinations, the one payouts go to first. */
 export async function verifiedPayoutAccounts(ownerId: number) {
   return prisma.payoutAccount.findMany({
-    where: { userId: ownerId, isActive: true, isVerified: true, type: "MOBILE_MONEY" },
+    where: { userId: ownerId, isActive: true, isVerified: true, type: { in: ["BANK", "MOBILE_MONEY"] } },
     orderBy: [{ isDefault: "desc" }, { id: "asc" }],
     select: { id: true, userId: true, provider: true, accountNumber: true, accountName: true, destinationChangedAt: true, createdAt: true },
   });
@@ -397,7 +397,7 @@ async function payoutAccountProblem(ownerId: number, now: Date): Promise<{ probl
   const accounts = await verifiedPayoutAccounts(ownerId);
   const accountNumbers = accounts.map((a) => a.accountNumber);
   const primary = accounts[0];
-  if (!primary) return { problem: "Add and verify a mobile money payout account", accountNumbers };
+  if (!primary) return { problem: "Add and verify a payout account", accountNumbers };
 
   const { recentChangeHours } = await loadPayoutSafeguards();
   const rawChangedAt = primary.destinationChangedAt ?? primary.createdAt;

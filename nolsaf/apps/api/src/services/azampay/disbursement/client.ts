@@ -11,11 +11,12 @@
  * environment overrides are reserved for a future provider-contract revision.
  */
 
+import { z } from "zod";
 import { getAzamPayDisburseToken, invalidateAzamPayDisburseToken } from "./auth.js";
 import { azamPayChecksum } from "./checksum.js";
 import { buildChecksumInput } from "./checksumInput.js";
 import { AzamPayDisburseConfigurationError, mapAzamPayError } from "./errors.js";
-import { toAzamPayWireBankName } from "./providers.js";
+import { canonicalAzamPayProvider, toAzamPayWireBankName } from "./providers.js";
 import type {
   AzamPayDisburseRequest,
   AzamPayDisburseResponse,
@@ -162,6 +163,11 @@ export async function azamPayNameLookup(
 
   // The live test API returns fName/lName while older documentation and
   // examples use fname/lname/name. Normalise both shapes for every caller.
+  if (!canonicalAzamPayProvider(input.bankName) &&
+      (String(body.bankName ?? "").trim().toLowerCase() !== input.bankName.trim().toLowerCase() ||
+       (body.accountNumber != null && String(body.accountNumber).trim() !== input.accountNumber.trim()))) {
+    invalidProviderResponse(status, body, "bank lookup returned a different destination");
+  }
   const fname = String(body.fName ?? body.fname ?? "").trim();
   const lname = String(body.lName ?? body.lname ?? "").trim();
   const name = String(body.name ?? [fname, lname].filter(Boolean).join(" ")).trim();
@@ -216,6 +222,51 @@ export async function azamPayDisburse(
   }
 
   return body as AzamPayDisburseResponse;
+}
+
+const bankIdentifier = z.string().trim().min(1).max(160).regex(/^[^\u0000-\u001F\u007F]+$/u);
+const directoryRows = z.array(z.union([bankIdentifier, z.object({
+  bankName: bankIdentifier, isActive: z.boolean().optional(), enabled: z.boolean().optional(),
+})]));
+const bankDirectory = z.union([
+  directoryRows,
+  z.object({ success: z.literal(true).optional(), data: directoryRows }),
+  z.object({ success: z.literal(true).optional(), bankNames: directoryRows }),
+]);
+
+/** Preserve the exact bankName and reject ambiguous directory formats. */
+export function parseBankNames(body: unknown): string[] {
+  const directory = bankDirectory.parse(body);
+  const rows = Array.isArray(directory) ? directory : "data" in directory ? directory.data : directory.bankNames;
+  const names = new Set<string>();
+  for (const row of rows) {
+    if (typeof row !== "string" && (row.isActive === false || row.enabled === false)) continue;
+    const name = typeof row === "string" ? row : row.bankName;
+    if (!canonicalAzamPayProvider(name)) names.add(name);
+  }
+  return [...names];
+}
+
+let directoryRequest: Promise<string[]> | undefined;
+let directoryCache: { names: string[]; expires: number } | undefined;
+
+export async function azamPayBankNames(refresh = false): Promise<string[]> {
+  if (!refresh && directoryCache && Date.now() < directoryCache.expires) return directoryCache.names;
+  if (!directoryRequest) {
+    directoryRequest = withAuthRetry(async (token) => {
+      const response = await fetch(disburseHost() + "/api/v1/azampay/BankNames", {
+        headers: { Authorization: `Bearer ${token}` }, redirect: "error",
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      return { status: response.status, body: response.ok ? await response.json() : null };
+    }).then(({ status, body }) => {
+      if (status < 200 || status >= 300) throw mapAzamPayError(status, body);
+      const names = parseBankNames(body);
+      directoryCache = { names, expires: Date.now() + 60_000 };
+      return names;
+    }).finally(() => { directoryRequest = undefined; });
+  }
+  return directoryRequest;
 }
 
 /** Fallback/reconciliation query — use when a callback is delayed, missed, or a payout looks stale. */

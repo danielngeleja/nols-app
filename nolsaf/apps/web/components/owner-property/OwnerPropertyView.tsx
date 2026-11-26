@@ -30,6 +30,9 @@ import apiClient from "@/lib/apiClient";
 import { BATHROOM_ICONS, OTHER_AMENITIES_ICONS } from "@/lib/amenityIcons";
 import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import { getPropertyCommission } from "@/lib/priceUtils";
+import LongStayInspectionReport, { inspectionScore, type PublicInspectionReport } from "@/app/public/properties/[slug]/LongStayInspectionReport";
+import OwnerLeaseTerms from "./OwnerLeaseTerms";
+import { longStayHomeFeatures, OwnerLongStayAmenities, OwnerLongStayNearby } from "./OwnerLongStayAmenities";
 import { OwnerPriceBreakdown } from "./OwnerPriceBreakdown";
 import { discountedNightlyNet } from "@/lib/roomDiscount";
 import { groupServices, serviceIcon } from "@/lib/propertyServiceGroups";
@@ -272,7 +275,27 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
 
   const status = String(property.status || "").toUpperCase();
   const statusMeta = STATUS_META[status] ?? { label: status.toLowerCase(), tone: "bg-white/10 text-white/70 ring-white/15", note: "" };
-  const currency = property.currency || "TZS";
+  const isLongStay = property.rentalMode === "LONG_STAY";
+  const terms = isLongStay ? property.longStay : null;
+  const rawServices = parseJson<Record<string, unknown> | string[]>(property.services, {});
+  const serviceDetails = rawServices && !Array.isArray(rawServices) ? rawServices : {};
+  const unitAmenities = isLongStay ? rooms.flatMap((room) => [...room.amenities, ...room.bathItems]) : [];
+  const longStayFeatures = isLongStay ? longStayHomeFeatures(serviceDetails, amenities, unitAmenities, terms?.utilities?.security) : null;
+  const amenityCount = longStayFeatures?.count ?? amenities.length;
+  const hasUtilityTerms = Object.values(terms?.utilities ?? {}).some((value) => value === "INCLUDED" || value === "TENANT");
+  const availability = property.longStayAvailability;
+  const inspection = property.longStayInspection as (PublicInspectionReport & {
+    inspector?: { name: string | null; code: string } | null;
+  }) | undefined;
+  const score = inspection?.status === "PASSED" ? inspectionScore(inspection.checks).score : null;
+  const monthlyRent = Number(terms?.monthlyRent) || 0;
+  const currency = (isLongStay ? terms?.currency : property.currency) || "TZS";
+  const months = (count: number | null | undefined) => count == null ? "Not set" : `${count} month${count === 1 ? "" : "s"}`;
+  const furnishing = ({ FURNISHED: "Furnished", SEMI: "Semi-furnished", UNFURNISHED: "Unfurnished" } as Record<string, string>)[terms?.furnished] || "Not set";
+  const moveIn = availability?.reserved ? "Reserved"
+    : availability?.availableNow ? "Available now"
+    : availability?.availableFrom ? new Date(`${availability.availableFrom}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
+    : availability ? "Currently let" : "Not set";
   const commissionServices = parseJson<Record<string, unknown>>(property.services, {});
   const customCommission = Number(commissionServices.commissionPercent);
   const hasCustomCommission = commissionServices.commissionPercent != null && Number.isFinite(customCommission) && customCommission >= 0 && customCommission <= 100;
@@ -310,9 +333,12 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
   const health = [
     { ok: photos.length >= 5, label: "At least 5 photos", detail: `${photos.length} photo${photos.length === 1 ? "" : "s"}` },
     { ok: description.length >= 150, label: "A full description", detail: description.length ? `${description.length} characters` : "None yet" },
-    { ok: hasPin, label: "Map pin set", detail: hasPin ? "Guests can find you" : "Not set" },
-    { ok: rooms.length > 0 && priced.length === rooms.length, label: "Every room priced", detail: `${priced.length} of ${rooms.length} room types` },
-    { ok: amenities.length >= 5, label: "Amenities listed", detail: `${amenities.length} listed` },
+    { ok: hasPin, label: "Map pin set", detail: hasPin ? (isLongStay ? "Tenants can find the home" : "Guests can find you") : "Not set" },
+    isLongStay
+      ? { ok: monthlyRent > 0, label: "Monthly rent set", detail: monthlyRent > 0 ? `${money(monthlyRent, currency)} per month` : "Set the rent for the whole home" }
+      : { ok: rooms.length > 0 ? priced.length === rooms.length : fromPrice > 0, label: rooms.length > 0 ? "Every room priced" : "Nightly rate set", detail: rooms.length > 0 ? `${priced.length} of ${rooms.length} room types` : fromPrice > 0 ? `${money(fromPrice, currency)} per night` : "Set a nightly rate" },
+    ...(isLongStay ? [{ ok: Boolean(terms?.minTermMonths && terms?.upfrontMonths), label: "Lease terms set", detail: terms?.minTermMonths ? `${months(terms.minTermMonths)} minimum` : "Add minimum term and upfront rent" }] : []),
+    { ok: amenityCount >= 5, label: "Amenities listed", detail: `${amenityCount} listed` },
   ];
   const healthScore = Math.round((health.filter((h) => h.ok).length / health.length) * 100);
 
@@ -383,7 +409,8 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
           <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${statusMeta.tone}`}>{statusMeta.label}</span>
+                <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${statusMeta.tone}`}>{isLongStay && status === "APPROVED" ? "Approved" : statusMeta.label}</span>
+                <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white">{isLongStay ? "Long stay · Whole home" : "Nightly stay"}</span>
                 <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/75">{typeLabel(property.type)}</span>
                 {property.hotelStar ? <span className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-amber-200"><Star className="h-3 w-3 fill-current" aria-hidden />{typeLabel(property.hotelStar)}</span> : null}
               </div>
@@ -393,11 +420,11 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
             <div className="flex flex-wrap gap-2">
               {slug && status === "APPROVED" ? (
                 <a href={`/public/properties/${encodeURIComponent(slug)}`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/[0.12]">
-                  <Eye className="h-4 w-4" aria-hidden /> View as guest <ExternalLink className="h-3.5 w-3.5 opacity-60" aria-hidden />
+                  <Eye className="h-4 w-4" aria-hidden /> {isLongStay ? "View public listing" : "View as guest"} <ExternalLink className="h-3.5 w-3.5 opacity-60" aria-hidden />
                 </a>
               ) : null}
-              <Link href={href(property.id, "/availability")} className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/[0.12]">
-                <CalendarDays className="h-4 w-4" aria-hidden /> Availability
+              <Link href={isLongStay ? "/owner/long-stays" : href(property.id, "/availability")} className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/[0.12]">
+                <CalendarDays className="h-4 w-4" aria-hidden /> {isLongStay ? "Manage long stays" : "Availability"}
               </Link>
               <button type="button" onClick={openEditor} className="inline-flex h-10 items-center gap-1.5 rounded-md border-0 bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1]">
                 <Pencil className="h-4 w-4" aria-hidden /> Edit property
@@ -406,13 +433,19 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
           </div>
         </div>
         <dl className="m-0 grid grid-cols-2 gap-px border-0 border-t border-solid border-white/10 bg-white/10 sm:grid-cols-5">
-          {[
+          {(isLongStay ? [
+            { label: "Monthly rent", value: monthlyRent > 0 ? money(monthlyRent, currency) : "Not set", hint: "whole home" },
+            { label: "Minimum lease", value: months(terms?.minTermMonths), hint: "lease length" },
+            { label: "Bedrooms", value: property.totalBedrooms ?? "Not set", hint: furnishing },
+            { label: "Bathrooms", value: property.totalBathrooms ?? "Not set", hint: "in total" },
+            { label: "Move-in", value: moveIn, hint: "tenancy availability" },
+          ] : [
             { label: "From", value: fromPrice > 0 ? `${money(fromPrice, currency)}` : "Not set", hint: "per night" },
             { label: "Guests", value: property.maxGuests ?? "0", hint: "maximum" },
             { label: "Rooms", value: totalRooms || property.totalBedrooms || 0, hint: `${rooms.length} room type${rooms.length === 1 ? "" : "s"}` },
             { label: "Bathrooms", value: property.totalBathrooms ?? 0, hint: "in total" },
             { label: "Listing health", value: `${healthScore}%`, hint: healthScore === 100 ? "complete" : "see checklist" },
-          ].map((fact) => (
+          ]).map((fact) => (
             <div key={fact.label} className="bg-[#012a26] px-5 py-3.5 sm:px-6">
               <dt className="text-[12px] font-medium text-white/55">{fact.label}</dt>
               <dd className="m-0 mt-1 text-lg font-extrabold tabular-nums text-white">{fact.value}</dd>
@@ -420,6 +453,13 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
             </div>
           ))}
         </dl>
+        {isLongStay && (
+          <a href="#long-stay-inspection" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-0 border-t border-solid border-white/15 px-5 py-3 text-sm text-white no-underline hover:bg-white/10 sm:px-6">
+            <ShieldCheck className="h-4 w-4 text-[#5eead4]" aria-hidden />
+            <span className="font-semibold">{score === null ? "View home inspection" : `Inspection score ${score}/100`}</span>
+            {inspection?.visitedOn && inspection.inspector && <span className="text-white/65">Inspected by {inspection.inspector.name || inspection.inspector.code}</span>}
+          </a>
+        )}
       </header>
 
       {/* Gallery, as guests see it */}
@@ -454,7 +494,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
         <div className="min-w-0 space-y-5">
           {/* About */}
           <section className={`${card} p-5 sm:p-6`}>
-            <h2 className="m-0 text-lg font-bold text-slate-900">About this place</h2>
+            <h2 className="m-0 text-lg font-bold text-slate-900">{isLongStay ? "About this home" : "About this place"}</h2>
             {description ? (
               <>
                 <p className={`m-0 mt-3 whitespace-pre-line text-sm leading-7 text-slate-700 ${aboutOpen ? "" : "line-clamp-5"}`}>{description}</p>
@@ -465,11 +505,11 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
                 )}
               </>
             ) : (
-              <p className="m-0 mt-3 text-sm text-slate-500">No description yet. Guests book more when they know what makes the place special. <button type="button" onClick={openEditor} className="border-0 bg-transparent p-0 font-semibold text-[#02665e]">Write one</button></p>
+              <p className="m-0 mt-3 text-sm text-slate-500">No description yet. {isLongStay ? "Tell prospective tenants what it’s like to live here." : "Tell guests what makes the place special."} <button type="button" onClick={openEditor} className="border-0 bg-transparent p-0 font-semibold text-[#02665e]">Write one</button></p>
             )}
           </section>
 
-          {/* Amenities */}
+          {longStayFeatures ? <OwnerLongStayAmenities features={longStayFeatures} hasUtilityTerms={hasUtilityTerms} /> : (
           <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
             <div className="flex items-baseline justify-between gap-3 border-0 border-b border-solid border-slate-100 px-4 py-3 sm:px-5">
               <h2 className="m-0 text-base font-bold text-slate-900">What this place offers</h2>
@@ -507,7 +547,19 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
             )}
           </section>
 
-          {/* Rooms */}
+          )}
+
+          {isLongStay ? (
+            <>
+              {terms ? <OwnerLeaseTerms terms={terms} furnishing={furnishing} /> : (
+                <section className={`${card} p-4 sm:p-6`}>
+                  <h2 className="m-0 text-lg font-bold text-slate-900">Lease terms</h2>
+                  <p className="m-0 mt-2 text-sm text-slate-600">Add monthly terms in the property editor.</p>
+                </section>
+              )}
+              <LongStayInspectionReport report={inspection} inspector={inspection?.inspector} />
+            </>
+          ) : (
           <section className="space-y-3">
             <div className="flex items-baseline justify-between gap-3 px-1">
               <h2 className="m-0 text-lg font-bold text-slate-900">Rooms and prices</h2>
@@ -656,10 +708,12 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
             ))}
           </section>
 
+          )}
+
           {/* Location */}
           <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
             <div className="border-0 border-b border-solid border-slate-100 px-4 py-3 sm:px-5">
-              <h2 className="m-0 text-base font-bold text-slate-900">Where guests will be</h2>
+              <h2 className="m-0 text-base font-bold text-slate-900">{isLongStay ? "Home location" : "Where guests will be"}</h2>
               <p className="m-0 mt-0.5 flex items-start gap-1.5 text-sm text-slate-600">
                 <MapPin className="mt-0.5 h-3.5 w-3.5 flex-none text-slate-400" aria-hidden />
                 {location || "Location not set"}
@@ -681,13 +735,14 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-amber-100 text-amber-800"><CircleAlert className="h-4 w-4" aria-hidden /></span>
                 <div className="min-w-0 flex-1">
                   <p className="m-0 text-sm font-semibold text-amber-900">No map pin yet</p>
-                  <p className="m-0 text-xs text-amber-800">Guests cannot see where the property is on the map.</p>
+                  <p className="m-0 text-xs text-amber-800">The listing has no map pin.</p>
                 </div>
                 <button type="button" onClick={openEditor} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-amber-300 bg-white px-2.5 text-xs font-semibold text-amber-900 hover:bg-amber-50">
                   <MapPin className="h-3.5 w-3.5" aria-hidden /> Set the pin
                 </button>
               </div>
             )}
+            {isLongStay && <OwnerLongStayNearby services={serviceDetails} tags={[...amenities, ...unitAmenities]} />}
           </section>
         </div>
 
@@ -719,16 +774,16 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
 
           <section className={`${card} p-5`}>
             <h2 className="m-0 text-base font-bold text-slate-900">Status</h2>
-            <p className="m-0 mt-1 flex items-center gap-1.5 text-sm text-slate-600"><ShieldCheck className="h-4 w-4 text-[#02665e]" aria-hidden />{statusMeta.note}</p>
+            <p className="m-0 mt-1 flex items-center gap-1.5 text-sm text-slate-600"><ShieldCheck className="h-4 w-4 text-[#02665e]" aria-hidden />{isLongStay && status === "APPROVED" ? "The home is approved for public listing. Inspection and availability determine whether tenants can reserve." : statusMeta.note}</p>
             <dl className="m-0 mt-3 space-y-1.5 text-xs">
               <div className="flex justify-between gap-2"><dt className="text-slate-500">Listed since</dt><dd className="m-0 font-semibold text-slate-800">{property.createdAt ? new Date(property.createdAt).toLocaleDateString("en-GB", { timeZone: TZ, day: "numeric", month: "short", year: "numeric" }) : "Not recorded"}</dd></div>
               <div className="flex justify-between gap-2"><dt className="text-slate-500">Last updated</dt><dd className="m-0 font-semibold text-slate-800">{property.updatedAt ? fmtWhen(property.updatedAt) : "Not recorded"}</dd></div>
               <div className="flex justify-between gap-2"><dt className="text-slate-500">Building</dt><dd className="m-0 font-semibold text-slate-800">{property.totalFloors ? `${property.totalFloors} floor${Number(property.totalFloors) === 1 ? "" : "s"}` : property.buildingType ? String(property.buildingType).replace(/_/g, " ") : "Not set"}</dd></div>
             </dl>
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            {!isLongStay && <div className="mt-4 grid grid-cols-2 gap-2">
               <Link href={href(property.id, "/layout")} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white text-xs font-bold text-slate-700 no-underline hover:bg-slate-50"><LayoutGrid className="h-3.5 w-3.5" aria-hidden /> Floor plan</Link>
               <Link href={href(property.id, "/availability")} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-solid border-slate-200 bg-white text-xs font-bold text-slate-700 no-underline hover:bg-slate-50"><CalendarDays className="h-3.5 w-3.5" aria-hidden /> Availability</Link>
-            </div>
+            </div>}
           </section>
 
           <section className={`${card} p-5`}>
@@ -809,7 +864,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
         </div>
       )}
 
-      <p className="m-0 flex items-center justify-center gap-1.5 text-[11px] text-slate-400"><Users className="h-3 w-3" aria-hidden /> This is your owner view. Guests see the same listing without the owner tools.</p>
+      <p className="m-0 flex items-center justify-center gap-1.5 text-[11px] text-slate-400"><Users className="h-3 w-3" aria-hidden /> This is your owner view. {isLongStay ? "Prospective tenants see the public rental listing." : "Guests see the public booking listing."}</p>
     </div>
   );
 }

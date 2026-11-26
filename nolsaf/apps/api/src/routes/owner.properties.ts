@@ -13,7 +13,7 @@ import { ensureRoomsSpecCodes } from "../lib/roomSelectionCode.js";
 import { invalidateCache, cacheKeys } from "../lib/performance.js";
 import { LARGE_CHANGE_PERCENT, checkPriceChange } from "../lib/priceGuardrails.js";
 import { notifyAdmins } from "../lib/notifications.js";
-import { requestInspection } from "../lib/longStay/inspection.js";
+import { publicInspectionReport, requestInspection } from "../lib/longStay/inspection.js";
 import { customerRecordReference } from "../lib/customerBookingReference.js";
 import { bookingStickerSelect, buildBookingSticker, stickerUnavailableReason } from "../lib/propertyBookingSticker.js";
 import {
@@ -23,7 +23,9 @@ import {
   landlordGate,
   longStaySubmitRefusal,
   longStayTypeRefusal,
+  publicLongStayView,
   rowToTerms,
+  todayInEat,
   validateRentalMode,
   writeRentalMode,
   type RentalModeChange,
@@ -496,6 +498,8 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
     // Keep drift-safe: if the DB is behind on these columns/tables, fall back.
     const listSelectWithStructureAndTourism: any = {
       ...listSelectWithStructure,
+      rentalMode: true,
+      longStayListing: { select: { monthlyRent: true, currency: true, minTermMonths: true } },
       tourismSiteId: true,
       parkPlacement: true,
       tourismSite: {
@@ -655,7 +659,12 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
     // Prisma select returns plain objects - no custom serializer needed.
     // Attach suspension reason where applicable.
     const processedItems = items.map((item) => {
-      const out = { ...item };
+      const { longStayListing, ...out } = item;
+      if (item.rentalMode === "LONG_STAY") out.longStay = longStayListing ? {
+        monthlyRent: Number(longStayListing.monthlyRent),
+        currency: longStayListing.currency,
+        minTermMonths: longStayListing.minTermMonths,
+      } : null;
       if (item.status === "SUSPENDED" && item.id) {
         out.suspensionReason = suspensionReasonMap.get(item.id) ?? null;
         out.suspensionReference = suspensionReferenceMap.get(item.id) ?? null;
@@ -710,6 +719,22 @@ export const getListingProperty = (async (req: AuthedRequest, res) => {
     if ((property as any).rentalMode === "LONG_STAY") {
       const row = await prisma.longStayListing.findUnique({ where: { propertyId: id } });
       (property as any).longStay = rowToTerms(row);
+      if (!listingScopeOf(req) && property.status === "APPROVED") {
+        const today = todayInEat();
+        const [inspection, tenancies] = await Promise.all([
+          publicInspectionReport(prisma, id, today, true),
+          prisma.tenancy.findMany({ where: { propertyId: id }, select: { status: true, endDate: true } }),
+        ]);
+        const availability = publicLongStayView(row, tenancies, today);
+        Object.assign(property, {
+          longStayInspection: inspection.report,
+          longStayAvailability: availability && {
+            availableFrom: availability.availableFrom,
+            availableNow: availability.availableNow,
+            reserved: availability.reserved,
+          },
+        });
+      }
     }
 
     const sanitized = sanitizePropertyJsonFields(property as any, `GET /:id property ${id}`);

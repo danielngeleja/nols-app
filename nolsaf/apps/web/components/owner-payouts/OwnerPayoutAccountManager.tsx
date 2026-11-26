@@ -12,8 +12,7 @@ import { formatEat, useNow } from "./shared";
  * The owner's payout account, moved here from Profile so it sits with the
  * money. Same verification as before: the provider confirms the account holder
  * name (POST /api/account/payouts/verify), the owner confirms, and only then is
- * it saved (PUT /api/account/payouts). Bank payouts are shown as not available
- * because AzamPay bank rails are not enabled.
+ * it saved (PUT /api/account/payouts).
  */
 
 type Verification = {
@@ -50,7 +49,7 @@ function clean(value: unknown): string {
 }
 
 function maskedWallet(value: string): string {
-  const lastFour = value.replace(/\D/g, "").slice(-4);
+  const lastFour = value.slice(-4);
   return lastFour ? `•••• ${lastFour}` : "Number unavailable";
 }
 
@@ -98,12 +97,13 @@ export default function OwnerPayoutAccountManager() {
   }, [load]);
 
   const preferred = clean(form.payoutPreferred).toUpperCase();
-  const detailsOk =
-    preferred === "MOBILE_MONEY" ? Boolean(clean(form.mobileMoneyProvider) && clean(form.mobileMoneyNumber)) : false;
+  const detailsOk = preferred === "BANK"
+    ? Boolean(clean(form.bankName) && clean(form.bankAccountNumber) && clean(form.bankAccountName))
+    : preferred === "MOBILE_MONEY" && Boolean(clean(form.mobileMoneyProvider) && clean(form.mobileMoneyNumber));
   const changed = PAYOUT_KEYS.some((key) => clean(form[key]) !== clean(saved[key]));
 
   const active = useMemo(() => {
-    const usable = accounts.filter((a) => a.isActive && a.isVerified && a.type === "MOBILE_MONEY");
+    const usable = accounts.filter((a) => a.isActive && a.isVerified);
     return usable.find((a) => a.isDefault) ?? usable[0];
   }, [accounts]);
   const history = useMemo(() => accounts
@@ -115,14 +115,13 @@ export default function OwnerPayoutAccountManager() {
     ? activeUsableFrom ? new Date(activeUsableFrom) : null
     : changedAt ? new Date(changedAt.getTime() + securityWaitingHours * 60 * 60 * 1000) : null;
   const inWaitingPeriod = Boolean(usableFrom && usableFrom.getTime() > now);
-  const savedIsBank = clean(saved.payoutPreferred).toUpperCase() === "BANK";
 
   const verify = async () => {
     setError(null);
     setSuccess(null);
     setPreview(null);
     if (!detailsOk) {
-      setError("Choose your mobile money provider and enter the wallet number.");
+      setError("Complete your payout account details.");
       return;
     }
     if (!changed) {
@@ -131,7 +130,10 @@ export default function OwnerPayoutAccountManager() {
     }
     setBusy(true);
     try {
-      const draft = {
+      const draft: Record<string, string> = preferred === "BANK" ? {
+        payoutPreferred: "BANK", bankName: clean(form.bankName), bankAccountNumber: clean(form.bankAccountNumber),
+        bankAccountName: clean(form.bankAccountName), bankBranch: clean(form.bankBranch),
+      } : {
         payoutPreferred: "MOBILE_MONEY",
         mobileMoneyProvider: clean(form.mobileMoneyProvider),
         mobileMoneyNumber: clean(form.mobileMoneyNumber),
@@ -187,15 +189,9 @@ export default function OwnerPayoutAccountManager() {
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-4">
-        {savedIsBank && (
-          <p className="m-0 flex items-start gap-2 rounded-md border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            Your saved account is a bank account, which cannot receive payouts yet. Add a mobile money account so your payouts can be sent.
-          </p>
-        )}
         <SecurePayoutPreferenceCard
           value={form}
-          bankPayoutsAvailable={false}
+          bankTransfersEnabled
           securityWaitingHours={securityWaitingHours}
           disabled={busy}
           saving={busy}
@@ -248,7 +244,7 @@ export default function OwnerPayoutAccountManager() {
               )}
             </div>
           ) : (
-            <div className="p-5"><p className="m-0 text-sm font-semibold text-slate-800">No verified wallet</p><p className="m-0 mt-1 text-xs text-slate-500">Add one to receive payouts.</p></div>
+            <div className="p-5"><p className="m-0 text-sm font-semibold text-slate-800">No verified payout account</p><p className="m-0 mt-1 text-xs text-slate-500">Add one to receive payouts.</p></div>
           )}
           <Link href={active ? "/owner/payouts#withdraw" : "/owner/payouts"} className={`flex items-center justify-between gap-2 border-0 border-t border-solid px-5 py-3 text-xs font-semibold no-underline hover:no-underline ${active ? "border-[#02665e] bg-[#02665e] text-white hover:bg-[#014d47]" : "border-slate-100 bg-slate-50 text-[#02665e] hover:bg-slate-100"}`}>
             {active ? "Go to Withdraw" : "View payouts"} <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -335,7 +331,7 @@ export default function OwnerPayoutAccountManager() {
                     </dd>
                   </div>
                   <div className="flex justify-between gap-3 px-4 py-2.5">
-                    <dt className="text-slate-500">Wallet</dt>
+                    <dt className="text-slate-500">Account</dt>
                     <dd className="m-0 font-mono font-medium text-slate-800">{preview.destination.accountNumber}</dd>
                   </div>
                 </dl>

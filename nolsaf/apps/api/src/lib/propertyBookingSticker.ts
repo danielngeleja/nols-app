@@ -1,5 +1,5 @@
 /**
- * "Book this place on NoLSAF" sticker for a property's door or reception.
+ * Round "Book, Pay this property via NoLSAF" sticker for a property's door or reception.
  *
  * The QR opens the property's public page with `?src=qr&qr=sticker`, so the
  * channel report (docs/CHANNEL_ATTRIBUTION.md) counts walk-in bookings as QR.
@@ -82,9 +82,10 @@ export function stickerUrl(property: Pick<StickerProperty, "title" | "nrmsBookin
 
 export async function buildBookingSticker(property: StickerProperty, origin = webOrigin()): Promise<BookingSticker> {
   const url = stickerUrl(property, origin);
-  // SVG stays sharp at any print size. "Q" error correction survives a
-  // scratched or partly sun-faded sticker.
-  const qrSvg = await QRCode.toString(url, { type: "svg", margin: 0, errorCorrectionLevel: "Q", color: { dark: "#0b2420", light: "#ffffff" } });
+  // SVG stays sharp at any print size. "H" (30% recovery) because the sticker
+  // prints the NoLSAF mark over the centre (about 9% of the code), and still
+  // leaves room for a scratched or sun-faded sticker.
+  const qrSvg = await QRCode.toString(url, { type: "svg", margin: 0, errorCorrectionLevel: "H", color: { dark: "#0b2420", light: "#ffffff" } });
   return {
     title: property.title,
     place: stickerPlace(property),

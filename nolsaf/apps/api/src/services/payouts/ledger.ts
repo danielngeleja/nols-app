@@ -29,6 +29,7 @@ import { lockOwnerWithdrawalDay, ownerWithdrawalDay, ownerWithdrawalLimit } from
 import { azamPayDisburse } from "../azampay/disbursement/client.js";
 import { loadAzamPayDisbursementRequestConfig } from "../azampay/disbursement/config.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
+import { azamPayBankNames } from "../azampay/disbursement/client.js";
 import { canonicalAzamPayProvider } from "../azampay/disbursement/providers.js";
 import { azamPayOperatorMatchesPayout } from "../azampay/disbursement/contract.js";
 import type { AzamPayDisburseCallback } from "../azampay/disbursement/types.js";
@@ -330,6 +331,13 @@ function eventHashFor(disbursementId: number, eventType: string, payload: Record
   return createHash("sha256").update(`${disbursementId}:${eventType}:${stable}`).digest("hex").slice(0, 64);
 }
 
+async function requirePayableBank(sourceType: string, currency: string, provider: string, refresh = false) {
+  if (!["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE"].includes(sourceType) ||
+      currency !== "TZS" || !(await azamPayBankNames(refresh)).includes(provider)) {
+    throw new PayoutStateError("This bank is unavailable for this payout.");
+  }
+}
+
 /**
  * Creates a REQUESTED disbursement from an already-approved source. Retries
  * once on a reference-id collision (astronomically unlikely, but the unique
@@ -357,15 +365,9 @@ export async function requestDisbursement(params: {
   if (!payoutAccount.isActive) {
     throw new PayoutStateError(`PayoutAccount ${params.payoutAccountId} is not active`);
   }
-  // AzamPay has enabled five mobile-money rails for NoLSAF, but has not
-  // supplied live bank-provider values. Reject unsupported destinations before
-  // they can enter approval/batching and become a stranded finance obligation.
-  if (payoutAccount.type !== "MOBILE_MONEY") {
-    throw new PayoutStateError(
-      `PayoutAccount ${params.payoutAccountId} is ${payoutAccount.type}; AzamPay bank disbursement is not enabled`
-    );
-  }
-  if (!canonicalAzamPayProvider(payoutAccount.provider)) {
+  if (payoutAccount.type === "BANK") {
+    await requirePayableBank(params.sourceType, source.currency, payoutAccount.provider);
+  } else if (payoutAccount.type !== "MOBILE_MONEY" || !canonicalAzamPayProvider(payoutAccount.provider)) {
     throw new PayoutStateError(
       `PayoutAccount ${params.payoutAccountId} uses unsupported provider ${JSON.stringify(payoutAccount.provider)}`
     );
@@ -635,8 +637,12 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
       `Disbursement ${disbursementId} has an incomplete destination account`
     );
   }
+  const bankDestination = disbursement.payoutAccount.type === "BANK";
+  if (bankDestination) {
+    await requirePayableBank(disbursement.sourceType, disbursement.currency, disbursement.payoutAccount.provider, true);
+  }
   const requestConfig = loadAzamPayDisbursementRequestConfig(
-    disbursement.payoutAccount.provider
+    disbursement.payoutAccount.provider, bankDestination
   );
 
   const sourceAccount = {

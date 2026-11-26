@@ -9,7 +9,7 @@ import LogoSpinner from "@/components/LogoSpinner";
 import TableScroller from "@/components/TableScroller";
 import { publishRailCounts } from "@/lib/agentRailSignals";
 import TableRow from "@/components/TableRow";
-import OperatorPayoutDestination, { isPayoutDestinationComplete, isPayoutDestinationPayable } from "@/components/agent/OperatorPayoutDestination";
+import OperatorPayoutDestination, { isPayoutDestinationPayable } from "@/components/agent/OperatorPayoutDestination";
 import TourAdvanceClaims, { type AdvanceTrip } from "@/components/agent/TourAdvanceClaims";
 
 const api = apiClient;
@@ -296,9 +296,7 @@ export default function AgentRevenuesPage() {
     }
     if (!isPayoutDestinationPayable(payoutProfile)) {
       setClaimLookupError(
-        isPayoutDestinationComplete(payoutProfile)
-          ? "Bank accounts cannot receive payouts yet. Change your payout destination to mobile money to claim."
-          : "Add and verify a mobile money account first. Claims are paid to the destination on your account."
+        "Add and verify your payout account before submitting a claim."
       );
       document.getElementById("operator-payout")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
@@ -524,7 +522,6 @@ export default function AgentRevenuesPage() {
         : []),
     ];
   }, [items, trackerStage, claimReady, claimReadyTotal, claimWaiting, recoveryOwed]);
-  // Only a destination NoLSAF can pay today counts (policy 5.4: mobile money only).
   const payoutReady = isPayoutDestinationPayable(payoutProfile);
 
   const operationRows = useMemo(() => {
@@ -663,7 +660,7 @@ export default function AgentRevenuesPage() {
               }`}
             >
               <span className={`h-2 w-2 rounded-full ${payoutReady ? "bg-emerald-500" : "bg-amber-500"}`} aria-hidden />
-              {payoutReady ? "Mobile money verified" : "Add a mobile money account"}
+              {payoutReady ? "Payout account verified" : "Add a payout account"}
             </span>
             <Link
               href="/tour-operator-disbursement-policy"
@@ -738,7 +735,7 @@ export default function AgentRevenuesPage() {
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="grid h-4 w-4 place-items-center rounded bg-white text-[10px] font-bold text-emerald-700 ring-1 ring-inset ring-neutral-200">3</span>
-            Paid to your mobile money
+            Paid to your verified account
           </span>
           <span className="text-neutral-400">The NoLSAF commission is paid by the traveller, on top of your price.</span>
         </div>

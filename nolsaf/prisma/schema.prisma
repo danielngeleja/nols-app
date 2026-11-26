@@ -9789,7 +9789,7 @@ model PayoutAccount {
   userId Int
 
   type          String @db.VarChar(20) // MOBILE_MONEY | BANK
-  provider      String @db.VarChar(30) // tigo | airtel | azampesa | crdb | nmb ...
+  provider      String @db.VarChar(160) // Wallet provider or exact AzamPay directory name
   accountNumber String @db.VarChar(40)
   accountName   String @db.VarChar(160)
   currency      String @default("TZS") @db.VarChar(3)
@@ -9871,8 +9871,8 @@ model Disbursement {
   status String @default("REQUESTED") @db.VarChar(20)
 
   provider String  @default("azampay") @db.VarChar(20)
-  bankName String  @db.VarChar(30) // tigo | airtel | azampesa — MNO-focused, see dev guide
-  operator String? @db.VarChar(40)
+  bankName String  @db.VarChar(160)
+  operator String? @db.VarChar(160)
 
   approvedById Int?
   approvedAt   DateTime?
@@ -10266,7 +10266,7 @@ model DisbursementEvent {
   pgReferenceId  String?  @db.VarChar(64)
   fspReferenceId String?  @db.VarChar(64)
   amount         Decimal? @db.Decimal(12, 2)
-  operator       String?  @db.VarChar(40)
+  operator       String?  @db.VarChar(160)
   payload        Json?
 
   createdAt DateTime @default(now())

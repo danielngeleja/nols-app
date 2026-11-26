@@ -5,7 +5,7 @@
  * aliases (Tigo/Mixx, M-Pesa and HaloPesa) are normalized in providers.ts.
  */
 
-/** Confirmed-enabled MNO rails only. Bank payouts remain feature-gated. */
+/** Canonical wallet identifiers. Bank identifiers come from the authenticated directory. */
 export type AzamPayDisburseBankName = "yas" | "vodacom" | "airtel" | "halotel" | "azampesa";
 
 export interface AzamPayAccountParty {

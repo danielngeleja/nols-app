@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import apiClient from "@/lib/apiClient";
 import Image from "next/image";
 import { TZ_MOBILE_PREFIXES } from "@/lib/tzMobileNetworks";
 import {
@@ -43,6 +44,7 @@ type Props = {
    * selectable "lookup only" choice that reads like a working payout method.
    */
   bankPayoutsAvailable?: boolean;
+  bankTransfersEnabled?: boolean;
   securityWaitingHours?: number;
 };
 
@@ -77,19 +79,55 @@ function canonicalPayoutProvider(value: unknown): string {
   return key;
 }
 
-const payoutBanks = [
-  { value: "CRDB", label: "CRDB Bank" },
-  { value: "NBC", label: "NBC Bank" },
-  { value: "NMB", label: "NMB Bank" },
-] as const;
-
 function clean(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function normalizeBankCode(value: unknown): string {
-  const normalized = clean(value).toUpperCase().replace(/[^A-Z]/g, "");
-  return payoutBanks.find((bank) => normalized === bank.value || normalized === `${bank.value}BANK`)?.value ?? "";
+export function PayoutBankFields({ value, onChange, disabled }: Pick<Props, "value" | "onChange" | "disabled">) {
+  const [payoutBanks, setBanks] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setFailed(false);
+    apiClient.get<{ banks: string[] }>("/api/account/payouts/banks")
+      .then(({ data }) => { if (active) setBanks(data.banks); })
+      .catch(() => { if (active) setFailed(true); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [attempt]);
+  return <>
+    {failed && <p role="status">The bank list is unavailable. <button type="button" onClick={() => setAttempt(attempt + 1)}>Retry</button></p>}
+    {!loading && !failed && !payoutBanks.length && <p role="status">No banks are currently listed for payouts.</p>}
+    <Field icon={<Building2 />} label="Bank name">
+      <div className="relative min-w-0">
+        <select
+          className={`${inputClass} appearance-none pr-10`}
+          value={value.bankName || ""}
+          onChange={(event) => onChange({ bankName: event.target.value })}
+          disabled={disabled}
+          aria-label="Bank name"
+        >
+          <option value="" disabled>{loading ? "Loading banks…" : "Select bank"}</option>
+          {payoutBanks.map((bank) => (
+            <option key={bank} value={bank}>{bank}</option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" aria-hidden />
+      </div>
+    </Field>
+    <Field icon={<User />} label="Account holder name">
+      <input className={inputClass} value={value.bankAccountName || ""} onChange={(event) => onChange({ bankAccountName: event.target.value })} maxLength={160} autoComplete="name" disabled={disabled} />
+    </Field>
+    <Field icon={<CreditCard />} label="Account number">
+      <input className={inputClass} value={value.bankAccountNumber || ""} onChange={(event) => onChange({ bankAccountNumber: event.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 40) })} maxLength={40} autoComplete="off" spellCheck={false} disabled={disabled} />
+    </Field>
+    <Field icon={<Building2 />} label="Branch (optional)">
+      <input className={inputClass} value={value.bankBranch || ""} onChange={(event) => onChange({ bankBranch: event.target.value })} maxLength={100} autoComplete="off" disabled={disabled} />
+    </Field>
+  </>;
 }
 
 function maskDestination(value: unknown): string {
@@ -156,6 +194,7 @@ export default function SecurePayoutPreferenceCard({
   saveSuccess,
   className = "",
   bankPayoutsAvailable = true,
+  bankTransfersEnabled = false,
   securityWaitingHours = 72,
 }: Props) {
   const preferred = clean(value.payoutPreferred).toUpperCase();
@@ -245,7 +284,7 @@ export default function SecurePayoutPreferenceCard({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="m-0 truncate text-sm font-semibold text-slate-900">
-                    {preferred === "BANK" ? payoutBanks.find((b) => b.value === normalizeBankCode(value.bankName))?.label || value.bankName || "Bank account" : savedProvider?.label || value.mobileMoneyProvider || "Mobile money"}
+                    {preferred === "BANK" ? value.bankName || "Bank account" : savedProvider?.label || value.mobileMoneyProvider || "Mobile money"}
                   </p>
                   <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
                     <CheckCircle2 className="h-3 w-3" aria-hidden />Saved
@@ -303,7 +342,7 @@ export default function SecurePayoutPreferenceCard({
                   disabled={disabled}
                   icon={<Building2 className="h-5 w-5" />}
                   label="Bank account"
-                  hint="Verify and save bank details for supported non-automated payout workflows."
+                  hint={bankTransfersEnabled ? "Receive TZS in a verified bank account." : "Verify your bank account details."}
                   onClick={() => choose("BANK")}
                 />
                 <MethodButton
@@ -336,48 +375,8 @@ export default function SecurePayoutPreferenceCard({
 
             {preferred === "BANK" && bankPayoutsAvailable && (
               <div className="grid min-w-0 gap-3 rounded-md border border-solid border-slate-300 p-4 sm:grid-cols-2">
-                <div className="flex items-start gap-3 rounded-lg border border-solid border-amber-200 bg-amber-50/80 px-3.5 py-3 text-amber-950 shadow-[inset_3px_0_0_#f59e0b] sm:col-span-2 sm:px-4">
-                  <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-200">
-                    <AlertTriangle className="h-4 w-4" aria-hidden />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="m-0 text-xs font-semibold text-amber-950">Bank verification only</p>
-                      <span className="rounded border border-amber-300 bg-white/80 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-700">
-                        Lookup only
-                      </span>
-                    </div>
-                    <p className="mb-0 mt-1 text-[11px] leading-5 text-amber-800">
-                      We can verify and save the account holder’s name. For automated payouts, choose mobile money.
-                    </p>
-                  </div>
-                </div>
-                <Field icon={<Building2 />} label="Bank name">
-                  <div className="relative min-w-0">
-                    <select
-                      className={`${inputClass} appearance-none pr-10`}
-                      value={normalizeBankCode(value.bankName)}
-                      onChange={(event) => onChange({ bankName: event.target.value })}
-                      disabled={disabled}
-                      aria-label="Bank name"
-                    >
-                      <option value="" disabled>Select bank</option>
-                      {payoutBanks.map((bank) => (
-                        <option key={bank.value} value={bank.value}>{bank.label}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" aria-hidden />
-                  </div>
-                </Field>
-                <Field icon={<User />} label="Account holder name">
-                  <input className={inputClass} value={value.bankAccountName || ""} onChange={(event) => onChange({ bankAccountName: event.target.value })} maxLength={160} autoComplete="name" disabled={disabled} />
-                </Field>
-                <Field icon={<CreditCard />} label="Account number">
-                  <input className={inputClass} value={value.bankAccountNumber || ""} onChange={(event) => onChange({ bankAccountNumber: event.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 40) })} maxLength={40} autoComplete="off" spellCheck={false} disabled={disabled} />
-                </Field>
-                <Field icon={<Building2 />} label="Branch (optional)">
-                  <input className={inputClass} value={value.bankBranch || ""} onChange={(event) => onChange({ bankBranch: event.target.value })} maxLength={100} autoComplete="off" disabled={disabled} />
-                </Field>
+                {!bankTransfersEnabled && <p className="text-xs">Bank details can be saved for verification.</p>}
+                <PayoutBankFields value={value} onChange={onChange} disabled={disabled} />
               </div>
             )}
 
@@ -468,7 +467,7 @@ export default function SecurePayoutPreferenceCard({
               ) : (
                 <span className="text-slate-500">
                   {preferred === "BANK"
-                    ? "Verify the bank account holder for profile use; this does not enable automated bank payout."
+                    ? "Confirm the registered bank account holder with AzamPay."
                     : "Complete the destination, then verify its registered name."}
                 </span>
               )}

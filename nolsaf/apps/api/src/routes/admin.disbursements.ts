@@ -1026,7 +1026,7 @@ const reportFilterSchema = z.object({
   payoutAccountId: z.coerce.number().int().positive().optional(),
   currency: z.string().trim().length(3).optional(),
   /** Institution, mobile money or bank alike: this is PayoutAccount.provider as copied onto the disbursement. */
-  bankName: z.string().trim().max(30).optional(),
+  bankName: z.string().trim().max(160).optional(),
   destinationType: z.enum(DESTINATION_TYPES).optional(),
   batchReference: z.string().trim().max(40).optional(),
   q: z.string().trim().max(120).optional(),

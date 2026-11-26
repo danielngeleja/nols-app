@@ -41,6 +41,8 @@ type Property = {
   ward?: string | null;
   country?: string | null;
   basePrice?: number | null;
+  rentalMode?: "NIGHTLY" | "LONG_STAY";
+  longStay?: { monthlyRent: number; currency: string; minTermMonths: number } | null;
   currency?: string;
   roomsSpec?: any[];
   hotelStar?: string | null;
@@ -360,11 +362,12 @@ export default function ApprovedProps() {
             const reviews = reviewsMap[property.id] || { averageRating: 0, totalReviews: 0, reviews: [] };
             const hasReviews = reviews.totalReviews > 0;
 
+            const isLongStay = property.rentalMode === "LONG_STAY";
             const bp = Number(property.basePrice) || 0;
             const roomPrices = Array.isArray(property.roomsSpec) ? (property.roomsSpec as any[]).map((r: any) => Number(r.pricePerNight) || 0).filter((v: number) => v > 0) : [];
-            const effectiveBase = bp > 0 ? bp : roomPrices.length > 0 ? Math.min(...roomPrices) : 0;
-            const isFromRoom = bp <= 0 && roomPrices.length > 0;
-            const basePriceFormatted = effectiveBase > 0 ? fmtMoney(effectiveBase, property.currency) : null;
+            const effectiveBase = isLongStay ? Number(property.longStay?.monthlyRent) || 0 : bp > 0 ? bp : roomPrices.length > 0 ? Math.min(...roomPrices) : 0;
+            const isFromRoom = !isLongStay && bp <= 0 && roomPrices.length > 0;
+            const basePriceFormatted = effectiveBase > 0 ? fmtMoney(effectiveBase, isLongStay ? property.longStay?.currency : property.currency) : null;
             const roomTypes = Array.isArray(property.roomsSpec) ? property.roomsSpec.length : 0;
 
             const typeLabel = property.type
@@ -398,12 +401,10 @@ export default function ApprovedProps() {
                       <span className="rounded-md bg-white/95 px-2 py-1 text-[11px] font-bold text-slate-800 shadow-sm">{typeLabel}</span>
                     ) : null}
                     <span className="inline-flex items-center gap-1 rounded-md bg-[#012a26]/85 px-2 py-1 text-[11px] font-bold text-[#5eead4] backdrop-blur-sm">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#5eead4]" aria-hidden /> Live
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#5eead4]" aria-hidden /> {isLongStay ? "Long stay" : "Nightly stay"}
                     </span>
                   </div>
-                  <div className="absolute right-3 top-3 scale-90">
-                    <VerifiedIcon />
-                  </div>
+                  {!isLongStay && <div className="absolute right-3 top-3 scale-90"><VerifiedIcon /></div>}
                   <div className="absolute inset-x-3 bottom-3 flex items-end justify-between gap-2 text-white">
                     <span className="inline-flex items-center gap-1 text-xs font-semibold">
                       {hasReviews ? (
@@ -434,9 +435,10 @@ export default function ApprovedProps() {
 
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700">
-                      <CalendarCheck className="h-3 w-3 text-slate-400" aria-hidden /> {bookings} {bookings === 1 ? "booking" : "bookings"}
+                      <CalendarCheck className="h-3 w-3 text-slate-400" aria-hidden />
+                      {isLongStay ? (property.longStay?.minTermMonths ? `${property.longStay.minTermMonths}-month minimum` : "Whole home") : `${bookings} ${bookings === 1 ? "booking" : "bookings"}`}
                     </span>
-                    {roomTypes > 0 ? (
+                    {!isLongStay && roomTypes > 0 ? (
                       <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700">
                         <BedDouble className="h-3 w-3 text-slate-400" aria-hidden /> {roomTypes} {roomTypes === 1 ? "room type" : "room types"}
                       </span>
@@ -451,12 +453,12 @@ export default function ApprovedProps() {
 
                   <div className="mt-auto pt-4">
                     <div className="flex items-baseline justify-between gap-2 border-0 border-t border-dashed border-slate-200 pt-3">
-                      <span className="text-[11px] font-medium text-slate-500">Your rate</span>
+                      <span className="text-[11px] font-medium text-slate-500">{isLongStay ? "Monthly rent" : "Your rate"}</span>
                       {basePriceFormatted ? (
                         <span className="flex items-baseline gap-1">
                           {isFromRoom ? <span className="text-[11px] text-slate-400">From</span> : null}
                           <span className="text-lg font-bold tabular-nums text-[#02665e]">{basePriceFormatted}</span>
-                          <span className="text-[11px] text-slate-400">/ night</span>
+                          <span className="text-[11px] text-slate-400">{isLongStay ? "/ month" : "/ night"}</span>
                         </span>
                       ) : (
                         <span className="text-xs text-slate-400">No rate set</span>

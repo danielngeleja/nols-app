@@ -41,7 +41,6 @@ import { computeApprovalFingerprint, computeBatchFingerprint, toBatchFingerprint
 import { assessDisbursementRisk, isAutoLaneRisk, loadPayoutSafeguards } from "./riskScoring.js";
 import { azamPayNameLookup } from "../azampay/disbursement/client.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
-import type { AzamPayDisburseBankName } from "../azampay/disbursement/types.js";
 import { PayoutStateError, submitToAzamPay, truncateReason } from "./ledger.js";
 import { twoPersonReleaseRequired } from "./releaseChallenge.js";
 import { heldOwnerIds } from "./ownerPayoutControl.js";
@@ -213,7 +212,7 @@ async function flagSecurityReview(
  */
 async function reverifyAccount(account: PayoutAccount): Promise<{ ok: boolean; reason?: string }> {
   try {
-    const lookup = await azamPayNameLookup({ bankName: account.provider as AzamPayDisburseBankName, accountNumber: account.accountNumber });
+    const lookup = await azamPayNameLookup({ bankName: account.provider, accountNumber: account.accountNumber });
     if (!lookup.status) return { ok: false, reason: "AzamPay Name Lookup declined this account on re-verification" };
     const returnedName = String(lookup.name ?? "").trim();
     if (!returnedName) {

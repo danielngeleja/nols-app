@@ -23,6 +23,7 @@ vi.mock("../services/azampay/disbursement/checksumInput.js", () => ({
 }));
 
 import {
+  azamPayBankNames,
   azamPayDisburse,
   azamPayNameLookup,
   azamPayTransactionStatus,
@@ -70,6 +71,20 @@ describe("AzamPay disbursement HTTP contract", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("reads the directory with bearer auth and fetches a fresh list at submission", async () => {
+    vi.stubEnv("AZAMPAY_DISBURSE_API_URL", "https://directory.example");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ data: ["Example Bank"] }))
+      .mockResolvedValueOnce(jsonResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(azamPayBankNames(true)).resolves.toEqual(["Example Bank"]);
+    await expect(azamPayBankNames()).resolves.toEqual(["Example Bank"]);
+    await expect(azamPayBankNames(true)).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith("https://directory.example/api/v1/azampay/BankNames",
+      expect.objectContaining({ headers: { Authorization: "Bearer token-1" } }));
   });
 
   it("sends name lookup with bearer auth and the calculated checksum", async () => {

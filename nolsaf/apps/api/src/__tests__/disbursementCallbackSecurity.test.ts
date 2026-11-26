@@ -24,7 +24,7 @@ vi.mock("../services/payouts/ledger.js", () => ({
   recordProviderCorrelationMismatch: mocks.recordCorrelationMismatch,
 }));
 
-import callbackRouter from "../routes/payments.azampay.disbursement";
+import callbackRouter, { authorizeDisbursementCallback } from "../routes/payments.azampay.disbursement";
 
 const callback = {
   initiatorReferenceId: "NoLSAF-D-2608081645-D51QVX",
@@ -82,6 +82,13 @@ describe("AzamPay callback attacker controls", () => {
 
     expect(response.status).toBe(403);
     expect(mocks.findDisbursement).not.toHaveBeenCalled();
+  });
+
+  it("accepts either configured callback address and rejects other origins", () => {
+    vi.stubEnv("AZAMPAY_DISBURSE_CALLBACK_ALLOWED_IPS", "102.221.117.130,102.221.117.18");
+    for (const ip of ["102.221.117.130", "102.221.117.18", "102.221.117.19"]) {
+      expect(authorizeDisbursementCallback({ headers: {} } as express.Request, ip).ok).toBe(ip !== "102.221.117.19");
+    }
   });
 
   it("requires both controls when an IP allowlist and shared secret are configured", async () => {

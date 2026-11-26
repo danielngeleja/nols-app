@@ -19,6 +19,14 @@ const STATUS_COPY = {
   PASSED: { label: "Passed inspection", detail: "NoLSAF approved the findings from the Sales Partner’s home visit." },
 } as const;
 
+export function inspectionScore(checks: InspectionCheck[]) {
+  const applicable = checks.filter((check) => check.result !== "NA").length;
+  const confirmed = checks.filter((check) => check.result === "PASS").length;
+  const hasRecorded = checks.some((check) => check.result === "PASS" || check.result === "FAIL");
+  const score = hasRecorded && applicable ? Math.round(confirmed / applicable * 100) : null;
+  return { applicable, confirmed, score };
+}
+
 const dayLabel = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 function InspectionProgress({ inReview }: { inReview: boolean }) {
@@ -148,23 +156,22 @@ function Validity({ visitedOn, reviewedOn, validUntil }: { visitedOn?: string | 
   );
 }
 
-export default function LongStayInspectionReport({ report, inspected }: {
+export default function LongStayInspectionReport({ report, inspected, inspector }: {
   report?: PublicInspectionReport | null;
+  inspector?: { name: string | null; code: string } | null;
   inspected?: { inspectedOn: string | null; validUntil: string | null } | null;
 }) {
   const status = report?.status ?? (inspected ? "PASSED" : "PENDING");
   const copy = STATUS_COPY[status];
   const checks = report?.checks ?? [];
-  const applicable = checks.filter((c) => c.result !== "NA");
-  const confirmed = applicable.filter((c) => c.result === "PASS").length;
-  const score = applicable.length ? Math.round((confirmed / applicable.length) * 100) : 0;
+  const { applicable, confirmed, score } = inspectionScore(checks);
   const findings = checks.filter((c) => c.result === "FAIL");
   const known = new Set(THEMES.flatMap((t) => t.keys));
   const themes = [
     ...THEMES.map((t) => ({ ...t, checks: t.keys.map((k) => checks.find((c) => c.key === k)).filter(Boolean) as InspectionCheck[] })),
     { key: "other", title: "Other checks", blurb: "Further points checked at the visit", Icon: ClipboardList, keys: [], checks: checks.filter((c) => !known.has(c.key)) },
   ].filter((t) => t.checks.length);
-  const hasRecorded = checks.some((c) => c.result === "PASS" || c.result === "FAIL");
+  const hasRecorded = score !== null;
 
   return (
     <section id="long-stay-inspection" aria-labelledby="long-stay-inspection-title" className="scroll-mt-24 rounded-lg border border-solid border-slate-200 bg-white p-4 sm:p-6">
@@ -173,7 +180,7 @@ export default function LongStayInspectionReport({ report, inspected }: {
           <ShieldCheck className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0 flex-1 basis-[180px]">
-          <h2 id="long-stay-inspection-title" className="m-0 text-lg font-semibold leading-6 tracking-tight text-slate-950">Inspected in person by NoLSAF</h2>
+          <h2 id="long-stay-inspection-title" className="m-0 text-lg font-semibold leading-6 tracking-tight text-slate-950">{status === "PASSED" ? "Inspected in person by NoLSAF" : "Home inspection"}</h2>
           <p className="m-0 mt-0.5 max-w-[65ch] text-[13px] leading-5 text-slate-600">{copy.detail}</p>
         </div>
         <span className={`ml-auto inline-flex min-h-7 shrink-0 items-center gap-1 rounded px-2.5 text-xs font-semibold ${status === "PASSED" ? "bg-emerald-50 text-[#02665e]" : status === "IN_REVIEW" ? "bg-slate-100 text-slate-700" : "bg-amber-50 text-amber-900"}`}>
@@ -181,11 +188,19 @@ export default function LongStayInspectionReport({ report, inspected }: {
         </span>
       </header>
 
+      {inspector ? (
+        <p className="m-0 mt-3 flex flex-wrap items-baseline gap-x-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <span className="font-semibold">{report?.visitedOn ? "Inspected by" : "Assigned Sales Partner"}</span>
+          <span>{inspector.name || inspector.code}</span>
+          {inspector.name ? <span className="text-xs text-slate-500">{inspector.code}</span> : null}
+        </p>
+      ) : null}
+
       {status === "PASSED" ? (
         <div className="mt-4 space-y-3">
           {hasRecorded ? (
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-center">
-              <ScoreDial score={score} confirmed={confirmed} applicable={applicable.length} />
+              <ScoreDial score={score} confirmed={confirmed} applicable={applicable} />
               <Validity visitedOn={report?.visitedOn ?? inspected?.inspectedOn} reviewedOn={report?.reviewedOn} validUntil={report?.validUntil ?? inspected?.validUntil} />
             </div>
           ) : (

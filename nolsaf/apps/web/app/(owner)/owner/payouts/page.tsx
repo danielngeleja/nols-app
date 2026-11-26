@@ -14,7 +14,7 @@ type PayoutAccount = { id: number; type: string; provider: string; accountNumber
 function destinationLabel(account: PayoutAccount | undefined): string | null {
   if (!account) return null;
   const name = PROVIDER_NAMES[account.provider.toLowerCase()] ?? account.provider;
-  return `${name} ***${account.accountNumber.replace(/\D/g, "").slice(-3)}`;
+  return `${name} ***${account.accountNumber.slice(-3)}`;
 }
 
 const amountText = (value: number) => Math.round(value).toLocaleString("en-US");
@@ -29,7 +29,7 @@ export default function PayoutsOverviewPage() {
     apiClient
       .get<{ accounts: PayoutAccount[] }>("/api/owner/payouts/accounts")
       .then((res) => {
-        const usable = (res.data?.accounts ?? []).filter((a) => a.isActive && a.isVerified && a.type === "MOBILE_MONEY");
+        const usable = (res.data?.accounts ?? []).filter((a) => a.isActive && a.isVerified && ["BANK", "MOBILE_MONEY"].includes(a.type));
         setAccount(usable.find((a) => a.isDefault) ?? usable[0]);
       })
       .catch(() => setAccount(undefined))

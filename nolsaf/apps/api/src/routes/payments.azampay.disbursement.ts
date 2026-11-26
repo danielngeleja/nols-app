@@ -1,15 +1,9 @@
 /**
  * AzamPay Disbursement Callback
  *
- * "The disbursement callback schema shown in the current docs does not
- * publish a signature field. Do not invent one. Ask AzamPay what
- * callback-authentication control they require (signature, secret, IP
- * allowlist, mTLS, etc.)" — docs/AZAMPAY_DISBURSEMENT_DEV_GUIDE.md.
- *
- * AzamPay has still not confirmed a signing scheme, so the controls we can
- * enforce are (a) an IP allowlist and (b) an optional pre-shared secret that
- * AzamPay can be configured to send as a header. Both sit in front of the
- * idempotent, reference/amount/operator-checked ledger.applyProviderEvent.
+ * AzamPay supplies the callback source IPs for the deployment allowlist.
+ * If a shared secret is also configured, both checks must pass before
+ * reference, amount, operator and replay checks run.
  *
  * FAIL-CLOSED: this endpoint refuses to run unless at least one of those
  * controls is configured. Previously an unset allowlist meant

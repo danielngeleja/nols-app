@@ -422,7 +422,7 @@ export default function AgentContractContent() {
         {
           label: "When you are paid",
           value: `${terms.settlementMinHours ?? 24} hours to ${terms.settlementMaxDays ?? 3} days`,
-          note: "From each claim, to your verified mobile money account.",
+          note: "From each claim, to your verified payout account.",
         },
         {
           label: "Changes to these terms",

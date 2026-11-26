@@ -25,7 +25,7 @@ Code: `apps/api/src/lib/salesVisitRequests.ts`, `routes/public.visitRequests.ts`
 
 ## Booking sticker
 
-- An A6 "Book your stay here on NoLSAF" sticker (long-stay homes: "Rent this home on NoLSAF"), English and Swahili, with a QR to the property's public page plus `?src=qr&qr=sticker`, so `/admin/channels` counts walk-in bookings as QR.
+- A round 95 mm sticker (printed on A6) in the style NoLSAF used before: white top with the wordmark and "Available via NoLSAF" beside the mark, brand-green bottom with "Book, Pay this property via NoLSAF." (long-stay homes: "Rent, Pay this home via NoLSAF."), the QR in a white disc with the mark at its centre, and nolsaf.com. The QR uses error correction H so the centre mark does not stop it scanning. It opens the property's public page plus `?src=qr&qr=sticker`, so `/admin/channels` counts walk-in bookings as QR.
 - Only for APPROVED properties. The link uses the public booking key; no row id, no partner code (partners already earn through property attribution).
 - Owner: My properties, QR button on each card, `/owner/properties/[ref]/sticker`. API `GET /api/owner/properties/:id/booking-sticker` (own property only).
 - Sales Partner: an attributed property's page, "Booking sticker", `/sales/properties/[ref]/sticker`. API `GET /api/sales/properties/:ref/booking-sticker` (attributed property only).
