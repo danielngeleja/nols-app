@@ -50,7 +50,7 @@ import {
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
 import { azamPayBankNames, azamPayNameLookup } from "../services/azampay/disbursement/client.js";
-import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
+import { AzamPayDisburseAuthError, AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
 import { azamPayProvidersMatch, canonicalAzamPayProvider } from "../services/azampay/disbursement/providers.js";
 import { getRegistrationStatus } from "../lib/registrationLifecycle.js";
 import { loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
@@ -1668,10 +1668,29 @@ function sendPayoutProviderError(req: Request, res: Response, error: unknown): b
   return false;
 }
 
-router.get("/payouts/banks", payoutLookupLimit, async (_req, res) => {
+function logBankDirectoryFailure(req: Request, error: unknown) {
+  const details = error instanceof AzamPayDisburseConfigurationError
+    ? { stage: "configuration", operation: error.operation, missingKeys: error.missingKeys }
+    : error instanceof AzamPayDisburseAuthError
+      ? { stage: "authentication", upstreamStatus: error.httpStatus }
+      : error instanceof AzamPayDisburseError
+        ? { stage: "directory_http", upstreamStatus: error.httpStatus }
+        : error instanceof z.ZodError || error instanceof SyntaxError
+          ? { stage: "directory_response" }
+          : { stage: "directory_request" };
+  console.error(JSON.stringify({
+    level: "error",
+    event: "payout_bank_directory_failed",
+    requestId: String((req as Request & { requestId?: string }).requestId ?? ""),
+    ...details,
+  }));
+}
+
+router.get("/payouts/banks", payoutLookupLimit, async (req, res) => {
   try {
     res.json({ banks: await azamPayBankNames() });
-  } catch {
+  } catch (error) {
+    logBankDirectoryFailure(req, error);
     res.status(503).json({ error: "The payout bank directory is temporarily unavailable." });
   }
 });
@@ -1709,7 +1728,10 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
     if (isBank) {
       let banks: string[];
       try { banks = await azamPayBankNames(); }
-      catch { return sendError(res, 503, "The payout bank directory is temporarily unavailable."); }
+      catch (error) {
+        logBankDirectoryFailure(req, error);
+        return sendError(res, 503, "The payout bank directory is temporarily unavailable.");
+      }
       if (!banks.includes(provider)) return sendError(res, 400, "Select a bank from the current payout directory.");
     }
     const lookup = await azamPayNameLookup({ bankName: provider, accountNumber });

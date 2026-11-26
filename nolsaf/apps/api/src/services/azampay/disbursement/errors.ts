@@ -37,6 +37,14 @@ export class AzamPayDisburseConfigurationError extends Error {
   }
 }
 
+/** Token generation failed before a disbursement API request could be sent. */
+export class AzamPayDisburseAuthError extends Error {
+  constructor(message: string, readonly httpStatus: number | null = null) {
+    super(message);
+    this.name = "AzamPayDisburseAuthError";
+  }
+}
+
 export class AzamPayDisburseError extends Error {
   readonly httpStatus: number | null;
   readonly providerMessage: string | null;

@@ -79,7 +79,7 @@ vi.mock("../lib/crypto.js", () => ({
 
 import { router as accountRouter } from "../routes/account";
 import { router as ownerPayoutsRouter } from "../routes/owner.payouts";
-import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors";
+import { AzamPayDisburseAuthError, AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors";
 
 const tx = {
   payoutAccount: {
@@ -159,6 +159,25 @@ describe("secure payout destination update", () => {
         phone: null,
       },
     });
+  });
+
+  it("logs the directory failure stage and provider status without exposing the error text", async () => {
+    mocks.banks.mockRejectedValueOnce(new AzamPayDisburseAuthError("internal auth details", 423));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await request(app("directory-request")).get("/account/payouts/banks");
+      expect(result.status).toBe(503);
+      expect(result.body).toEqual({ error: "The payout bank directory is temporarily unavailable." });
+      expect(log).toHaveBeenCalledWith(JSON.stringify({
+        level: "error",
+        event: "payout_bank_directory_failed",
+        requestId: "directory-request",
+        stage: "authentication",
+        upstreamStatus: 423,
+      }));
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("accepts only the supported payout banks and stores their canonical code", async () => {
