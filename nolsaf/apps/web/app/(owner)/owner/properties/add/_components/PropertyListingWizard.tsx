@@ -2091,15 +2091,24 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
 
   if (loadingProperty) {
     return (
-      <div className="min-h-[400px] flex flex-col items-center justify-center text-center">
-        <div className="dot-spinner mb-4">
-          <span className="dot dot-blue" />
-          <span className="dot dot-black" />
-          <span className="dot dot-yellow" />
-          <span className="dot dot-green" />
+      <div className="min-h-[400px] flex items-center justify-center px-4" role="status" aria-live="polite">
+        <style>{`@keyframes nolsLoadSlide{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}`}</style>
+        <div className="w-full max-w-[260px] text-center">
+          <div className="mx-auto mb-5 h-11 w-11 rounded-lg bg-[#02665e]/10 flex items-center justify-center">
+            <svg viewBox="0 0 24 24" className="h-5 w-5 text-[#02665e]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 10.5 12 4l9 6.5" />
+              <path d="M5.5 9v10.5h13V9" />
+              <path d="M10 19.5v-5h4v5" />
+            </svg>
+          </div>
+          <div className="text-[15px] font-semibold text-gray-900">Opening your property</div>
+          <div className="relative mt-4 h-[3px] w-full overflow-hidden rounded-full bg-gray-200">
+            <span
+              className="absolute inset-y-0 left-0 w-2/5 rounded-full bg-[#02665e]"
+              style={{ animation: "nolsLoadSlide 1.1s ease-in-out infinite" }}
+            />
+          </div>
         </div>
-        <h2 className="text-xl font-semibold text-gray-800">Loading property...</h2>
-        <p className="text-sm text-gray-600 mt-2">Please wait while we load your property details.</p>
       </div>
     );
   }

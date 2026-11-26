@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SalesShell from "@/components/SalesShell";
 import PropertyListingWizard, { type ListingWizardAdapter } from "@/app/(owner)/owner/properties/add/_components/PropertyListingWizard";
@@ -96,17 +96,25 @@ export default function SalesAssistedListingPage() {
   return (
     <SalesShell>
       <div id="sales-assisted-listing" className="w-full min-w-0">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <Link
-            href={`/sales/leads/${leadRef}`}
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 hover:no-underline"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to the lead
-          </Link>
-          <p className="m-0 text-xs text-slate-500">
-            Listing {title ? `"${title}" ` : ""}for the owner. The owner sets their own payout details.
-          </p>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 pb-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Link
+              href={`/sales/leads/${leadRef}`}
+              aria-label="Back to the lead"
+              title="Back to the lead"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-solid border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:bg-[#02665e]/5 hover:text-[#02665e] hover:no-underline"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Listing for the owner</div>
+              <div className="truncate text-[15px] font-semibold text-slate-900">{title || "New listing"}</div>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-[#02665e]/[0.07] px-2.5 py-1 text-xs font-medium text-[#02665e]">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Owner sets their own payout
+          </span>
         </div>
 
         {state === "loading" ? (
