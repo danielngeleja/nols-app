@@ -2072,19 +2072,48 @@
 }
 
 .ap-areas-head {
-  @apply mb-2 flex items-center justify-between gap-3 text-[12.5px] text-white/70;
+  @apply mb-2.5 flex items-center justify-between gap-3;
 }
 
-.ap-areas-head b {
-  @apply font-semibold text-white;
+.ap-areas-title {
+  @apply text-[13px] font-semibold leading-tight text-white;
 }
 
-.ap-areas-left {
-  @apply inline-flex shrink-0 items-center gap-1 text-[11.5px] font-semibold text-amber-300;
+.ap-areas-title b {
+  @apply font-semibold text-emerald-300;
 }
 
-.ap-areas-left.is-done {
+.ap-areas-sub {
+  @apply mt-0.5 text-[11.5px] leading-tight text-white/50;
+}
+
+.ap-areas-progress {
+  @apply flex shrink-0 flex-col items-end gap-1;
+}
+
+.ap-areas-progress-text {
+  @apply inline-flex items-center gap-1 text-[11.5px] font-semibold tabular-nums text-amber-300;
+}
+
+.ap-areas-progress-text span {
+  @apply font-normal text-white/45;
+}
+
+.ap-areas-progress.is-done .ap-areas-progress-text {
   @apply text-emerald-300;
+}
+
+.ap-areas-bar {
+  @apply block h-1 w-24 overflow-hidden rounded-full;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ap-areas-bar > span {
+  @apply block h-full rounded-full bg-amber-400 transition-all;
+}
+
+.ap-areas-progress.is-done .ap-areas-bar > span {
+  @apply bg-emerald-400;
 }
 
 .ap-areas-done {
@@ -2093,13 +2122,34 @@
 }
 
 .ap-areas-chips {
-  @apply flex flex-wrap gap-1.5;
+  @apply flex flex-wrap gap-1;
 }
 
 .ap-area-chip {
-  @apply relative inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-white/75 transition-colors;
+  @apply relative inline-flex h-7 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[12px] font-medium leading-none text-white/75 transition-colors;
+  box-sizing: border-box;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Long stay: an essential area with no photo yet */
+.ap-area-chip.is-needed {
+  @apply text-amber-200;
+  border: 1px dashed rgba(251, 191, 36, 0.6);
+}
+
+.ap-area-chip.is-needed.is-active {
+  @apply text-white;
+  border: 1px solid #02665e;
+}
+
+.ap-area-chip.is-more {
+  @apply bg-transparent text-white/55;
+  border-style: dashed;
+}
+
+.ap-area-chip.is-more:hover {
+  @apply text-white;
 }
 
 .ap-area-chip:hover {
@@ -2120,10 +2170,6 @@
 .ap-area-count {
   @apply rounded px-1 font-mono text-[10.5px] font-bold;
   background: rgba(255, 255, 255, 0.16);
-}
-
-.ap-area-need {
-  @apply h-1.5 w-1.5 rounded-full bg-amber-400;
 }
 
 /* The area a photo is marked with, on the top row after the photo number */
