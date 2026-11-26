@@ -2064,28 +2064,105 @@
   background: rgba(0, 0, 0, 0.72);
 }
 
-/* Which area of the home the photo shows (lib/photoAreas.ts). Sits on the top
-   row between the photo number and the remove button. */
-.ap-shot-area {
-  @apply absolute left-10 right-10 top-1.5 flex;
+/* Photo areas (lib/photoAreas.ts): pick an area chip, then tap its photos. */
+.ap-areas {
+  @apply mb-3 rounded-lg px-3 py-2.5;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.ap-shot-area select {
-  @apply h-7 max-w-full cursor-pointer appearance-none truncate rounded-md border-0 py-0 pl-2 pr-6 text-[11px] font-semibold text-white outline-none;
-  background: rgba(0, 0, 0, 0.72) url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 7px center;
+.ap-areas-head {
+  @apply mb-2 flex items-center justify-between gap-3 text-[12.5px] text-white/70;
 }
 
-.ap-shot-area select:focus-visible {
-  box-shadow: 0 0 0 2px #02665e;
+.ap-areas-head b {
+  @apply font-semibold text-white;
 }
 
-.ap-shot-area select option {
-  color: #0f172a;
-  background: #fff;
+.ap-areas-left {
+  @apply inline-flex shrink-0 items-center gap-1 text-[11.5px] font-semibold text-amber-300;
 }
 
-.ap-shot-area.is-missing select {
-  background-color: #b45309;
+.ap-areas-left.is-done {
+  @apply text-emerald-300;
+}
+
+.ap-areas-done {
+  @apply h-7 shrink-0 cursor-pointer rounded-md border-0 px-3 text-[12px] font-semibold text-white;
+  background: #02665e;
+}
+
+.ap-areas-chips {
+  @apply flex flex-wrap gap-1.5;
+}
+
+.ap-area-chip {
+  @apply relative inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-white/75 transition-colors;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ap-area-chip:hover {
+  @apply text-white;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ap-area-chip.has-photos {
+  @apply text-white;
+}
+
+.ap-area-chip.is-active {
+  @apply text-white;
+  background: #02665e;
+  border-color: #02665e;
+}
+
+.ap-area-count {
+  @apply rounded px-1 font-mono text-[10.5px] font-bold;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.ap-area-need {
+  @apply h-1.5 w-1.5 rounded-full bg-amber-400;
+}
+
+/* The area a photo is marked with, on the top row after the photo number */
+.ap-shot-tag {
+  @apply absolute left-11 top-1.5 max-w-[calc(100%-5.5rem)] truncate rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-white;
+  background: rgba(2, 102, 94, 0.92);
+}
+
+.ap-shot-tag.is-missing {
+  background: rgba(180, 83, 9, 0.92);
+}
+
+/* Labelling: the whole photo is the tap target; cover/remove are hidden so a tap never misfires */
+.ap-shot-paint {
+  @apply absolute inset-0 flex cursor-pointer items-center justify-center border-0 p-0 transition-colors;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.ap-shot-paint:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.ap-shot-paint.is-on {
+  background: rgba(2, 102, 94, 0.32);
+  box-shadow: inset 0 0 0 3px #02665e;
+}
+
+.ap-shot-paint-mark {
+  @apply flex h-9 w-9 items-center justify-center rounded-full text-white;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.ap-shot-paint.is-on .ap-shot-paint-mark {
+  background: #02665e;
+}
+
+.ap-gallery.is-painting .ap-shot-make,
+.ap-gallery.is-painting .ap-photo-remove {
+  display: none;
 }
 
 .ap-drop-veil {

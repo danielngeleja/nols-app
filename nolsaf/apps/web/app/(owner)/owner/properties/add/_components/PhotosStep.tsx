@@ -5,7 +5,7 @@ import { Armchair, Bath, BedDouble, Check, DoorOpen, Home, Plus, Star, Upload, U
 import Image from "next/image";
 import { AddPropertySection } from "./AddPropertySection";
 import { StepFooter } from "./StepFooter";
-import { LONG_STAY_REQUIRED_AREAS, PHOTO_AREAS, isPhotoArea, type PhotoArea } from "@/lib/photoAreas";
+import { LONG_STAY_REQUIRED_AREAS, PHOTO_AREAS, isPhotoArea, photoAreaLabel, type PhotoArea } from "@/lib/photoAreas";
 
 const readFileAsDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -77,6 +77,8 @@ export function PhotosStep({
   const dragDepth = useRef(0);
   // Area of the slot that opened the file picker; cleared by the plain "Add" buttons.
   const pendingArea = useRef<PhotoArea | null>(null);
+  // Area brush: the area being applied by tapping photos (null = not labelling).
+  const [brush, setBrush] = useState<PhotoArea | null>(null);
 
   const handleUpload = useCallback(
     async (files: FileList | null, area: PhotoArea | null = null) => {
@@ -171,6 +173,11 @@ export function PhotosStep({
   const areaOf = (url: string): PhotoArea | null => (isPhotoArea(photoAreas[url]) ? photoAreas[url] : null);
   const shownAreas = new Set(photos.map(areaOf).filter(Boolean));
   const unlabelled = photos.filter((url) => !areaOf(url)).length;
+  const areaCounts = new Map<string, number>();
+  for (const url of photos) {
+    const a = areaOf(url);
+    if (a) areaCounts.set(a, (areaCounts.get(a) ?? 0) + 1);
+  }
 
   const checks = [
     { label: `${minRequired} photos or more`, done: photosOk },
@@ -228,7 +235,49 @@ export function PhotosStep({
 
               <div className="ap-split">
                 <div className="ap-split-main">
-                  <div className="ap-gallery">
+                  {showAreas && photosCount > 0 ? (
+                    <div className="ap-areas">
+                      <div className="ap-areas-head">
+                        <span>
+                          {brush ? (
+                            <>Tap every <b>{photoAreaLabel(brush).toLowerCase()}</b> photo</>
+                          ) : (
+                            "Pick an area, then tap its photos"
+                          )}
+                        </span>
+                        {brush ? (
+                          <button type="button" className="ap-areas-done" onClick={() => setBrush(null)}>
+                            Done
+                          </button>
+                        ) : unlabelled > 0 ? (
+                          <span className="ap-areas-left">{unlabelled} without an area</span>
+                        ) : (
+                          <span className="ap-areas-left is-done"><Check className="h-3 w-3" aria-hidden /> All labelled</span>
+                        )}
+                      </div>
+                      <div className="ap-areas-chips" role="group" aria-label="Photo areas">
+                        {PHOTO_AREAS.map((a) => {
+                          const count = areaCounts.get(a.key) ?? 0;
+                          const needed = monthly && LONG_STAY_REQUIRED_AREAS.includes(a.key) && count === 0;
+                          return (
+                            <button
+                              key={a.key}
+                              type="button"
+                              onClick={() => setBrush(brush === a.key ? null : a.key)}
+                              className={`ap-area-chip${brush === a.key ? " is-active" : ""}${count ? " has-photos" : ""}`}
+                              aria-pressed={brush === a.key}
+                            >
+                              {needed ? <span className="ap-area-need" title="Needed for long stay" aria-label="Needed" /> : null}
+                              {a.label}
+                              {count ? <span className="ap-area-count">{count}</span> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className={`ap-gallery${brush ? " is-painting" : ""}`}>
                     {photos.map((photo, index) => (
                       <div key={`${photo.slice(-24)}-${index}`} className={`ap-shot${index === 0 ? " is-cover" : ""}`}>
                         {/^https?:\/\//i.test(photo) ? (
@@ -243,6 +292,21 @@ export function PhotosStep({
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={photo} alt={`Property photo ${index + 1}`} className="absolute inset-0 h-full w-full object-cover" />
                         )}
+
+                        {brush && !photosUploading[index] ? (
+                          // Area brush: one tap marks the photo, a second tap clears it.
+                          <button
+                            type="button"
+                            onClick={() => setPhotoArea?.(photo, areaOf(photo) === brush ? null : brush)}
+                            className={`ap-shot-paint${areaOf(photo) === brush ? " is-on" : ""}`}
+                            aria-pressed={areaOf(photo) === brush}
+                            aria-label={`${areaOf(photo) === brush ? "Remove" : "Mark"} photo ${index + 1} as ${photoAreaLabel(brush)}`}
+                          >
+                            <span className="ap-shot-paint-mark">
+                              {areaOf(photo) === brush ? <Check className="h-4 w-4" aria-hidden /> : <Plus className="h-4 w-4" aria-hidden />}
+                            </span>
+                          </button>
+                        ) : null}
 
                         {photosUploading[index] ? (
                           <span className="ap-photo-busy">
@@ -273,20 +337,10 @@ export function PhotosStep({
                           {index + 1}
                         </span>
 
-                        {showAreas ? (
-                          <span className={`ap-shot-area${monthly && !areaOf(photo) ? " is-missing" : ""}`}>
-                            <select
-                              value={areaOf(photo) ?? ""}
-                              onChange={(e) => setPhotoArea?.(photo, isPhotoArea(e.target.value) ? e.target.value : null)}
-                              aria-label={`Area shown in photo ${index + 1}`}
-                              title="Which area of the home is this?"
-                            >
-                              <option value="">Which area?</option>
-                              {PHOTO_AREAS.map((a) => (
-                                <option key={a.key} value={a.key}>{a.label}</option>
-                              ))}
-                            </select>
-                          </span>
+                        {showAreas && areaOf(photo) ? (
+                          <span className="ap-shot-tag">{photoAreaLabel(areaOf(photo)!)}</span>
+                        ) : showAreas && monthly ? (
+                          <span className="ap-shot-tag is-missing">No area</span>
                         ) : null}
 
                         <button
