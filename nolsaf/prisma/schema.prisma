@@ -8601,6 +8601,16 @@ model SalesAssistedListing {
   /// CANCEL or RESUME
   objectionOutcome      String?   @db.VarChar(10)
 
+  /// Long stay: the owner confirms the rent the partner set before the home
+  /// can go live (lib/longStay/ownerRentConfirmation.ts). Fingerprints are the
+  /// SHA-256 of the money terms, so any later change needs a new confirmation.
+  rentTermsFingerprint     String?   @db.Char(64)
+  rentConfirmSentAt        DateTime?
+  rentConfirmedFingerprint String?   @db.Char(64)
+  rentConfirmedAt          DateTime?
+  /// OWNER (tapped the link) or ADMIN_CALL (an admin confirmed it by phone)
+  rentConfirmedVia         String?   @db.VarChar(12)
+
   submittedAt   DateTime?
   approvedAt    DateTime?
   returnedAt    DateTime?

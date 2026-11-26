@@ -17,9 +17,11 @@ const SUPPORT_TEL = `tel:${SUPPORT_PHONE.replace(/\s/g, "")}`;
 
 const NEXT_STEPS = ["NoLSAF checks the listing", "You get an SMS when it is live", "You sign in and add where we pay you"];
 const OTHER_REASON = "Something else";
+const RENT_WRONG = "The rent or terms are wrong";
 const OBJECTION_REASONS = ["I never agreed to list this property", "This is not my property", "I do not know this sales partner", OTHER_REASON];
 
-type Notice = { propertyTitle: string | null; partnerName: string | null; partnerCode: string | null; paused: boolean; closed: boolean };
+type RentTerms = { lines: Array<{ label: string; value: string }>; confirmed: boolean; version: string };
+type Notice = { propertyTitle: string | null; partnerName: string | null; partnerCode: string | null; paused: boolean; closed: boolean; rent?: RentTerms | null };
 type View = "loading" | "missing" | "ask" | "agreed" | "object" | "paused" | "closed";
 
 /** "LUMORA APARTMENTS" shown as "Lumora Apartments"; mixed case is kept. */
@@ -42,6 +44,7 @@ export default function ListingNoticePage() {
   const [reason, setReason] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -54,7 +57,27 @@ export default function ListingNoticePage() {
       })
       .catch(() => { if (active) setView("missing"); });
     return () => { active = false; };
-  }, [token]);
+  }, [token, reload]);
+
+  const rent = notice?.rent ?? null;
+  const rentPending = Boolean(rent && !rent.confirmed);
+
+  const confirmRent = async () => {
+    if (!rent) return;
+    setBusy(true);
+    setError("");
+    try {
+      await apiClient.post(`/api/public/listing-notice/${encodeURIComponent(token)}/confirm-rent`, { version: rent.version });
+      setNotice((current) => (current?.rent ? { ...current, rent: { ...current.rent, confirmed: true } } : current));
+      setView("agreed");
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.error || "Something went wrong. Please call NoLSAF support.");
+      // The partner changed the terms since the page opened: show the new ones.
+      if (requestError?.response?.data?.code === "CHANGED") setReload((n) => n + 1);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const object = async () => {
     // A pause takes a real reason: one tap on "no" is not enough to stop a listing.
@@ -79,8 +102,10 @@ export default function ListingNoticePage() {
   const headline: Record<View, { title: string; sub: string }> = {
     loading: { title: "Checking your link", sub: "One moment." },
     missing: { title: "This link has expired", sub: "Nothing on your account was changed." },
-    ask: { title: "Did you agree to this listing?", sub: "A NoLSAF sales partner is listing a property in your name." },
-    agreed: { title: "Thank you, all set", sub: "There is nothing else you need to do now." },
+    ask: rentPending
+      ? { title: "Is this rent right?", sub: "Your home goes live for monthly tenants only after you confirm." }
+      : { title: "Did you agree to this listing?", sub: "A NoLSAF sales partner is listing a property in your name." },
+    agreed: { title: rent?.confirmed ? "Rent confirmed, thank you" : "Thank you, all set", sub: "There is nothing else you need to do now." },
     object: { title: "Tell us what is wrong", sub: "We pause the listing straight away, then call you." },
     paused: { title: "Listing paused", sub: "It is not on sale. NoLSAF will call you to check." },
     closed: { title: "This listing was withdrawn", sub: "Nothing else is needed from you." },
@@ -154,7 +179,29 @@ export default function ListingNoticePage() {
               </div>
 
               <div className="p-5">
-                {view === "ask" ? (
+                {view === "ask" && rent && rentPending ? (
+                  // Long stay: the money terms the partner set, for the owner to agree.
+                  <div>
+                    <dl className="m-0 divide-y divide-slate-100 overflow-hidden rounded-md border border-solid border-slate-200">
+                      {rent.lines.map((line, index) => (
+                        <div key={line.label} className={`flex items-baseline justify-between gap-4 px-3.5 py-2.5 ${index === 0 ? "bg-[#02665e]/[0.04]" : ""}`}>
+                          <dt className="text-[13px] text-slate-500">{line.label}</dt>
+                          <dd className={`m-0 text-right ${index === 0 ? "text-[17px] font-bold text-slate-900" : "text-[13.5px] font-semibold text-slate-800"}`}>{line.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {error ? <p className="m-0 mt-3 text-sm text-red-700">{error}</p> : null}
+                    <button type="button" disabled={busy} onClick={confirmRent} className="mt-4 flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014e47] disabled:opacity-60 [font-family:inherit]">
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />} Yes, the rent is right
+                    </button>
+                    <p className="m-0 mt-4 border-0 border-t border-solid border-slate-100 pt-3 text-center text-[12.5px] text-slate-500">
+                      Not what you agreed?{" "}
+                      <button type="button" onClick={() => { setReason(RENT_WRONG); setError(""); setView("object"); }} className="cursor-pointer border-0 bg-transparent p-0 text-[12.5px] font-semibold text-amber-700 underline-offset-2 hover:underline [font-family:inherit]">
+                        Tell us
+                      </button>
+                    </p>
+                  </div>
+                ) : view === "ask" ? (
                   // One clear answer up front (Hick's law): the expected "yes" is the only
                   // button. Saying no stays available, as a quieter link below.
                   <div>
@@ -181,6 +228,7 @@ export default function ListingNoticePage() {
                   <div className="flex items-start gap-3">
                     <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#02665e]" />
                     <p className="m-0 text-[13.5px] leading-6 text-slate-700">
+                      {rent?.confirmed ? "NoLSAF can now approve the monthly rent listing. " : null}
                       When {property} goes live, NoLSAF sends you an SMS with a link to sign in and add the account we pay you into.
                       <button type="button" onClick={() => setView("ask")} className="ml-1 border-0 bg-transparent p-0 text-[13px] font-semibold text-[#02665e] hover:underline [font-family:inherit]">Changed your mind?</button>
                     </p>
@@ -189,7 +237,7 @@ export default function ListingNoticePage() {
                   <div>
                     <p className="m-0 text-[13px] font-semibold text-slate-700">What is wrong?</p>
                     <div className="mt-1.5 grid gap-1.5" role="radiogroup" aria-label="What is wrong?">
-                      {OBJECTION_REASONS.map((option) => (
+                      {(rent ? [RENT_WRONG, ...OBJECTION_REASONS] : OBJECTION_REASONS).map((option) => (
                         <label key={option} className={`flex cursor-pointer items-center gap-2.5 rounded-md border border-solid px-3 py-2.5 text-[13.5px] ${reason === option ? "border-amber-400 bg-amber-50 text-slate-900" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"}`}>
                           <input type="radio" name="notice-reason" checked={reason === option} onChange={() => { setReason(option); setError(""); }} className="h-4 w-4 accent-amber-600" />
                           {option}

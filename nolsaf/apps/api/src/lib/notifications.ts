@@ -208,6 +208,10 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Tenant ID to check",
         body: `A tenant sent a ${data.idType === "PASSPORT" ? "passport" : data.idType === "RES_PERMIT" ? "residence permit" : "national ID card"} for long stays. Open the photos and the selfie in Long stays, Tenant IDs, confirm the name and face, then approve or reject it.`
         },
+        sales_assisted_owner_rent_confirmed: {
+        title: "Owner confirmed the rent",
+        body: `The owner of "${data.propertyTitle || "a property"}" confirmed the monthly rent their sales partner set (${data.rentSummary || "long stay"}). The listing can be approved.`
+        },
         sales_assisted_listing_submitted: {
         title: "Assisted listing to review",
         body: `${data.partnerCode || "A sales partner"} listed "${data.propertyTitle || "a property"}" for its owner. Review it in Properties (it carries the Assisted listing badge), then verify the conversion in Sales.`
@@ -544,6 +548,10 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       assisted_listing_started: {
         title: "A NoLSAF partner is listing your property",
         body: `${data.partnerName || "A NoLSAF sales partner"} is preparing ${data.propertyTitle || "a property"} to go live on NoLSAF for you. You do not need to do anything. Not expecting this? Open ${data.noticeLink || "the link in this notice"} or contact NoLSAF support.`
+      },
+      assisted_listing_rent_confirm: {
+        title: "Please confirm your monthly rent",
+        body: `${data.partnerName || "A NoLSAF sales partner"} listed ${data.propertyTitle || "your property"} for monthly rent: ${data.rentSummary || "see the link"}. It goes live only after you confirm. Confirm or tell us it is wrong: ${data.noticeLink || "the link in this notice"}.`
       },
       assisted_listing_live: {
         title: "Your property is live on NoLSAF",
@@ -1029,6 +1037,10 @@ export async function createUserNotification(db: Pick<Prisma.TransactionClient, 
       sales_assisted_listing_returned: {
         title: "Listing returned for changes",
         body: `NoLSAF returned "${data.propertyTitle || "your assisted listing"}" for changes.${data.reasons ? ` ${data.reasons}` : ""} Open the lead to fix it and submit again.`
+      },
+      sales_assisted_owner_rent_confirmed: {
+        title: "Owner confirmed the rent",
+        body: `The owner of "${data.propertyTitle || "the property"}" confirmed the monthly rent you set (${data.rentSummary || "long stay"}). NoLSAF can now approve the listing.`
       },
       sales_assisted_listing_approved: {
         title: "Assisted listing is live",

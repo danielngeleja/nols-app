@@ -459,3 +459,14 @@ A Sales Partner listing a home for an owner (docs/SALES_ASSISTED_LISTING.md) can
 - **Admin:** `/admin/long-stay/requests` (Waiting, Approved, Declined, All) plus the `long_stay_access_requested` notification and an overview tile. **Approve** creates the owner's `LongStayLandlordGrant` (per owner, all their homes, note records the request) and texts the owner with a fresh "Not expecting this?" link. **Decline** needs a note the partner sees; the listing can continue as nightly.
 - **Owner objects:** a waiting request is withdrawn when the listing pauses. If an admin then cancels the listing, a switch that came only from this request is removed, unless the owner has another long-stay home or an admin switched them on another way.
 - **Money stays with the owner:** payouts go only to an account the owner adds and verifies. The bringing partner earns the section 14 share and may not inspect the home (section 13).
+
+### 15.1 The owner confirms the rent (added 2026-11-26)
+
+The partner types the rent and terms, so the owner agrees them before the home can go live.
+
+- **When:** on partner submit of a LONG_STAY assisted listing (`onAssistedSubmitted` → `requestOwnerRentConfirmation`). The owner gets an SMS with the rent in one line ("TSh 500,000 a month, 6 to 12 months, 2 months upfront") and a fresh `/listing-notice/:token` link; an existing owner also gets it in their inbox (`assisted_listing_rent_confirm`).
+- **Owner's page:** shows each money term and **Yes, the rent is right** (`POST /api/public/listing-notice/:token/confirm-rent { version }`). "Not what you agreed? Tell us" pauses the listing with the reason "The rent or terms are wrong" (the existing objection).
+- **Fingerprint:** the SHA-256 of the money terms (`lib/longStay/ownerRentTerms.ts`: rent, currency, lease length, upfront months, deposit, notice, furnished, utilities, discounts). Any change needs a new confirmation; the page sends the version it showed, so the owner never confirms terms they did not see.
+- **Admin approve** is refused with `OWNER_RENT_UNCONFIRMED` until confirmed. An admin who called the owner can approve with `ownerRentConfirmedByPhone: true` (recorded as `ADMIN_CALL`, audited as `PROPERTY_OWNER_RENT_CONFIRMED_BY_PHONE`).
+- **Partner** sees "Waiting for the owner to confirm the rent" or "The owner confirmed the rent" on the lead and gets `sales_assisted_owner_rent_confirmed`.
+- Migration `20261126160000_add_assisted_owner_rent_confirmation` (five nullable columns on `sales_assisted_listing`), prepared, not applied. Apply before deploying the API.

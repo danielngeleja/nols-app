@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import PropertyPreview from "@/components/PropertyPreview";
 import LongStayReview, { type ReviewCheck } from "@/components/admin/properties/LongStayReview";
-import { CalendarRange, Loader2, ScanEye, MapPin, Star, Search, X, ChevronDown, Users } from "lucide-react";
+import { CalendarRange, Handshake, Loader2, ScanEye, MapPin, Star, Search, X, ChevronDown, Users } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import Image from "next/image";
@@ -713,10 +713,12 @@ export default function PropertyPreviewsPage() {
                     <div className="text-base font-bold text-slate-900 truncate">{property.title}</div>
                     {property.assistedListing ? (
                       <span
-                        className="mt-1 inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-800"
-                        title="A sales partner listed this for the owner. Check photos and details a little more closely."
+                        className="mt-1 inline-flex items-center gap-1 text-[11.5px] text-slate-500"
+                        title="Listed by a sales partner for the owner. Check photos and details a little more closely."
+                        aria-label={`Listed by sales partner ${property.assistedListing.partnerCode || ""}`}
                       >
-                        Assisted listing{property.assistedListing.partnerCode ? `, ${property.assistedListing.partnerCode}` : ""}
+                        <Handshake className="h-3.5 w-3.5 text-[#02665e]" aria-hidden />
+                        <span className="font-mono tracking-tight">{property.assistedListing.partnerCode || "Sales partner"}</span>
                       </span>
                     ) : null}
                   </div>

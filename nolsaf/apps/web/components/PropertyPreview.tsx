@@ -467,10 +467,10 @@ export default function PropertyPreview({
   const isLongStay = rentalMode === "LONG_STAY" || (property as any)?.rentalMode === "LONG_STAY";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [adminNotice, setAdminNotice] = useState<null | { kind: "success" | "error" | "info"; title: string; body?: string }>(null);
-  // Success toasts close themselves; errors stay until dismissed
+  const [adminNotice, setAdminNotice] = useState<null | { kind: "success" | "error" | "info"; title: string; body?: string; action?: { label: string; run: () => void } }>(null);
+  // Success toasts close themselves; errors and toasts with an action stay until dismissed
   useEffect(() => {
-    if (!adminNotice || adminNotice.kind === "error") return;
+    if (!adminNotice || adminNotice.kind === "error" || adminNotice.action) return;
     const id = window.setTimeout(() => setAdminNotice(null), 5000);
     return () => window.clearTimeout(id);
   }, [adminNotice]);
@@ -680,12 +680,12 @@ export default function PropertyPreview({
     setShowApproveDialog(true);
   }
 
-  async function confirmApprove() {
+  async function confirmApprove(ownerRentConfirmedByPhone = false) {
     if (saving) return;
     setShowApproveDialog(false);
     try {
       setSaving(true);
-      await api.post(`/api/admin/properties/${propertyId}/approve`, { note: "" });
+      await api.post(`/api/admin/properties/${propertyId}/approve`, { note: "", ...(ownerRentConfirmedByPhone ? { ownerRentConfirmedByPhone: true } : {}) });
       await loadProperty();
       await loadAuditHistory();
       onApproved?.();
@@ -696,6 +696,17 @@ export default function PropertyPreview({
       });
     } catch (err: any) {
       const msg = err?.response?.data?.error || "Failed to approve property";
+      // Assisted long stay: the owner has not agreed the rent. An admin who
+      // called the owner can record that and approve in one step.
+      if (err?.response?.data?.code === "OWNER_RENT_UNCONFIRMED") {
+        setAdminNotice({
+          kind: "info",
+          title: "Waiting for the owner to confirm the rent",
+          body: typeof msg === "string" ? `${msg} If you called the owner and they agreed, approve now.` : undefined,
+          action: { label: "Owner agreed by phone, approve", run: () => { setAdminNotice(null); void confirmApprove(true); } },
+        });
+        return;
+      }
       setAdminNotice({
         kind: "error",
         title: "Approval failed",
@@ -1490,6 +1501,15 @@ export default function PropertyPreview({
               <div className="min-w-0 flex-1">
                 <p className="m-0 text-[13.5px] font-semibold text-slate-900">{adminNotice.title}</p>
                 {adminNotice.body ? <p className="m-0 mt-0.5 text-[12.5px] text-slate-600">{adminNotice.body}</p> : null}
+                {adminNotice.action ? (
+                  <button
+                    type="button"
+                    onClick={adminNotice.action.run}
+                    className="mt-2 inline-flex h-8 items-center rounded-md border-0 bg-[#02665e] px-3 text-[12.5px] font-semibold text-white hover:bg-[#014e47]"
+                  >
+                    {adminNotice.action.label}
+                  </button>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -3092,7 +3112,7 @@ export default function PropertyPreview({
               </button>
               <button
                 type="button"
-                onClick={confirmApprove}
+                onClick={() => void confirmApprove()}
                 disabled={saving}
                 className="order-1 sm:order-2 px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
               >

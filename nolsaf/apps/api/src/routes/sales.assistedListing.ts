@@ -45,6 +45,7 @@ import {
   propertyTypeFromLead,
   resolveOwnerAccount,
   sendAssistedNotice,
+  ownerRentState,
 } from "../lib/salesAssistedListing.js";
 import { AccessRequestError, longStayAccessView, requestLongStayAccess } from "../lib/longStay/accessRequest.js";
 import { assistedLongStayDraftRefusal, landlordGate } from "../lib/longStay/listing.js";
@@ -104,7 +105,14 @@ const listingSelect = {
 async function longStayFor(row: any) {
   if (!row) return null;
   try {
-    return await longStayAccessView(db, { id: row.id, ownerUserId: row.ownerUserId, property: row.property });
+    const view = await longStayAccessView(db, { id: row.id, ownerUserId: row.ownerUserId, property: row.property });
+    // Whether the owner agreed the rent the partner set (section 15.1). Hidden
+    // until the listing is submitted: that is when the owner is asked.
+    const rent = row.propertyId ? await ownerRentState(row.propertyId).catch(() => null) : null;
+    const ownerRent = rent && (rent.sentAt || rent.confirmed)
+      ? { confirmed: rent.confirmed, via: rent.via, sentAt: rent.sentAt, summary: rent.summary }
+      : null;
+    return view ? { ...view, ownerRent } : view;
   } catch (error: any) {
     if (error?.code === "P2021") return null; // long_stay_access_request not created yet
     throw error;

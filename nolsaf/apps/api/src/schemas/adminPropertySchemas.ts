@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const ApprovePropertyInput = z.object({
   note: z.string().max(1000).optional(),
+  /** Assisted long stay: the admin called the owner, who agreed the rent the partner set. */
+  ownerRentConfirmedByPhone: z.boolean().optional(),
 });
 
 export const RejectPropertyInput = z.object({

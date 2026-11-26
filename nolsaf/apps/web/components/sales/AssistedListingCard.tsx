@@ -43,6 +43,8 @@ type LongStayAccess = {
   pauseReason: string | null;
   homeTypeAllowed: boolean;
   request: { ref: string; status: "PENDING" | "APPROVED" | "DECLINED" | "WITHDRAWN"; reason: string; createdAt: string; decidedAt: string | null; decisionNote: string | null } | null;
+  /** After submit: whether the owner agreed the rent the partner set. */
+  ownerRent?: { confirmed: boolean; via: string | null; sentAt: string | null; summary: string } | null;
 };
 
 type State = {
@@ -99,8 +101,21 @@ function LongStayRequestPanel({ leadRef, access, editable, onChanged }: { leadRe
   if (access.paused) {
     return <p className={`${shell} border-amber-200 bg-amber-50 text-amber-900`}><PauseCircle className="mt-0.5 h-4 w-4 shrink-0" />Long stay is paused for this owner{access.pauseReason ? `: ${access.pauseReason}` : ""}. Contact NoLSAF.</p>;
   }
+  if (access.granted && access.ownerRent) {
+    return access.ownerRent.confirmed ? (
+      <p className={`${shell} border-emerald-200 bg-emerald-50 text-emerald-900`}>
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>The owner confirmed the rent{access.ownerRent.via === "ADMIN_CALL" ? " by phone with NoLSAF" : ""}: {access.ownerRent.summary}.</span>
+      </p>
+    ) : (
+      <p className={`${shell} border-sky-200 bg-sky-50 text-sky-900`}>
+        <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>Waiting for the owner to confirm the rent ({access.ownerRent.summary}). NoLSAF sent them an SMS; it goes live only after they agree.</span>
+      </p>
+    );
+  }
   if (access.granted) {
-    return <p className={`${shell} border-emerald-200 bg-emerald-50 text-emerald-900`}><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />Long stay is on for this owner. Choose Monthly in the listing steps and add the terms.</p>;
+    return <p className={`${shell} border-emerald-200 bg-emerald-50 text-emerald-900`}><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />Long stay is on for this owner. Choose Monthly in the listing steps and add the terms. After you submit, the owner confirms the rent by SMS.</p>;
   }
   if (request?.status === "PENDING") {
     return (

@@ -27,7 +27,7 @@ import {
   sendRestrictionOpenedEmail,
   sendRestrictionResolvedEmail,
 } from "../lib/restrictionCases.js";
-import { onAssistedPropertyApproved, onAssistedPropertyRejected } from "../lib/salesAssistedListing.js";
+import { confirmOwnerRentByAdmin, onAssistedPropertyApproved, onAssistedPropertyRejected, ownerRentState } from "../lib/salesAssistedListing.js";
 import { longStaySubmitRefusal } from "../lib/longStay/listing.js";
 import { longStayOpen } from "../lib/longStay/fees.js";
 import { longStayInspectionRequiredForApproval, prepareInspectionForApproval } from "../lib/longStay/inspection.js";
@@ -1361,6 +1361,33 @@ router.post("/:id/approve", (async (req: AuthedRequest, res) => {
       ? "The owner queried this assisted listing. Resolve it in Sales, Assisted listings first."
       : "This assisted listing was cancelled and cannot be approved." });
     return;
+  }
+  // Long stay listed by a partner: the owner must agree the rent first, by
+  // their SMS link or by phone with an admin (docs/LONG_STAY_RENTALS.md 15.1).
+  if (assisted && before.rentalMode === "LONG_STAY") {
+    const rent = await ownerRentState(id);
+    if (rent && !rent.confirmed) {
+      if (!parse.data.ownerRentConfirmedByPhone) {
+        res.status(409).json({
+          error: `The owner has not confirmed the rent yet: ${rent.summary}.${rent.sentAt ? " They were sent a link by SMS." : " The SMS could not be sent; call them."}`,
+          code: "OWNER_RENT_UNCONFIRMED",
+          rentSummary: rent.summary,
+        });
+        return;
+      }
+      await confirmOwnerRentByAdmin(id);
+      await auditLog({
+        actorId: req.user!.id,
+        actorRole: req.user!.role,
+        action: "PROPERTY_OWNER_RENT_CONFIRMED_BY_PHONE",
+        entity: "PROPERTY",
+        entityId: id,
+        before: { rentConfirmed: false },
+        after: { rentConfirmed: true, via: "ADMIN_CALL", rentSummary: rent.summary, version: rent.fingerprint },
+        ip: req.ip,
+        ua: req.headers["user-agent"] as string,
+      });
+    }
   }
   // Approve can only be used for initial approval (PENDING) or re-approval after rejection (REJECTED)
   // Once approved, properties can only be suspended/unsuspended, not re-approved
