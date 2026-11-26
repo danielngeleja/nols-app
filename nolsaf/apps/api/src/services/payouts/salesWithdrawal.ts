@@ -99,7 +99,9 @@ export async function loadSalesAutoSettings() {
 
 async function verifiedAccount(userId: number) {
   return db.payoutAccount.findFirst({
-    where: { userId, isActive: true, isVerified: true, type: "MOBILE_MONEY" },
+    // Mobile money or a bank account, whichever the partner verified last
+    // (only one destination is active at a time).
+    where: { userId, isActive: true, isVerified: true, type: { in: ["MOBILE_MONEY", "BANK"] } },
     orderBy: [{ isDefault: "desc" }, { id: "asc" }],
     select: {
       id: true, userId: true, provider: true, accountNumber: true, accountName: true,
@@ -180,7 +182,7 @@ async function firstBlocker(partner: NonNullable<Awaited<ReturnType<typeof loadP
   }
 
   const account = await verifiedAccount(partner.userId);
-  if (!account) return { code: "NO_PAYOUT_ACCOUNT", message: "Add and verify a mobile money payout account first." };
+  if (!account) return { code: "NO_PAYOUT_ACCOUNT", message: "Add and verify a mobile money or bank payout account first." };
   const changedAt = account.destinationChangedAt ?? account.createdAt;
   if (now.getTime() < changedAt.getTime() + recentChangeHours * HOUR_MS) {
     return {

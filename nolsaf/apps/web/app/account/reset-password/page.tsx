@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowBigUp, ArrowRight, Check, CheckCircle2, Clock, Eye, EyeOff, KeyRound, Link2Off, Loader2, Lock, LockKeyhole, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
+import { AlertCircle, ArrowBigUp, ArrowRight, Check, CheckCircle2, Clock, Eye, EyeOff, KeyRound, Link2Off, Loader2, Lock, LockKeyhole, Mail, MailCheck, ShieldCheck, Smartphone, Sparkles, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { validatePasswordAgainstPolicy } from "@/lib/passwordPolicy";
 import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy";
@@ -12,8 +12,11 @@ const TOKEN_KEY = "nolsaf.passwordSetupToken";
 
 type LinkCheck =
   | { state: "checking" }
-  | { state: "valid"; firstPassword: boolean; login: string | null; name: string | null; expiresAt: string | null }
+  | { state: "valid"; firstPassword: boolean; login: string | null; name: string | null; expiresAt: string | null; contacts: Contacts | null }
   | { state: "invalid"; reason: "missing" | "invalid" | "expired" | "unavailable" };
+
+/** Masked sign-in details. emailState PENDING: a sales partner gave it and the owner has not proved it yet. */
+type Contacts = { phone: string | null; email: string | null; emailState: "VERIFIED" | "UNVERIFIED" | "PENDING" | null };
 
 function safeNext(raw: string): string {
   const v = String(raw || "").trim();
@@ -146,6 +149,7 @@ export default function ResetPasswordPage() {
             login: data.login ?? null,
             name: data.name ?? null,
             expiresAt: data.expiresAt ?? null,
+            contacts: data.contacts && typeof data.contacts === "object" ? data.contacts : null,
           });
         } else {
           const r = data?.reason;
@@ -283,16 +287,41 @@ export default function ResetPasswordPage() {
                     </p>
                   </div>
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2 text-[12px]">
-                  {link.login && (
-                    <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-white/85">
-                      <UserRound className="h-3.5 w-3.5 shrink-0 text-white/55" aria-hidden />
-                      <span className="truncate font-mono tracking-tight">{link.login}</span>
-                    </span>
-                  )}
-                  {link.expiresAt && <ExpiryChip expiresAt={link.expiresAt} />}
+                {/* Your sign-in details, masked */}
+                <div className="mt-4 overflow-hidden rounded-md bg-white/[0.06] text-[12.5px]">
+                  {link.contacts?.phone || (!link.contacts && link.login) ? (
+                    <div className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="inline-flex items-center gap-2 text-white/60"><Smartphone className="h-3.5 w-3.5" aria-hidden />Phone</span>
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-white">
+                        <span className="truncate font-mono tracking-tight">{link.contacts?.phone || link.login}</span>
+                        {link.contacts?.phone ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-label="Confirmed" /> : null}
+                      </span>
+                    </div>
+                  ) : null}
+                  {link.contacts?.email ? (
+                    <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-white/10 px-3 py-2">
+                      <span className="inline-flex items-center gap-2 text-white/60"><Mail className="h-3.5 w-3.5" aria-hidden />Email</span>
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-white">
+                        <span className="truncate font-mono tracking-tight">{link.contacts.email}</span>
+                        {link.contacts.emailState === "VERIFIED"
+                          ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-label="Confirmed" />
+                          : <span className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-200">To confirm</span>}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
+                {link.expiresAt && <div className="mt-2.5 flex text-[12px]"><ExpiryChip expiresAt={link.expiresAt} /></div>}
               </div>
+
+              {link.contacts?.emailState === "PENDING" && link.contacts.email ? (
+                <PendingEmailStep
+                  token={token}
+                  maskedEmail={link.contacts.email}
+                  onDone={(state) => setLink((current) => (current.state === "valid" && current.contacts
+                    ? { ...current, contacts: state === "VERIFIED" ? { ...current.contacts, emailState: "VERIFIED" } : { ...current.contacts, email: null, emailState: null } }
+                    : current))}
+                />
+              ) : null}
 
               <form onSubmit={onSubmit} className="space-y-4 px-6 py-5" noValidate>
                 {policyStatus !== "ready" && (
@@ -523,6 +552,126 @@ function InvalidLink({
           Go to sign in
         </Link>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The email a sales partner gave for this owner. It becomes the owner's login
+ * only after they enter the code sent to it; "Not my email" drops it.
+ */
+function PendingEmailStep({ token, maskedEmail, onDone }: { token: string; maskedEmail: string; onDone: (state: "VERIFIED" | "REMOVED") => void }) {
+  const [stage, setStage] = useState<"ask" | "code" | "verified">("ask");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState<"" | "send" | "verify" | "reject">("");
+  const [error, setError] = useState("");
+  const [resendIn, setResendIn] = useState(0);
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = window.setTimeout(() => setResendIn((n) => n - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendIn]);
+
+  const call = async (path: string, body: Record<string, unknown>) => {
+    const res = await fetch(`/api/auth/reset-password/email/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...body }) });
+    const data = await res.json().catch(() => null);
+    return { res, data };
+  };
+  const messageFor = (status: number, message: string | undefined) =>
+    status === 429 ? "Too many tries. Wait a few minutes."
+      : message === "invalid_code" ? "That code is not right. Check the email and try again."
+      : message === "code_expired" ? "That code has expired. Send a new one."
+      : message === "too_many_attempts" ? "Too many wrong codes. Send a new one."
+      : message === "email_taken" ? "This email is already used by another NoLSAF account. Add a different one later in your profile."
+      : "Something went wrong. Try again.";
+
+  const send = async () => {
+    setBusy("send");
+    setError("");
+    try {
+      const { res, data } = await call("send", {});
+      if (res.ok) { setStage("code"); setResendIn(60); setCode(""); }
+      else setError(messageFor(res.status, data?.message));
+    } catch { setError("No connection. Try again."); } finally { setBusy(""); }
+  };
+  const verify = async () => {
+    if (code.length !== 6) { setError("Enter the 6-digit code."); return; }
+    setBusy("verify");
+    setError("");
+    try {
+      const { res, data } = await call("verify", { code });
+      if (res.ok) { setStage("verified"); onDone("VERIFIED"); }
+      else setError(messageFor(res.status, data?.message));
+    } catch { setError("No connection. Try again."); } finally { setBusy(""); }
+  };
+  const reject = async () => {
+    setBusy("reject");
+    setError("");
+    try {
+      const { res } = await call("reject", {});
+      if (res.ok) onDone("REMOVED");
+      else setError("Could not remove it. Try again.");
+    } catch { setError("No connection. Try again."); } finally { setBusy(""); }
+  };
+
+  if (stage === "verified") {
+    return (
+      <div className="flex items-center gap-2.5 border-0 border-b border-solid border-slate-100 bg-emerald-50 px-6 py-3 text-[13px] text-emerald-900">
+        <MailCheck className="h-4 w-4 shrink-0" aria-hidden /> Email confirmed. You can sign in with it too.
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-0 border-b border-solid border-slate-100 px-6 py-4">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-600"><Mail className="h-4 w-4" aria-hidden /></span>
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-[13.5px] font-semibold text-slate-900">Confirm your email</p>
+          <p className="m-0 mt-0.5 text-[12.5px] leading-5 text-slate-500">
+            {stage === "code" ? <>We sent a 6-digit code to <span className="font-mono text-slate-700">{maskedEmail}</span>.</> : <>Is <span className="font-mono text-slate-700">{maskedEmail}</span> yours? Confirm it to sign in and recover your account with it.</>}
+          </p>
+        </div>
+      </div>
+
+      {stage === "ask" ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 pl-12">
+          <button type="button" onClick={send} disabled={Boolean(busy)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-solid border-[#02665e]/30 bg-[#02665e]/[0.06] px-3 text-[12.5px] font-semibold text-[#02665e] hover:bg-[#02665e]/10 disabled:opacity-60">
+            {busy === "send" ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Mail className="h-3.5 w-3.5" aria-hidden />} Send me a code
+          </button>
+          <button type="button" onClick={reject} disabled={Boolean(busy)} className="border-0 bg-transparent p-0 text-[12.5px] font-semibold text-slate-500 hover:text-rose-700 hover:underline disabled:opacity-60">
+            {busy === "reject" ? "Removing…" : "Not my email"}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 pl-12">
+          <div className="flex gap-2">
+            <input
+              value={code}
+              onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void verify(); } }}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="000000"
+              aria-label="6-digit code"
+              className="h-9 w-32 rounded-md border border-solid border-slate-300 px-3 text-center font-mono text-[15px] tracking-[0.3em] text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
+            />
+            <button type="button" onClick={verify} disabled={Boolean(busy)} className="inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[#014e47] disabled:opacity-60">
+              {busy === "verify" ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Check className="h-3.5 w-3.5" aria-hidden />} Confirm
+            </button>
+          </div>
+          <p className="m-0 mt-2 text-[12px] text-slate-500">
+            {resendIn > 0 ? `Send again in ${resendIn}s` : (
+              <button type="button" onClick={send} disabled={Boolean(busy)} className="border-0 bg-transparent p-0 text-[12px] font-semibold text-[#02665e] hover:underline">Send a new code</button>
+            )}
+            <span className="mx-1.5 text-slate-300">·</span>
+            <button type="button" onClick={reject} disabled={Boolean(busy)} className="border-0 bg-transparent p-0 text-[12px] font-semibold text-slate-500 hover:text-rose-700 hover:underline">Not my email</button>
+          </p>
+        </div>
+      )}
+      {error ? <p role="alert" className="m-0 mt-2 pl-12 text-[12.5px] text-rose-700">{error}</p> : null}
+      <p className="m-0 mt-2 pl-12 text-[11.5px] text-slate-400">Optional now. You can also do it later in your profile.</p>
     </div>
   );
 }

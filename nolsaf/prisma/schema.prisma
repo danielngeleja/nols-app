@@ -8601,6 +8601,14 @@ model SalesAssistedListing {
   /// CANCEL or RESUME
   objectionOutcome      String?   @db.VarChar(10)
 
+  /// The owner's email as the partner typed it. Never a login until the owner
+  /// proves it with a code (lib/ownerPendingEmail.ts): a partner-chosen email
+  /// on the account would let the partner reset the owner's password.
+  ownerEmail           String?   @db.VarChar(190)
+  /// PENDING, VERIFIED or REJECTED (owner said "Not my email")
+  ownerEmailStatus     String?   @db.VarChar(10)
+  ownerEmailDecidedAt  DateTime?
+
   /// Long stay: the owner confirms the rent the partner set before the home
   /// can go live (lib/longStay/ownerRentConfirmation.ts). Fingerprints are the
   /// SHA-256 of the money terms, so any later change needs a new confirmation.

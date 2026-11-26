@@ -1768,7 +1768,10 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
       return sendError(res, 409, "AzamPay returned a different account number. No payout details were changed.");
     }
 
-    const azamPayDisbursementEnabled = !isBank || ["OWNER", "AGENT"].includes(String((req as AuthedRequest).user?.role).toUpperCase());
+    // Banks are paid out for owners, operators and sales partners.
+    const azamPayDisbursementEnabled = !isBank
+      || ["OWNER", "AGENT"].includes(String((req as AuthedRequest).user?.role).toUpperCase())
+      || Boolean(await prisma.salesPartnerProfile.findFirst({ where: { userId }, select: { id: true } }).catch(() => null));
     const challenge = await createPayoutVerificationChallenge({
       userId,
       destination: data,

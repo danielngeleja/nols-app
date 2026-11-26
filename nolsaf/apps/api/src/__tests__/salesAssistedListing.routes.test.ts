@@ -105,7 +105,7 @@ beforeEach(() => {
   h.db.salesAssistedListing.findUnique.mockResolvedValue({ id: 40, status: "DRAFTING", propertyId: 300 });
 });
 
-const start = (body: any = { ownerName: "Asha Mussa", ownerPhone: "0712 345 678" }) =>
+const start = (body: any = { ownerName: "Asha Mussa", ownerPhone: "0712 345 678", ownerEmail: "Asha@Example.com" }) =>
   request(app).post("/api/sales/leads/sl_own/assisted-listing").send(body);
 
 describe("starting an assisted listing", () => {
@@ -147,9 +147,24 @@ describe("starting an assisted listing", () => {
   });
 
   it("never lets the partner be the owner", async () => {
-    const res = await start({ ownerName: "Me Myself", ownerPhone: "0755 000 111" });
+    const res = await start({ ownerName: "Me Myself", ownerPhone: "0755 000 111", ownerEmail: "someone@example.com" });
     expect(res.status).toBe(409);
     expect(h.db.user.create).not.toHaveBeenCalled();
+  });
+
+  it("requires the owner's email", async () => {
+    const res = await start({ ownerName: "Asha Mussa", ownerPhone: "0712 345 678" });
+    expect(res.status).toBe(400);
+    expect(h.db.user.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the partner's email off the account, pending the owner's code", async () => {
+    const res = await start();
+    expect(res.status).toBe(201);
+    expect(h.db.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ email: null }) }));
+    expect(h.db.salesAssistedListing.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ ownerEmail: "asha@example.com", ownerEmailStatus: "PENDING" }),
+    }));
   });
 });
 

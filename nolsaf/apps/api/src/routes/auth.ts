@@ -28,6 +28,7 @@ import { maybeAuth, requireAuth, blockImpersonated } from '../middleware/auth.js
 import { invalidateAuthSessionCacheForUser } from '../lib/authSessionCache.js';
 import { limitAccountCheck, limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts, limitPasswordResetRequest, limitPasswordResetRequestPerIp, limitPasswordResetSubmit } from '../middleware/rateLimit.js';
 import { findUserByResetToken, maskLogin, passwordSetupLink, sameTokenHash } from '../lib/passwordSetupLink.js';
+import { maskEmail, pendingOwnerEmailFor, preparePendingEmailCode, rejectPendingEmail, verifyPendingEmailCode } from '../lib/ownerPendingEmail.js';
 import { isEmailLocked, recordFailedAttempt, clearFailedAttempts } from '../lib/loginAttemptTracker.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { buildDriverCaseRef } from '../lib/driverCaseRef.js';
@@ -2714,6 +2715,9 @@ router.post('/reset-password/check', limitPasswordResetSubmit, async (req, res) 
     if (!user) return res.json({ ok: true, valid: false, reason: 'invalid' });
     const expires = user.resetPasswordExpires ? new Date(user.resetPasswordExpires).getTime() : 0;
     if (Date.now() > expires) return res.json({ ok: true, valid: false, reason: 'expired' });
+    // An owner listed by a sales partner: the email the partner gave waits
+    // here for the owner to prove it (lib/ownerPendingEmail.ts).
+    const pending = await pendingOwnerEmailFor(user).catch(() => null);
     return res.json({
       ok: true,
       valid: true,
@@ -2722,9 +2726,73 @@ router.post('/reset-password/check', limitPasswordResetSubmit, async (req, res) 
       login: maskLogin(user.email || user.phone),
       name: String(user.fullName || user.name || '').split(' ')[0] || null,
       expiresAt: new Date(expires).toISOString(),
+      contacts: {
+        phone: user.phone ? maskLogin(user.phone) : null,
+        email: user.email ? maskEmail(user.email) : pending ? maskEmail(pending.email) : null,
+        emailState: user.email ? (user.emailVerifiedAt ? 'VERIFIED' : 'UNVERIFIED') : pending ? 'PENDING' : null,
+      },
     });
   } catch {
     return res.json({ ok: true, valid: false, reason: 'unavailable' });
+  }
+});
+
+/** A setup or reset token that still works, or null. */
+async function liveResetTokenUser(raw: unknown): Promise<any | null> {
+  const token = String(raw || '').trim();
+  if (!token) return null;
+  const user: any = await findUserByResetToken(token);
+  if (!user) return null;
+  const expires = user.resetPasswordExpires ? new Date(user.resetPasswordExpires).getTime() : 0;
+  return Date.now() > expires ? null : user;
+}
+
+// POST /api/auth/reset-password/email/send { token }
+// Emails a 6-digit code to the email the sales partner gave for this owner.
+router.post('/reset-password/email/send', limitOtpSend, async (req, res) => {
+  try {
+    const user = await liveResetTokenUser(req.body?.token);
+    if (!user) return res.status(400).json({ message: 'invalid token' });
+    const prepared = await preparePendingEmailCode(user);
+    if (!prepared.ok) {
+      return res.status(409).json({ message: prepared.reason === 'TAKEN' ? 'email_taken' : 'no_pending_email' });
+    }
+    const { subject, html } = getVerificationCodeEmail(prepared.code, { purpose: 'contact', expiryMinutes: 5 });
+    await sendMail(prepared.email, subject, html, undefined, { bypassEligibilityCheck: true, from: SECURITY_EMAIL_FROM, replyTo: 'support@nolsaf.com' });
+    return res.json({ ok: true, sentTo: maskEmail(prepared.email) });
+  } catch (err) {
+    console.error('reset-password email send failed', (err as any)?.message || err);
+    return res.status(500).json({ message: 'failed' });
+  }
+});
+
+// POST /api/auth/reset-password/email/verify { token, code }
+router.post('/reset-password/email/verify', limitPasswordResetSubmit, async (req, res) => {
+  try {
+    const user = await liveResetTokenUser(req.body?.token);
+    if (!user) return res.status(400).json({ message: 'invalid token' });
+    const code = String(req.body?.code || '').replace(/\D/g, '');
+    if (code.length !== 6) return res.status(400).json({ message: 'invalid_code' });
+    const result = await verifyPendingEmailCode(user, code);
+    if (result === 'VERIFIED') return res.json({ ok: true, emailState: 'VERIFIED' });
+    const status = result === 'INVALID' ? 400 : 409;
+    return res.status(status).json({ message: { INVALID: 'invalid_code', LOCKED: 'too_many_attempts', EXPIRED: 'code_expired', NONE: 'no_pending_email', TAKEN: 'email_taken' }[result] });
+  } catch (err) {
+    console.error('reset-password email verify failed', (err as any)?.message || err);
+    return res.status(500).json({ message: 'failed' });
+  }
+});
+
+// POST /api/auth/reset-password/email/reject { token }: "Not my email"
+router.post('/reset-password/email/reject', limitPasswordResetSubmit, async (req, res) => {
+  try {
+    const user = await liveResetTokenUser(req.body?.token);
+    if (!user) return res.status(400).json({ message: 'invalid token' });
+    const rejected = await rejectPendingEmail(user);
+    return res.json({ ok: true, removed: rejected });
+  } catch (err) {
+    console.error('reset-password email reject failed', (err as any)?.message || err);
+    return res.status(500).json({ message: 'failed' });
   }
 });
 

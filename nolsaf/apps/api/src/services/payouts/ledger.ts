@@ -332,7 +332,8 @@ function eventHashFor(disbursementId: number, eventType: string, payload: Record
 }
 
 async function requirePayableBank(sourceType: string, currency: string, provider: string, refresh = false) {
-  if (!["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE"].includes(sourceType) ||
+  // Sales partners may be paid to a bank as well as mobile money (2026-11-27).
+  if (!["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "SALES_PAYOUT"].includes(sourceType) ||
       currency !== "TZS" || !(await azamPayBankNames(refresh)).includes(provider)) {
     throw new PayoutStateError("This bank is unavailable for this payout.");
   }

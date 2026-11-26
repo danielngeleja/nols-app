@@ -74,10 +74,15 @@ router.param("id", (async (req: SalesAuthedRequest, res: Response, next: (err?: 
 const startSchema = z.object({
   ownerName: z.string().trim().min(3, "Enter the owner's full name").max(160).transform(sanitizeText),
   ownerPhone: z.string().trim().min(9, "Enter the owner's phone number").max(40),
+  // Required, but only a candidate: the owner proves it with a code before it
+  // becomes their login (lib/ownerPendingEmail.ts).
   ownerEmail: z
-    .union([z.string().trim().email("Enter a valid email or leave it empty").max(190), z.literal(""), z.null()])
-    .optional()
-    .transform((value) => (value ? value.toLowerCase() : null)),
+    .string({ error: "Enter the owner's email" })
+    .trim()
+    .min(1, "Enter the owner's email")
+    .email("Enter a valid email, for example name@gmail.com")
+    .max(190)
+    .transform((value) => value.toLowerCase()),
 }).strict();
 
 const listingSelect = {
@@ -289,6 +294,9 @@ router.post("/leads/:id/assisted-listing", blockImpersonated as RequestHandler, 
         select: { id: true, title: true },
       });
       const token = newNoticeToken();
+      // The email waits as PENDING for an owner without one; an owner who
+      // already has an email keeps theirs and the partner's is not offered.
+      const ownerAccount = await tx.user.findUnique({ where: { id: owner.ownerUserId }, select: { email: true } });
       const row = await tx.salesAssistedListing.create({
         data: {
           leadId: lead.id,
@@ -298,6 +306,8 @@ router.post("/leads/:id/assisted-listing", blockImpersonated as RequestHandler, 
           visitId: visit?.id ?? null,
           ownerAccountOutcome: owner.outcome,
           objectionReferenceHash: token.hash,
+          ownerEmail: input.ownerEmail,
+          ownerEmailStatus: ownerAccount?.email ? null : "PENDING",
         },
         select: { id: true },
       });

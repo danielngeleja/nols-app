@@ -295,14 +295,17 @@ export default function AdminHomePage() {
       payouts: ["owner payout to send", "owner payouts to send", Wallet],
       exceptions: ["payment to match", "payments to match", AlertTriangle],
       trips: ["driver trip to settle", "driver trips to settle", Truck],
+      longStayRequests: ["long stay request", "long stay requests", CalendarDays],
     };
     const waiting = live.reduce((sum, q) => sum + q.count, 0);
     const first = live[0];
-    const needs: BriefCard = first
+    // A queue row without wording here still renders (generic words), never crashes the page.
+    const meta = first ? META[first.key] ?? ["item waiting", "items waiting", AlertTriangle] as [string, string, typeof Lock] : null;
+    const needs: BriefCard = first && meta
       ? {
           key: "needs", label: "Needs you", value: `${waiting} waiting`,
-          caption: `${plural(first.count, META[first.key][0], META[first.key][1])}${live.length > 1 ? `, and ${live.length - 1} more ${live.length === 2 ? "kind" : "kinds"}` : ""}`,
-          tone: "amber", href: first.href, icon: META[first.key][2],
+          caption: `${plural(first.count, meta[0], meta[1])}${live.length > 1 ? `, and ${live.length - 1} more ${live.length === 2 ? "kind" : "kinds"}` : ""}`,
+          tone: "amber", href: first.href, icon: meta[2],
         }
       : { key: "needs", label: "Needs you", value: "All clear", caption: "nothing waits on you", tone: "green", href: "/admin/properties/previews", icon: CheckCircle2 };
 

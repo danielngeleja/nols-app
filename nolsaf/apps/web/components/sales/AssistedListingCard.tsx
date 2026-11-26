@@ -199,7 +199,7 @@ export default function AssistedListingCard({ leadRef, onChanged, onState }: { l
       await apiClient.post(`/api/sales/leads/${leadRef}/assisted-listing`, {
         ownerName: form.ownerName,
         ownerPhone: form.ownerPhone,
-        ownerEmail: form.ownerEmail || null,
+        ownerEmail: form.ownerEmail.trim(),
       });
       setConfirmed(false);
       await load();
@@ -334,14 +334,18 @@ export default function AssistedListingCard({ leadRef, onChanged, onState }: { l
                 />
               </label>
               <label className="block">
-                <span className="mb-1.5 block text-[11px] font-bold text-slate-600">Owner's email (optional)</span>
+                <span className="mb-1.5 block text-[11px] font-bold text-slate-600">Owner's email</span>
                 <input
                   value={form.ownerEmail}
                   onChange={(event) => setForm({ ...form, ownerEmail: event.target.value })}
                   type="email"
+                  inputMode="email"
+                  autoCapitalize="off"
+                  placeholder="owner@gmail.com"
                   maxLength={190}
                   className="min-h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                 />
+                <span className="mt-1 block text-[11px] leading-4 text-slate-500">The owner confirms it with a code before it becomes their login.</span>
               </label>
             </div>
             {!state.hasVerifiedVisit ? (
@@ -359,6 +363,7 @@ export default function AssistedListingCard({ leadRef, onChanged, onState }: { l
             {(() => {
               const missing = form.ownerName.trim().length < 3 ? "Add the owner's full name"
                 : form.ownerPhone.trim().length < 9 ? "Add the owner's mobile number"
+                : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.ownerEmail.trim()) ? "Add the owner's email"
                 : !confirmed ? "Tick the box to confirm the owner agreed"
                 : null;
               return <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

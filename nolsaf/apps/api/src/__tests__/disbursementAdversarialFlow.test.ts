@@ -163,6 +163,26 @@ describe("disbursement state-machine attack resistance", () => {
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
+  it("pays a sales partner into a bank on the payout directory, and only then", async () => {
+    mocks.loadEligiblePayoutSource.mockResolvedValue({ sourceType: "SALES_PAYOUT", sourceId: 55, payeeUserId: 44, amount: 90000, currency: "TZS" });
+    mocks.payoutAccountFindUnique.mockResolvedValue({
+      id: 19, userId: 44, type: "BANK", provider: "CRDB", accountNumber: "12345678901234",
+      accountName: "ASHA MTUMWA", currency: "TZS", isVerified: true, isActive: true,
+    });
+    (await import("@nolsaf/prisma") as any).prisma.disbursement.findFirst = vi.fn(async () => null);
+    mocks.transaction.mockResolvedValue({ id: 501 });
+
+    mocks.banks.mockResolvedValue(["NMB"]);
+    await expect(requestDisbursement({ sourceType: "SALES_PAYOUT", sourceId: 55, payoutAccountId: 19, requestedById: 44 }))
+      .rejects.toThrow("This bank is unavailable for this payout");
+    expect(mocks.transaction).not.toHaveBeenCalled();
+
+    mocks.banks.mockResolvedValue(["CRDB", "NMB"]);
+    await expect(requestDisbursement({ sourceType: "SALES_PAYOUT", sourceId: 55, payoutAccountId: 19, requestedById: 44 }))
+      .resolves.toEqual({ id: 501 });
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
+  });
+
   it("rechecks a removed bank before claiming an authorized tour transfer", async () => {
     const row = payout("AUTHORIZED");
     row.sourceType = "TOUR_BOOKING";

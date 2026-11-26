@@ -26,7 +26,7 @@ Assisted listing lets the partner do the whole listing for the owner. The owner 
 | Step | Who | What happens | Owner's part |
 |---|---|---|---|
 | 1. Agreement | Partner + owner | Owner agrees face to face during a visit. Partner records a **verified visit** (existing GPS and photo flow) on the lead. | Agrees verbally |
-| 2. Start assisted listing | Partner | On the lead, partner taps **List for the owner** and enters the owner's **full name and phone** (email optional). | Nothing |
+| 2. Start assisted listing | Partner | On the lead, partner taps **List for the owner** and enters the owner's **full name, phone and email** (email required since 2026-11-27). The email is stored on the listing as `PENDING`, never on the owner's account: see "Owner email" below. | Nothing |
 | 3. Owner account | System | Creates or attaches the owner account (section 4). Creates a `DRAFT` property owned by that account, linked to the lead. | Nothing |
 | 4. SMS 1: notice | System | Informs the owner who is preparing their listing, with a "not expecting this?" link (section 6). | Nothing, unless it is wrong |
 | 5. Listing | Partner | Completes every listing step in the sales portal (same steps as the owner wizard). Photos come from the lead's photo pack (section 7). | Nothing |
@@ -157,7 +157,7 @@ All public references opaque. MySQL 8 and MariaDB 11.8 compatible. Nothing appli
 Partner (sales workspace, own leads only, `blockImpersonated`, rate limited):
 
 ```
-POST   /api/sales/leads/:ref/assisted-listing            start (name, phone, email?, visit ref)
+POST   /api/sales/leads/:ref/assisted-listing            start (name, phone, email, visit ref)
 GET    /api/sales/assisted-listings/:ref                 draft state
 PATCH  /api/sales/assisted-listings/:ref/steps/:step     save a listing step (reuses owner step validators)
 POST   /api/sales/assisted-listings/:ref/photos          add from photo pack
@@ -236,3 +236,14 @@ Differences from the draft above:
 - **The notice link** is re-issued in the live SMS (only one hash is stored), so the link in SMS 1 stops working once the listing is live.
 - **Withdraw / cancel** sets the property to SUSPENDED and keeps the record; nothing is deleted.
 - **Not built yet (phase 2):** SMS 3 payout prompts and reminders, payout name-check hold, owner confirmation inside the payout setup screen, partner change requests after submission, and the instant-book decision (open decision 1; booking behaviour is unchanged).
+
+
+## Owner email (added 2026-11-27)
+
+The partner must enter the owner's email, but it is only a candidate. "Forgot password" sends its link to the account email, so an email chosen by the partner would let the partner reset the owner's password and take the account (and its payouts).
+
+- **Stored:** `sales_assisted_listing.ownerEmail` with `ownerEmailStatus = PENDING` when the owner account has no email. An owner who already has an email keeps theirs; the partner's is not offered. The owner account itself is still created with `email: null`.
+- **Proved by the owner:** the password setup page (`/account/reset-password`) shows both sign-in details masked: phone (confirmed by the SMS link) and the email marked "To confirm". "Send me a code" emails a 6-digit code (5 minutes, 5 tries, stored hashed, `lib/contactChangeOtp.ts`); the right code sets `User.email` + `emailVerifiedAt` and marks the listing `VERIFIED`. It never replaces an email the owner already set and refuses an address another account uses.
+- **"Not my email":** marks it `REJECTED`; it is never offered again. The owner can add their own later in Owner, Profile.
+- **Endpoints** (setup token in the body, no sign-in): `POST /api/auth/reset-password/email/send`, `/email/verify { code }`, `/email/reject`. `POST /api/auth/reset-password/check` returns `contacts { phone, email, emailState }`, all masked.
+- **Migration:** `20261127100000_add_assisted_owner_email` (three nullable columns), prepared, not applied. Apply before deploying the API.
