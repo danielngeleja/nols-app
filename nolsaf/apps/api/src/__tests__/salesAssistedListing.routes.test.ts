@@ -16,6 +16,9 @@ const h = vi.hoisted(() => {
     user: { findFirst: fn(), findUnique: fn(), create: fn(), update: fn() },
     property: { create: fn(), update: fn(), count: fn() },
     booking: { count: fn() },
+    // Long-stay requests (section 15): nothing waiting unless a test says so.
+    longStayAccessRequest: { updateMany: vi.fn(async () => ({ count: 0 })), findFirst: vi.fn(async () => null) },
+    longStayLandlordGrant: { findUnique: vi.fn(async () => null), delete: fn() },
   };
   db.$transaction = vi.fn(async (op: (tx: any) => unknown) => op(db));
   return {

@@ -1076,8 +1076,8 @@ function ipv4ToInt(value: string): number | null {
  * Returns "MNO", "BANK", "CARD", or null (unknown).
  */
 export function detectPaymentChannel(payload: any): "MNO" | "BANK" | "CARD" | null {
-  const p = String(payload.provider || payload.paymentMethod || "").toLowerCase();
-  if (["airtel", "mpesa", "mixx", "halopesa", "vodacom", "tigo"].some((x) => p.includes(x)))
+  const p = String(payload.provider || payload.paymentMethod || payload.operator || "").toLowerCase();
+  if (["airtel", "mpesa", "mixx", "halopesa", "halotel", "vodacom", "tigo", "yas"].some((x) => p.includes(x)))
     return "MNO";
   if (p === "card" || payload.cardType || payload.maskedPan)
     return "CARD";
@@ -1090,9 +1090,117 @@ export function detectPaymentChannel(payload: any): "MNO" | "BANK" | "CARD" | nu
   return null;
 }
 
+/** Constant-time compare that also hides the secret's length. */
+function secretEquals(a: string, b: string): boolean {
+  const left = crypto.createHash("sha256").update(a, "utf8").digest();
+  const right = crypto.createHash("sha256").update(b, "utf8").digest();
+  return crypto.timingSafeEqual(left, right);
+}
+
+/** Headers our own edge adds. When present, req.ip is the edge, not AzamPay. */
+const EDGE_PROXY_HEADERS = ["x-vercel-id", "x-vercel-forwarded-for", "x-vercel-proxied-for", "cf-ray", "cf-connecting-ip"];
+
+export function arrivedThroughEdgeProxy(headers: Record<string, unknown>): boolean {
+  return EDGE_PROXY_HEADERS.some((name) => headers[name] != null);
+}
+
+export type AzamPayWebhookAuth =
+  | { ok: true; method: "SIGNATURE" | "URL_TOKEN" | "SOURCE_IP" }
+  | { ok: false; status: number; error: string; reason: string };
+
+/**
+ * Decides whether a checkout callback really came from AzamPay. AzamPay's MNO
+ * and bank callbacks carry no signature header (first production payment,
+ * 2026-11-22, was rejected for that), so three proofs are accepted, strongest
+ * first, and anything else is refused (fail closed):
+ *
+ *  1. SIGNATURE: an X-Azampay-Signature HMAC over the raw body. If a signature
+ *     is present it must verify; a wrong one is never retried another way.
+ *  2. URL_TOKEN: AZAMPAY_WEBHOOK_URL_TOKEN (32+ chars) set in the callback URL
+ *     registered with AzamPay (`?token=`), compared in constant time. Access
+ *     logs already redact `token=` (lib/safeAccessLog.ts). When configured it
+ *     is required: an unsigned call without the right token is refused.
+ *  3. SOURCE_IP: the caller's address is on AZAMPAY_WEBHOOK_ALLOWED_IPS and the
+ *     request did NOT come through our edge (Cloudflare/Vercel). Through the
+ *     edge, req.ip is the edge's address, so an allowlisted edge IP would let
+ *     anyone in; that case is never trusted.
+ *
+ * Authentication is about the sender only. Every settlement path after this
+ * still matches the payment to a target we created and checks the amount.
+ */
+export function authenticateAzamPayWebhook(input: {
+  rawBody: string;
+  signature: string | null;
+  urlToken: string | null;
+  ip: string;
+  throughEdge: boolean;
+  env?: NodeJS.ProcessEnv;
+}): AzamPayWebhookAuth {
+  const env = input.env ?? process.env;
+  const allowedIps = String(env.AZAMPAY_WEBHOOK_ALLOWED_IPS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const urlTokenSecret = String(env.AZAMPAY_WEBHOOK_URL_TOKEN || "").trim();
+  const hmacSecret = String(env.AZAMPAY_WEBHOOK_SECRET || "");
+
+  if (input.signature != null && input.signature !== "") {
+    if (!hmacSecret) return { ok: false, status: 500, error: "Webhook secret not configured", reason: "signature sent but AZAMPAY_WEBHOOK_SECRET is not configured" };
+    const computed = crypto.createHmac("sha256", hmacSecret).update(input.rawBody).digest("hex");
+    if (!safeEq(computed, String(input.signature).trim().toLowerCase())) {
+      return { ok: false, status: 401, error: "Invalid signature", reason: "signature mismatch" };
+    }
+    return { ok: true, method: "SIGNATURE" };
+  }
+
+  if (urlTokenSecret) {
+    if (urlTokenSecret.length < 32) {
+      return { ok: false, status: 500, error: "Webhook token misconfigured", reason: "AZAMPAY_WEBHOOK_URL_TOKEN is shorter than 32 characters" };
+    }
+    if (!input.urlToken) return { ok: false, status: 401, error: "Unauthorized", reason: "callback token missing" };
+    if (!secretEquals(input.urlToken, urlTokenSecret)) return { ok: false, status: 401, error: "Unauthorized", reason: "callback token mismatch" };
+    return { ok: true, method: "URL_TOKEN" };
+  }
+
+  if (allowedIps.length && !input.throughEdge && isWebhookIpAllowed(input.ip, allowedIps)) {
+    return { ok: true, method: "SOURCE_IP" };
+  }
+
+  return {
+    ok: false, status: 400, error: "Signature missing",
+    reason: input.throughEdge && allowedIps.length
+      ? "unsigned callback through the edge proxy; source IP cannot be trusted there"
+      : "no signature, callback token or trusted source IP",
+  };
+}
+
+/**
+ * Reads the fields we need from either payload shape: our original camelCase
+ * names, or AzamPay's documented checkout callback (utilityref, reference,
+ * transactionstatus, operator), which the first production callback likely used.
+ */
+export function readAzamPayCallbackFields(payload: any) {
+  const pick = (...values: unknown[]) => values.find((v) => v !== undefined && v !== null && String(v).trim() !== "");
+  const text = (value: unknown) => (value === undefined ? undefined : String(value));
+  return {
+    eventId: text(pick(payload.transactionId, payload.id, payload.reference, payload.externalId, payload.utilityref)),
+    paymentRef: text(pick(payload.externalId, payload.referenceId, payload.orderId, payload.utilityref)),
+    amount: Math.round(Number(pick(payload.amount, payload.transactionAmount) ?? 0)),
+    status: String(pick(payload.status, payload.transactionStatus, payload.transactionstatus) ?? "UNKNOWN"),
+    provider: pick(payload.provider, payload.paymentMethod, payload.operator) as string | undefined,
+  };
+}
+
+/** Field names only (never values): enough to see AzamPay's real shape in the logs. */
+export function callbackFieldNames(payload: any): string {
+  if (!payload || typeof payload !== "object") return "-";
+  const top = Object.keys(payload).slice(0, 40);
+  const extra = payload.additionalProperties && typeof payload.additionalProperties === "object"
+    ? Object.keys(payload.additionalProperties).slice(0, 20).map((key) => `additionalProperties.${key}`)
+    : [];
+  return [...top, ...extra].join(",");
+}
+
 /**
  * POST /webhooks/azampay
- * AzamPay webhook handler with signature verification
+ * AzamPay checkout callback (MNO and bank). See authenticateAzamPayWebhook.
  */
 router.post("/azampay", webhookLimiter, async (req: any, res) => {
   try {
@@ -1113,9 +1221,12 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
     );
 
     // ── Optional IP allowlist check ────
+    // Only meaningful for direct calls: through Cloudflare/Vercel, req.ip is the
+    // edge's address. Edge traffic is still authenticated below (signature or
+    // URL token); the source-IP proof is never granted to it.
     const allowedIps = (process.env.AZAMPAY_WEBHOOK_ALLOWED_IPS || "")
       .split(",").map((s) => s.trim()).filter(Boolean);
-    if (!isWebhookIpAllowed(diagIp, allowedIps)) {
+    if (!arrivedThroughEdgeProxy(req.headers || {}) && !isWebhookIpAllowed(diagIp, allowedIps)) {
       console.warn(`[AzamPay Webhook] rejected: IP not allowlisted (ip=${diagIp}, allowlistSize=${allowedIps.length})`);
       return res.status(403).json({ ok: false, error: "forbidden" });
     }
@@ -1133,34 +1244,24 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
         : typeof req.body === "string"
           ? req.body
           : JSON.stringify(req.body ?? {});
-    const signature = diagSigHeader;
-    const secret = process.env.AZAMPAY_WEBHOOK_SECRET;
-
-    if (!secret) {
-      console.warn(`[AzamPay Webhook] rejected: AZAMPAY_WEBHOOK_SECRET not configured (ip=${diagIp})`);
-      return res.status(500).json({ ok: false, error: "Webhook secret not configured" });
-    }
-
-    if (!signature) {
+    const throughEdge = arrivedThroughEdgeProxy(req.headers || {});
+    const urlToken = typeof req.query?.token === "string" ? req.query.token : null;
+    const auth = authenticateAzamPayWebhook({
+      rawBody, signature: diagSigHeader, urlToken, ip: diagIp, throughEdge,
+    });
+    if (!auth.ok) {
+      // Field names (never values) of a refused body, so its real shape is visible.
+      let refusedFields = "-";
+      try { refusedFields = callbackFieldNames(JSON.parse(rawBody)); } catch { /* not JSON */ }
       console.warn(
-        `[AzamPay Webhook] rejected: signature header missing (ip=${diagIp}, headerNames=${Object.keys(req.headers || {}).join(",")})`
+        `[AzamPay Webhook] rejected: ${auth.reason} (ip=${diagIp}, throughEdge=${throughEdge}, fields=${refusedFields})`
       );
-      return res.status(400).json({ ok: false, error: "Signature missing" });
+      return res.status(auth.status).json({ ok: false, error: auth.error });
     }
-
-    // Verify signature
-    const computed = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-    const sig = String(signature).trim().toLowerCase();
-    if (!safeEq(computed, sig)) {
-      console.warn(
-        `[AzamPay Webhook] rejected: signature mismatch (ip=${diagIp}, receivedLen=${sig.length}, receivedPrefix=${sig.slice(0, 8)}, ` +
-        `computedPrefix=${computed.slice(0, 8)}, bodyBytes=${rawBody.length})`
-      );
-      return res.status(401).json({ ok: false, error: "Invalid signature" });
-    }
-    console.info(`[AzamPay Webhook] signature verified (ip=${diagIp})`);
+    console.info(`[AzamPay Webhook] authenticated by ${auth.method} (ip=${diagIp}, throughEdge=${throughEdge})`);
 
     const payload = JSON.parse(rawBody);
+    console.info(`[AzamPay Webhook] fields=${callbackFieldNames(payload)}`);
 
     // ── Optional timestamp replay protection ────────
     if (process.env.AZAMPAY_WEBHOOK_ENFORCE_TIMESTAMP === "true") {
@@ -1174,18 +1275,20 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
       }
     }
 
-    // Normalize AzamPay payload
-    const eventId    = payload.transactionId || payload.id || payload.externalId;
-    const paymentRef = payload.externalId || payload.referenceId || payload.orderId;
-    const amount     = Math.round(Number(payload.amount || payload.transactionAmount || 0));
-    const status     = payload.status || payload.transactionStatus || "UNKNOWN";
+    // Normalize AzamPay payload (camelCase or AzamPay's documented lowercase names)
+    const fields     = readAzamPayCallbackFields(payload);
+    const eventId    = fields.eventId;
+    const paymentRef = fields.paymentRef;
+    const amount     = fields.amount;
+    const status     = fields.status;
 
-    // Map AzamPay status to our internal status
+    // Map AzamPay status to our internal status. AzamPay says "failure", which
+    // the old /failed/ pattern missed, leaving a declined payment "pending".
     let normalizedStatus: "SUCCESS" | "FAILED" | "PENDING" = "PENDING";
-    if (/success|completed|paid|approved/i.test(status)) {
-      normalizedStatus = "SUCCESS";
-    } else if (/failed|cancelled|rejected|declined/i.test(status)) {
+    if (/fail|cancel|reject|declin|expired/i.test(status)) {
       normalizedStatus = "FAILED";
+    } else if (/success|completed|paid|approved/i.test(status)) {
+      normalizedStatus = "SUCCESS";
     }
     if (normalizedStatus === "SUCCESS" && (!Number.isSafeInteger(amount) || amount <= 0)) {
       return res.status(400).json({ ok: false, error: "Invalid successful payment amount" });
@@ -1236,7 +1339,7 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
           ...(normalizedStatus === "SUCCESS" ? {
             amount,
             currency: webhookCurrency,
-            payload: { ...(priorPayload || {}), webhookVerified: true, webhookAmount: amount, webhookCurrency },
+            payload: { ...(priorPayload || {}), webhookVerified: true, webhookAmount: amount, webhookCurrency, webhookAuth: auth.method },
           } : {}),
           // Only backfill channel if it was not already recorded
           ...(existing.paymentChannel ? {} : { paymentChannel: paymentChannel ?? undefined }),
@@ -1426,8 +1529,9 @@ router.post("/azampay", webhookLimiter, async (req: any, res) => {
           transactionId: eventId,
           paymentRef:    paymentRef ?? null,
           nrmsToken:     nrmsPaymentToken?.token ?? null,
-          status:        payload.status ?? null,
-          provider:      payload.provider ?? null,
+          status:        status ?? null,
+          provider:      fields.provider ?? null,
+          webhookAuth:   auth.method,
           ...(normalizedStatus === "SUCCESS" ? { webhookVerified: true, webhookAmount: amount, webhookCurrency } : {}),
         },
       },

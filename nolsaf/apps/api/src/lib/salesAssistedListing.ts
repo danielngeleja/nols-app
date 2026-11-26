@@ -26,6 +26,13 @@ import { webOrigin } from "./salesPartnerCard.js";
 import { issuePasswordSetupToken, ONBOARDING_SETUP_HOURS, passwordSetupLink } from "./passwordSetupLink.js";
 import { notifyAdmins, notifyOwner, notifyUser } from "./notifications.js";
 import { invalidateCache, cacheKeys } from "./performance.js";
+import { revokeLongStayFromCancelledListing, withdrawLongStayRequests } from "./longStay/accessRequest.js";
+
+/** Before migration 20261126100000 the request table does not exist; nothing to withdraw then. */
+function ignoreMissingRequestTable(error: any) {
+  if (error?.code === "P2021") return;
+  throw error;
+}
 
 const db = prisma as any;
 
@@ -292,6 +299,45 @@ async function rotateNoticeToken(assistedId: number): Promise<string> {
   return token.raw;
 }
 
+export function longStaySmsText(input: { ownerName: string; partnerName: string; propertyName: string; noticeLink: string }): string {
+  return `Habari ${firstName(input.ownerName)}. NoLSAF switched on monthly rentals (long stay) for ${input.propertyName}, prepared by ${input.partnerName}. You do not need to do anything now. Not expecting this? ${input.noticeLink} or call ${supportPhone()}.`;
+}
+
+/**
+ * Tells the owner that long stay was switched on from a partner's request
+ * (docs/LONG_STAY_RENTALS.md section 15), with a fresh "Not expecting this?"
+ * link. Same delivery rule as the first notice: a system-created account
+ * always gets the SMS; an existing owner's SMS opt-out is respected and they
+ * get it in their inbox. Never throws.
+ */
+export async function sendLongStayOwnerNotice(assistedId: number): Promise<boolean> {
+  try {
+    const row = await db.salesAssistedListing.findUnique({
+      where: { id: assistedId },
+      select: {
+        id: true, ownerUserId: true, ownerAccountOutcome: true,
+        property: { select: { title: true } },
+        owner: { select: { name: true, fullName: true, phone: true } },
+        salesPartner: { select: { user: { select: { name: true, fullName: true } } } },
+      },
+    });
+    if (!row?.owner?.phone) return false;
+    const noticeLink = noticeUrl(await rotateNoticeToken(row.id));
+    const propertyName = row.property?.title || "your property";
+    const partnerName = row.salesPartner?.user?.fullName || row.salesPartner?.user?.name || "a NoLSAF sales partner";
+    const ownerName = row.owner.fullName || row.owner.name || "";
+    const existing = row.ownerAccountOutcome === "ATTACHED_EXISTING";
+    const result = await sendSms(row.owner.phone, longStaySmsText({ ownerName, partnerName, propertyName, noticeLink }), { bypassEligibilityCheck: !existing, sensitiveContent: true });
+    if (existing) {
+      await notifyOwner(row.ownerUserId, "assisted_listing_started", { partnerName, propertyTitle: `${propertyName} (monthly rentals)`, noticeLink }).catch(() => undefined);
+    }
+    return Boolean(result?.success && result.provider !== "suppressed") || existing;
+  } catch (error) {
+    console.error("[assisted-listing] long-stay notice failed", (error as any)?.message ?? error);
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle hooks
 // ---------------------------------------------------------------------------
@@ -500,6 +546,8 @@ export async function recordObjection(raw: string, note: string | null): Promise
     if (row.status === "APPROVED") {
       await tx.property.update({ where: { id: row.propertyId }, data: { status: "SUSPENDED" } });
     }
+    // A waiting long-stay request goes with the paused listing (section 15).
+    await withdrawLongStayRequests(tx, row.id, now).catch(ignoreMissingRequestTable);
     return true;
   });
   if (!moved) return "ALREADY";
@@ -544,6 +592,9 @@ export async function resolveObjection(input: { assistedId: number; outcome: "RE
     }
     if (input.outcome === "CANCEL") {
       await tx.property.update({ where: { id: row.propertyId }, data: { status: "SUSPENDED" } });
+      // The owner said they never agreed: a long-stay switch that came only from
+      // this listing's request is taken back too (section 15).
+      await revokeLongStayFromCancelledListing(tx, row.id, row.ownerUserId, row.propertyId).catch(ignoreMissingRequestTable);
       accountReleased = await releaseUnusedOwnerAccount(tx, row);
       const upheld = await tx.salesAssistedListing.count({ where: { salesPartnerId: row.salesPartnerId, objectionOutcome: "CANCEL" } });
       if (upheld >= ASSISTED_OBJECTION_PAUSE_THRESHOLD) {

@@ -435,3 +435,27 @@ Daniel's direction: the landlord lists everything (rent, terms, location, availa
 **Ask NoLSAF (`lib/longStay/enquiry.ts`, `long_stay_enquiry`).** QUESTION or VISIT (up to 3 times, 4 hours to 30 days out), contacts typed by the tenant hidden, max 5 open per tenant. Admin answers in `/admin/long-stay/enquiries`, seeing the landlord's phone to ask on the tenant's behalf; a VISIT gets an agreed time and a Sales Partner, who sees it in `/sales/inspections`. Tenants read answers in `/account/long-stays`.
 
 **Contacts.** Names, phone numbers and the message thread open at RESERVED (first month paid). Before that `postMessage` refuses and the view hides the other side's name.
+
+## 14. Sales Partner share on long stay (approved by Daniel 2026-11-26)
+
+A partner who brings a long-stay home is expected to advertise and market it, so they earn from every tenancy there, the same way they earn on nightly stays. Before this, the bringing partner earned nothing on long stay (sales commission was only created from paid booking invoices; tenancies have none).
+
+- **Who:** the partner on the home's `MARKETPLACE` sales attribution, while that attribution and their contract are earning on the move-in date. Never the inspector's fee: the bringing partner may not inspect their own home (section 13).
+- **What:** the contract's `marketplaceRevenueRate` (the same rate as nightly stays) on NoLSAF's own long-stay fees for that tenancy: tenant fee plus landlord commission (`lib/longStay/revenueFigures.ts`, the single revenue rule). The fees are treated as tax-inclusive at `SystemSetting.taxPercent`, so the partner's share is of NoLSAF's net, never more.
+- **When earned:** at confirmed move-in, the moment the `LONG_STAY` revenue is recognized. Recorded as a `LONG_STAY_TENANCY` sales commission, idempotent on `TENANCY:<id>`.
+- **When withdrawable:** 14 days after move-in (status `VALIDATING` until then, then `ELIGIBLE` through the normal lifecycle worker), so a refund soon after move-in never pays out money NoLSAF must give back.
+- **Reversed:** if the first month is refunded after move-in (`REFUND_DUE` / `REFUNDED`), or the tenancy no longer counts as a move-in. Paid shares are offset against the partner's next payout (`autoReverseSalesCommission`).
+- **Blocked (recorded as reversed with the reason):** the partner owns the home, or the partner is the tenant.
+- **Every tenancy counts**, not only the first: each new tenant who moves in earns again while the attribution runs. That is the partner's reason to keep marketing the home.
+- **Safety net:** the sales commission worker accrues any moved-in tenancy that was missed and reverses refunded ones, the same as for nightly stays.
+- Example (section 14): TSh 500,000 a month, 12 months. Landlord fee 5% capped at half a month = 250,000; tenant fee 4% capped at a quarter month = 125,000. NoLSAF earns 375,000; at a 20% contract rate (example only) and 18% VAT inclusive, the partner earns about 63,500.
+
+## 15. Long stay on an assisted listing (approved by Daniel 2026-11-26)
+
+A Sales Partner listing a home for an owner (docs/SALES_ASSISTED_LISTING.md) can now offer it as long stay. Before this, assisted listings refused long stay outright and the partner had no way to ask.
+
+- **Request:** on the lead's "List it for the owner" card the partner writes one sentence and taps **Request long stay** (`POST /api/sales/leads/:id/assisted-listing/long-stay-request`). One waiting request per listing, only from the partner who owns it, only while the listing is DRAFTING or RETURNED, only for home types. New table `long_stay_access_request` (migration `20261126100000_add_long_stay_access_requests`, prepared, not applied), opaque `lr_` references.
+- **While waiting:** the partner may already choose Monthly and write the terms in the owner's wizard (it calls `/api/sales/leads/:id/assisted-listing/long-stay/{eligibility,quote,lease-preview}`, the same answers an owner gets). Submitting still needs the owner's switch (`longStaySubmitRefusal`), with partner wording.
+- **Admin:** `/admin/long-stay/requests` (Waiting, Approved, Declined, All) plus the `long_stay_access_requested` notification and an overview tile. **Approve** creates the owner's `LongStayLandlordGrant` (per owner, all their homes, note records the request) and texts the owner with a fresh "Not expecting this?" link. **Decline** needs a note the partner sees; the listing can continue as nightly.
+- **Owner objects:** a waiting request is withdrawn when the listing pauses. If an admin then cancels the listing, a switch that came only from this request is removed, unless the owner has another long-stay home or an admin switched them on another way.
+- **Money stays with the owner:** payouts go only to an account the owner adds and verifies. The bringing partner earns the section 14 share and may not inspect the home (section 13).

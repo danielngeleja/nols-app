@@ -11305,6 +11305,34 @@ model LongStayLandlordGrant {
   @@map("long_stay_landlord_grant")
 }
 
+/// A Sales Partner asks NoLSAF to switch long stay on for the owner of an
+/// assisted listing (docs/LONG_STAY_RENTALS.md section 15). Approval creates
+/// the owner's LongStayLandlordGrant: per owner, not per property. Plain
+/// columns, no foreign keys, like owner_payout_control. At most one PENDING
+/// row per assisted listing, enforced in lib/longStay/accessRequest.ts.
+model LongStayAccessRequest {
+  id                Int       @id @default(autoincrement())
+  /// Opaque lr_ reference used in every URL and API path.
+  publicRef         String    @unique @db.VarChar(40)
+  assistedListingId Int
+  propertyId        Int
+  ownerUserId       Int
+  salesPartnerId    Int
+  reason            String    @db.VarChar(500)
+  /// PENDING | APPROVED | DECLINED | WITHDRAWN
+  status            String    @default("PENDING") @db.VarChar(12)
+  decidedById       Int?
+  decidedAt         DateTime?
+  decisionNote      String?   @db.VarChar(300)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([assistedListingId, status])
+  @@index([ownerUserId])
+  @@map("long_stay_access_request")
+}
+
 /// Monthly terms of a LONG_STAY property (section 3.1). v1 lets the whole
 /// listing; per-unit long stays come later.
 model LongStayListing {

@@ -81,6 +81,7 @@ export const ADMIN_NOTIFICATION_KINDS: Record<string, AdminKind> = {
   long_stay_tenant_id_submitted: act("attention", "people"),
   long_stay_reservation_created: info("bookings"),
   long_stay_inspection_needed: act("attention", "support"),
+  long_stay_access_requested: act("attention", "people"),
   long_stay_inspection_report: act("attention", "support"),
   long_stay_enquiry: act("attention", "support"),
   long_stay_payment_review: act("critical", "money"),

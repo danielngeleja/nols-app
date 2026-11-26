@@ -88,6 +88,8 @@ export default function SalesAssistedListingPage() {
       ],
       draftStorageKey: `assisted_property_draft_${leadRef}`,
       allowResume: false,
+      // Monthly terms open once NoLSAF switched the owner on, or while the request waits.
+      longStayApiBase: `${base}/long-stay`,
     };
   }, [leadRef]);
 

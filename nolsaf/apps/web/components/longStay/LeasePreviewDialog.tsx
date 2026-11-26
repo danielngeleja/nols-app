@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import DocumentViewer from "@/components/admin/DocumentViewer";
+import { useLongStayApiBase } from "@/components/longStay/longStayApiBase";
 import { LEASE_PDF_FLOW, leaseDocumentHtml } from "@/lib/leaseDocument";
 
 /** The listing's living rules, in the shape the lease reads them. */
@@ -49,13 +50,14 @@ export default function LeasePreviewDialog({ open, onClose, terms, houseRules, h
   const [text, setText] = useState<string | null>(null);
   const [version, setVersion] = useState("");
   const [error, setError] = useState("");
+  const apiBase = useLongStayApiBase();
 
   useEffect(() => {
     if (!open) return;
     let active = true;
     setText(null);
     setError("");
-    apiClient.post<{ text: string; version: string }>("/api/owner/long-stay/lease-preview", { terms, houseRules, homeTitle: homeTitle || null })
+    apiClient.post<{ text: string; version: string }>(`${apiBase}/lease-preview`, { terms, houseRules, homeTitle: homeTitle || null })
       .then((r) => { if (active) { setText(r.data.text); setVersion(r.data.version); } })
       .catch((e) => { if (active) setError(e?.response?.data?.error || "Could not build the lease. Finish the monthly terms and try again."); });
     return () => { active = false; };

@@ -37,6 +37,14 @@ type Listing = {
   cancelReason: string | null;
 };
 
+type LongStayAccess = {
+  granted: boolean;
+  paused: boolean;
+  pauseReason: string | null;
+  homeTypeAllowed: boolean;
+  request: { ref: string; status: "PENDING" | "APPROVED" | "DECLINED" | "WITHDRAWN"; reason: string; createdAt: string; decidedAt: string | null; decisionNote: string | null } | null;
+};
+
 type State = {
   gate: { granted: boolean; paused: boolean; pauseReason: string | null; refusal: string | null };
   hasVerifiedVisit: boolean;
@@ -45,6 +53,8 @@ type State = {
   maxOpenDrafts: number;
   prefill: { ownerName: string; ownerPhone: string; ownerEmail: string };
   listing: Listing | null;
+  /** Null until the long-stay request table exists, or before a listing starts. */
+  longStay?: LongStayAccess | null;
 };
 
 const STATUS_TEXT: Record<Listing["status"], { label: string; tone: string }> = {
@@ -59,6 +69,79 @@ const STATUS_TEXT: Record<Listing["status"], { label: string; tone: string }> = 
 function eat(value: string | null) {
   if (!value) return "";
   return new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) + " EAT";
+}
+
+/**
+ * Long stay for this owner (docs/LONG_STAY_RENTALS.md section 15). The
+ * partner asks; NoLSAF switches long stay on for the owner. While the request
+ * waits the monthly terms can be written; submitting needs the approval.
+ */
+function LongStayRequestPanel({ leadRef, access, editable, onChanged }: { leadRef: string; access: LongStayAccess; editable: boolean; onChanged: () => Promise<void> | void }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const request = access.request;
+  const send = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await apiClient.post(`/api/sales/leads/${leadRef}/assisted-listing/long-stay-request`, { reason });
+      setReason("");
+      await onChanged();
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.error || "Could not send the request.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const shell = "m-0 flex items-start gap-2 rounded-lg border border-solid px-4 py-3 text-sm";
+  if (access.paused) {
+    return <p className={`${shell} border-amber-200 bg-amber-50 text-amber-900`}><PauseCircle className="mt-0.5 h-4 w-4 shrink-0" />Long stay is paused for this owner{access.pauseReason ? `: ${access.pauseReason}` : ""}. Contact NoLSAF.</p>;
+  }
+  if (access.granted) {
+    return <p className={`${shell} border-emerald-200 bg-emerald-50 text-emerald-900`}><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />Long stay is on for this owner. Choose Monthly in the listing steps and add the terms.</p>;
+  }
+  if (request?.status === "PENDING") {
+    return (
+      <p className={`${shell} border-sky-200 bg-sky-50 text-sky-900`}>
+        <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>Long stay requested {eat(request.createdAt)}. NoLSAF is reviewing it. You can already write the monthly terms; submit once it is approved.</span>
+      </p>
+    );
+  }
+  if (!editable) return null;
+  if (!access.homeTypeAllowed) {
+    return <p className="m-0 text-xs text-slate-500">Long stay is for houses, apartments, condos, villas, townhouses and bungalows. Set the property type in the listing steps to offer it.</p>;
+  }
+  return (
+    <div className="rounded-lg border border-solid border-slate-200 px-4 py-3">
+      <p className="m-0 text-sm font-bold text-slate-800">Does the owner want monthly tenants?</p>
+      {request?.status === "DECLINED" ? (
+        <p className="mb-0 mt-1 text-xs text-red-700">NoLSAF did not switch long stay on{request.decisionNote ? `: ${request.decisionNote}` : "."} You can ask again with more detail.</p>
+      ) : (
+        <p className="mb-0 mt-1 text-xs text-slate-500">Ask NoLSAF to switch on long stay for this owner. NoLSAF texts the owner when it is on.</p>
+      )}
+      <textarea
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+        maxLength={500}
+        rows={2}
+        placeholder="Owner wants 12-month tenants for the 2-bedroom apartment"
+        className="mt-2 w-full rounded-lg border border-solid border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none focus:border-emerald-400"
+      />
+      {error ? <p className="mb-0 mt-1 text-xs text-red-700">{error}</p> : null}
+      <button
+        type="button"
+        disabled={busy || reason.trim().length < 10}
+        onClick={send}
+        className="mt-2 inline-flex min-h-9 items-center gap-2 rounded-md border-0 bg-[#073c35] px-3 text-sm font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+        Request long stay
+      </button>
+    </div>
+  );
 }
 
 export default function AssistedListingCard({ leadRef, onChanged, onState }: { leadRef: string; onChanged?: () => void; onState?: (summary: AssistedListingSummary | null) => void }) {
@@ -184,6 +267,10 @@ export default function AssistedListingCard({ leadRef, onChanged, onState }: { l
             ) : null}
             {listing.status === "CANCELLED" && listing.cancelReason ? (
               <p className="m-0 text-sm text-slate-600">Cancelled: {listing.cancelReason}</p>
+            ) : null}
+
+            {state.longStay && listing.status !== "CANCELLED" ? (
+              <LongStayRequestPanel leadRef={leadRef} access={state.longStay} editable={listing.editable} onChanged={load} />
             ) : null}
 
             {listing.editable ? (

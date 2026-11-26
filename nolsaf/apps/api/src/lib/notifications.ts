@@ -188,6 +188,10 @@ export async function notifyAdmins(template: string, data: any) {
           ? `A long-stay first month (${data.currency || ""} ${data.received ?? ""}) arrived for a lease that was already closed (${data.status || "closed"}). Refund it to the tenant. Payment ref ${data.paymentRef || ""}.`
           : `A long-stay payment did not match the lease amount (expected ${data.currency || ""} ${data.expected ?? ""}). The home was not reserved. Check payment ref ${data.paymentRef || ""} in the Coral portal.`
         },
+        long_stay_access_requested: {
+        title: "Long stay requested for an owner",
+        body: `${data.partnerName || "A Sales Partner"} asks to switch on long stay for the owner of "${data.propertyTitle || "an assisted listing"}". Approve or decline it in Long stays, Requests.`
+        },
         long_stay_inspection_needed: {
         title: "Long-stay home to inspect",
         body: `"${data.propertyTitle || "A long-stay home"}" has an on-site inspection request. Assign a Sales Partner in Long stays, Inspections.`
@@ -1081,6 +1085,12 @@ export async function createUserNotification(db: Pick<Prisma.TransactionClient, 
       long_stay_enquiry_answered: {
         title: "NoLSAF answered your question",
         body: `NoLSAF answered your question about "${data.propertyTitle || "a long-stay home"}". Open Long stays to read it.`
+      },
+      long_stay_access_decided: {
+        title: data.decision === "APPROVED" ? "Long stay switched on" : "Long stay not switched on",
+        body: data.decision === "APPROVED"
+          ? `NoLSAF switched on long stay for the owner of "${data.propertyTitle || "your assisted listing"}". Finish the monthly terms and submit the listing.`
+          : `NoLSAF did not switch on long stay for the owner of "${data.propertyTitle || "your assisted listing"}".${data.note ? ` ${data.note}` : ""} You can still list it for nightly stays.`
       },
       long_stay_inspection_assigned: {
         title: "Home inspection invitation",

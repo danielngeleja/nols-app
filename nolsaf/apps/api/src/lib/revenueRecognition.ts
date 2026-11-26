@@ -14,6 +14,7 @@ import { isOwnerSubmittedInvoice } from "./accommodationPayout.js";
 import { moneyStageOf } from "./invoiceMoneyStage.js";
 import { recognizeRevenue, reverseRevenue, type LedgerResult } from "./revenueLedger.js";
 import { cancellationOf, LONG_STAY_FIGURE_FIELDS, longStayRevenueFigures } from "./longStay/revenueFigures.js";
+import { syncLongStaySalesCommission } from "./longStay/salesShare.js";
 
 /** Interactive transaction options for status change plus ledger write. */
 export const REVENUE_TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 } as const;
@@ -359,8 +360,12 @@ export async function syncLongStayRevenue(db: any, tenancyId: number): Promise<L
   const t = await db.tenancy.findUnique({ where: { id: tenancyId }, select: LONG_STAY_FIGURE_FIELDS });
   if (!t) return skipped("NOT_FOUND");
   // Refunded after move-in: reverse. A cancellation keeps what NoLSAF earned.
-  if (!cancellationOf(t) && (t.payoutStatus === "REFUND_DUE" || t.payoutStatus === "REFUNDED")) {
-    return reverseLongStayRevenue(db, tenancyId, "First month refunded to the tenant");
-  }
-  return recognizeLongStayRevenue(db, tenancyId);
+  const result = !cancellationOf(t) && (t.payoutStatus === "REFUND_DUE" || t.payoutStatus === "REFUNDED")
+    ? await reverseLongStayRevenue(db, tenancyId, "First month refunded to the tenant")
+    : await recognizeLongStayRevenue(db, tenancyId);
+  // The bringing partner's share follows the same revenue (docs/LONG_STAY_RENTALS.md
+  // section 14). Never blocks the ledger; the sales worker replays a miss.
+  await syncLongStaySalesCommission(db, tenancyId).catch((error: any) =>
+    console.error(`[longStay] sales share sync failed for tenancy ${tenancyId}:`, error?.message ?? error));
+  return result;
 }

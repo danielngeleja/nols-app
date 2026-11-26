@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { Banknote, CalendarRange, Check, Droplets, FileText, Home, Info, Minus, Pencil, Plus, ShieldCheck, Wallet, Wifi, X, Zap } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
+import { useLongStayApiBase } from "@/components/longStay/longStayApiBase";
 
 type UtilityKey = "water" | "electricity" | "internet" | "security" | "serviceCharge";
 type Num = number | "";
@@ -147,18 +148,19 @@ function useQuote(t: LongStayTermsDraft, term: number = t.minTermMonths) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [error, setError] = useState("");
   const discount = discountFor(t, term);
+  const apiBase = useLongStayApiBase();
   useEffect(() => {
     const rent = Number(t.monthlyRent);
     if (!(rent > 0)) { setQuote(null); setError(""); return; }
     let active = true;
     const timer = window.setTimeout(() => {
-      apiClient.post<{ quote: Quote }>("/api/owner/long-stay/quote", {
+      apiClient.post<{ quote: Quote }>(`${apiBase}/quote`, {
         monthlyRent: rent, termMonths: term, upfrontMonths: Math.min(t.upfrontMonths, term), currency: t.currency, discountPercent: discount,
       }).then((response) => { if (active) { setQuote(response.data.quote); setError(""); } })
         .catch((e) => { if (active) { setQuote(null); setError(e?.response?.data?.error || ""); } });
     }, 350);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [t.monthlyRent, term, t.upfrontMonths, t.currency, discount]);
+  }, [t.monthlyRent, term, t.upfrontMonths, t.currency, discount, apiBase]);
   return { quote, error, discount };
 }
 

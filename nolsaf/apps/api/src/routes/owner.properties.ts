@@ -18,6 +18,8 @@ import { customerRecordReference } from "../lib/customerBookingReference.js";
 import {
   LongStayListingError,
   RENTAL_MODES,
+  assistedLongStayDraftRefusal,
+  landlordGate,
   longStaySubmitRefusal,
   longStayTypeRefusal,
   rowToTerms,
@@ -1352,7 +1354,18 @@ export const submitListingProperty = (async (req: AuthedRequest, res) => {
       return res.status(400).json({ error: "Incomplete property. Please complete required fields (name, exact location pin, ≥3 photos, ≥1 room type)." });
     }
 
-    const longStayRefusal = await longStaySubmitRefusal(prisma, p);
+    let longStayRefusal = await longStaySubmitRefusal(prisma, p);
+    // A partner submitting for the owner gets the partner's wording: the switch
+    // comes from their "Request long stay", not from the owner asking.
+    if (longStayRefusal && listingScopeOf(req) && p.rentalMode === "LONG_STAY") {
+      const gate = await landlordGate(prisma, p.ownerId);
+      if (!gate.granted) {
+        const waiting = !(await assistedLongStayDraftRefusal(prisma, p.id, p.ownerId));
+        longStayRefusal = waiting
+          ? "NoLSAF has not approved long stay for this owner yet. You can submit once it is approved."
+          : "Long stay is not switched on for this owner. Use \"Request long stay\" on this listing first.";
+      }
+    }
     if (longStayRefusal) return res.status(400).json({ error: longStayRefusal, code: "LONG_STAY" });
     if (p.rentalMode === "LONG_STAY") {
       const opened = await requestInspection(prisma, id, "FIRST").catch(() => null);

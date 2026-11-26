@@ -89,6 +89,7 @@ const STREAMS = [
   { key: "AGENCY_GROUP", label: "Agency group stays" },
   { key: "AGENCY_TOUR", label: "Agency tours" },
   { key: "LONG_STAY_INSPECTION", label: "Long-stay inspections" },
+  { key: "LONG_STAY_TENANCY", label: "Long-stay tenancies" },
   { key: "PERFORMANCE_BONUS", label: "Performance bonus" },
   { key: "MANUAL_ADJUSTMENT", label: "Adjustments" },
 ];
@@ -191,8 +192,9 @@ export default function SalesEarningsPage() {
       { key: "MARKETPLACE_BOOKING", label: "Marketplace", amount: s.byStream.MARKETPLACE_BOOKING || 0, bar: "bg-sky-500" },
       { key: "AGENCY", label: "Agency Desk", amount: (s.byStream.AGENCY_STAY || 0) + (s.byStream.AGENCY_GROUP || 0) + (s.byStream.AGENCY_TOUR || 0), bar: "bg-violet-500" },
       { key: "INSPECTION", label: "Inspections", amount: s.byStream.LONG_STAY_INSPECTION || 0, bar: "bg-teal-400" },
+      { key: "LONG_STAY", label: "Long-stay tenancies", amount: s.byStream.LONG_STAY_TENANCY || 0, bar: "bg-emerald-300" },
       { key: "OTHER", label: "Bonus and adjustments", amount: (s.byStream.PERFORMANCE_BONUS || 0) + (s.byStream.MANUAL_ADJUSTMENT || 0), bar: "bg-amber-400" },
-    ].filter((r) => (r.key !== "AGENCY" && r.key !== "INSPECTION") || r.amount > 0);
+    ].filter((r) => !["AGENCY", "INSPECTION", "LONG_STAY"].includes(r.key) || r.amount > 0);
     const sum = rows.reduce((t, r) => t + Math.max(0, r.amount), 0);
     return rows.map((r) => ({ ...r, share: sum > 0 ? Math.max(0, r.amount) / sum : 0 }));
   }, [s]);

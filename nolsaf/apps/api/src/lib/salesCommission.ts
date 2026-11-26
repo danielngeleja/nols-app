@@ -4,6 +4,7 @@ import {
   commissionSourceKey,
 } from "./salesPartner.js";
 import { loadPartnerIdentity, partnerBookedStayReason, partnerOwnsPropertyReason } from "./salesSelfDealing.js";
+import { LONG_STAY_FIGURE_FIELDS, longStayRevenueFigures } from "./longStay/revenueFigures.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -317,6 +318,88 @@ export async function accrueMarketplaceSalesCommission(tx: any, invoiceId: numbe
     });
   }
   return { ...result, partnerUserId: attribution.salesPartner.userId, propertyTitle: invoice.booking.property.title };
+}
+
+/** Days after move-in before a long-stay share can be withdrawn (docs/LONG_STAY_RENTALS.md section 14). */
+export const LONG_STAY_SHARE_HOLD_DAYS = 14;
+
+export function longStayShareSourceKey(tenancyId: number): string {
+  return commissionSourceKey("TENANCY", tenancyId);
+}
+
+export const TENANCY_SHARE_SELECT = { ...LONG_STAY_FIGURE_FIELDS, propertyId: true, tenantId: true } as const;
+
+/**
+ * The bringing partner's share of NoLSAF's long-stay fees on one tenancy
+ * (docs/LONG_STAY_RENTALS.md section 14). Earned at confirmed move-in, from
+ * the same figures the revenue ledger recognizes, at the contract's
+ * marketplace rate, on the fees net of tax. Withdrawable after
+ * LONG_STAY_SHARE_HOLD_DAYS. Idempotent on TENANCY:<id>.
+ */
+export async function accrueLongStaySalesCommission(tx: any, tenancyId: number): Promise<CommissionAccrualResult> {
+  const sourceKey = longStayShareSourceKey(tenancyId);
+  const replay = await existingCommission(tx, sourceKey);
+  if (replay) return { created: false, commission: replay };
+  const tenancy = await tx.tenancy.findUnique({ where: { id: tenancyId }, select: TENANCY_SHARE_SELECT });
+  if (!tenancy) return { created: false, skippedReason: "SOURCE_NOT_FOUND" };
+  const figures = longStayRevenueFigures(tenancy);
+  // Only a confirmed move-in earns: a cancellation or a refunded first month never does.
+  if (!figures || figures.kind !== "MOVE_IN") return { created: false, skippedReason: "NOT_MOVED_IN" };
+  if (!(figures.commission > 0)) return { created: false, skippedReason: "NO_ELIGIBLE_REVENUE" };
+
+  const attribution = await tx.propertySalesAttribution.findUnique({
+    where: { propertyId_productType: { propertyId: tenancy.propertyId, productType: "MARKETPLACE" } },
+    include: { contract: true, salesPartner: { select: { userId: true } } },
+  });
+  if (!attributionOpen(attribution, figures.at)) return { created: false, skippedReason: "NO_ACTIVE_ATTRIBUTION" };
+
+  // Long-stay fees carry no separate VAT line, so treat them as tax-inclusive:
+  // the partner's share is of NoLSAF's net, never of the tax.
+  const settings = await tx.systemSetting.findUnique({ where: { id: 1 }, select: { taxPercent: true } });
+  const calculation = calculateSalesCommission({
+    grossAmount: figures.commission,
+    taxAmount: inclusiveTaxComponent(figures.commission, Number(settings?.taxPercent || 0)),
+    processingFeeAmount: 0,
+    commissionRate: Number(attribution.contract.marketplaceRevenueRate),
+  });
+  if (calculation.commissionAmount <= 0) return { created: false, skippedReason: "NO_ELIGIBLE_REVENUE" };
+
+  // Never on the partner's own home, and never when the partner is the tenant
+  // (matched by account, email or phone, like a stay they booked themselves).
+  const identity = await loadPartnerIdentity(tx, attribution.salesPartnerId);
+  const tenant = await tx.user.findUnique({ where: { id: tenancy.tenantId }, select: { email: true, phone: true } });
+  const blockedReason =
+    (identity ? await partnerOwnsPropertyReason(tx, identity, tenancy.propertyId) : null) ??
+    (identity && partnerBookedStayReason(identity, { userId: tenancy.tenantId, user: tenant })
+      ? "The partner is the tenant on this lease."
+      : null);
+  const blockedAt = new Date();
+  const result = await createIdempotently(tx, {
+    salesPartnerId: attribution.salesPartnerId,
+    propertyId: tenancy.propertyId,
+    attributionId: attribution.id,
+    contractId: attribution.contractId,
+    type: "LONG_STAY_TENANCY",
+    status: blockedReason ? "REVERSED" : "VALIDATING",
+    ...(blockedReason ? { reversedAt: blockedAt, reversalReason: blockedReason } : {}),
+    sourceKey,
+    ...calculation,
+    currency: figures.currency || "TZS",
+    description: `Long-stay revenue share from tenancy ${tenancy.publicRef}`,
+    earnedAt: figures.at,
+    eligibleAt: new Date(figures.at.getTime() + LONG_STAY_SHARE_HOLD_DAYS * DAY_MS),
+  });
+  if (result.created) {
+    await recordAccrualAudit(tx, result.commission, {
+      sourceKey,
+      type: "LONG_STAY_TENANCY",
+      salesPartnerId: attribution.salesPartnerId,
+      propertyId: tenancy.propertyId,
+      calculation,
+      ...(blockedReason ? { blockedReason } : {}),
+    });
+  }
+  return { ...result, partnerUserId: attribution.salesPartner.userId };
 }
 
 export type AutoReverseOutcome = "REVERSED" | "OFFSET" | "LOCKED" | "UNCHANGED";

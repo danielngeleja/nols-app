@@ -14,6 +14,7 @@ import { TotalsStep } from "./TotalsStep";
 import { PhotosStep } from "./PhotosStep";
 import { ROOM_ITEMS, UNIT_AMENITY_ITEMS, RoomsStep } from "./RoomsStep";
 import LeasePreviewDialog, { leaseRulesPayload, livingRuleLines } from "@/components/longStay/LeasePreviewDialog";
+import { LongStayApiBaseContext, OWNER_LONG_STAY_API } from "@/components/longStay/longStayApiBase";
 import { EMPTY_LONG_STAY_TERMS, LongStayTermsCard, RentalModeSwitch, longStayTermsComplete, longStayTermsForServer, longStayTermsFromServer, type LongStayTermsDraft } from "./LongStayTermsCard";
 import { cleanFloorUses, parseFloorUses, type FloorUses } from "./floorUses";
 import { ServicesStep } from "./ServicesStep";
@@ -246,6 +247,12 @@ export type ListingWizardAdapter = {
   draftStorageKey: string;
   /** Owner mode offers "resume a draft"; assisted mode always edits one listing. */
   allowResume: boolean;
+  /**
+   * Where the long-stay helpers live (eligibility, quote, lease preview). Owner
+   * mode uses the owner's own; an assisted listing passes its scoped endpoints
+   * so a partner can write monthly terms once NoLSAF allows it (section 15).
+   */
+  longStayApiBase?: string;
 };
 
 export const OWNER_LISTING_ADAPTER: ListingWizardAdapter = {
@@ -782,16 +789,17 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   const [rentalMode, setRentalMode] = useState<"NIGHTLY" | "LONG_STAY">("NIGHTLY");
   const [longStayTerms, setLongStayTerms] = useState<LongStayTermsDraft>(EMPTY_LONG_STAY_TERMS);
   const [longStayEligibility, setLongStayEligibility] = useState<{ granted: boolean; paused: boolean; refusal: string | null; bookingsOpen: boolean; propertyTypes: string[] } | null>(null);
+  const longStayApiBase = adapter.longStayApiBase ?? (adapter.mode === "owner" ? OWNER_LONG_STAY_API : null);
   useEffect(() => {
-    if (adapter.mode !== "owner") return;
+    if (!longStayApiBase) return;
     let active = true;
-    apiClient.get("/api/owner/long-stay/eligibility")
+    apiClient.get(`${longStayApiBase}/eligibility`)
       .then((response) => { if (active) setLongStayEligibility(response.data); })
       .catch(() => { if (active) setLongStayEligibility(null); });
     return () => { active = false; };
-  }, [adapter.mode]);
+  }, [longStayApiBase]);
   const isLongStay = rentalMode === "LONG_STAY";
-  const canOfferLongStay = adapter.mode === "owner"
+  const canOfferLongStay = Boolean(longStayApiBase)
     && Boolean(longStayEligibility?.granted && !longStayEligibility.paused)
     && Boolean(longStayEligibility?.propertyTypes?.includes(toServerType(type)));
 
@@ -2132,6 +2140,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
 
 
   return (
+    <LongStayApiBaseContext.Provider value={longStayApiBase ?? OWNER_LONG_STAY_API}>
     <div id="addPropertyView" className={PAGE_WRAPPER_CLASS}>
       <div aria-live="polite" className="sr-only" role="status">{announcement}</div>
       <div className={PAGE_LAYOUT_CLASS}>
@@ -2791,6 +2800,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
         </div>
       )}
     </div>
+    </LongStayApiBaseContext.Provider>
   );
 }
 
