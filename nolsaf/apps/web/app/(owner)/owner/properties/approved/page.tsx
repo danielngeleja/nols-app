@@ -21,6 +21,8 @@ import {
   Plus,
   ArrowUpRight,
   QrCode,
+  PartyPopper,
+  MoreHorizontal,
   Trees
 } from "lucide-react";
 import VerifiedIcon from "@/components/VerifiedIcon";
@@ -118,6 +120,8 @@ export default function ApprovedProps() {
   const [list, setList] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
+  // The card whose extra actions (public page, sticker, events) are open.
+  const [moreFor, setMoreFor] = useState<number | null>(null);
   const [reviewsMap, setReviewsMap] = useState<Record<number, ReviewsData>>({});
   const [query, setQuery] = useState("");
   const loadingReviewsRef = useRef<Record<number, boolean>>({});
@@ -481,27 +485,39 @@ export default function ApprovedProps() {
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
                       </Link>
-                      {property.slug ? (
-                        <Link
-                          href={`/public/properties/${property.slug}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Open the public page"
-                          aria-label="Open the public page"
-                          className="grid h-10 w-10 place-items-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                        >
-                          <ArrowUpRight className="h-4 w-4" aria-hidden />
-                        </Link>
-                      ) : null}
-                      <Link
-                        href={`/owner/properties/${ownerPropertyRefOrId(property.id)}/sticker`}
-                        title="Print a booking sticker"
-                        aria-label="Print a booking sticker"
-                        className="grid h-10 w-10 place-items-center rounded-md border border-solid border-slate-300 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                      <button
+                        type="button"
+                        onClick={() => setMoreFor((current) => (current === property.id ? null : property.id))}
+                        aria-expanded={moreFor === property.id}
+                        aria-controls={`more-${property.id}`}
+                        title="More actions"
+                        aria-label="More actions"
+                        className={`grid h-10 w-10 shrink-0 place-items-center rounded-md border border-solid bg-white transition ${moreFor === property.id ? "border-[#02665e] text-[#02665e]" : "border-slate-300 text-slate-600 hover:border-[#02665e]/40 hover:text-[#02665e]"}`}
                       >
-                        <QrCode className="h-4 w-4" aria-hidden />
-                      </Link>
+                        <MoreHorizontal className="h-4 w-4" aria-hidden />
+                      </button>
                     </div>
+                    {moreFor === property.id ? (
+                      <ul id={`more-${property.id}`} className="m-0 mt-2 list-none overflow-hidden rounded-md border border-solid border-slate-200 p-0">
+                        {[
+                          property.slug ? { href: `/public/properties/${property.slug}`, label: "Open the public page", Icon: ArrowUpRight, external: true } : null,
+                          { href: `/owner/properties/${ownerPropertyRefOrId(property.id)}/sticker`, label: "Print a booking sticker", Icon: QrCode, external: false },
+                          !isLongStay ? { href: `/owner/properties/${ownerPropertyRefOrId(property.id)}/events`, label: "Hire for events", Icon: PartyPopper, external: false } : null,
+                        ].filter((item): item is { href: string; label: string; Icon: typeof QrCode; external: boolean } => Boolean(item)).map(({ href, label, Icon, external }) => (
+                          <li key={label} className="border-0 border-t border-solid border-slate-100 first:border-t-0">
+                            <Link
+                              href={href}
+                              {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                              className="flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-slate-700 no-underline transition hover:bg-slate-50 hover:text-[#02665e]"
+                            >
+                              <Icon className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                              <span className="min-w-0 flex-1 truncate">{label}</span>
+                              <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-300" aria-hidden />
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
                   </div>
                 </div>
               </li>

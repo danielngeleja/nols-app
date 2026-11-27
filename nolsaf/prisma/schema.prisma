@@ -632,6 +632,9 @@ model Property {
   longStayInspections LongStayInspection[]
   longStayEnquiries   LongStayEnquiry[]
 
+  // Hire for events add-on (docs/SALES_AGENCY_EVENT_HIRE_STRATEGY.md)
+  eventHire PropertyEventHire?
+
   @@index([ownerId])
   // Supports: WHERE ownerId=? ORDER BY id DESC
   @@index([ownerId, id], map: "idx_Property_ownerId_id")
@@ -9655,6 +9658,147 @@ model BookingChannelAttribution {
   @@index([linkId])
   @@index([status])
   @@map("booking_channel_attribution")
+}
+
+/// Agency Desk quote (docs/SALES_AGENCY_QUOTES_STRATEGY.md): 1 to 3 stay
+/// options a partner sends to a client, who opens them on their own phone and
+/// pays NoLSAF. Prices are the listing's own (lib/stayPrice.ts), snapshot at
+/// quote time; availability is re-checked when the client pays. No rooms are
+/// held. Only the SHA-256 of the client link token is stored.
+/// status: SENT, VIEWED, PAYING, PAID, EXPIRED, CANCELLED (PAID and EXPIRED are
+/// also derived on read from the booking and expiresAt).
+model SalesQuote {
+  id                    Int       @id @default(autoincrement())
+  publicRef             String    @unique @db.VarChar(16)
+  salesPartnerId        Int
+  clientAccountId       Int?
+  clientName            String    @db.VarChar(160)
+  clientPhone           String    @db.VarChar(40)
+  clientPhoneNormalized String    @db.VarChar(40)
+  clientEmail           String?   @db.VarChar(190)
+  note                  String?   @db.VarChar(500)
+  status                String    @default("SENT") @db.VarChar(12)
+  tokenHash             String    @unique @db.Char(64)
+  expiresAt             DateTime
+  sentAt                DateTime?
+  viewedAt              DateTime?
+  payingAt              DateTime?
+  cancelledAt           DateTime?
+  chosenOptionId        Int?
+  bookingId             Int?      @unique
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  options SalesQuoteOption[]
+
+  @@index([salesPartnerId, status])
+  @@index([status, expiresAt])
+  @@index([clientPhoneNormalized])
+  @@map("sales_quote")
+}
+
+/// One option of a quote: a property, a room type and dates, priced at quote time.
+model SalesQuoteOption {
+  id            Int      @id @default(autoincrement())
+  quoteId       Int
+  position      Int
+  propertyId    Int
+  roomCode      String?  @db.VarChar(60)
+  rooms         Int
+  checkIn       DateTime
+  checkOut      DateTime
+  adults        Int
+  children      Int      @default(0)
+  nights        Int
+  currency      String   @default("TZS") @db.VarChar(3)
+  totalPrice    Decimal  @db.Decimal(14, 2)
+  /// What the client was shown: property title, room label, nightly, discount, commission split.
+  priceSnapshot Json
+  createdAt     DateTime @default(now())
+
+  quote SalesQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, position])
+  @@index([propertyId])
+  @@map("sales_quote_option")
+}
+
+/// A client need the partner could not match (or day use, which NoLSAF does not
+/// sell yet). No client contact details: it is demand data for recruiting
+/// supply, seen by admins and regional leads.
+model SalesDemandSignal {
+  id             Int       @id @default(autoincrement())
+  salesPartnerId Int
+  regionId       Int?
+  region         String?   @db.VarChar(80)
+  district       String?   @db.VarChar(80)
+  area           String?   @db.VarChar(120)
+  people         Int
+  rooms          Int?
+  dayUse         Boolean   @default(false)
+  features       Json?
+  wholePlace     Boolean   @default(false)
+  checkIn        DateTime?
+  checkOut       DateTime?
+  budgetTzs      Int?
+  matches        Int       @default(0)
+  createdAt      DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([regionId, createdAt])
+  @@map("sales_demand_signal")
+}
+
+/// "Hire for events" add-on on a property (docs/SALES_AGENCY_EVENT_HIRE_STRATEGY.md,
+/// phase E1). One row per property. The terms are checked by lib/eventHire.ts;
+/// the fingerprint is the SHA-256 of the terms, so the owner's consent and the
+/// admin approval always refer to exactly what was shown.
+/// status: DRAFT, AWAITING_OWNER (a partner filled it, owner to confirm by SMS link),
+///         PENDING (admin review), APPROVED, RETURNED, PAUSED
+model PropertyEventHire {
+  id         Int    @id @default(autoincrement())
+  propertyId Int    @unique
+  status     String @default("DRAFT") @db.VarChar(16)
+  terms      Json
+  termsFingerprint String @db.Char(64)
+  /// Photos of the event space uploaded here (not on the listing, so a live
+  /// listing is never sent back for review). Reviewed with the add-on.
+  extraPhotos Json?
+
+  /// OWNER or SALES_PARTNER: who last saved the terms.
+  filledBy         String  @db.VarChar(16)
+  filledByUserId   Int
+  salesPartnerId   Int?
+
+  /// The owner's consent ("I control this space and parties are allowed here").
+  ownerConsentFingerprint String?   @db.Char(64)
+  ownerConsentAt          DateTime?
+  /// APP (signed in) or SMS_LINK
+  ownerConsentVia         String?   @db.VarChar(10)
+  /// The owner's SMS confirmation link. Only the SHA-256 of the token is stored.
+  confirmTokenHash        String?   @unique @db.Char(64)
+  confirmSentAt           DateTime?
+  confirmOpenedAt         DateTime?
+  /// The owner said "something is wrong" on the SMS link.
+  ownerObjectionNote      String?   @db.VarChar(500)
+  ownerObjectedAt         DateTime?
+
+  submittedAt         DateTime?
+  reviewedAt          DateTime?
+  reviewedById        Int?
+  approvedFingerprint String?   @db.Char(64)
+  returnReason        String?   @db.VarChar(500)
+  pausedAt            DateTime?
+  pauseReason         String?   @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([status, updatedAt])
+  @@index([salesPartnerId])
+  @@map("property_event_hire")
 }
 
 /// Agency Desk client book: an organiser or institution a partner serves

@@ -16,6 +16,8 @@ import salesLongStayRouter from "./sales.longStay.js";
 import salesAssistedListingRouter from "./sales.assistedListing.js";
 import adminSalesAssistedListingsRouter from "./admin.sales.assistedListings.js";
 import { publicListingNoticeRouter } from "./public.listingNotice.js";
+import { publicAgencyQuoteRouter } from "./public.agencyQuote.js";
+import { publicEventHireConfirmRouter } from "./eventHire.js";
 import salesCardRouter from "./sales.card.js";
 import salesLeaderboardRouter from "./sales.leaderboard.js";
 import salesTeamRouter from "./sales.team.js";
@@ -33,6 +35,7 @@ import salesJoinRouter from "./sales.join.js";
 import salesAgencyRouter from "./sales.agency.js";
 import salesAgencyGroupsRouter from "./sales.agency.groups.js";
 import salesAgencyToursRouter from "./sales.agency.tours.js";
+import salesAgencyQuotesRouter from "./sales.agency.quotes.js";
 import agencyGroupConfirmRouter from "./agency.groupConfirm.js";
 import adminSalesAgencyRouter from "./admin.sales.agency.js";
 
@@ -51,6 +54,9 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/sales", salesAssistedListingRouter as RequestHandler);
   // The owner's "Not expecting this?" link from the SMS. Public, token only.
   app.use("/api/public/listing-notice", publicListingNoticeRouter as RequestHandler);
+  app.use("/api/public/agency-quote", publicAgencyQuoteRouter as RequestHandler);
+  // The owner confirming event hire terms a partner filled in. Public, token only.
+  app.use("/api/public/event-hire-confirm", publicEventHireConfirmRouter as RequestHandler);
   app.use("/api/sales", salesCardRouter as RequestHandler);
   // Leaderboard first: it answers /team/status for every partner, before the
   // team router, which admits team leads only.
@@ -67,6 +73,7 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/sales", salesAgencyRouter as RequestHandler);
   app.use("/api/sales", salesAgencyGroupsRouter as RequestHandler);
   app.use("/api/sales", salesAgencyToursRouter as RequestHandler);
+  app.use("/api/sales", salesAgencyQuotesRouter as RequestHandler);
   // The client confirming a partner's group request: any signed-in customer, phone must match.
   app.use("/api/agency-group", agencyGroupConfirmRouter as RequestHandler);
 

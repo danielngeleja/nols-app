@@ -18,10 +18,10 @@ import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
 import { getNrmsMarketplaceHolds } from "../lib/nrmsAvailability.js";
 import { getTransportAvailability } from "../lib/serviceAvailability.js";
 import { effectiveRoomSelectionCode, matchingRoomSelectionCodes, roomsSpecEntries } from "../lib/roomSelectionCode.js";
-import { discountedNightlyNet, roomDiscountPercent } from "../lib/roomDiscount.js";
 import { bedsPerSellableUnit } from "../lib/roomSpecBeds.js";
-import { guestOccupancyPricing } from "../lib/guestOccupancyPricing.js";
+import { accommodationTotals, effectiveCommissionPercent, nightlyNetFor, roomCodeToTypeKey, roomTypeKeyFromSpec } from "../lib/stayPrice.js";
 import { recordAgencyAttribution } from "../lib/salesAgency.js";
+import { attachQuoteBooking, checkQuoteForBooking, type QuoteBookingCheck } from "../lib/salesAgencyQuotes.js";
 import { recordAcquisitionSource } from "../lib/acquisitionSource.js";
 
 /**
@@ -49,35 +49,6 @@ function signBookingAccessToken(bookingId: number): string {
   );
 }
 
-async function getEffectiveCommissionPercent(params: { propertyServices: unknown }): Promise<number> {
-  // Per-property override (admin sets this via /admin/properties/:id -> services.commissionPercent)
-  const fromProperty = (() => {
-    const services = params.propertyServices as any;
-    const v = services?.commissionPercent;
-    // null means "use system default" (admin chose Use System Default → stored as null).
-    // Treat null/undefined the same: fall through to system default.
-    if (v === null || v === undefined) return null;
-    const n = Number(v);
-    if (!Number.isFinite(n)) return null;
-    if (n < 0) return 0;
-    if (n > 100) return 100;
-    return n;
-  })();
-
-  if (fromProperty != null) return fromProperty;
-
-  // Global default (SystemSetting singleton)
-  try {
-    const s =
-      (await prisma.systemSetting.findUnique({ where: { id: 1 }, select: { commissionPercent: true } as any })) ??
-      (await prisma.systemSetting.create({ data: { id: 1 } } as any));
-    const n = Number((s as any)?.commissionPercent ?? 0);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(100, n));
-  } catch {
-    return 0;
-  }
-}
 
 function formatBlockSourceSummary(blocks: Array<{ source?: string | null }>): string | null {
   const labels = new Map<string, string>();
@@ -211,19 +182,6 @@ function getPricingTimeParts(date: Date, timeZone = "Africa/Dar_es_Salaam"): { h
   };
 }
 
-/** Derive room-type key from roomCode (e.g. "Suite-1" -> "Suite", "Suite" -> "Suite") for capacity by type */
-function roomCodeToTypeKey(roomCode: string | null | undefined): string {
-  const s = String(roomCode ?? "").trim();
-  if (!s) return "default";
-  return s.replace(/-\d+$/, "") || s;
-}
-
-/** Derive a stable room-type key from a roomsSpec entry across differing shapes (code/roomCode/name/label/etc). */
-function roomTypeKeyFromSpec(rt: any): string {
-  const rawKey = String(rt?.code ?? rt?.roomCode ?? rt?.roomType ?? rt?.type ?? rt?.name ?? rt?.label ?? "").trim();
-  return roomCodeToTypeKey(rawKey);
-}
-
 /** Find which availability bucket (room type) a roomCode belongs to. Uses prefix match so "Suite-1" maps to "Suite". */
 function findBucketKey(roomCode: string | null | undefined, keys: string[]): string | null {
   const typeKey = roomCodeToTypeKey(roomCode);
@@ -351,6 +309,9 @@ const createBookingSchema = z.object({
   // Agency Desk link token. Only ever credits the booking to a partner after it
   // is created; it never changes price, availability or who pays.
   agencyRef: z.string().max(64).optional().nullable(),
+  // Agency Desk quote being paid by its client: the booking must be exactly the
+  // chosen option (lib/salesAgencyQuotes.ts). Beats an agency link.
+  agencyQuote: z.object({ token: z.string().max(64), position: z.number().int().min(1).max(3) }).optional().nullable(),
   // The guest ticked that they pay for electricity (services.houseRules.electricity).
   // The web checkout requires it; app clients that do not send it are not refused yet.
   acceptElectricity: z.boolean().optional(),
@@ -534,6 +495,16 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         code: "ROOM_CATEGORY_REQUIRED",
         requestId,
       });
+    }
+
+    // Agency Desk quote: refuse unless this is exactly the quoted option of an open quote.
+    let quoteCheck: QuoteBookingCheck | null = null;
+    if (data.agencyQuote) {
+      const verdict = await checkQuoteForBooking(prisma, data.agencyQuote.token, data.agencyQuote.position, {
+        propertyId: data.propertyId, roomCode: data.roomCode ?? null, rooms: roomsQty, checkIn: data.checkIn, checkOut: data.checkOut, adults: data.adults, children: data.children,
+      }).catch(() => ({ ok: false as const, reason: "This quote could not be checked. Try again." }));
+      if (!verdict.ok) return res.status(409).json({ error: verdict.reason, code: "QUOTE_NOT_USABLE", requestId });
+      quoteCheck = verdict.check;
     }
 
     // Never trust the client's disabled-toggle state — re-check the transport
@@ -887,80 +858,18 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
     const sanitizedRoomCode = data.roomCode ? sanitizeText(data.roomCode) : null;
     const sanitizedTransportAddress = data.transportOriginAddress ? sanitizeText(data.transportOriginAddress) : null;
 
-    // Calculate booking amount (server-side only - NEVER trust client)
-    // If roomCode is provided, use that room's price from roomsSpec, otherwise use basePrice
-    let pricePerNight = property.basePrice ? Number(property.basePrice) : 0;
-    let selectedPricingRoom: any = null;
-    
-    if (data.roomCode && property.roomsSpec) {
-      // Parse roomsSpec to find the selected room's price
-      let roomTypes: Array<any> = [];
-      if (typeof property.roomsSpec === "object") {
-        const spec = property.roomsSpec as any;
-        if (Array.isArray(spec)) {
-          roomTypes = spec;
-        } else if (spec.rooms && Array.isArray(spec.rooms)) {
-          roomTypes = spec.rooms;
-        } else if (spec && typeof spec === "object") {
-          // Some properties store rooms under different keys; flatten any arrays found.
-          roomTypes = Object.values(spec)
-            .filter((v: any) => Array.isArray(v))
-            .flat();
-        }
-      }
-      
-      const parseRoomPrice = (value: unknown): number | null => {
-        if (value == null) return null;
-        if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : null;
-        const s = String(value).trim();
-        if (!s) return null;
-        // Accept values like "88,000".
-        const n = Number(s.replace(/,/g, ""));
-        return Number.isFinite(n) && n > 0 ? n : null;
-      };
-
-      // Find the selected room type (support index selection + flexible room keys)
-      const roomCodeRaw = String(data.roomCode).trim();
-      const asIndex = /^\d+$/.test(roomCodeRaw) ? Number(roomCodeRaw) : NaN;
-      const selectedRoom = (() => {
-        if (Number.isFinite(asIndex) && asIndex >= 0 && asIndex < roomTypes.length) {
-          return roomTypes[asIndex];
-        }
-
-        const typeFromCode = roomCodeToTypeKey(roomCodeRaw);
-        return (
-          roomTypes.find((rt) => roomTypeKeyFromSpec(rt) === typeFromCode) ||
-          roomTypes.find((rt) => {
-            const c = String(rt?.code ?? rt?.roomCode ?? rt?.roomType ?? rt?.type ?? rt?.name ?? rt?.label ?? "").trim();
-            return c && (roomCodeRaw === c || roomCodeRaw.startsWith(c + "-"));
-          }) ||
-          null
-        );
-      })();
-      if (selectedRoom) {
-        selectedPricingRoom = selectedRoom;
-        const roomPrice = parseRoomPrice(selectedRoom.pricePerNight ?? selectedRoom.price ?? null);
-        // The owner's room discount is charged, not just shown: it comes off the
-        // owner's nightly net before NoLSAF's commission is added.
-        if (roomPrice != null) pricePerNight = discountedNightlyNet(roomPrice, roomDiscountPercent(selectedRoom));
-      }
-    }
-    
-    // Pricing model:
-    // - Owner provides base/net price.
-    // - Admin sets commissionPercent (per-property override or system default).
-    // - Guest pays the published price (net + commission) + any optional transport fare.
-    const commissionPercent = await getEffectiveCommissionPercent({ propertyServices: (property as any).services });
-    const safeCommission = Number.isFinite(commissionPercent) ? Math.max(0, Math.min(100, commissionPercent)) : 0;
-
+    // Calculate booking amount (server-side only - NEVER trust client). One
+    // shared calculation (lib/stayPrice.ts) so Agency Desk quotes show the same
+    // amount: owner's nightly net (room price less the owner's room discount)
+    // x rooms + extra-guest fees, x nights, plus NoLSAF's commission.
+    const { pricePerNight, room: selectedPricingRoom } = nightlyNetFor({ basePrice: property.basePrice, roomsSpec: property.roomsSpec, roomCode: data.roomCode });
+    const commissionPercent = await effectiveCommissionPercent((property as any).services);
     const guestCount = Number(data.adults || 1) + Number(data.children || 0);
-    const occupancy = guestOccupancyPricing(selectedPricingRoom, guestCount, roomsQty);
-    if (occupancy.maximumGuests !== null && guestCount > occupancy.maximumGuests) {
-      return res.status(400).json({ error: "Guest capacity exceeded", message: `This selection sleeps up to ${occupancy.maximumGuests} guests.`, maxGuests: occupancy.maximumGuests, requestId });
+    const totals = accommodationTotals({ pricePerNight, room: selectedPricingRoom, roomsQty, guestCount, nights, commissionPercent });
+    if (totals.overCapacity) {
+      return res.status(400).json({ error: "Guest capacity exceeded", message: `This selection sleeps up to ${totals.maximumGuests} guests.`, maxGuests: totals.maximumGuests, requestId });
     }
-    const accommodationNet = (pricePerNight * roomsQty + occupancy.extraGuests * occupancy.extraGuestFee) * nights;
-    const commissionAmount = safeCommission > 0 ? (accommodationNet * safeCommission) / 100 : 0;
-    const accommodationGross = accommodationNet + commissionAmount;
+    const { accommodationGross } = totals;
     
     // Add transportation fare if included
     let transportFare = 0;
@@ -1427,7 +1336,9 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
 
     // Agency Desk credit. Validated entirely on the server (link, partner gate,
     // self-booking) and isolated: any failure leaves the booking untouched.
-    if (data.agencyRef) {
+    if (quoteCheck) {
+      await attachQuoteBooking(prisma, quoteCheck, result.bookingId);
+    } else if (data.agencyRef) {
       await recordAgencyAttribution(prisma, { bookingId: result.bookingId, token: data.agencyRef }).catch((error: any) => {
         console.warn("[sales-agency] attribution skipped:", error?.message || String(error));
       });

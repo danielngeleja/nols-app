@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
 import type { Dispatch, SetStateAction } from "react";
-import { AlertCircle, ArrowRight, Banknote, BedDouble, Building2, Check, ChevronDown, Cigarette, CigaretteOff, Copy, House, Info, Lock, Minus, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowRight, Banknote, Check, ChevronDown, Cigarette, CigaretteOff, Copy, Info, Minus, Pencil, Plus, Trash2 } from "lucide-react";
 import { BATHROOM_ICONS, OTHER_AMENITIES_ICONS } from "@/lib/amenityIcons";
 import { useEffect, useMemo, useState } from "react";
 import { AddPropertySection } from "./AddPropertySection";
@@ -11,7 +11,7 @@ import { RoomPhotoSlots } from "./RoomPhotoSlots";
 import { EntireUnitEditor } from "./EntireUnitEditor";
 import { NightlyPriceDialog } from "./NightlyPriceDialog";
 import type { BedroomLayout } from "@/lib/listingInventory";
-import { bookingModesForPropertyType, isRoomOnlyPropertyType, type PropertyBookingMode } from "@/lib/propertyBookingMode";
+import { isRoomOnlyPropertyType, type PropertyBookingMode } from "@/lib/propertyBookingMode";
 import type { FloorUses } from "./floorUses";
 
 export { UNIT_AMENITY_ITEMS } from "./EntireUnitEditor";
@@ -28,7 +28,6 @@ const ROOM_TYPE_NAMES = new Set<string>([...ROOM_TYPE_GROUPS.flatMap((group) => 
 
 
 export function RoomsStep({
-  rentalModeSlot = null,
   longStaySlot = null,
   monthly = false,
   isVisible,
@@ -39,7 +38,6 @@ export function RoomsStep({
   buildingType,
   propertyType,
   bookingMode,
-  setBookingMode,
   unitBedrooms,
   setUnitBedrooms,
   totalFloors,
@@ -100,8 +98,6 @@ export function RoomsStep({
   toggleStr,
   BED_ICONS,
 }: {
-  /** Long stay (docs/LONG_STAY_RENTALS.md): the "how do you rent it" switch, shown first. */
-  rentalModeSlot?: ReactNode;
   /** The monthly terms card, shown after the home is described. */
   longStaySlot?: ReactNode;
   /** True when the home is let by the month: whole place only, no nightly price. */
@@ -114,7 +110,6 @@ export function RoomsStep({
   buildingType: string;
   propertyType: string;
   bookingMode: PropertyBookingMode;
-  setBookingMode: (value: PropertyBookingMode) => void;
   unitBedrooms: BedroomLayout[];
   setUnitBedrooms: (value: BedroomLayout[]) => void;
   totalFloors: number | "";
@@ -384,49 +379,10 @@ export function RoomsStep({
 
 
   const roomOnly = isRoomOnlyPropertyType(propertyType);
-  // An older listing saved in a style this type no longer offers keeps that style visible.
-  const allowedModes = bookingModesForPropertyType(propertyType);
-  const bookingModes = allowedModes.includes(bookingMode) ? allowedModes : [...allowedModes, bookingMode];
-  const MODE_LABELS: Record<PropertyBookingMode, { label: string; Icon: typeof House }> = {
-    ENTIRE_UNIT: { label: "Entire place", Icon: House },
-    UNITS: { label: "Separate units", Icon: Building2 },
-    ROOM: { label: "Individual rooms", Icon: BedDouble },
-  };
   const hasSavedWholeUnit = definedRooms.some((room) => room.bookingMode === "ENTIRE_UNIT");
-  const bookingPicker = monthly ? null : roomOnly
-    ? hasSavedWholeUnit && <div className="mb-3 rounded-lg border border-solid border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" role="alert">
-        {propertyType} listings use individually bookable rooms. Remove the saved whole-place unit below, then add its room types.
-      </div>
-    : <div className="ap-mode-bar">
-    <div className="ap-mode-row">
-      <p className="ap-mode-q">How will guests book this {propertyType && propertyType !== "Other" ? propertyType.toLowerCase() : "property"}?</p>
-      <div className="ap-mode-seg" role="radiogroup" aria-label="What guests book" style={{ gridTemplateColumns: `repeat(${bookingModes.length}, minmax(0, 1fr))` }}>
-        {bookingModes.map((value) => {
-          const { label, Icon } = MODE_LABELS[value];
-          return <button
-            key={value} type="button" role="radio" aria-checked={bookingMode === value}
-            disabled={definedRooms.length > 0 && bookingMode !== value}
-            className={`ap-mode-seg-btn${bookingMode === value ? " is-on" : ""}`}
-            onClick={() => {
-              setBookingMode(value);
-              setRoomType(value === "ENTIRE_UNIT" ? (propertyType || "Villa") : value === "UNITS" ? "" : "Single");
-              setRoomsCount(value === "ROOM" ? "" : 1);
-            }}
-          ><Icon className="h-4 w-4" aria-hidden />{label}</button>;
-        })}
-      </div>
-    </div>
-    <p className="ap-mode-hint">
-      {definedRooms.length > 0
-        ? <><Lock className="h-3.5 w-3.5" aria-hidden />Locked while {bookingMode === "UNITS" ? "units" : "rooms"} are saved. Remove them to switch.</>
-        : bookingMode === "ENTIRE_UNIT"
-          ? <><Info className="h-3.5 w-3.5" aria-hidden />One booking takes every bedroom. You set one nightly price for the whole place.</>
-          : bookingMode === "UNITS"
-            ? <><Info className="h-3.5 w-3.5" aria-hidden />Several self-contained units at this address. A booking takes one whole unit, with everything inside it. The other units stay free for other guests.</>
-            : <><Info className="h-3.5 w-3.5" aria-hidden />Guests pick a room. Each room type gets its own beds, photos and nightly price.</>}
-    </p>
-  </div>;
-  const modePicker = <>{rentalModeSlot}{bookingPicker}</>;
+  const modePicker = roomOnly && hasSavedWholeUnit ? <div className="mb-3 rounded-lg border border-solid border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100" role="alert">
+    {propertyType} listings use individually bookable rooms. Remove the saved whole-place unit below, then add its room types.
+  </div> : null;
 
   if ((bookingMode === "ENTIRE_UNIT" || bookingMode === "UNITS") && (!roomOnly || hasSavedWholeUnit)) return <AddPropertySection as="section" sectionRef={sectionRef} isVisible={isVisible} className="add-property-step-surface">
     {isVisible && <div className="w-full">{modePicker}<EntireUnitEditor
@@ -451,7 +407,7 @@ export function RoomsStep({
       bathOptions={BATH_ITEMS} sharedOptions={ROOM_ITEMS}
       monthly={monthly}
     />{longStaySlot}</div>}
-    {isVisible && <StepFooter onPrev={goToPreviousStep} onNext={goToNextStep} prevDisabled={currentStep <= 0} nextDisabled={currentStep >= 5} />}
+    {isVisible && <StepFooter onPrev={goToPreviousStep} onNext={goToNextStep} prevDisabled={currentStep <= 0} nextDisabled={currentStep >= 6} />}
   </AddPropertySection>;
 
   return (
@@ -1205,7 +1161,7 @@ export function RoomsStep({
           onPrev={goToPreviousStep}
           onNext={goToNextStep}
           prevDisabled={currentStep <= 0}
-          nextDisabled={currentStep >= 5}
+          nextDisabled={currentStep >= 6}
         />
       )}
     </AddPropertySection>

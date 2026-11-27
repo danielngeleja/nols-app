@@ -39,6 +39,7 @@ const ESSENTIAL_AREAS: PhotoArea[] = ["OUTSIDE", "ENTRANCE", "LIVING", "KITCHEN"
 
 export function PhotosStep({
   isVisible,
+  sectionRef,
   photos,
   photosSaved,
   photosUploading,
@@ -54,6 +55,7 @@ export function PhotosStep({
   currentStep,
 }: {
   isVisible: boolean;
+  sectionRef?: (el: HTMLElement | null) => void;
   photos: string[];
   photosSaved: boolean[];
   photosUploading: boolean[];
@@ -71,10 +73,8 @@ export function PhotosStep({
   currentStep: number;
 }) {
   const handleSectionRef = useCallback((el: HTMLElement | null) => {
-    if (!el) {
-      return;
-    }
-  }, []);
+    sectionRef?.(el);
+  }, [sectionRef]);
 
   const [isDragging, setIsDragging] = useState(false);
   const dragDepth = useRef(0);
@@ -481,7 +481,7 @@ export function PhotosStep({
           onPrev={goToPreviousStep}
           onNext={goToNextStep}
           prevDisabled={currentStep <= 0}
-          nextDisabled={currentStep >= 5}
+          nextDisabled={currentStep >= 6}
         />
       )}
     </AddPropertySection>

@@ -55,6 +55,10 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Property Submitted for Review",
         body: `A new property "${data.propertyTitle || 'Property'}" has been submitted for review and is awaiting your approval.`
       },
+      event_hire_submitted: {
+        title: "Event hire to review",
+        body: `"${data.propertyTitle || "A property"}" asks to be hired for events (up to ${data.capacityStanding || "?"} guests). The owner confirmed${data.via === "SMS_LINK" ? " by SMS link" : " in the app"}. Review it in Properties, Event hire.`
+      },
       property_approved: {
         title: "Property Approved",
         body: `Property "${data.propertyTitle || 'Property'}" has been approved${data.approvedByName ? ` by ${data.approvedByName}` : ''}.`
@@ -628,6 +632,14 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       property_approved: {
         title: "Property Approved",
         body: `Great news! Your property "${data.propertyTitle || 'Property'}" has been approved and is now live on the platform.`
+      },
+      event_hire_approved: {
+        title: "Event hire approved",
+        body: `"${data.propertyTitle || "Your property"}" is approved for event hire. NoLSAF sales partners can offer it for events once event booking opens.`
+      },
+      event_hire_returned: {
+        title: "Event hire needs changes",
+        body: `NoLSAF looked at the event hire for "${data.propertyTitle || "your property"}". ${data.reason ? `What to change: ${data.reason}` : "Open it to see what to change."}`
       },
       property_rejected: {
         title: "Property Review Update",

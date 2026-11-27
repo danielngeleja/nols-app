@@ -94,6 +94,14 @@ export const SETTLE_RULES: Record<string, Rule> = {
       (s) => (s === "PENDING" ? null : `The property was ${lower(s)}.`), "The property no longer exists.",
     ),
   },
+  // Closes "Event hire to review" once an admin approved or returned it, or the owner changed it again.
+  event_hire_submitted: {
+    field: "eventHireId",
+    check: async (client, ids) => byStatus(
+      await client.propertyEventHire.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } }), ids,
+      (s) => (s === "PENDING" ? null : `The event hire is ${lower(s)}.`), "The event hire no longer exists.",
+    ),
+  },
   careers_application_submitted: {
     field: "applicationId",
     check: async (client, ids) => byStatus(

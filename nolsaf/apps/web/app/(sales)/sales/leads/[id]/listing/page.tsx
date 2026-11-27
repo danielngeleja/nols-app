@@ -77,6 +77,7 @@ export default function SalesAssistedListingPage() {
       },
       doneHref: () => `/sales/leads/${leadRef}#assisted-listing`,
       longStayRequestHref: `/sales/leads/${leadRef}#long-stay-request`,
+      eventHireHref: `/sales/leads/${leadRef}/events`,
       doneLabel: "Back to the lead",
       doneNote: "Follow its progress on the lead page.",
       successTitle: "Sent to NoLSAF for review",

@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Banknote, CalendarRange, Check, Droplets, FileText, Home, Info, Minus, Pencil, Plus, ShieldCheck, Wallet, Wifi, X, Zap } from "lucide-react";
+import { Banknote, CalendarRange, Check, Droplets, FileText, Home, Info, Minus, Moon, Pencil, Plus, ShieldCheck, Wallet, Wifi, X, Zap } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { useLongStayApiBase } from "@/components/longStay/longStayApiBase";
@@ -741,20 +741,23 @@ export function RentalModeSwitch({ value, onChange, lockedReason, blocker, onCle
 }) {
   const what = blocker ? `${blocker.count} saved ${blocker.units ? (blocker.count === 1 ? "unit" : "units") : (blocker.count === 1 ? "room type" : "room types")}` : "";
   return (
-    <div className="ap-mode-bar">
-      <div className="ap-mode-row">
-        <p className="ap-mode-q">How do you rent it out?</p>
-        <div className="ap-mode-seg" role="radiogroup" aria-label="How you rent it" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
-          {([["NIGHTLY", "By the night"], ["LONG_STAY", "Monthly (long stay)"]] as const).map(([key, label]) => (
+    <div className="ap-setup-rental">
+        <div className="ap-setup-rental-options" role="radiogroup" aria-label="How you rent it">
+          {([["NIGHTLY", "Nightly stays"], ["LONG_STAY", "Monthly rental"]] as const).map(([key, label]) => (
             <button key={key} type="button" role="radio" aria-checked={value === key} disabled={key === "LONG_STAY" && Boolean(lockedReason) && value !== "LONG_STAY"}
-              className={`ap-mode-seg-btn${value === key ? " is-on" : ""}`} onClick={() => onChange(key)}>
-              {key === "LONG_STAY" ? <CalendarRange className="h-4 w-4" aria-hidden /> : null}{label}
+              className={`ap-setup-choice${value === key ? " is-selected" : ""}`} onClick={() => onChange(key)}>
+              <span className="ap-setup-choice-top">
+                <span className="ap-setup-icon">{key === "LONG_STAY" ? <CalendarRange aria-hidden /> : <Moon aria-hidden />}</span>
+                {value === key ? <span className="ap-setup-selected"><Check aria-hidden />Selected</span> : <span className="ap-setup-radio" aria-hidden />}
+              </span>
+              <strong>{label}</strong>
+              <span className="ap-setup-description">{key === "LONG_STAY" ? "One tenant makes the whole home their own." : "Host guests for a night, a weekend or longer."}</span>
+              <span className="ap-setup-choice-meta">{key === "LONG_STAY" ? "3, 6 or 12 months" : "Priced per night"}</span>
             </button>
           ))}
         </div>
-      </div>
       {blocker ? (
-        <div role="alertdialog" aria-labelledby="monthly-ask-title" className="mt-3 rounded-lg border border-solid border-amber-200 bg-amber-50/70 p-3.5">
+        <div role="alertdialog" aria-labelledby="monthly-ask-title" className="ap-setup-blocker mt-3 rounded-lg border border-solid border-amber-200 bg-amber-50 p-3.5">
           <p id="monthly-ask-title" className="m-0 flex items-center gap-2 text-[13.5px] font-semibold text-amber-900">
             <Home className="h-4 w-4 shrink-0" aria-hidden />Monthly rents the whole home to one tenant
           </p>
@@ -775,14 +778,12 @@ export function RentalModeSwitch({ value, onChange, lockedReason, blocker, onCle
             </button>
           </div>
         </div>
-      ) : (
-        <p className="ap-mode-hint">
+      ) : lockedReason ? (
+        <p className="ap-setup-note">
           <Info className="h-3.5 w-3.5" aria-hidden />
-          {lockedReason || (value === "LONG_STAY"
-            ? "Tenants rent the whole home for months. You set the monthly rent and terms below instead of a nightly price."
-            : "Guests book nights. Choose monthly to rent the whole home for 3, 6 or 12 months.")}
+          {lockedReason}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

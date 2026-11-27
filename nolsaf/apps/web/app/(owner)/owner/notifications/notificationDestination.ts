@@ -25,6 +25,9 @@ export function notificationDestination(meta: Record<string, unknown>): Destinat
   if (propertyId && ["property_submitted", "property_approved", "property_rejected", "property_suspended", "property_unsuspended"].includes(kind)) {
     return { href: `/owner/properties/${propertyId}`, label: "View property" };
   }
+  if (propertyId && (kind === "event_hire_approved" || kind === "event_hire_returned")) {
+    return { href: `/owner/properties/${propertyId}/events`, label: kind === "event_hire_returned" ? "Fix event hire" : "View event hire" };
+  }
   if (kind === "property_review_received") {
     return { href: "/owner/reviews", label: "Read and reply" };
   }

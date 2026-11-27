@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { twMerge } from "tailwind-merge";
-import { Check, Home, Building, Building2, TreePine, Hotel, HelpCircle, Car, Shield, Bus, Bed, BedDouble, BedSingle, CheckCircle2, AlertCircle, MapPin,
+import { Check, Home, Building, Building2, TreePine, Hotel, HelpCircle, Car, Shield, Bus, Bed, BedDouble, BedSingle, CheckCircle2, AlertCircle, MapPin, PartyPopper,
   Navigation, Crosshair, Users, X, ArrowRight, ImageIcon, Loader2, Hospital, Pill, Plane, Fuel, Route, Building as BuildingIcon, Lock, ExternalLink, Edit2, Clock, Bell } from "lucide-react";
 import axios from "axios";import apiClient from "@/lib/apiClient";
 import { ownerPropertyPath, resolveOwnerPropertyRef } from "@/lib/ownerPropertyRefs";
@@ -21,6 +21,8 @@ import { EMPTY_LONG_STAY_TERMS, LongStayTermsCard, RentalModeSwitch, longStayTer
 import { cleanFloorUses, parseFloorUses, type FloorUses } from "./floorUses";
 import { ServicesStep } from "./ServicesStep";
 import { ReviewStep } from "./ReviewStep";
+import { ListingSetupStep, NightlyOffering } from "./ListingSetupStep";
+import { restoreListingStep } from "./listingFlow";
 import { BasicsStep } from "./BasicsStep";
 import { ResumeDraftScreen } from "./ResumeDraftScreen";
 import "@/styles/add-property.css";
@@ -257,6 +259,8 @@ export type ListingWizardAdapter = {
   longStayApiBase?: string;
   /** Assisted mode: where a partner asks NoLSAF to switch long stay on. */
   longStayRequestHref?: string;
+  /** Separate event setup for this assisted listing. Owners resolve their property route. */
+  eventHireHref?: string;
 };
 
 export const OWNER_LISTING_ADAPTER: ListingWizardAdapter = {
@@ -285,6 +289,8 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   useEffect(()=>{ authify(); },[]);
 
   const [propertyId, setPropertyId] = useState<number|null>(null);
+  const [openingEvents, setOpeningEvents] = useState(false);
+  const [eventSetupError, setEventSetupError] = useState("");
   const [systemCommission, setSystemCommission] = useState<number | null>(null);
   const [savedCommissionOverride, setSavedCommissionOverride] = useState<number | null>(null);
 
@@ -543,6 +549,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   // collapses — only the active step is expanded to keep focus.
   // By default show only the first step; others are hidden until navigated.
   const [showBasics, setShowBasics] = useState(true);
+  const [showSetup, setShowSetup] = useState(false);
   const [showRooms, setShowRooms] = useState(false);
   const [showServices, setShowServices] = useState(false);
   const [showPhotos, setShowPhotos] = useState(false);
@@ -952,6 +959,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           acceptGroupBooking, freeCancellation, paymentModes,
           rentalMode, longStayTerms,
           currentStep,
+          flowVersion: 2,
           visitedSteps: Array.from(visitedSteps),
           timestamp: new Date().toISOString(),
         };
@@ -1238,25 +1246,26 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   };
 
   const goToNextStep = () => {
-    if (currentStep < 5) {
+    if (currentStep < 6) {
       if (currentStep === 0) {
         const ok = validateBasics();
         if (!ok) return;
       }
-      if (currentStep >= 1 && roomStepError) {
+      if (currentStep === 1 && (monthlyAsk || (isLongStay && !canOfferLongStay))) return;
+      if (currentStep >= 2 && roomStepError) {
         alert(roomStepError);
-        if (currentStep > 1) scrollToStep(1, true);
+        if (currentStep > 2) scrollToStep(2, true);
         return;
       }
-      if (currentStep === 2 && !servicesCompleted) {
+      if (currentStep === 3 && !servicesCompleted) {
         alert('Please complete the Services section before continuing.');
         return;
       }
-      if (currentStep === 3 && !totalsCompleted) {
+      if (currentStep === 4 && !totalsCompleted) {
         alert('Please complete the Totals & Description section before continuing.');
         return;
       }
-      if (currentStep === 4 && photos.length < 3) {
+      if (currentStep === 5 && photos.length < 3) {
         alert(`Please add at least 3 photos (${photos.length}/3 added).`);
         return;
       }
@@ -1279,23 +1288,24 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   const scrollToStep = (i: number, skipValidation = false) => {
     // Validate the current step before any forward jump
     if (!skipValidation && i > currentStep) {
+      if (currentStep === 1 && (monthlyAsk || (isLongStay && !canOfferLongStay))) return;
       if (currentStep === 0) {
         const ok = validateBasics();
         if (!ok) return;
       }
-      if (i > 1 && roomStepError) {
+      if (i > 2 && roomStepError) {
         alert(roomStepError);
         return;
       }
-      if (currentStep === 2 && !servicesCompleted) {
+      if (currentStep === 3 && !servicesCompleted) {
         alert('Please complete the Services section before continuing.');
         return;
       }
-      if (currentStep === 3 && !totalsCompleted) {
+      if (currentStep === 4 && !totalsCompleted) {
         alert('Please complete the Totals & Description section before continuing.');
         return;
       }
-      if (currentStep === 4 && photos.length < 3) {
+      if (currentStep === 5 && photos.length < 3) {
         alert(`Please add at least 3 photos (${photos.length}/3 added).`);
         return;
       }
@@ -1305,13 +1315,14 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     setCurrentStep(i);
     // Open only the target step
     setShowBasics(i === 0);
-    setShowRooms(i === 1);
-    setShowServices(i === 2);
-    setShowTotals(i === 3);
-    setShowPhotos(i === 4);
-    setShowReview(i === 5);
+    setShowSetup(i === 1);
+    setShowRooms(i === 2);
+    setShowServices(i === 3);
+    setShowTotals(i === 4);
+    setShowPhotos(i === 5);
+    setShowReview(i === 6);
     // Announce opened step for screen readers
-    const stepNames = ['Basic details','Room & Bathroom','Services','Totals & Description','Property Photos','Review & Submit'];
+    const stepNames = ['Basic details','Listing setup','Room & Bathroom','Services','Totals & Description','Property Photos','Review & Submit'];
     setAnnouncement(`Opened ${stepNames[i]}`);
 
     // small timeout to allow expand animation / layout before scrolling
@@ -1326,12 +1337,13 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   // Update current step when sections change
   useEffect(() => {
     if (showBasics) setCurrentStep(0);
-    else if (showRooms) setCurrentStep(1);
-    else if (showServices) setCurrentStep(2);
-    else if (showTotals) setCurrentStep(3);
-    else if (showPhotos) setCurrentStep(4);
-    else if (showReview) setCurrentStep(5);
-  }, [showBasics, showRooms, showServices, showTotals, showPhotos, showReview]);
+    else if (showSetup) setCurrentStep(1);
+    else if (showRooms) setCurrentStep(2);
+    else if (showServices) setCurrentStep(3);
+    else if (showTotals) setCurrentStep(4);
+    else if (showPhotos) setCurrentStep(5);
+    else if (showReview) setCurrentStep(6);
+  }, [showBasics, showSetup, showRooms, showServices, showTotals, showPhotos, showReview]);
 
   type CloudinarySig = {
     timestamp: number;
@@ -1898,6 +1910,27 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     // if this is a Hotel, ensure a star rating was chosen
     (!isHotel || (typeof hotelStar === "string" && hotelStar !== ""));
 
+  async function openEventSetup() {
+    if (openingEvents || isLongStay || !validateBasics()) return;
+    setOpeningEvents(true);
+    setEventSetupError("");
+    try {
+      // Save the shared location and property details as a draft. Venue setup
+      // has its own validation and approval; it does not require room inventory.
+      const id = await adapter.save(propertyId, payload());
+      if (!id) throw new Error("Could not save the property. Please try again.");
+      setPropertyId(id);
+      const href = adapter.mode === "owner"
+        ? await ownerPropertyPath(id, "/events")
+        : adapter.eventHireHref;
+      if (!href) throw new Error("Open event hire from this lead's listing card.");
+      window.location.assign(href);
+    } catch (error: any) {
+      setEventSetupError(error?.response?.data?.error || error?.message || "Could not open event setup.");
+      setOpeningEvents(false);
+    }
+  }
+
 
   function submitForReview() {
     if (!completeEnough) {
@@ -2043,9 +2076,10 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
       if (draft.longStayTerms && typeof draft.longStayTerms === "object") setLongStayTerms({ ...EMPTY_LONG_STAY_TERMS, ...draft.longStayTerms });
     }
 
-    const step = typeof draft.currentStep === "number" ? Math.max(0, Math.min(5, draft.currentStep)) : 0;
+    const restoreStep = (value: unknown) => restoreListingStep(value, draft.flowVersion);
+    const step = restoreStep(draft.currentStep);
     const visited = Array.isArray(draft.visitedSteps)
-      ? new Set<number>(draft.visitedSteps.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n)))
+      ? new Set<number>([0, ...(draft.flowVersion !== 2 && step > 0 ? [1] : []), ...draft.visitedSteps.map(restoreStep)])
       : new Set<number>(Array.from({ length: step + 1 }, (_, i) => i));
     setVisitedSteps(visited);
     setShowResumeDraft(false);
@@ -2092,12 +2126,13 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   // stepper pill and the "Next" hint, so the thing they are told is coming is
   // spelled the same as the button they will click. Defined together because
   // these two drifted apart once already ("Rooms" against "Room & bathroom").
-  const stepTitles = ["Basic details", "Room & bathroom", "Services", "Totals & description", "Property photos", "Review & submit"] as const;
-  const stepShortTitles = ["Basic details", "Rooms", "Services", "Totals", "Photos", "Review"] as const;
+  const stepTitles = ["Basic details", "Listing setup", "Room & bathroom", "Services", "Totals & description", "Property photos", "Review & submit"] as const;
+  const stepShortTitles = ["Basic details", "Listing setup", "Rooms", "Services", "Totals", "Photos", "Review"] as const;
   // One line of purpose per step. The header used to repeat the step name and
   // the word "Pending" six times and say nothing about the work itself.
   const stepBlurbs = [
     "Name the place and pin exactly where guests will find it.",
+    "Choose how you offer the property and what each booking includes.",
     "Set up the rooms, beds and bathrooms guests can book.",
     "Tell guests what you offer on the property and nearby.",
     "Confirm capacity, pricing and how you describe the place.",
@@ -2186,11 +2221,12 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
 
   const stepsMeta = [
     { index: 0, title: stepShortTitles[0], completed: title.trim().length >= 3 && !!regionId && !!district && typeof latitude === 'number' && typeof longitude === 'number' },
-    { index: 1, title: stepShortTitles[1], completed: !roomStepError },
-    { index: 2, title: stepShortTitles[2], completed: servicesCompleted },
-    { index: 3, title: stepShortTitles[3], completed: totalsCompleted },
-    { index: 4, title: stepShortTitles[4], completed: photos.length >= 3 },
-    { index: 5, title: stepShortTitles[5], completed: false },
+    { index: 1, title: stepShortTitles[1], completed: !monthlyAsk && (!isLongStay || canOfferLongStay) },
+    { index: 2, title: stepShortTitles[2], completed: !roomStepError },
+    { index: 3, title: stepShortTitles[3], completed: servicesCompleted },
+    { index: 4, title: stepShortTitles[4], completed: totalsCompleted },
+    { index: 5, title: stepShortTitles[5], completed: photos.length >= 3 },
+    { index: 6, title: stepShortTitles[6], completed: false },
   ] as const;
 
   const totalDefinedRooms = definedRooms.reduce((sum, room) => sum + (Number(room?.roomsCount) || 0), 0);
@@ -2238,7 +2274,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                       done. Names show from tablet up; on a phone the title above
                       already names the step. */}
                   <nav className="ap-rail" aria-label={`Step ${currentStep + 1} of ${stepTitles.length}`}>
-                    <ol>
+                    <ol style={{ gridTemplateColumns: `repeat(${stepTitles.length}, minmax(0, 1fr))` }}>
                       {stepsMeta.map((s) => {
                         const isActive = currentStep === s.index;
                         const isPast = currentStep > s.index;
@@ -2330,9 +2366,32 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           REGIONS={REGIONS}
         />
 
-        {/* ROOM TYPES */}
-        <RoomsStep
+        <ListingSetupStep
+          isVisible={showSetup}
+          sectionRef={(el) => { sectionRefs.current[1] = el; }}
           monthly={isLongStay}
+          propertyType={type}
+          bookingMode={bookingMode}
+          savedCount={definedRooms.length}
+          onBookingModeChange={(mode) => {
+            setBookingMode(mode);
+            setRoomType(mode === "ENTIRE_UNIT" ? (type || "Villa") : mode === "UNITS" ? "" : "Single");
+            setRoomsCount(mode === "ROOM" ? "" : 1);
+          }}
+          onPrev={goToPreviousStep}
+          onNext={goToNextStep}
+          eventModeSlot={adapter.mode === "owner" || adapter.eventHireHref ? (
+            <>
+              <button type="button" disabled={openingEvents || isLongStay || loadingProperty} onClick={() => void openEventSetup()} className="ap-setup-choice ap-setup-event">
+                <span className="ap-setup-choice-top"><span className="ap-setup-icon"><PartyPopper aria-hidden /></span><span className="ap-setup-badge">Dedicated setup</span></span>
+                <strong>Event venue</strong>
+                <span className="ap-setup-description">Offer your space for meetings, celebrations and gatherings.</span>
+                <span className="ap-setup-choice-meta">{openingEvents ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving property…</> : <>Open event setup <ArrowRight aria-hidden /></>}</span>
+              </button>
+              {isLongStay ? <p className="ap-setup-note">Event hire is unavailable for monthly homes. Change the rental mode first.</p> : null}
+              {eventSetupError ? <p role="alert" className="ap-setup-note text-rose-400">{eventSetupError}</p> : null}
+            </>
+          ) : null}
           rentalModeSlot={canOfferLongStay || isLongStay ? (
             <RentalModeSwitch
               value={rentalMode}
@@ -2343,17 +2402,24 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
               lockedReason={!canOfferLongStay && isLongStay ? (longStayEligibility?.refusal || "Long stays are not available for this listing type.") : null}
             />
           ) : longStayAskHref ? (
+            <><NightlyOffering />
             <a
               href={longStayAskHref}
-              className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-solid border-slate-200 bg-white px-3 py-2.5 text-sm no-underline transition hover:border-[#02665e]/40 hover:bg-[#02665e]/[0.04] hover:no-underline"
+              className="ap-setup-choice ap-setup-request"
             >
               <span className="min-w-0">
-                <span className="block font-semibold text-slate-900">Monthly tenants?</span>
-                <span className="block text-xs text-slate-500">Ask NoLSAF to switch on long stay for this owner.</span>
+                <strong>Monthly rental</strong>
+                <span className="ap-setup-description">Ask NoLSAF to switch on long stay for this owner.</span>
               </span>
-              <span className="shrink-0 text-xs font-semibold text-[#02665e]">Request</span>
+              <span className="ap-setup-choice-meta">Request access <ArrowRight aria-hidden /></span>
             </a>
+            </>
           ) : null}
+        />
+
+        {/* ROOM TYPES */}
+        <RoomsStep
+          monthly={isLongStay}
           longStaySlot={isLongStay ? (
             <div className="mt-4">
               <LongStayTermsCard value={longStayTerms} onChange={setLongStayTerms} number={definedRooms.length > 0 ? 2 : 4} bookingsOpen={Boolean(longStayEligibility?.bookingsOpen)} onPreviewLease={() => setLeasePreviewOpen(true)} />
@@ -2361,7 +2427,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           ) : null}
           isVisible={showRooms}
           sectionRef={(el) => {
-            sectionRefs.current[1] = el;
+            sectionRefs.current[2] = el;
           }}
           currentStep={currentStep}
           goToPreviousStep={goToPreviousStep}
@@ -2369,7 +2435,6 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           buildingType={buildingType}
           propertyType={type}
           bookingMode={bookingMode}
-          setBookingMode={setBookingMode}
           unitBedrooms={unitBedrooms}
           setUnitBedrooms={setUnitBedrooms}
           totalFloors={totalFloors}
@@ -2434,7 +2499,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
         <ServicesStep
           isVisible={showServices}
           sectionRef={(el) => {
-            sectionRefs.current[2] = el;
+            sectionRefs.current[3] = el;
           }}
           currentStep={currentStep}
           goToPreviousStep={goToPreviousStep}
@@ -2454,7 +2519,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
         <TotalsStep
           isVisible={showTotals}
           sectionRef={(el) => {
-            sectionRefs.current[3] = el;
+            sectionRefs.current[4] = el;
           }}
           totalBedrooms={totalBedrooms}
           totalBathrooms={totalBathrooms}
@@ -2478,6 +2543,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
         {/* PROPERTY PHOTOS */}
         <PhotosStep
           isVisible={showPhotos}
+          sectionRef={(el) => { sectionRefs.current[5] = el; }}
           photos={photos}
           photosSaved={photosSaved}
           photosUploading={photosUploading}
@@ -2497,7 +2563,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
         <ReviewStep
           isVisible={showReview}
           sectionRef={(el) => {
-            sectionRefs.current[5] = el;
+            sectionRefs.current[6] = el;
           }}
           goToPreviousStep={goToPreviousStep}
           submitForReview={submitForReview}
@@ -2549,7 +2615,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
               })(),
               rules: livingRuleLines(leaseRulesPayload(houseRules)),
               onPreviewLease: () => setLeasePreviewOpen(true),
-              onEditTerms: () => scrollToStep(1, true),
+              onEditTerms: () => scrollToStep(2, true),
             } : null,
           }}
         />
@@ -2931,7 +2997,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                 ) : submitIssue.kind === "photos" ? (
                   <button
                     type="button"
-                    onClick={() => { setSubmitIssue(null); scrollToStep(4, true); }}
+                    onClick={() => { setSubmitIssue(null); scrollToStep(5, true); }}
                     className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border-0 bg-[#02665e] text-sm font-semibold text-white transition hover:bg-[#02554e]"
                   >
                     Go to photos

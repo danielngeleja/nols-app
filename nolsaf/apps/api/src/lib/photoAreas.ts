@@ -18,6 +18,7 @@ export const PHOTO_AREAS = [
   "PARKING",
   "LAUNDRY",
   "WORKSPACE",
+  "EVENT_SPACE",
   "OTHER",
 ] as const;
 
@@ -36,6 +37,7 @@ export const PHOTO_AREA_LABELS: Record<PhotoArea, string> = {
   PARKING: "Parking",
   LAUNDRY: "Laundry",
   WORKSPACE: "Workspace",
+  EVENT_SPACE: "Event space",
   OTHER: "Other",
 };
 

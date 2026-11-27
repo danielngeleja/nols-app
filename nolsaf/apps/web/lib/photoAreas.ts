@@ -17,6 +17,7 @@ export const PHOTO_AREAS = [
   { key: "PARKING", label: "Parking" },
   { key: "LAUNDRY", label: "Laundry" },
   { key: "WORKSPACE", label: "Workspace" },
+  { key: "EVENT_SPACE", label: "Event space" },
   { key: "OTHER", label: "Other" },
 ] as const;
 

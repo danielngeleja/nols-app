@@ -1092,7 +1092,7 @@ const handleSectionRef = useCallback(
             onPrev={goToPreviousStep}
             onNext={goToNextStep}
             prevDisabled={currentStep <= 0}
-            nextDisabled={currentStep >= 5}
+            nextDisabled={currentStep >= 6}
           />
         </div>
       )}

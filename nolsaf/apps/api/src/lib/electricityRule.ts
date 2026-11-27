@@ -31,6 +31,15 @@ export function withCleanElectricity(houseRules: unknown): unknown {
   return clean ? { ...rest, electricity: clean } : rest;
 }
 
+/** The stored rule from a property's services JSON, or null when electricity is included. */
+export function readElectricityRuleFromServices(services: unknown): ElectricityRule | null {
+  let parsed: any = services;
+  if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { parsed = null; } }
+  let rules: any = parsed?.houseRules;
+  if (typeof rules === "string") { try { rules = JSON.parse(rules); } catch { rules = null; } }
+  return sanitizeElectricityRule(rules?.electricity);
+}
+
 /** One line for confirmations: null when electricity is included. */
 export function electricityNotice(services: unknown): string | null {
   let parsed: any = services;

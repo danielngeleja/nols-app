@@ -52,6 +52,7 @@ import adminPerformanceHighlightsRouter from "./admin.performance.highlights";
 import adminPickupPointsRouter from "./admin.pickupPoints";
 import adminPodcastsRouter from "./admin.podcasts";
 import adminPropertiesRouter from "./admin.properties.js";
+import { adminEventHireRouter } from "./eventHire.js";
 import adminReferralEarningsRouter from "./admin.referral-earnings";
 import adminReportsRouter from "./admin.reports";
 import adminRevenueRouter from "./admin.revenue";
@@ -203,6 +204,7 @@ export function registerAdminPostPaymentRoutes(app: Express): void {
   app.use("/api/admin/long-stay", adminLongStayRouter as RequestHandler);
   app.use("/admin/properties", adminPropertiesRouter);
   app.use("/api/admin/properties", adminPropertiesRouter as RequestHandler);
+  app.use("/api/admin/event-hire", adminEventHireRouter as RequestHandler);
   app.use("/admin/summary", requireRole("ADMIN") as RequestHandler, adminSummaryRouter as RequestHandler);
   app.use("/api/admin/summary", requireRole("ADMIN") as RequestHandler, adminSummaryRouter as RequestHandler);
   app.use("/admin/performance", requireRole("ADMIN") as RequestHandler, adminPerformanceHighlightsRouter as RequestHandler);

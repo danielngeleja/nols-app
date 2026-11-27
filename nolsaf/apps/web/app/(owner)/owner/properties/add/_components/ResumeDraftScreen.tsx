@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight, Clock, Cloud, Laptop, Plus } from "lucide-react";
+import { restoreListingStep } from "./listingFlow";
 
 type LocalDraft = {
   title?: string;
@@ -8,6 +9,7 @@ type LocalDraft = {
   district?: string;
   timestamp?: string;
   currentStep?: number;
+  flowVersion?: number;
 };
 
 type ServerDraft = {
@@ -43,8 +45,7 @@ export function ResumeDraftScreen({
   const hasAny = !!localDraft || serverDrafts.length > 0;
   if (!hasAny) return null;
 
-  const localStep =
-    typeof localDraft?.currentStep === "number" && localDraft.currentStep >= 0 ? localDraft.currentStep : 0;
+  const localStep = restoreListingStep(localDraft?.currentStep, localDraft?.flowVersion);
   const localStepTitle = stepTitles[localStep] || "Basic details";
   const totalSteps = stepTitles.length || 6;
   const localPct = Math.round(((localStep + 1) / totalSteps) * 100);

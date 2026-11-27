@@ -51,6 +51,10 @@ import { AccessRequestError, longStayAccessView, requestLongStayAccess } from ".
 import { assistedLongStayDraftRefusal, landlordGate } from "../lib/longStay/listing.js";
 import { longStayEligibilityBody, longStayLeasePreviewFor, longStayQuoteFor } from "../lib/longStay/listingTools.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { sendSms } from "../lib/sms.js";
+import { webOrigin } from "../lib/salesPartnerCard.js";
+import { eventHireView, loadEventHire, loadPropertyForEvents, saveEventTerms, sendToOwner, setEventSpacePhotos, setExtraEventPhotos } from "../lib/eventHire.js";
+import { sendEventHireError } from "./eventHire.js";
 
 const router = Router();
 const db = prisma as any;
@@ -452,5 +456,110 @@ router.post("/leads/:id/assisted-listing/long-stay/lease-preview", limitSalesLea
 router.get("/leads/:id/assisted-listing/property", limitSalesLeadRead as any, scopeAssisted("read"), getListingProperty);
 router.put("/leads/:id/assisted-listing/property", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, scopeAssisted("write"), updateListingProperty);
 router.post("/leads/:id/assisted-listing/submit", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, scopeAssisted("write"), submitListingProperty);
+
+// ---------- Hire for events (docs/SALES_AGENCY_EVENT_HIRE_STRATEGY.md section 4) ----------
+// The partner fills the event terms for the owner they list for; the owner
+// gives the consent on an SMS link. Open on any listing that is not cancelled
+// or paused by an owner objection.
+
+async function eventListingFor(req: SalesAuthedRequest, res: Response) {
+  const partnerId = partnerOr403(req, res);
+  if (!partnerId) return null;
+  const row = await db.salesAssistedListing.findFirst({
+    where: { leadId: Number(req.params.id), salesPartnerId: partnerId },
+    select: { id: true, status: true, propertyId: true, ownerUserId: true, ownerAccountOutcome: true, owner: { select: { name: true, fullName: true, phone: true } } },
+  });
+  if (!row) { res.status(404).json({ error: "No listing has been started for this lead" }); return null; }
+  if (row.status === "CANCELLED" || row.status === "PAUSED_OBJECTION") { res.status(409).json({ error: "This listing is paused or withdrawn." }); return null; }
+  return { partnerId, row };
+}
+
+router.get("/leads/:id/assisted-listing/event-hire", limitSalesLeadRead as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const found = await eventListingFor(req, res);
+  if (!found) return;
+  try {
+    const property = await loadPropertyForEvents(db, found.row.propertyId);
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ ...eventHireView(await loadEventHire(db, found.row.propertyId), property), ownerPhone: maskOwnerPhone(found.row.owner?.phone) });
+  } catch (error) {
+    if (sendEventHireError(res, error)) return;
+    throw error;
+  }
+}));
+
+router.put("/leads/:id/assisted-listing/event-hire", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const found = await eventListingFor(req, res);
+  if (!found) return;
+  const parsed = z.object({ terms: z.record(z.string(), z.unknown()) }).strict().safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Check the event details." });
+  try {
+    const { row, property } = await saveEventTerms(db, { propertyId: found.row.propertyId, userId: Number((req as any).user.id), by: "SALES_PARTNER", salesPartnerId: found.partnerId, terms: parsed.data.terms });
+    await audit(req as any, "EVENT_HIRE_SAVE", "PROPERTY", null, { status: row.status, by: "SALES_PARTNER" }, found.row.propertyId);
+    return res.json({ ...eventHireView(row, property), ownerPhone: maskOwnerPhone(found.row.owner?.phone) });
+  } catch (error) {
+    if (sendEventHireError(res, error)) return;
+    throw error;
+  }
+}));
+
+/** PUT .../event-hire/photos { urls }: mark the listing photos that show the event space (labels only). */
+router.put("/leads/:id/assisted-listing/event-hire/photos", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const found = await eventListingFor(req, res);
+  if (!found) return;
+  const parsed = z.object({ urls: z.array(z.string().max(2048)).max(60) }).strict().safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Choose the photos again." });
+  try {
+    const current = await loadEventHire(db, found.row.propertyId);
+    // Same rule as the terms: once the owner has confirmed, changes are theirs to make.
+    if (current && !["DRAFT", "AWAITING_OWNER", "RETURNED"].includes(current.status)) {
+      return res.status(409).json({ error: "The owner already confirmed this. Ask them to change it from their account." });
+    }
+    const property = await setEventSpacePhotos(db, found.row.propertyId, parsed.data.urls);
+    await audit(req as any, "EVENT_HIRE_PHOTOS", "PROPERTY", null, { count: parsed.data.urls.length, by: "SALES_PARTNER" }, found.row.propertyId);
+    return res.json({ ...eventHireView(current, property), ownerPhone: maskOwnerPhone(found.row.owner?.phone) });
+  } catch (error) {
+    if (sendEventHireError(res, error)) return;
+    throw error;
+  }
+}));
+
+/** PUT .../event-hire/extra-photos { urls }: event space photos the partner uploaded here (kept off the listing). */
+router.put("/leads/:id/assisted-listing/event-hire/extra-photos", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const found = await eventListingFor(req, res);
+  if (!found) return;
+  const parsed = z.object({ urls: z.array(z.string().max(2048)).max(60) }).strict().safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Upload the photos again." });
+  try {
+    const { row, property } = await setExtraEventPhotos(db, { propertyId: found.row.propertyId, userId: Number((req as any).user.id), by: "SALES_PARTNER", salesPartnerId: found.partnerId, urls: parsed.data.urls });
+    await audit(req as any, "EVENT_HIRE_EXTRA_PHOTOS", "PROPERTY", null, { count: parsed.data.urls.length, by: "SALES_PARTNER" }, found.row.propertyId);
+    return res.json({ ...eventHireView(row, property), ownerPhone: maskOwnerPhone(found.row.owner?.phone) });
+  } catch (error) {
+    if (sendEventHireError(res, error)) return;
+    throw error;
+  }
+}));
+
+/** POST .../event-hire/send: texts the owner a link to check the terms and give their consent. */
+router.post("/leads/:id/assisted-listing/event-hire/send", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const found = await eventListingFor(req, res);
+  if (!found) return;
+  if (!found.row.owner?.phone) return res.status(409).json({ error: "The owner has no phone number on NoLSAF." });
+  try {
+    const { row, property, token } = await sendToOwner(db, { propertyId: found.row.propertyId });
+    const link = `${webOrigin()}/event-confirm/${encodeURIComponent(token)}`;
+    const profile = await db.salesPartnerProfile.findUnique({ where: { id: found.partnerId }, select: { user: { select: { name: true, fullName: true } } } });
+    const partnerName = profile?.user?.fullName || profile?.user?.name || "Your NoLSAF sales partner";
+    const first = String(found.row.owner.fullName || found.row.owner.name || "").trim().split(/\s+/)[0] || "there";
+    const text = `Habari ${first}. ${partnerName} added event hire for "${property.title || "your property"}" on NoLSAF. Check the guests, hours and prices, then confirm: ${link} If you did not agree to this, say so on the same page.`;
+    const existing = found.row.ownerAccountOutcome === "ATTACHED_EXISTING";
+    const sms = await sendSms(found.row.owner.phone, text, { bypassEligibilityCheck: !existing, sensitiveContent: true }).catch(() => null);
+    const smsSent = Boolean(sms?.success && sms.provider !== "suppressed");
+    await audit(req as any, "EVENT_HIRE_SENT_TO_OWNER", "PROPERTY", null, { smsSent }, found.row.propertyId);
+    return res.json({ ...eventHireView(row, property), ownerPhone: maskOwnerPhone(found.row.owner.phone), smsSent });
+  } catch (error) {
+    if (sendEventHireError(res, error)) return;
+    throw error;
+  }
+}));
 
 export default router;

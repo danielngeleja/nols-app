@@ -16,6 +16,7 @@ import { router as ownerReports } from "./owner.reports";
 import { router as ownerRevenue } from "./owner.revenue";
 import ownerAvailabilityRouter from "./owner.availability";
 import ownerLongStayRouter from "./owner.longStay.js";
+import { ownerEventHireRouter } from "./eventHire.js";
 import ownerNrmsRouter from "./owner.nrms";
 import ownerNrmsRoomsRouter from "./owner.nrms.rooms";
 import ownerNrmsCalendarRouter from "./owner.nrms.calendar";
@@ -52,6 +53,8 @@ export function registerOwnerPropertyRoutes(app: Express): void {
   app.use("/owner/properties", ownerPropLayout);
   app.use("/api/owner/properties", ownerProperties);
   app.use("/api/owner/properties", ownerPropLayout);
+  // Hire for events add-on (docs/SALES_AGENCY_EVENT_HIRE_STRATEGY.md).
+  app.use("/api/owner/properties", ownerEventHireRouter as RequestHandler);
 }
 
 export function registerOwnerReportsRoute(app: Express): void {

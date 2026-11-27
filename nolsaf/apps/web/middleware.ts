@@ -275,6 +275,8 @@ export function middleware(req: NextRequest) {
     path.startsWith("/nrms/guest/review/") ||
     path.startsWith("/nrms/supplier-order/") ||
     path === "/account/sign-out-device" ||
+    path.startsWith("/q/") ||
+    path.startsWith("/event-confirm/") ||
     isSignedTourDocument;
   response.headers.set(
     "Referrer-Policy",

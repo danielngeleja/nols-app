@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Building2, CheckCircle2, Clock3, Loader2, MessageSquare, PauseCircle, Send, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, CheckCircle2, Clock3, Loader2, MessageSquare, PartyPopper, PauseCircle, Send, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 export type AssistedListingSummary = {
@@ -302,6 +302,16 @@ export default function AssistedListingCard({ leadRef, onChanged, onState }: { l
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               )
+            ) : null}
+
+            {listing.status !== "CANCELLED" && listing.status !== "PAUSED_OBJECTION" ? (
+              <Link
+                href={`/sales/leads/${leadRef}/events`}
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-solid border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 no-underline transition hover:border-[#02665e] hover:text-[#02665e] hover:no-underline"
+              >
+                <PartyPopper className="h-4 w-4" />
+                Hire for events
+              </Link>
             ) : null}
           </div>
         ) : blocker ? (

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake, BadgeCheck, Smartphone, ClipboardCheck, MessageCircleQuestion, CalendarRange } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake, BadgeCheck, Smartphone, ClipboardCheck, MessageCircleQuestion, CalendarRange, PartyPopper } from "lucide-react";
 import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import { useAdminNavCounts } from "@/lib/useAdminNavCounts";
@@ -233,6 +233,7 @@ const adminDetails: Item[] = [
   { href: "/admin/bookings", label: "Bookings", Icon: Calendar },
   { href: "/admin/bookings/code-requests", label: "Guest codes", Icon: KeyRound },
   { href: "/admin/properties/previews", label: "Previews", Icon: Eye },
+  { href: "/admin/properties/event-hire", label: "Event hire", Icon: PartyPopper },
   { href: "/admin/payments", label: "Payments", Icon: Wallet },
 ];
 
