@@ -68,6 +68,26 @@ export function landlordGateRefusal(gate: LandlordGate): string | null {
   return null;
 }
 
+/**
+ * May an assisted listing (a Sales Partner editing for the owner) save
+ * long-stay terms right now? Yes when the owner is switched on, or while the
+ * partner's request for this listing is waiting (docs/LONG_STAY_RENTALS.md
+ * section 15). Submitting still needs the switch: longStaySubmitRefusal.
+ */
+export async function assistedLongStayDraftRefusal(db: any, propertyId: number | null, ownerUserId: number): Promise<string | null> {
+  const gate = await landlordGate(db, ownerUserId);
+  if (gate.paused) return `Long stays are paused for this owner${gate.pauseReason ? `: ${gate.pauseReason}` : ""}. Contact NoLSAF.`;
+  if (gate.granted) return null;
+  const assisted = propertyId != null
+    ? await db.salesAssistedListing.findUnique({ where: { propertyId }, select: { id: true } })
+    : null;
+  const pending = assisted
+    ? await db.longStayAccessRequest.findFirst({ where: { assistedListingId: assisted.id, status: "PENDING" }, select: { id: true } }).catch(() => null)
+    : null;
+  if (pending) return null;
+  return "Long stay is not switched on for this owner yet. Use \"Request long stay\" on this listing and NoLSAF will review it.";
+}
+
 // ---------- Terms ----------
 
 const UTILITY = z.enum(["INCLUDED", "TENANT"]);
@@ -290,7 +310,8 @@ const HOME_TYPES_ONLY = "Long stays are for houses, apartments, condos, villas, 
  * leaves the listing untouched. `propertyId` is null on create.
  *
  * `assisted` is true when a sales partner edits on the owner's behalf: long
- * stay is not offered there in v1.
+ * stay is allowed once the owner is switched on, or while the partner's
+ * request is waiting (section 15).
  */
 export async function validateRentalMode(db: any, input: {
   propertyId: number | null;
@@ -301,8 +322,9 @@ export async function validateRentalMode(db: any, input: {
   assisted: boolean;
 }): Promise<RentalModeChange> {
   if (input.rentalMode === "LONG_STAY") {
-    if (input.assisted) throw new LongStayListingError("Long stays cannot be set up on an assisted listing.", 403);
-    const refusal = landlordGateRefusal(await landlordGate(db, input.ownerId));
+    const refusal = input.assisted
+      ? await assistedLongStayDraftRefusal(db, input.propertyId, input.ownerId)
+      : landlordGateRefusal(await landlordGate(db, input.ownerId));
     if (refusal) throw new LongStayListingError(refusal, 403);
     if (!isLongStayPropertyType(input.propertyType)) throw new LongStayListingError(HOME_TYPES_ONLY);
     // An existing nightly home keeps its guests: it can turn monthly only once no nightly stay is still to come.

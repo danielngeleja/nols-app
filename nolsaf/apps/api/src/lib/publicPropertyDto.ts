@@ -1,6 +1,7 @@
 import type { PropertyImage } from "@prisma/client";
 import { APPROX_LOCATION_RADIUS_M, approximateCoordinates, hasPublicExactLocation } from "./propertyLocationPrivacy.js";
 import { discountedNightlyNet, roomDiscountPercent } from "./roomDiscount.js";
+import { isPhotoArea } from "./photoAreas.js";
 
 const DEFAULT_PROPERTY_VERIFICATION_METHOD = "Site visit and listing review";
 
@@ -49,6 +50,8 @@ export type PublicPropertyDetail = {
   /** Radius of the area to draw when the location is approximate. */
   locationRadiusMeters: number | null;
   images: string[];
+  /** Area of the home per public image URL (keys match `images`), for the photo tour. */
+  photoAreas?: Record<string, string> | null;
   basePrice: number | null;
   currency: string | null;
   maxGuests: number | null;
@@ -393,6 +396,36 @@ export function toPublicCard(p: any): PublicPropertyCard {
   };
 }
 
+/**
+ * Re-keys the owner's { originalUrl: area } map to the public URLs that
+ * pickImages produces (thumbnail or resized original), so the page can match
+ * them. Only known area keys pass (lib/photoAreas.ts).
+ */
+export function publicPhotoAreas(p: any): Record<string, string> | null {
+  let raw = p?.photoAreas;
+  if (typeof raw === "string") {
+    try { raw = JSON.parse(raw); } catch { raw = null; }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rowByUrl = new Map<string, any>();
+  for (const row of Array.isArray(p?.images) ? p.images : []) {
+    const u = safeString(row?.url);
+    if (u) rowByUrl.set(u, row);
+  }
+  const out: Record<string, string> = {};
+  for (const [url, area] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isPhotoArea(area)) continue;
+    const u = String(url || "").trim();
+    if (!u) continue;
+    const row = rowByUrl.get(u);
+    const thumb = row ? safeString(row.thumbnailUrl) : null;
+    for (const pub of [toPublicImageUrl(thumb || u, thumb ? 900 : 1600), toPublicImageUrl(u, 1600)]) {
+      if (pub) out[pub] = area;
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 export function toPublicDetail(p: any): PublicPropertyDetail {
   const id = Number(p.id);
   const slug = buildPropertySlug(String(p.title || ""), String(p.nrmsBookingKey || ""));
@@ -433,6 +466,7 @@ export function toPublicDetail(p: any): PublicPropertyDetail {
     locationPrecision: exactLocation ? "EXACT" : "APPROXIMATE",
     locationRadiusMeters: exactLocation ? null : APPROX_LOCATION_RADIUS_M,
     images,
+    photoAreas: publicPhotoAreas(p),
     basePrice: effectiveBasePrice,
     currency: p.currency ?? null,
     maxGuests: typeof p.maxGuests === "number" ? p.maxGuests : (p.maxGuests != null ? Number(p.maxGuests) : null),

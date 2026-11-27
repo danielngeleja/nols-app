@@ -43,6 +43,8 @@ function sourceLabel(sourceKey: string, type: string) {
   if (key.startsWith("AGENCY_GROUP:")) return "Agency Desk group stay";
   if (key.startsWith("AGENCY_TOUR:")) return "Agency Desk tour";
   if (key.startsWith("LONG_STAY_INSPECTION:")) return "Long-stay home inspection";
+  if (key.startsWith("TENANCY:")) return "Long-stay tenancy share";
+  if (key.startsWith("REGION_OVERRIDE:")) return "Regional lead override";
   if (key.startsWith("BONUS:")) return "Performance bonus";
   if (key.startsWith("ADJUSTMENT:REVERSAL-")) return "Reversal of an earlier earning";
   if (key.startsWith("ADJUSTMENT:")) return "Adjustment by NoLSAF";
@@ -194,6 +196,9 @@ router.get("/earnings/summary", asyncHandler(async (req: SalesAuthedRequest, res
       AGENCY_STAY: 0,
       AGENCY_GROUP: 0,
       AGENCY_TOUR: 0,
+      LONG_STAY_INSPECTION: 0,
+      LONG_STAY_TENANCY: 0,
+      REGIONAL_OVERRIDE: 0,
       PERFORMANCE_BONUS: 0,
       MANUAL_ADJUSTMENT: 0,
     } as Record<string, number>,

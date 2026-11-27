@@ -136,6 +136,12 @@ const OPTIONAL_SECRETS: SecretConfig[] = [
     description: "Comma-separated AzamPay server IPs for webhook source validation (optional but recommended in production)",
   },
   {
+    key: "AZAMPAY_WEBHOOK_URL_TOKEN",
+    required: false,
+    description: "Secret token in the AzamPay checkout callback URL (?token=), for callbacks that carry no signature. 32+ random characters",
+    validate: (v) => v.trim().length >= 32,
+  },
+  {
     key: "AZAMPAY_WEBHOOK_ENFORCE_TIMESTAMP",
     required: false,
     description: "Set to 'true' to reject AzamPay webhook calls with timestamps older than 5 minutes",

@@ -10,6 +10,8 @@ export function longStayAdminNotificationHref(kind: string, meta: Record<string,
   switch (kind) {
     case "long_stay_tenant_id_submitted":
       return destination("tenants", "id", meta.tenantProfileId);
+    case "long_stay_access_requested":
+      return destination("requests", "ref", meta.accessRequestRef);
     case "long_stay_inspection_needed":
     case "long_stay_inspection_report":
       return destination("inspections", "ref", meta.inspectionRef, kind.endsWith("_report") ? "review" : "todo");

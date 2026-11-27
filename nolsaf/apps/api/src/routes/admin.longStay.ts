@@ -6,6 +6,8 @@
  * GET  /api/admin/long-stay/payments/:ref/events        card attempts and money events on one tenancy
  * GET  /api/admin/long-stay/landlords/:ownerId          the landlord's switch and long-stay listings
  * POST /api/admin/long-stay/landlords/:ownerId          ENABLE | DISABLE | PAUSE | RESUME
+ * GET  /api/admin/long-stay/access-requests?view=       partners asking to switch long stay on for an owner (section 15)
+ * POST /api/admin/long-stay/access-requests/:ref/decide APPROVED (switches the owner on) | DECLINED (note)
  * GET  /api/admin/long-stay/properties/:propertyId      a listing's monthly terms, fee preview, living rules and its
  *                                                       on-site inspections (partner, GPS, checklist, photos) for moderation
  * GET  /api/admin/long-stay/properties/:propertyId/lease-preview  the lease a tenant would sign, with sample names
@@ -58,6 +60,26 @@ import { sampleLeaseText } from "../lib/longStay/leasePreview.js";
 import { ledgerRow } from "../lib/longStay/paymentLedger.js";
 import { sendSms } from "../lib/sms.js";
 import { gatewayFeeRates } from "../lib/gatewayFees.js";
+import { AccessRequestError, decideLongStayAccess, isAccessRequestRef, settleRequestsAlreadySwitchedOn, settleRequestsForSwitchedOnOwner, type SettledRequest } from "../lib/longStay/accessRequest.js";
+
+/** Tells each partner their waiting request was settled because long stay is now on for the owner. */
+async function notifySettledRequests(settled: SettledRequest[]) {
+  for (const request of settled) {
+    try {
+      const [propertyTitle, partner] = await Promise.all([
+        propertyTitleOf(request.propertyId),
+        prisma.salesPartnerProfile.findUnique({ where: { id: request.salesPartnerId }, select: { userId: true } }),
+      ]);
+      if (!partner?.userId) continue;
+      const notice = await createUserNotification(prisma, partner.userId, "long_stay_access_decided", { decision: "APPROVED", propertyTitle, note: "Long stay is on for this owner." }).catch(() => null);
+      if (notice) publishUserNotification(notice);
+    } catch {
+      // A missed notice never undoes the switch; the partner sees it on the lead.
+    }
+  }
+}
+import { sendLongStayOwnerNotice } from "../lib/salesAssistedListing.js";
+import { recommendationsFor } from "../lib/salesRegions.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -128,7 +150,140 @@ router.post("/landlords/:id", asyncHandler(async (req: AuthedRequest, res: Respo
     granted: Boolean(before),
     pausedAt: before?.pausedAt ?? null,
   }, { action, reason }, ownerId);
+  // Switched on here: partners waiting for this owner are answered too.
+  if (action === "ENABLE" || action === "RESUME") {
+    const settled = await settleRequestsForSwitchedOnOwner(prisma, { ownerUserId: ownerId, adminId: req.user!.id, note: "Long stay was switched on for this owner from the owner's page." }).catch(() => []);
+    await notifySettledRequests(settled);
+  }
   return res.json({ ok: true, ...(await landlordSummary(ownerId)) });
+}) as RequestHandler);
+
+// ---------- Long stay for assisted listings (section 15) ----------
+
+const ACCESS_VIEWS = ["PENDING", "APPROVED", "DECLINED", "WITHDRAWN", "ALL"] as const;
+const accessDecisionSchema = z.object({
+  decision: z.enum(["APPROVED", "DECLINED"]),
+  note: z.string().trim().max(300).optional().nullable(),
+}).strict();
+
+function maskedPhone(phone: string | null | undefined) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits.length >= 4 ? `***${digits.slice(-3)}` : null;
+}
+
+/** GET /api/admin/long-stay/access-requests?view= : partners asking to switch long stay on for an owner. */
+router.get("/access-requests", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const view = (ACCESS_VIEWS as readonly string[]).includes(String(req.query.view)) ? String(req.query.view) : "PENDING";
+  let rows: any[] = [];
+  let counts: Record<string, number> = {};
+  try {
+    // An owner switched on some other way leaves nothing to decide here.
+    const settled = await settleRequestsAlreadySwitchedOn(prisma);
+    if (settled.length) await notifySettledRequests(settled);
+    const [list, grouped] = await Promise.all([
+      prisma.longStayAccessRequest.findMany({
+        where: view === "ALL" ? {} : { status: view },
+        orderBy: view === "PENDING" ? { createdAt: "asc" } : { updatedAt: "desc" },
+        take: 200,
+      }),
+      prisma.longStayAccessRequest.groupBy({ by: ["status"], _count: { _all: true } }),
+    ]);
+    rows = list;
+    counts = Object.fromEntries(grouped.map((g: any) => [g.status, g._count._all]));
+  } catch (error: any) {
+    if (error?.code === "P2021") return res.json({ view, counts: {}, requests: [], migrationNeeded: true });
+    throw error;
+  }
+  const assisted = rows.length
+    ? await prisma.salesAssistedListing.findMany({
+        where: { id: { in: rows.map((r) => r.assistedListingId) } },
+        select: {
+          id: true, status: true, visitId: true, ownerAccountOutcome: true,
+          property: { select: { title: true, type: true, regionName: true, district: true } },
+          owner: { select: { name: true, fullName: true, phone: true, phoneVerifiedAt: true } },
+          salesPartner: { select: { agentCode: true, user: { select: { name: true, fullName: true } } } },
+        },
+      })
+    : [];
+  const byId = new Map(assisted.map((a: any) => [a.id, a]));
+  // A Regional lead's recommendation is advice only (docs/SALES_REGIONS.md).
+  const recommended = await recommendationsFor(prisma, "LONG_STAY_REQUEST", rows.map((r) => r.id));
+  const deciders = rows.map((r) => r.decidedById).filter((id): id is number => Number.isInteger(id));
+  const admins = deciders.length ? await prisma.user.findMany({ where: { id: { in: deciders } }, select: { id: true, name: true, fullName: true } }) : [];
+  const adminName = new Map(admins.map((a: any) => [a.id, a.fullName || a.name || "Admin"]));
+  // The owner's switch right now: one switch covers all their homes.
+  const ownerIds = [...new Set(rows.map((r) => r.ownerUserId))];
+  const grants = ownerIds.length
+    ? await prisma.longStayLandlordGrant.findMany({ where: { userId: { in: ownerIds } }, select: { userId: true, pausedAt: true } })
+    : [];
+  const switchOf = new Map(grants.map((g) => [g.userId, g.pausedAt ? "PAUSED" : "ON"]));
+  res.setHeader("Cache-Control", "no-store");
+  return res.json({
+    view,
+    counts,
+    requests: rows.map((r) => {
+      const a: any = byId.get(r.assistedListingId);
+      return {
+        ref: r.publicRef,
+        status: r.status,
+        ownerSwitch: switchOf.get(r.ownerUserId) ?? "OFF",
+        reason: r.reason,
+        createdAt: r.createdAt,
+        decidedAt: r.decidedAt,
+        decisionNote: r.decisionNote,
+        decidedBy: r.decidedById ? adminName.get(r.decidedById) ?? "Admin" : null,
+        listingStatus: a?.status ?? null,
+        visitRecorded: Boolean(a?.visitId),
+        property: { title: a?.property?.title ?? null, type: a?.property?.type ?? null, area: [a?.property?.district, a?.property?.regionName].filter(Boolean).join(", ") || null },
+        owner: {
+          name: a?.owner?.fullName || a?.owner?.name || null,
+          phone: maskedPhone(a?.owner?.phone),
+          // A system-created account the owner has not signed in to yet.
+          newAccount: a?.ownerAccountOutcome === "CREATED",
+          phoneVerified: Boolean(a?.owner?.phoneVerifiedAt),
+        },
+        partner: { name: a?.salesPartner?.user?.fullName || a?.salesPartner?.user?.name || null, code: a?.salesPartner?.agentCode ?? null },
+        regionalRecommendation: recommended.get(r.id) ?? null,
+      };
+    }),
+  });
+}) as RequestHandler);
+
+/** POST /api/admin/long-stay/access-requests/:ref/decide { decision: APPROVED | DECLINED, note } */
+router.post("/access-requests/:ref/decide", asyncHandler(async (req: AuthedRequest, res: Response) => {
+  const ref = String(req.params.ref);
+  if (!isAccessRequestRef(ref)) return res.status(404).json({ error: "Request not found." });
+  const body = accessDecisionSchema.safeParse(req.body ?? {});
+  if (!body.success) return res.status(400).json({ error: "Choose approve or decline." });
+  const note = body.data.note ? sanitizeText(body.data.note) : null;
+  let result;
+  try {
+    result = await prisma.$transaction((tx) => decideLongStayAccess(tx, { ref, adminId: req.user!.id, decision: body.data.decision, note }));
+  } catch (error: any) {
+    if (error instanceof AccessRequestError) return res.status(error.status).json({ error: error.message });
+    if (error?.code === "P2021") return res.status(503).json({ error: "Long-stay requests need a database update first." });
+    throw error;
+  }
+  const request = result.request;
+  await audit(req as any, "LONG_STAY_ACCESS_DECIDED", "USER", { status: "PENDING" }, { ref, decision: body.data.decision, note }, request.ownerUserId);
+  const [propertyTitle, partner] = await Promise.all([
+    propertyTitleOf(request.propertyId),
+    prisma.salesPartnerProfile.findUnique({ where: { id: request.salesPartnerId }, select: { userId: true } }),
+  ]);
+  if (partner?.userId) {
+    const notice = await createUserNotification(prisma, partner.userId, "long_stay_access_decided", { decision: body.data.decision, propertyTitle, note }).catch(() => null);
+    if (notice) publishUserNotification(notice);
+  }
+  // The owner hears it from NoLSAF, with a fresh "Not expecting this?" link.
+  const ownerTold = body.data.decision === "APPROVED" ? await sendLongStayOwnerNotice(request.assistedListingId) : null;
+  // One switch for all the owner's homes: other waiting requests for this owner close too.
+  let alsoSettled = 0;
+  if (body.data.decision === "APPROVED") {
+    const settled = await settleRequestsForSwitchedOnOwner(prisma, { ownerUserId: request.ownerUserId, adminId: req.user!.id, note: `Approved together with ${ref}: long stay is on for this owner.` }).catch(() => []);
+    alsoSettled = settled.length;
+    await notifySettledRequests(settled);
+  }
+  return res.json({ ok: true, status: body.data.decision, ownerTold, alsoSettled });
 }) as RequestHandler);
 
 // ---------- Tenant identity checks (decision 10) ----------
@@ -1126,7 +1281,7 @@ router.get("/overview", asyncHandler(async (_req: AuthedRequest, res: Response) 
   };
   const safeCount = async (model: string, where: any) => { try { return await db[model].count({ where }); } catch { return 0; } };
 
-  const [tenancies, payouts, inspections, tenantIds, listings, enquiries, claims, overdueVisits, landlordsOn, landlordsPaused, mismatches] = await Promise.all([
+  const [tenancies, payouts, inspections, tenantIds, listings, enquiries, claims, overdueVisits, landlordsOn, landlordsPaused, mismatches, accessRequests] = await Promise.all([
     group("tenancy", "status"),
     group("tenancy", "payoutStatus", { payoutStatus: { in: ["HELD", "READY", "REVIEW"] } }),
     group("longStayInspection", "status"),
@@ -1138,6 +1293,8 @@ router.get("/overview", asyncHandler(async (_req: AuthedRequest, res: Response) 
     safeCount("longStayLandlordGrant", { pausedAt: null }),
     safeCount("longStayLandlordGrant", { pausedAt: { not: null } }),
     safeCount("tenancy", { balanceMismatch: true, status: { notIn: ["CANCELLED", "ENDED"] } }),
+    // Partners asking to switch long stay on for an owner (section 15).
+    safeCount("longStayAccessRequest", { status: "PENDING" }),
   ]);
 
   // Money by currency: held now (paid, payout not released) and earned (fees on moved-in tenancies).
@@ -1195,6 +1352,7 @@ router.get("/overview", asyncHandler(async (_req: AuthedRequest, res: Response) 
     enquiries,
     claims,
     mismatches,
+    accessRequests,
     money,
     moveIns,
   });

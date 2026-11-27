@@ -45,9 +45,11 @@ describe("public reservation status", () => {
   });
 });
 
-function fakeDb(opts: { grant?: { pausedAt?: Date | null; pauseReason?: string | null } | null; tenancies?: string[]; listing?: any; bookings?: number; roomsSpec?: unknown } = {}) {
+function fakeDb(opts: { grant?: { pausedAt?: Date | null; pauseReason?: string | null } | null; tenancies?: string[]; listing?: any; bookings?: number; roomsSpec?: unknown; pendingRequest?: boolean } = {}) {
   return {
     longStayLandlordGrant: { findUnique: vi.fn(async () => (opts.grant === undefined ? { enabledAt: new Date(), pausedAt: null, pauseReason: null } : opts.grant)) },
+    salesAssistedListing: { findUnique: vi.fn(async () => ({ id: 40 })) },
+    longStayAccessRequest: { findFirst: vi.fn(async () => (opts.pendingRequest ? { id: 1 } : null)) },
     tenancy: { findMany: vi.fn(async () => (opts.tenancies ?? []).map((status) => ({ status }))) },
     longStayListing: { upsert: vi.fn(), deleteMany: vi.fn(), findUnique: vi.fn(async () => opts.listing ?? null) },
     property: { update: vi.fn(), findUnique: vi.fn(async () => ({ roomsSpec: opts.roomsSpec ?? [{ bookingMode: "ENTIRE_UNIT" }] })) },
@@ -92,10 +94,20 @@ describe("validateRentalMode", () => {
     expect(change.terms?.monthlyRent).toBe(1_500_000);
   });
 
-  it("refuses without the switch, while paused, on assisted listings and for hotels", async () => {
+  it("lets a Sales Partner write monthly terms once the owner is on, or while their request waits (section 15)", async () => {
+    const assisted = { ...base, assisted: true };
+    await expect(validateRentalMode(fakeDb(), assisted)).resolves.toMatchObject({ rentalMode: "LONG_STAY" });
+    await expect(validateRentalMode(fakeDb({ grant: null, pendingRequest: true }), assisted)).resolves.toMatchObject({ rentalMode: "LONG_STAY" });
+    await expect(validateRentalMode(fakeDb({ grant: null }), assisted)).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/Request long stay/) });
+    // A paused owner stays paused, request or not.
+    await expect(validateRentalMode(fakeDb({ grant: { pausedAt: new Date(), pauseReason: "claim" }, pendingRequest: true }), assisted)).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/paused/) });
+  });
+
+  it("refuses without the switch, while paused, and for hotels", async () => {
     await expect(validateRentalMode(fakeDb({ grant: null }), base)).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/not switched on/) });
     await expect(validateRentalMode(fakeDb({ grant: { pausedAt: new Date(), pauseReason: "review" } }), base)).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/paused.*: review/) });
-    await expect(validateRentalMode(fakeDb(), { ...base, assisted: true })).rejects.toMatchObject({ status: 403 });
+    // An owner's own listing never counts a partner's request.
+    await expect(validateRentalMode(fakeDb({ grant: null, pendingRequest: true }), base)).rejects.toMatchObject({ status: 403 });
     await expect(validateRentalMode(fakeDb(), { ...base, propertyType: "HOTEL" })).rejects.toThrow(/houses, apartments/);
     await expect(validateRentalMode(fakeDb({ bookings: 2 }), base)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/2 nightly bookings still to come/) });
     await expect(validateRentalMode(fakeDb({ bookings: 2 }), { ...base, propertyId: null })).resolves.toMatchObject({ rentalMode: "LONG_STAY" });

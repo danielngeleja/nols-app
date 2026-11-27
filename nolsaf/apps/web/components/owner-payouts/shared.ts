@@ -45,6 +45,41 @@ export type OwnerPayout = {
   paidAt: string | null;
 };
 
+/** One confirmed withdrawal as the API reports it (services/payouts/ownerWithdrawalView.ts). */
+export type OwnerWithdrawalState = "PREPARING" | "CHECKING" | "SENDING" | "PAID" | "RETURNED";
+
+export type OwnerWithdrawal = {
+  reference: string;
+  amount: number;
+  currency: string;
+  /** "vodacom ***846": provider key plus the last three digits. */
+  destination: string;
+  state: OwnerWithdrawalState;
+  requestedAt: string | null;
+  checkedAt: string | null;
+  sendingAt: string | null;
+  paidAt: string | null;
+  returnedAt: string | null;
+};
+
+export const PROVIDER_NAMES: Record<string, string> = {
+  vodacom: "M-Pesa",
+  mpesa: "M-Pesa",
+  airtel: "Airtel Money",
+  yas: "Mixx by Yas",
+  tigo: "Mixx by Yas",
+  halotel: "HaloPesa",
+  halopesa: "HaloPesa",
+  azampesa: "AzamPesa",
+};
+
+/** "vodacom ***846" becomes "M-Pesa ***846". */
+export function readableDestination(destination: string): string {
+  const [provider, ...rest] = destination.split(" ");
+  const name = PROVIDER_NAMES[provider.toLowerCase()] ?? provider;
+  return [name, ...rest].join(" ");
+}
+
 export const STAGES: Record<PayoutStage, { label: string; chip: string; dot: string; active: boolean }> = {
   UNLOCKING: { label: "Unlocking", chip: "bg-slate-100 text-slate-700", dot: "bg-slate-400", active: true },
   WAITING: { label: "Waiting", chip: "bg-slate-100 text-slate-700", dot: "bg-slate-400", active: true },
@@ -107,6 +142,7 @@ export function sum(payouts: OwnerPayout[], stages: PayoutStage[]): number {
 /** Loads the owner's payouts. `enabled` is false until the new flow is switched on. */
 export function useOwnerPayouts() {
   const [payouts, setPayouts] = useState<OwnerPayout[]>([]);
+  const [withdrawals, setWithdrawals] = useState<OwnerWithdrawal[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [recoveryDue, setRecoveryDue] = useState(0);
   const [dailyLimit, setDailyLimit] = useState(0);
@@ -117,9 +153,10 @@ export function useOwnerPayouts() {
 
   const reload = useCallback(async () => {
     try {
-      const res = await apiClient.get<{ enabled: boolean; releases: OwnerPayout[]; recoveryDue?: number; dailyLimit?: number; dailyRemaining?: number; dailyResetAt?: string }>("/api/owner/payouts/releases");
+      const res = await apiClient.get<{ enabled: boolean; releases: OwnerPayout[]; withdrawals?: OwnerWithdrawal[]; recoveryDue?: number; dailyLimit?: number; dailyRemaining?: number; dailyResetAt?: string }>("/api/owner/payouts/releases");
       setEnabled(Boolean(res.data?.enabled));
       setPayouts(res.data?.enabled ? res.data.releases ?? [] : []);
+      setWithdrawals(res.data?.enabled ? res.data.withdrawals ?? [] : []);
       setRecoveryDue(res.data?.enabled ? Number(res.data.recoveryDue ?? 0) : 0);
       setDailyLimit(res.data?.enabled ? Number(res.data.dailyLimit ?? 0) : 0);
       setDailyRemaining(res.data?.enabled ? Number(res.data.dailyRemaining ?? 0) : 0);
@@ -136,7 +173,7 @@ export function useOwnerPayouts() {
     void reload();
   }, [reload]);
 
-  return { payouts, enabled, recoveryDue, dailyLimit, dailyRemaining, dailyResetAt, loading, error, reload };
+  return { payouts, withdrawals, enabled, recoveryDue, dailyLimit, dailyRemaining, dailyResetAt, loading, error, reload };
 }
 
 /** Re-renders every minute so countdowns stay current. */

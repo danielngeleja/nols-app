@@ -51,6 +51,7 @@ export default function WithdrawPanel({
   dailyLimit,
   dailyRemaining,
   dailyResetAt,
+  destination,
   onDone,
 }: {
   readyTotal: number;
@@ -59,6 +60,8 @@ export default function WithdrawPanel({
   dailyLimit: number;
   dailyRemaining: number;
   dailyResetAt: string | null;
+  /** "M-Pesa ***846", named on the button so the owner sees where money goes. */
+  destination?: string | null;
   onDone: () => void;
 }) {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
@@ -137,41 +140,52 @@ export default function WithdrawPanel({
     }
   };
 
+  const nothingReady = readyTotal <= 0 && readyCount === 0;
+  // One quiet line under the button: what limits this withdrawal, if anything.
+  const limitLine =
+    maxToday > 0
+      ? `${formatTzs(dailyRemaining)} left today`
+      : recoveryDue >= readyTotal && readyTotal > 0
+        ? "Held against an earlier refund"
+        : `Daily limit reached${dailyResetAt ? ` · resets ${formatEat(dailyResetAt)}` : ""}`;
+
   return (
     <div className="space-y-3">
       {!challenge && (
-        <div className="flex flex-col gap-2">
-          <div className="rounded-lg border border-solid border-emerald-200 bg-white px-3 py-2.5 text-xs text-slate-600">
-            <div className="flex justify-between gap-3"><span>Ready balance</span><strong className="tabular-nums text-slate-900">{formatTzs(readyTotal)}</strong></div>
-            <div className="mt-1 flex justify-between gap-3"><span>Remaining today</span><strong className="tabular-nums text-slate-900">{formatTzs(dailyRemaining)}</strong></div>
-            <p className="m-0 mt-1 text-[11px] text-slate-500">Daily limit {formatTzs(dailyLimit)}{dailyResetAt ? ` · resets ${formatEat(dailyResetAt)}` : ""}</p>
-          </div>
-          <label htmlFor="withdrawal-amount" className="text-xs font-semibold text-slate-700">Amount to withdraw (TZS)</label>
-          <div className="flex gap-2">
+        <div>
+          <label htmlFor="withdrawal-amount" className="sr-only">Amount to withdraw (TZS)</label>
+          <div className={`flex items-baseline gap-3 border-0 border-b border-solid pb-1.5 transition-colors ${nothingReady || maxToday <= 0 ? "border-slate-200" : "border-slate-300 focus-within:border-[#02665e]"}`}>
             <input
-              id="withdrawal-amount" type="number" min={1} max={maxToday} step={1} inputMode="numeric"
-              value={amount} onChange={(event) => setAmount(event.target.value)}
-              disabled={busy || maxToday <= 0}
+              id="withdrawal-amount"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="0"
+              value={amount ? Number(amount).toLocaleString("en-US") : ""}
+              onChange={(event) => setAmount(event.target.value.replace(/\D/g, "").slice(0, 12))}
+              disabled={busy || nothingReady || maxToday <= 0}
               aria-describedby="withdrawal-amount-hint"
-              className="h-11 min-w-0 flex-1 rounded-md border border-solid border-slate-300 bg-white px-3 text-sm font-semibold tabular-nums text-slate-900 outline-none focus:border-[#02665e] disabled:bg-slate-100"
+              className="min-w-0 flex-1 border-0 bg-transparent p-0 text-2xl font-semibold tabular-nums text-slate-900 outline-none placeholder:text-slate-300 disabled:text-slate-300"
             />
-            <button type="button" onClick={() => setAmount(String(maxToday))} disabled={busy || maxToday <= 0}
-              className="h-11 rounded-md border border-solid border-emerald-300 bg-white px-3 text-xs font-semibold text-[#02665e] disabled:opacity-50">Max today</button>
+            {!nothingReady && maxToday > 0 && (
+              <button type="button" onClick={() => setAmount(String(maxToday))} disabled={busy}
+                className="cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] hover:underline disabled:opacity-50">
+                Max
+              </button>
+            )}
           </div>
-          <p id="withdrawal-amount-hint" className="m-0 text-xs text-slate-500">
-            {maxToday > 0 ? "Any amount up to today's limit. The rest stays in your ready balance." :
-              recoveryDue >= readyTotal && readyTotal > 0 ? "Your ready balance is being held against an earlier refund." : "Your daily withdrawal limit is used. The balance stays ready."}
-          </p>
           <button
             type="button"
             onClick={requestCode}
-            disabled={busy || readyCount === 0 || !validAmount}
-            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+            disabled={busy || nothingReady || !validAmount}
+            className="mt-3 inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <LockKeyhole className="h-4 w-4" aria-hidden />}
-            {busy ? "Sending code..." : `Withdraw ${formatTzs(validAmount ? chosenAmount : 0)}`}
+            {busy ? "Sending code..." : nothingReady ? "Nothing to withdraw yet" : destination ? `Withdraw to ${destination}` : "Withdraw"}
           </button>
-          {readyCount > 0 && <span className="text-center text-xs text-slate-500">The amount is taken from ready stays in order · one confirmation code</span>}
+          <p id="withdrawal-amount-hint" className="m-0 mt-2 text-center text-[11px] text-slate-400">
+            {nothingReady ? `Daily limit ${formatTzs(dailyLimit)}` : limitLine}
+          </p>
         </div>
       )}
 

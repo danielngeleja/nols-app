@@ -6,7 +6,7 @@
 // token is required to confirm. The API then sets the verified default payout
 // account that disbursements pay into and syncs the sales withdrawal profile.
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Lock, ShieldCheck, Smartphone } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Landmark, Loader2, Lock, ShieldCheck, Smartphone } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type Current = { name: string | null; method: string | null; accountMasked: string | null } | null | undefined;
@@ -17,7 +17,7 @@ type Preview = {
   destination: { provider: string; accountName: string; accountNumber: string };
 };
 
-/** AzamPay's disbursement rails. Sales payouts are paid to mobile money. */
+/** AzamPay's mobile money rails. Banks come from the live payout directory. */
 const PROVIDERS = [
   { value: "vodacom", label: "M-Pesa" },
   { value: "yas", label: "Mixx by Yas" },
@@ -48,8 +48,25 @@ function apiError(cause: any, fallback: string): string {
 export default function SalesPayoutDestination({ current, loading, onSaved }: { current: Current; loading: boolean; onSaved: () => void }) {
   const ready = Boolean(current?.name && current?.method && current?.accountMasked);
   const [mode, setMode] = useState<"view" | "edit" | "confirm">("view");
+  const [method, setMethod] = useState<"MOBILE_MONEY" | "BANK">("MOBILE_MONEY");
   const [provider, setProvider] = useState<string>("vodacom");
   const [number, setNumber] = useState("");
+  const [banks, setBanks] = useState<string[] | null>(null);
+  const [banksError, setBanksError] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankHolder, setBankHolder] = useState("");
+  const [bankAccount, setBankAccount] = useState("");
+
+  // The bank list is AzamPay's live payout directory: only banks NoLSAF can pay into.
+  useEffect(() => {
+    if (mode !== "edit" || method !== "BANK" || banks) return;
+    let active = true;
+    setBanksError("");
+    apiClient.get("/api/account/payouts/banks")
+      .then((response) => { if (active) setBanks(Array.isArray(response.data?.banks) ? response.data.banks : []); })
+      .catch(() => { if (active) setBanksError("The bank list is not available right now. Try again in a minute, or use mobile money."); });
+    return () => { active = false; };
+  }, [mode, method, banks]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -66,27 +83,35 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
   }, [mode, preview]);
 
   const wallet = toWalletNumber(number);
+  const bankNumber = bankAccount.replace(/[\s-]/g, "");
+  const canLookUp = method === "MOBILE_MONEY"
+    ? Boolean(number.trim())
+    : Boolean(bankName && bankHolder.trim().length >= 2 && bankNumber.length >= 4);
 
   const lookup = async () => {
     setError("");
     setSaved("");
-    if (!wallet) {
+    if (method === "MOBILE_MONEY" && !wallet) {
       setError("Enter a Tanzanian mobile number, for example 0754 123 456.");
+      return;
+    }
+    if (method === "BANK" && !/^[A-Za-z0-9]{4,40}$/.test(bankNumber)) {
+      setError("Enter the bank account number with letters and digits only.");
       return;
     }
     setBusy(true);
     try {
-      const response = await apiClient.post("/api/account/payouts/verify", {
-        payoutPreferred: "MOBILE_MONEY",
-        mobileMoneyProvider: provider,
-        mobileMoneyNumber: wallet,
-      });
+      const response = await apiClient.post("/api/account/payouts/verify", method === "BANK"
+        ? { payoutPreferred: "BANK", bankName, bankAccountName: bankHolder.trim(), bankAccountNumber: bankNumber }
+        : { payoutPreferred: "MOBILE_MONEY", mobileMoneyProvider: provider, mobileMoneyNumber: wallet });
       const data = response.data?.data;
       if (!data?.challengeToken || !data?.destination?.accountName) throw new Error("The account holder could not be confirmed.");
       setPreview(data);
       setMode("confirm");
     } catch (cause: any) {
-      setError(apiError(cause, "We could not verify this number. Check the provider and number, then try again."));
+      setError(apiError(cause, method === "BANK"
+        ? "We could not verify this account. Check the bank and account number, then try again."
+        : "We could not verify this number. Check the provider and number, then try again."));
     } finally {
       setBusy(false);
     }
@@ -102,6 +127,8 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
       setMode("view");
       setPreview(null);
       setNumber("");
+      setBankAccount("");
+      setBankHolder("");
       onSaved();
     } catch (cause: any) {
       if (cause?.response?.status === 410) {
@@ -122,7 +149,9 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="m-0 flex items-center gap-2 text-sm font-semibold text-slate-800">
-          <Smartphone className="h-4 w-4 text-[#02665e]" aria-hidden />
+          {/bank/i.test(String(current?.method || "")) || (mode !== "view" && method === "BANK")
+            ? <Landmark className="h-4 w-4 text-[#02665e]" aria-hidden />
+            : <Smartphone className="h-4 w-4 text-[#02665e]" aria-hidden />}
           Payout destination
         </p>
         {!loading && mode === "view" ? (
@@ -162,7 +191,7 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
                 </span>
                 <div className="min-w-0">
                   <p className="m-0 text-sm font-medium text-slate-800">No destination yet</p>
-                  <p className="m-0 mt-0.5 text-xs text-slate-500">Add the M-Pesa, Mixx, Airtel, HaloPesa or AzamPesa number your earnings go to.</p>
+                  <p className="m-0 mt-0.5 text-xs text-slate-500">Add the mobile money number or bank account your earnings go to.</p>
                 </div>
               </div>
               <button
@@ -181,34 +210,101 @@ export default function SalesPayoutDestination({ current, loading, onSaved }: { 
           className="mt-4 space-y-3"
           onSubmit={(event) => { event.preventDefault(); void lookup(); }}
         >
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <label className="block text-xs font-medium text-slate-600">
-              Mobile money
-              <select value={provider} onChange={(event) => setProvider(event.target.value)} className={`${input} mt-1.5`}>
-                {PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-              </select>
-            </label>
-            <label className="block text-xs font-medium text-slate-600">
-              Wallet number
-              <input
-                value={number}
-                onChange={(event) => setNumber(event.target.value)}
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="0754 123 456"
-                className={`${input} mt-1.5`}
-              />
-            </label>
+          {/* Where the money goes: mobile money or a bank account */}
+          <div role="radiogroup" aria-label="Payout method" className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
+            {([
+              { value: "MOBILE_MONEY", label: "Mobile money", Icon: Smartphone },
+              { value: "BANK", label: "Bank account", Icon: Landmark },
+            ] as const).map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={method === value}
+                onClick={() => { setMethod(value); setError(""); }}
+                className={`inline-flex min-h-9 items-center justify-center gap-2 rounded-md border-0 text-sm font-semibold transition ${method === value ? "bg-white text-[#02665e] shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-800"}`}
+              >
+                <Icon className="h-4 w-4" aria-hidden /> {label}
+              </button>
+            ))}
           </div>
-          <p className="m-0 text-xs text-slate-500">We look the number up with the provider and show you the registered name before anything is saved.</p>
+
+          {method === "MOBILE_MONEY" ? (
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <label className="block text-xs font-medium text-slate-600">
+                Provider
+                <select value={provider} onChange={(event) => setProvider(event.target.value)} className={`${input} mt-1.5`}>
+                  {PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </select>
+              </label>
+              <label className="block text-xs font-medium text-slate-600">
+                Wallet number
+                <input
+                  value={number}
+                  onChange={(event) => setNumber(event.target.value)}
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="0754 123 456"
+                  className={`${input} mt-1.5`}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              <label className="block text-xs font-medium text-slate-600">
+                Bank
+                <select
+                  value={bankName}
+                  onChange={(event) => setBankName(event.target.value)}
+                  disabled={!banks}
+                  className={`${input} mt-1.5 disabled:bg-slate-50`}
+                >
+                  <option value="">{banks ? "Choose your bank" : banksError ? "Bank list unavailable" : "Loading banks…"}</option>
+                  {(banks ?? []).map((bank) => <option key={bank} value={bank}>{bank}</option>)}
+                </select>
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-medium text-slate-600">
+                  Account holder name
+                  <input
+                    value={bankHolder}
+                    onChange={(event) => setBankHolder(event.target.value)}
+                    autoComplete="name"
+                    placeholder="As on the bank account"
+                    maxLength={160}
+                    className={`${input} mt-1.5`}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-slate-600">
+                  Account number
+                  <input
+                    value={bankAccount}
+                    onChange={(event) => setBankAccount(event.target.value)}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="0150123456789"
+                    maxLength={44}
+                    className={`${input} mt-1.5 font-mono`}
+                  />
+                </label>
+              </div>
+              {banksError ? <p className="m-0 text-xs text-amber-700">{banksError}</p> : null}
+            </div>
+          )}
+
+          <p className="m-0 text-xs text-slate-500">
+            {method === "BANK"
+              ? "We check the account with the bank through AzamPay and show you the registered name before anything is saved."
+              : "We look the number up with the provider and show you the registered name before anything is saved."}
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="submit"
-              disabled={busy || !number.trim()}
+              disabled={busy || !canLookUp}
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#02665e] px-4 text-sm font-semibold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              {busy ? "Looking up" : "Look up name"}
+              {busy ? "Checking" : method === "BANK" ? "Check account" : "Look up name"}
             </button>
             <button
               type="button"

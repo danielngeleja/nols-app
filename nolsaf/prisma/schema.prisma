@@ -472,6 +472,7 @@ model Property {
   // Media & details
   description  String? @db.Text
   photos       Json? // Array of URLs (legacy, use PropertyImage now)
+  photoAreas   Json? // { [photoUrl]: area key } e.g. KITCHEN, BEDROOM (lib/photoAreas.ts)
   hotelStar    String? // basic, simple, moderate, high, luxury
   buildingType String? // SINGLE_STORY, LOW_RISE, MID_RISE, HIGH_RISE, VILLA_COMPLEX, LODGE_CAMPUS
   totalFloors  Int? // Total number of floors (auto-calculated or manual)
@@ -8490,6 +8491,8 @@ model SalesPartnerProfile {
   level     String @default("STARTER") @db.VarChar(30)
 
   region    String? @db.VarChar(120)
+  /// SalesRegion this partner works in (docs/SALES_REGIONS.md). Plain pointer.
+  regionId  Int?
   territory String? @db.VarChar(200)
   phone     String? @db.VarChar(40)
 
@@ -8557,6 +8560,7 @@ model SalesPartnerProfile {
   @@index([status])
   @@index([level])
   @@index([region])
+  @@index([regionId])
   @@map("sales_partner_profile")
 }
 
@@ -8596,6 +8600,26 @@ model SalesAssistedListing {
   objectionResolvedById Int?
   /// CANCEL or RESUME
   objectionOutcome      String?   @db.VarChar(10)
+
+  /// The owner's email as the partner typed it. Never a login until the owner
+  /// proves it with a code (lib/ownerPendingEmail.ts): a partner-chosen email
+  /// on the account would let the partner reset the owner's password.
+  ownerEmail           String?   @db.VarChar(190)
+  /// PENDING, VERIFIED or REJECTED (owner said "Not my email")
+  ownerEmailStatus     String?   @db.VarChar(10)
+  ownerEmailDecidedAt  DateTime?
+
+  /// Long stay: the owner confirms the rent the partner set before the home
+  /// can go live (lib/longStay/ownerRentConfirmation.ts). Fingerprints are the
+  /// SHA-256 of the money terms, so any later change needs a new confirmation.
+  rentTermsFingerprint     String?   @db.Char(64)
+  rentConfirmSentAt        DateTime?
+  /// First time the owner opened the latest rent link (reset on each new SMS).
+  rentLinkOpenedAt         DateTime?
+  rentConfirmedFingerprint String?   @db.Char(64)
+  rentConfirmedAt          DateTime?
+  /// OWNER (tapped the link) or ADMIN_CALL (an admin confirmed it by phone)
+  rentConfirmedVia         String?   @db.VarChar(12)
 
   submittedAt   DateTime?
   approvedAt    DateTime?
@@ -8808,6 +8832,8 @@ model SalesTeam {
   leadPartnerId Int     @unique
   name          String  @db.VarChar(120)
   region        String? @db.VarChar(120)
+  /// SalesRegion the team belongs to (docs/SALES_REGIONS.md). Plain pointer.
+  regionId      Int?
   status        String  @default("ACTIVE") @db.VarChar(20)
 
   createdById Int?
@@ -8822,7 +8848,101 @@ model SalesTeam {
 
   @@index([status])
   @@index([createdById])
+  @@index([regionId])
   @@map("sales_team")
+}
+
+/// A sales region with an optional Regional lead (docs/SALES_REGIONS.md).
+/// leadPartnerId and the override are plain columns: the lead is paid
+/// overridePercent of each region partner's commission, never on their own.
+model SalesRegion {
+  id              Int       @id @default(autoincrement())
+  code            String    @unique @db.VarChar(8)
+  name            String    @db.VarChar(80)
+  /// Lower-case Tanzanian administrative regions this region covers.
+  areas           Json
+  status          String    @default("ACTIVE") @db.VarChar(12)
+  leadPartnerId   Int?      @unique
+  leadSince       DateTime?
+  overridePercent Decimal   @default(0.00) @db.Decimal(5, 2)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("sales_region")
+}
+
+/// A region's monthly target in owner-confirmed properties (month "YYYY-MM", EAT).
+model SalesRegionMonth {
+  id        Int      @id @default(autoincrement())
+  regionId  Int
+  month     String   @db.VarChar(7)
+  target    Int
+  setById   Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([regionId, month])
+  @@map("sales_region_month")
+}
+
+/// A Regional lead's recommendation on something only an admin may approve.
+/// subjectType: LONG_STAY_REQUEST | SALES_PAYOUT. One per subject.
+model SalesRegionRecommendation {
+  id            Int      @id @default(autoincrement())
+  regionId      Int
+  leadPartnerId Int
+  subjectType   String   @db.VarChar(24)
+  subjectId     Int
+  note          String?  @db.VarChar(300)
+  createdAt     DateTime @default(now())
+
+  @@unique([subjectType, subjectId])
+  @@index([regionId])
+  @@map("sales_region_recommendation")
+}
+
+/// An owner's public "Request a NoLSAF visit" (docs/SALES_VISIT_REQUESTS.md).
+/// No partner is ever listed publicly: NoLSAF routes the request, and an admin
+/// (any partner) or the region's lead (a partner of their region, not
+/// themself) assigns it, which creates an ordinary SalesLead for that partner.
+/// publicRef (VR-…) is the number the owner is shown and every URL uses.
+///
+/// status: NEW, ASSIGNED, CLOSED
+/// interest: MARKETPLACE, NRMS, NRMS_AND_MARKETPLACE, NOT_SURE
+/// assignedByRole: ADMIN, REGION_LEAD
+/// regionId, assignedPartnerId, leadId are plain pointers (no foreign keys).
+model SalesVisitRequest {
+  id                     Int       @id @default(autoincrement())
+  publicRef              String    @unique @db.VarChar(16)
+  status                 String    @default("NEW") @db.VarChar(16)
+  regionId               Int?
+  contactName            String    @db.VarChar(160)
+  contactPhone           String    @db.VarChar(40)
+  contactPhoneNormalized String    @db.VarChar(40)
+  contactEmail           String?   @db.VarChar(190)
+  propertyName           String    @db.VarChar(200)
+  propertyType           String?   @db.VarChar(60)
+  estimatedRooms         Int?
+  location               String    @db.VarChar(200)
+  interest               String    @db.VarChar(30)
+  message                String?   @db.VarChar(1000)
+  /// Keyed hash of the sender's IP, for abuse checks; never the address.
+  ipHash                 String?   @db.Char(64)
+  assignedPartnerId      Int?
+  assignedById           Int?
+  assignedByRole         String?   @db.VarChar(16)
+  assignedAt             DateTime?
+  leadId                 Int?
+  closedReason           String?   @db.VarChar(300)
+  closedById             Int?
+  closedAt               DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([status, regionId])
+  @@index([contactPhoneNormalized])
+  @@index([assignedPartnerId])
+  @@map("sales_visit_request")
 }
 
 /// A team lead's personal invitation for one person to join their team.
@@ -9690,7 +9810,7 @@ model PayoutAccount {
   userId Int
 
   type          String @db.VarChar(20) // MOBILE_MONEY | BANK
-  provider      String @db.VarChar(30) // tigo | airtel | azampesa | crdb | nmb ...
+  provider      String @db.VarChar(160) // Wallet provider or exact AzamPay directory name
   accountNumber String @db.VarChar(40)
   accountName   String @db.VarChar(160)
   currency      String @default("TZS") @db.VarChar(3)
@@ -9772,8 +9892,8 @@ model Disbursement {
   status String @default("REQUESTED") @db.VarChar(20)
 
   provider String  @default("azampay") @db.VarChar(20)
-  bankName String  @db.VarChar(30) // tigo | airtel | azampesa — MNO-focused, see dev guide
-  operator String? @db.VarChar(40)
+  bankName String  @db.VarChar(160)
+  operator String? @db.VarChar(160)
 
   approvedById Int?
   approvedAt   DateTime?
@@ -10167,7 +10287,7 @@ model DisbursementEvent {
   pgReferenceId  String?  @db.VarChar(64)
   fspReferenceId String?  @db.VarChar(64)
   amount         Decimal? @db.Decimal(12, 2)
-  operator       String?  @db.VarChar(40)
+  operator       String?  @db.VarChar(160)
   payload        Json?
 
   createdAt DateTime @default(now())
@@ -11303,6 +11423,60 @@ model LongStayLandlordGrant {
 
   @@index([enabledById])
   @@map("long_stay_landlord_grant")
+}
+
+/// Which marketing channel brought a booking, tour booking or tenancy: the
+/// visitor's first visit in the last 30 days (docs/CHANNEL_ATTRIBUTION.md).
+/// Written once by the server from a first-party cookie the visitor allowed
+/// (Marketing consent). Reporting only: it never changes price, payment or
+/// commission. Agency Desk links keep their own server-verified records.
+/// Plain pointers, no foreign keys.
+model AcquisitionSource {
+  id          Int      @id @default(autoincrement())
+  /// BOOKING | TOUR_BOOKING | TENANCY
+  targetType  String   @db.VarChar(16)
+  targetId    Int
+  /// SEARCH | SOCIAL | CAMPAIGN | QR | PARTNER_LINK | REFERRAL | DIRECT
+  channel     String   @db.VarChar(20)
+  source      String?  @db.VarChar(60)
+  medium      String?  @db.VarChar(60)
+  campaign    String?  @db.VarChar(80)
+  detail      String?  @db.VarChar(60)
+  landingPath String?  @db.VarChar(120)
+  firstSeenAt DateTime
+  createdAt   DateTime @default(now())
+
+  @@unique([targetType, targetId])
+  @@index([channel, createdAt])
+  @@map("acquisition_source")
+}
+
+/// A Sales Partner asks NoLSAF to switch long stay on for the owner of an
+/// assisted listing (docs/LONG_STAY_RENTALS.md section 15). Approval creates
+/// the owner's LongStayLandlordGrant: per owner, not per property. Plain
+/// columns, no foreign keys, like owner_payout_control. At most one PENDING
+/// row per assisted listing, enforced in lib/longStay/accessRequest.ts.
+model LongStayAccessRequest {
+  id                Int       @id @default(autoincrement())
+  /// Opaque lr_ reference used in every URL and API path.
+  publicRef         String    @unique @db.VarChar(40)
+  assistedListingId Int
+  propertyId        Int
+  ownerUserId       Int
+  salesPartnerId    Int
+  reason            String    @db.VarChar(500)
+  /// PENDING | APPROVED | DECLINED | WITHDRAWN
+  status            String    @default("PENDING") @db.VarChar(12)
+  decidedById       Int?
+  decidedAt         DateTime?
+  decisionNote      String?   @db.VarChar(300)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([assistedListingId, status])
+  @@index([ownerUserId])
+  @@map("long_stay_access_request")
 }
 
 /// Monthly terms of a LONG_STAY property (section 3.1). v1 lets the whole

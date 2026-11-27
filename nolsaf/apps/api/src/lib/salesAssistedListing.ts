@@ -26,6 +26,15 @@ import { webOrigin } from "./salesPartnerCard.js";
 import { issuePasswordSetupToken, ONBOARDING_SETUP_HOURS, passwordSetupLink } from "./passwordSetupLink.js";
 import { notifyAdmins, notifyOwner, notifyUser } from "./notifications.js";
 import { invalidateCache, cacheKeys } from "./performance.js";
+import { revokeLongStayFromCancelledListing, withdrawLongStayRequests } from "./longStay/accessRequest.js";
+import { regionLeadUserFor } from "./salesRegions.js";
+import { rentTermsFingerprint, rentTermsLines, rentTermsSummary } from "./longStay/ownerRentTerms.js";
+
+/** Before migration 20261126100000 the request table does not exist; nothing to withdraw then. */
+function ignoreMissingRequestTable(error: any) {
+  if (error?.code === "P2021") return;
+  throw error;
+}
 
 const db = prisma as any;
 
@@ -292,6 +301,200 @@ async function rotateNoticeToken(assistedId: number): Promise<string> {
   return token.raw;
 }
 
+export function longStaySmsText(input: { ownerName: string; partnerName: string; propertyName: string; noticeLink: string }): string {
+  return `Habari ${firstName(input.ownerName)}. NoLSAF switched on monthly rentals (long stay) for ${input.propertyName}, prepared by ${input.partnerName}. You do not need to do anything now. Not expecting this? ${input.noticeLink} or call ${supportPhone()}.`;
+}
+
+/**
+ * Tells the owner that long stay was switched on from a partner's request
+ * (docs/LONG_STAY_RENTALS.md section 15), with a fresh "Not expecting this?"
+ * link. Same delivery rule as the first notice: a system-created account
+ * always gets the SMS; an existing owner's SMS opt-out is respected and they
+ * get it in their inbox. Never throws.
+ */
+export async function sendLongStayOwnerNotice(assistedId: number): Promise<boolean> {
+  try {
+    const row = await db.salesAssistedListing.findUnique({
+      where: { id: assistedId },
+      select: {
+        id: true, ownerUserId: true, ownerAccountOutcome: true,
+        property: { select: { title: true } },
+        owner: { select: { name: true, fullName: true, phone: true } },
+        salesPartner: { select: { user: { select: { name: true, fullName: true } } } },
+      },
+    });
+    if (!row?.owner?.phone) return false;
+    const noticeLink = noticeUrl(await rotateNoticeToken(row.id));
+    const propertyName = row.property?.title || "your property";
+    const partnerName = row.salesPartner?.user?.fullName || row.salesPartner?.user?.name || "a NoLSAF sales partner";
+    const ownerName = row.owner.fullName || row.owner.name || "";
+    const existing = row.ownerAccountOutcome === "ATTACHED_EXISTING";
+    const result = await sendSms(row.owner.phone, longStaySmsText({ ownerName, partnerName, propertyName, noticeLink }), { bypassEligibilityCheck: !existing, sensitiveContent: true });
+    if (existing) {
+      await notifyOwner(row.ownerUserId, "assisted_listing_started", { partnerName, propertyTitle: `${propertyName} (monthly rentals)`, noticeLink }).catch(() => undefined);
+    }
+    return Boolean(result?.success && result.provider !== "suppressed") || existing;
+  } catch (error) {
+    console.error("[assisted-listing] long-stay notice failed", (error as any)?.message ?? error);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Owner confirms the rent (long stay, docs/LONG_STAY_RENTALS.md 15.1)
+// ---------------------------------------------------------------------------
+
+const RENT_TERMS_SELECT = {
+  monthlyRent: true, currency: true, minTermMonths: true, maxTermMonths: true, upfrontMonths: true,
+  securityDepositMonths: true, noticePeriodDays: true, furnished: true, utilities: true, discounts: true,
+} as const;
+
+const RENT_ROW_SELECT = {
+  id: true, status: true, ownerUserId: true, ownerAccountOutcome: true,
+  rentTermsFingerprint: true, rentConfirmSentAt: true, rentLinkOpenedAt: true, rentConfirmedFingerprint: true, rentConfirmedAt: true, rentConfirmedVia: true,
+  property: { select: { title: true, rentalMode: true, longStayListing: { select: RENT_TERMS_SELECT } } },
+  owner: { select: { name: true, fullName: true, phone: true } },
+  salesPartner: { select: { userId: true, user: { select: { name: true, fullName: true } } } },
+} as const;
+
+export type OwnerRentState = {
+  confirmed: boolean;
+  via: string | null;
+  confirmedAt: Date | null;
+  sentAt: Date | null;
+  /** First open of the latest rent link, if the owner opened it. */
+  openedAt: Date | null;
+  fingerprint: string;
+  summary: string;
+  lines: Array<{ label: string; value: string }>;
+  /** For the admin who calls the owner. Never sent to public responses. */
+  ownerName: string | null;
+  ownerPhone: string | null;
+  partnerName: string | null;
+};
+
+function rentStateOf(row: any): OwnerRentState | null {
+  const terms = row?.property?.longStayListing;
+  if (!row || row.property?.rentalMode !== "LONG_STAY" || !terms) return null;
+  const fingerprint = rentTermsFingerprint(terms);
+  const confirmed = row.rentConfirmedFingerprint === fingerprint;
+  const current = row.rentTermsFingerprint === fingerprint;
+  return {
+    confirmed,
+    via: confirmed ? row.rentConfirmedVia ?? null : null,
+    confirmedAt: confirmed ? row.rentConfirmedAt ?? null : null,
+    sentAt: current ? row.rentConfirmSentAt ?? null : null,
+    openedAt: current && row.rentConfirmSentAt ? row.rentLinkOpenedAt ?? null : null,
+    fingerprint,
+    summary: rentTermsSummary(terms),
+    lines: rentTermsLines(terms),
+    ownerName: row.owner?.fullName || row.owner?.name || null,
+    ownerPhone: row.owner?.phone || null,
+    partnerName: row.salesPartner?.user?.fullName || row.salesPartner?.user?.name || null,
+  };
+}
+
+/**
+ * Whether the owner has confirmed the long-stay rent on a partner's listing.
+ * Null when the property is not an assisted long-stay listing (nothing to
+ * confirm). A change to any money term needs a new confirmation.
+ */
+export async function ownerRentState(propertyId: number): Promise<OwnerRentState | null> {
+  const row = await db.salesAssistedListing.findUnique({ where: { propertyId }, select: RENT_ROW_SELECT });
+  return rentStateOf(row);
+}
+
+export function rentConfirmSmsText(input: { ownerName: string; partnerName: string; propertyName: string; summary: string; link: string }): string {
+  return `Habari ${firstName(input.ownerName)}. ${input.partnerName} listed ${input.propertyName} on NoLSAF for monthly rent: ${input.summary}. It goes live only after you confirm. Confirm or tell us it is wrong: ${input.link}`;
+}
+
+/**
+ * Sent when a partner submits a long-stay listing. Texts the owner the money
+ * terms with a fresh link to confirm them (same delivery rule as the other
+ * notices). Skipped when the owner already confirmed exactly these terms.
+ * Never throws.
+ */
+export async function requestOwnerRentConfirmation(assistedId: number): Promise<"SENT" | "ALREADY_CONFIRMED" | "NOT_LONG_STAY" | "NOT_SENT"> {
+  try {
+    const row = await db.salesAssistedListing.findUnique({ where: { id: assistedId }, select: RENT_ROW_SELECT });
+    const state = rentStateOf(row);
+    if (!state) return "NOT_LONG_STAY";
+    await db.salesAssistedListing.update({ where: { id: row.id }, data: { rentTermsFingerprint: state.fingerprint } });
+    if (state.confirmed) return "ALREADY_CONFIRMED";
+    if (!row.owner?.phone) return "NOT_SENT";
+    const link = noticeUrl(await rotateNoticeToken(row.id));
+    const propertyName = row.property?.title || "your property";
+    const partnerName = row.salesPartner?.user?.fullName || row.salesPartner?.user?.name || "A NoLSAF sales partner";
+    const existing = row.ownerAccountOutcome === "ATTACHED_EXISTING";
+    const sms = await sendSms(
+      row.owner.phone,
+      rentConfirmSmsText({ ownerName: row.owner.fullName || row.owner.name || "", partnerName, propertyName, summary: state.summary, link }),
+      { bypassEligibilityCheck: !existing, sensitiveContent: true },
+    ).catch(() => null);
+    if (existing) {
+      await notifyOwner(row.ownerUserId, "assisted_listing_rent_confirm", { partnerName, propertyTitle: propertyName, rentSummary: state.summary, noticeLink: link }).catch(() => undefined);
+    }
+    const told = Boolean(sms?.success && sms.provider !== "suppressed") || existing;
+    // A new link: "opened" starts again for it.
+    if (told) await db.salesAssistedListing.update({ where: { id: row.id }, data: { rentConfirmSentAt: new Date(), rentLinkOpenedAt: null } });
+    return told ? "SENT" : "NOT_SENT";
+  } catch (error) {
+    console.error("[assisted-listing] rent confirmation SMS failed", (error as any)?.message ?? error);
+    return "NOT_SENT";
+  }
+}
+
+async function recordRentConfirmation(row: any, state: OwnerRentState, via: "OWNER" | "ADMIN_CALL") {
+  await db.salesAssistedListing.update({
+    where: { id: row.id },
+    data: { rentTermsFingerprint: state.fingerprint, rentConfirmedFingerprint: state.fingerprint, rentConfirmedAt: new Date(), rentConfirmedVia: via },
+  });
+  await notifyUser(row.salesPartner.userId, "sales_assisted_owner_rent_confirmed", { propertyTitle: row.property?.title, rentSummary: state.summary }).catch(() => undefined);
+}
+
+/**
+ * The owner tapped "Yes, the rent is right" on their link. `shownFingerprint`
+ * is the version of the terms their page showed: if the partner changed the
+ * terms since, nothing is confirmed and the page reloads the new terms.
+ */
+export async function confirmOwnerRentByToken(raw: string, shownFingerprint: string): Promise<"CONFIRMED" | "ALREADY" | "CHANGED" | "NOT_NEEDED" | "CLOSED" | "NOT_FOUND"> {
+  if (!isNoticeToken(raw)) return "NOT_FOUND";
+  const row = await db.salesAssistedListing.findUnique({ where: { objectionReferenceHash: hashNoticeToken(raw) }, select: RENT_ROW_SELECT });
+  if (!row) return "NOT_FOUND";
+  if (row.status === "PAUSED_OBJECTION" || row.status === "CANCELLED") return "CLOSED";
+  const state = rentStateOf(row);
+  if (!state) return "NOT_NEEDED";
+  if (state.fingerprint !== shownFingerprint) return "CHANGED";
+  if (state.confirmed) return "ALREADY";
+  await recordRentConfirmation(row, state, "OWNER");
+  await notifyAdmins("sales_assisted_owner_rent_confirmed", { propertyTitle: row.property?.title, rentSummary: state.summary }).catch(() => undefined);
+  return "CONFIRMED";
+}
+
+/** Admin "Resend SMS": a fresh link with the current terms. */
+export async function resendOwnerRentConfirmation(propertyId: number) {
+  const row = await db.salesAssistedListing.findUnique({ where: { propertyId }, select: { id: true } });
+  if (!row) return "NOT_LONG_STAY" as const;
+  return requestOwnerRentConfirmation(row.id);
+}
+
+/** The owner opened their link while the rent waits: records the first open. Never throws. */
+export async function markRentLinkOpened(assistedId: number): Promise<void> {
+  await db.salesAssistedListing.updateMany({
+    where: { id: assistedId, rentLinkOpenedAt: null, rentConfirmSentAt: { not: null } },
+    data: { rentLinkOpenedAt: new Date() },
+  }).catch(() => undefined);
+}
+
+/** An admin called the owner and the owner agreed the rent (recorded as ADMIN_CALL). */
+export async function confirmOwnerRentByAdmin(propertyId: number): Promise<OwnerRentState | null> {
+  const row = await db.salesAssistedListing.findUnique({ where: { propertyId }, select: RENT_ROW_SELECT });
+  const state = rentStateOf(row);
+  if (!state || state.confirmed) return state;
+  await recordRentConfirmation(row, state, "ADMIN_CALL");
+  return { ...state, confirmed: true, via: "ADMIN_CALL", confirmedAt: new Date() };
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle hooks
 // ---------------------------------------------------------------------------
@@ -340,6 +543,8 @@ export async function onAssistedSubmitted(assistedId: number, actorUserId: numbe
       propertyTitle: row.property?.title,
       partnerCode: row.salesPartner?.agentCode,
     }).catch(() => undefined);
+    // Long stay: the owner confirms the rent the partner set before it can go live.
+    await requestOwnerRentConfirmation(row.id);
   } catch (error) {
     console.error("[assisted-listing] submit hook failed", (error as any)?.message ?? error);
   }
@@ -467,6 +672,7 @@ export async function findByNoticeToken(raw: string) {
       status: true,
       objectedAt: true,
       propertyId: true,
+      salesPartnerId: true,
       property: { select: { title: true, status: true } },
       salesPartner: { select: { agentCode: true, userId: true, user: { select: { name: true, fullName: true } } } },
     },
@@ -500,6 +706,8 @@ export async function recordObjection(raw: string, note: string | null): Promise
     if (row.status === "APPROVED") {
       await tx.property.update({ where: { id: row.propertyId }, data: { status: "SUSPENDED" } });
     }
+    // A waiting long-stay request goes with the paused listing (section 15).
+    await withdrawLongStayRequests(tx, row.id, now).catch(ignoreMissingRequestTable);
     return true;
   });
   if (!moved) return "ALREADY";
@@ -512,6 +720,15 @@ export async function recordObjection(raw: string, note: string | null): Promise
     }),
     notifyUser(row.salesPartner.userId, "sales_assisted_listing_paused", { propertyTitle: row.property?.title }),
   ]).catch(() => undefined);
+  // The partner's Regional lead hears it too (docs/SALES_REGIONS.md).
+  const regionLead = await regionLeadUserFor(db, row.salesPartnerId);
+  if (regionLead) {
+    await notifyUser(regionLead.userId, "sales_region_owner_objection", {
+      propertyTitle: row.property?.title,
+      partnerName: row.salesPartner?.user?.fullName || row.salesPartner?.user?.name || row.salesPartner?.agentCode,
+      actionPath: "/sales/region",
+    }).catch(() => undefined);
+  }
   return "PAUSED";
 }
 
@@ -544,6 +761,9 @@ export async function resolveObjection(input: { assistedId: number; outcome: "RE
     }
     if (input.outcome === "CANCEL") {
       await tx.property.update({ where: { id: row.propertyId }, data: { status: "SUSPENDED" } });
+      // The owner said they never agreed: a long-stay switch that came only from
+      // this listing's request is taken back too (section 15).
+      await revokeLongStayFromCancelledListing(tx, row.id, row.ownerUserId, row.propertyId).catch(ignoreMissingRequestTable);
       accountReleased = await releaseUnusedOwnerAccount(tx, row);
       const upheld = await tx.salesAssistedListing.count({ where: { salesPartnerId: row.salesPartnerId, objectionOutcome: "CANCEL" } });
       if (upheld >= ASSISTED_OBJECTION_PAUSE_THRESHOLD) {

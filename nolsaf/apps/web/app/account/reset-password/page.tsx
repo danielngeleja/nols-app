@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowRight, Check, CheckCircle2, Clock, Eye, EyeOff, KeyRound, Loader2, LockKeyhole, ShieldCheck, X } from "lucide-react";
+import { AlertCircle, ArrowBigUp, ArrowRight, Check, CheckCircle2, Clock, Eye, EyeOff, KeyRound, Link2Off, Loader2, Lock, LockKeyhole, Mail, MailCheck, ShieldCheck, Smartphone, Sparkles, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { validatePasswordAgainstPolicy } from "@/lib/passwordPolicy";
 import { useServerPasswordPolicy } from "@/hooks/useServerPasswordPolicy";
@@ -12,8 +12,11 @@ const TOKEN_KEY = "nolsaf.passwordSetupToken";
 
 type LinkCheck =
   | { state: "checking" }
-  | { state: "valid"; firstPassword: boolean; login: string | null; name: string | null; expiresAt: string | null }
+  | { state: "valid"; firstPassword: boolean; login: string | null; name: string | null; expiresAt: string | null; contacts: Contacts | null }
   | { state: "invalid"; reason: "missing" | "invalid" | "expired" | "unavailable" };
+
+/** Masked sign-in details. emailState PENDING: a sales partner gave it and the owner has not proved it yet. */
+type Contacts = { phone: string | null; email: string | null; emailState: "VERIFIED" | "UNVERIFIED" | "PENDING" | null };
 
 function safeNext(raw: string): string {
   const v = String(raw || "").trim();
@@ -71,10 +74,41 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [reasons, setReasons] = useState<string[]>([]);
   const [done, setDone] = useState<"saved" | "already_set" | null>(null);
+  const [capsLock, setCapsLock] = useState(false);
+  const [suggested, setSuggested] = useState(false);
   const checked = useRef(false);
 
   const { policy: passwordPolicy, policyReady, policyStatus, retryPolicy } = useServerPasswordPolicy();
   const validation = validatePasswordAgainstPolicy(password, passwordPolicy);
+
+  const trackCapsLock = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (typeof e.getModifierState === "function") setCapsLock(e.getModifierState("CapsLock"));
+  };
+
+  // A random password from the browser's secure generator, checked against the
+  // policy, shown once so the person can save it before continuing.
+  const suggestPassword = () => {
+    const length = Math.min(passwordPolicy.maxLength, Math.max(16, passwordPolicy.minLength));
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const candidate = securePassword(length);
+      if (validatePasswordAgainstPolicy(candidate, passwordPolicy).valid) {
+        setPassword(candidate);
+        setConfirm(candidate);
+        setShowPassword(true);
+        setSuggested(true);
+        setError(null);
+        setReasons([]);
+        return;
+      }
+    }
+  };
+
+  // Never leave a revealed password on screen: hide it when the tab is left.
+  useEffect(() => {
+    const hide = () => { if (document.visibilityState === "hidden") setShowPassword(false); };
+    document.addEventListener("visibilitychange", hide);
+    return () => document.removeEventListener("visibilitychange", hide);
+  }, []);
 
   // Check the link once, before the user types anything.
   useEffect(() => {
@@ -115,6 +149,7 @@ export default function ResetPasswordPage() {
             login: data.login ?? null,
             name: data.name ?? null,
             expiresAt: data.expiresAt ?? null,
+            contacts: data.contacts && typeof data.contacts === "object" ? data.contacts : null,
           });
         } else {
           const r = data?.reason;
@@ -130,9 +165,6 @@ export default function ResetPasswordPage() {
   const firstPassword = link.state === "valid" ? link.firstPassword : isOnboarding;
   const operatorSetup = isOnboarding && next.startsWith("/account/agent");
   const title = firstPassword ? (operatorSetup ? "Set up your operator account" : "Create your password") : "Choose a new password";
-  const subtitle = firstPassword
-    ? "Create the password you will use to sign in. Only you will know it."
-    : "Your new password replaces the old one and signs you out on other devices.";
   const loginHref = `/account/login${next ? `?next=${encodeURIComponent(next)}` : ""}`;
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -240,33 +272,56 @@ export default function ResetPasswordPage() {
 
           {link.state === "valid" && !done && (
             <>
-              <div className="border-b border-solid border-x-0 border-t-0 border-slate-100 px-6 pb-5 pt-6">
-                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-[#02665e]/10 text-[#02665e]">
-                  {firstPassword ? <KeyRound className="h-5 w-5" aria-hidden /> : <LockKeyhole className="h-5 w-5" aria-hidden />}
+              {/* Who this is for and how long the link lasts, on the brand band */}
+              <div className="bg-[#0b2420] px-6 pb-5 pt-6 text-white">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white/10 text-emerald-300">
+                    {firstPassword ? <KeyRound className="h-5 w-5" aria-hidden /> : <LockKeyhole className="h-5 w-5" aria-hidden />}
+                  </span>
+                  <div className="min-w-0">
+                    <h1 className="m-0 truncate text-[18px] font-semibold leading-tight text-white">
+                      {link.name && firstPassword ? `Welcome, ${link.name}` : title}
+                    </h1>
+                    <p className="m-0 mt-0.5 text-[13px] text-white/65">
+                      {firstPassword ? "Create the password only you will know." : "It replaces the old one and signs out other devices."}
+                    </p>
+                  </div>
                 </div>
-                <h1 className="mt-4 text-lg font-semibold text-slate-900">
-                  {link.name && firstPassword ? `Welcome, ${link.name}` : title}
-                </h1>
-                <p className="mt-1 text-sm leading-6 text-slate-600">{link.name && firstPassword ? `${title}. ${subtitle}` : subtitle}</p>
-
-                <dl className="mt-4 grid gap-2 text-sm">
-                  {link.login && (
-                    <div className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2">
-                      <dt className="text-slate-500">Account</dt>
-                      <dd className="m-0 truncate font-medium text-slate-900">{link.login}</dd>
+                {/* Your sign-in details, masked */}
+                <div className="mt-4 overflow-hidden rounded-md bg-white/[0.06] text-[12.5px]">
+                  {link.contacts?.phone || (!link.contacts && link.login) ? (
+                    <div className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="inline-flex items-center gap-2 text-white/60"><Smartphone className="h-3.5 w-3.5" aria-hidden />Phone</span>
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-white">
+                        <span className="truncate font-mono tracking-tight">{link.contacts?.phone || link.login}</span>
+                        {link.contacts?.phone ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-label="Confirmed" /> : null}
+                      </span>
                     </div>
-                  )}
-                  {formatExpiry(link.expiresAt) && (
-                    <div className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2">
-                      <dt className="inline-flex items-center gap-1.5 text-slate-500">
-                        <Clock className="h-3.5 w-3.5" aria-hidden />
-                        Link works until
-                      </dt>
-                      <dd className="m-0 font-medium text-slate-900">{formatExpiry(link.expiresAt)}</dd>
+                  ) : null}
+                  {link.contacts?.email ? (
+                    <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-white/10 px-3 py-2">
+                      <span className="inline-flex items-center gap-2 text-white/60"><Mail className="h-3.5 w-3.5" aria-hidden />Email</span>
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-white">
+                        <span className="truncate font-mono tracking-tight">{link.contacts.email}</span>
+                        {link.contacts.emailState === "VERIFIED"
+                          ? <Check className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-label="Confirmed" />
+                          : <span className="shrink-0 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-200">To confirm</span>}
+                      </span>
                     </div>
-                  )}
-                </dl>
+                  ) : null}
+                </div>
+                {link.expiresAt && <div className="mt-2.5 flex text-[12px]"><ExpiryChip expiresAt={link.expiresAt} /></div>}
               </div>
+
+              {link.contacts?.emailState === "PENDING" && link.contacts.email ? (
+                <PendingEmailStep
+                  token={token}
+                  maskedEmail={link.contacts.email}
+                  onDone={(state) => setLink((current) => (current.state === "valid" && current.contacts
+                    ? { ...current, contacts: state === "VERIFIED" ? { ...current.contacts, emailState: "VERIFIED" } : { ...current.contacts, email: null, emailState: null } }
+                    : current))}
+                />
+              ) : null}
 
               <form onSubmit={onSubmit} className="space-y-4 px-6 py-5" noValidate>
                 {policyStatus !== "ready" && (
@@ -300,19 +355,38 @@ export default function ResetPasswordPage() {
                 {link.login && <input type="text" name="username" autoComplete="username" value={link.login} readOnly hidden />}
 
                 <div>
-                  <label htmlFor="new-password" className="block text-sm font-medium text-slate-800">
-                    {firstPassword ? "Password" : "New password"}
-                  </label>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <label htmlFor="new-password" className="block text-sm font-medium text-slate-800">
+                      {firstPassword ? "Password" : "New password"}
+                    </label>
+                    {policyReady && (
+                      <button
+                        type="button"
+                        onClick={suggestPassword}
+                        disabled={loading}
+                        className="inline-flex items-center gap-1 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline disabled:opacity-50"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                        Suggest a strong one
+                      </button>
+                    )}
+                  </div>
                   <div className="relative mt-1.5">
                     <input
                       id="new-password"
                       type={showPassword ? "text" : "password"}
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => { setPassword(e.target.value); setSuggested(false); }}
+                      onKeyUp={trackCapsLock}
+                      onKeyDown={trackCapsLock}
                       autoComplete="new-password"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       autoFocus
                       maxLength={passwordPolicy.maxLength}
                       disabled={!policyReady || loading}
+                      aria-describedby="password-strength"
                       className="w-full rounded-md border border-solid border-slate-300 bg-white px-3 py-2.5 pr-10 text-sm text-slate-900 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15 disabled:bg-slate-50"
                     />
                     <button
@@ -325,20 +399,34 @@ export default function ResetPasswordPage() {
                     </button>
                   </div>
 
+                  {capsLock && (
+                    <p className="m-0 mt-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-700">
+                      <ArrowBigUp className="h-3.5 w-3.5" aria-hidden /> Caps Lock is on
+                    </p>
+                  )}
+
+                  {suggested && (
+                    <p className="m-0 mt-2 flex items-start gap-2 rounded-md bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-900">
+                      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                      Save this password in your phone or password manager before you continue. NoLSAF cannot show it again.
+                    </p>
+                  )}
+
                   {policyReady && (
-                    <ul className="mb-0 mt-3 grid list-none grid-cols-1 gap-1.5 p-0 sm:grid-cols-2">
-                      {validation.requirements.map((req) => (
-                        <li key={req.id} className={`flex items-center gap-1.5 text-xs ${req.pass ? "text-emerald-700" : "text-slate-500"}`}>
-                          <span
-                            className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full ${req.pass ? "bg-emerald-100" : "bg-slate-100"}`}
-                            aria-hidden
+                    <>
+                      <StrengthMeter password={password} requirementsMet={validation.requirements.filter((r) => r.pass).length} requirementsTotal={validation.requirements.length} minLength={passwordPolicy.minLength} />
+                      <ul className="mb-0 mt-2.5 flex list-none flex-wrap gap-1.5 p-0">
+                        {validation.requirements.map((req) => (
+                          <li
+                            key={req.id}
+                            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium transition-colors ${req.pass ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-500"}`}
                           >
-                            {req.pass ? <Check className="h-3 w-3" /> : <span className="h-1 w-1 rounded-full bg-slate-400" />}
-                          </span>
-                          {req.label}
-                        </li>
-                      ))}
-                    </ul>
+                            {req.pass ? <Check className="h-3 w-3" aria-hidden /> : <span className="h-1 w-1 rounded-full bg-slate-400" aria-hidden />}
+                            {req.label}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
                   )}
                 </div>
 
@@ -346,21 +434,36 @@ export default function ResetPasswordPage() {
                   <label htmlFor="confirm-password" className="block text-sm font-medium text-slate-800">
                     Type it again
                   </label>
-                  <input
-                    id="confirm-password"
-                    type={showPassword ? "text" : "password"}
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    autoComplete="new-password"
-                    maxLength={passwordPolicy.maxLength}
-                    disabled={!policyReady || loading}
-                    className="mt-1.5 w-full rounded-md border border-solid border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15 disabled:bg-slate-50"
-                  />
-                  {confirm && (
-                    <p className={`mb-0 mt-1.5 flex items-center gap-1 text-xs ${password === confirm ? "text-emerald-700" : "text-red-700"}`}>
-                      {password === confirm ? <Check className="h-3 w-3" aria-hidden /> : <X className="h-3 w-3" aria-hidden />}
-                      {password === confirm ? "Passwords match" : "Passwords do not match yet"}
-                    </p>
+                  <div className="relative mt-1.5">
+                    <input
+                      id="confirm-password"
+                      type={showPassword ? "text" : "password"}
+                      value={confirm}
+                      onChange={(e) => setConfirm(e.target.value)}
+                      onKeyUp={trackCapsLock}
+                      autoComplete="new-password"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={passwordPolicy.maxLength}
+                      disabled={!policyReady || loading}
+                      aria-invalid={Boolean(confirm) && password !== confirm}
+                      className={`w-full rounded-md border border-solid bg-white px-3 py-2.5 pr-10 text-sm text-slate-900 outline-none transition focus:ring-2 disabled:bg-slate-50 ${
+                        confirm && password !== confirm
+                          ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100"
+                          : confirm
+                            ? "border-emerald-300 focus:border-[#02665e] focus:ring-[#02665e]/15"
+                            : "border-slate-300 focus:border-[#02665e] focus:ring-[#02665e]/15"
+                      }`}
+                    />
+                    {confirm ? (
+                      <span className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 ${password === confirm ? "text-emerald-600" : "text-rose-500"}`} aria-hidden>
+                        {password === confirm ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                      </span>
+                    ) : null}
+                  </div>
+                  {confirm && password !== confirm && (
+                    <p className="mb-0 mt-1.5 text-xs text-rose-700">Not the same yet</p>
                   )}
                 </div>
 
@@ -369,9 +472,15 @@ export default function ResetPasswordPage() {
                   disabled={loading || !policyReady || !validation.valid || password !== confirm}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-md border-0 bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <LockKeyhole className="h-4 w-4" aria-hidden />}
                   {loading ? "Saving…" : firstPassword ? "Create password" : "Save new password"}
                 </button>
+
+                <ul className="m-0 flex list-none flex-wrap items-center justify-center gap-x-4 gap-y-1 p-0 text-[11.5px] text-slate-500">
+                  <li className="inline-flex items-center gap-1"><Lock className="h-3 w-3 text-[#02665e]" aria-hidden /> Encrypted connection</li>
+                  <li className="inline-flex items-center gap-1"><Link2Off className="h-3 w-3 text-[#02665e]" aria-hidden /> Link works once</li>
+                  <li className="inline-flex items-center gap-1"><KeyRound className="h-3 w-3 text-[#02665e]" aria-hidden /> Only you know it</li>
+                </ul>
               </form>
             </>
           )}
@@ -443,6 +552,205 @@ function InvalidLink({
           Go to sign in
         </Link>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The email a sales partner gave for this owner. It becomes the owner's login
+ * only after they enter the code sent to it; "Not my email" drops it.
+ */
+function PendingEmailStep({ token, maskedEmail, onDone }: { token: string; maskedEmail: string; onDone: (state: "VERIFIED" | "REMOVED") => void }) {
+  const [stage, setStage] = useState<"ask" | "code" | "verified">("ask");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState<"" | "send" | "verify" | "reject">("");
+  const [error, setError] = useState("");
+  const [resendIn, setResendIn] = useState(0);
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = window.setTimeout(() => setResendIn((n) => n - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendIn]);
+
+  const call = async (path: string, body: Record<string, unknown>) => {
+    const res = await fetch(`/api/auth/reset-password/email/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...body }) });
+    const data = await res.json().catch(() => null);
+    return { res, data };
+  };
+  const messageFor = (status: number, message: string | undefined) =>
+    status === 429 ? "Too many tries. Wait a few minutes."
+      : message === "invalid_code" ? "That code is not right. Check the email and try again."
+      : message === "code_expired" ? "That code has expired. Send a new one."
+      : message === "too_many_attempts" ? "Too many wrong codes. Send a new one."
+      : message === "email_taken" ? "This email is already used by another NoLSAF account. Add a different one later in your profile."
+      : "Something went wrong. Try again.";
+
+  const send = async () => {
+    setBusy("send");
+    setError("");
+    try {
+      const { res, data } = await call("send", {});
+      if (res.ok) { setStage("code"); setResendIn(60); setCode(""); }
+      else setError(messageFor(res.status, data?.message));
+    } catch { setError("No connection. Try again."); } finally { setBusy(""); }
+  };
+  const verify = async () => {
+    if (code.length !== 6) { setError("Enter the 6-digit code."); return; }
+    setBusy("verify");
+    setError("");
+    try {
+      const { res, data } = await call("verify", { code });
+      if (res.ok) { setStage("verified"); onDone("VERIFIED"); }
+      else setError(messageFor(res.status, data?.message));
+    } catch { setError("No connection. Try again."); } finally { setBusy(""); }
+  };
+  const reject = async () => {
+    setBusy("reject");
+    setError("");
+    try {
+      const { res } = await call("reject", {});
+      if (res.ok) onDone("REMOVED");
+      else setError("Could not remove it. Try again.");
+    } catch { setError("No connection. Try again."); } finally { setBusy(""); }
+  };
+
+  if (stage === "verified") {
+    return (
+      <div className="flex items-center gap-2.5 border-0 border-b border-solid border-slate-100 bg-emerald-50 px-6 py-3 text-[13px] text-emerald-900">
+        <MailCheck className="h-4 w-4 shrink-0" aria-hidden /> Email confirmed. You can sign in with it too.
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-0 border-b border-solid border-slate-100 px-6 py-4">
+      <div className="flex items-start gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-600"><Mail className="h-4 w-4" aria-hidden /></span>
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-[13.5px] font-semibold text-slate-900">Confirm your email</p>
+          <p className="m-0 mt-0.5 text-[12.5px] leading-5 text-slate-500">
+            {stage === "code" ? <>We sent a 6-digit code to <span className="font-mono text-slate-700">{maskedEmail}</span>.</> : <>Is <span className="font-mono text-slate-700">{maskedEmail}</span> yours? Confirm it to sign in and recover your account with it.</>}
+          </p>
+        </div>
+      </div>
+
+      {stage === "ask" ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 pl-12">
+          <button type="button" onClick={send} disabled={Boolean(busy)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-solid border-[#02665e]/30 bg-[#02665e]/[0.06] px-3 text-[12.5px] font-semibold text-[#02665e] hover:bg-[#02665e]/10 disabled:opacity-60">
+            {busy === "send" ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Mail className="h-3.5 w-3.5" aria-hidden />} Send me a code
+          </button>
+          <button type="button" onClick={reject} disabled={Boolean(busy)} className="border-0 bg-transparent p-0 text-[12.5px] font-semibold text-slate-500 hover:text-rose-700 hover:underline disabled:opacity-60">
+            {busy === "reject" ? "Removing…" : "Not my email"}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 pl-12">
+          <div className="flex gap-2">
+            <input
+              value={code}
+              onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void verify(); } }}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="000000"
+              aria-label="6-digit code"
+              className="h-9 w-32 rounded-md border border-solid border-slate-300 px-3 text-center font-mono text-[15px] tracking-[0.3em] text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
+            />
+            <button type="button" onClick={verify} disabled={Boolean(busy)} className="inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-[#02665e] px-3.5 text-[12.5px] font-semibold text-white hover:bg-[#014e47] disabled:opacity-60">
+              {busy === "verify" ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Check className="h-3.5 w-3.5" aria-hidden />} Confirm
+            </button>
+          </div>
+          <p className="m-0 mt-2 text-[12px] text-slate-500">
+            {resendIn > 0 ? `Send again in ${resendIn}s` : (
+              <button type="button" onClick={send} disabled={Boolean(busy)} className="border-0 bg-transparent p-0 text-[12px] font-semibold text-[#02665e] hover:underline">Send a new code</button>
+            )}
+            <span className="mx-1.5 text-slate-300">·</span>
+            <button type="button" onClick={reject} disabled={Boolean(busy)} className="border-0 bg-transparent p-0 text-[12px] font-semibold text-slate-500 hover:text-rose-700 hover:underline">Not my email</button>
+          </p>
+        </div>
+      )}
+      {error ? <p role="alert" className="m-0 mt-2 pl-12 text-[12.5px] text-rose-700">{error}</p> : null}
+      <p className="m-0 mt-2 pl-12 text-[11.5px] text-slate-400">Optional now. You can also do it later in your profile.</p>
+    </div>
+  );
+}
+
+/** Lookalike characters (0/O, 1/l/I) are left out so it can be typed from a note. */
+const PASSWORD_ALPHABET = {
+  upper: "ABCDEFGHJKLMNPQRSTUVWXYZ",
+  lower: "abcdefghijkmnpqrstuvwxyz",
+  digit: "23456789",
+  symbol: "!@#$%*-_+=?",
+};
+
+/** Uniform random integer in [0, n) from the secure generator (rejection sampling, no bias). */
+function randomIndex(n: number): number {
+  const buf = new Uint32Array(1);
+  const limit = Math.floor(0x1_0000_0000 / n) * n;
+  do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
+  return buf[0] % n;
+}
+
+function securePassword(length: number): string {
+  const all = Object.values(PASSWORD_ALPHABET).join("");
+  const pick = (set: string) => set[randomIndex(set.length)];
+  // One of each kind, then random fill, then a Fisher-Yates shuffle.
+  const chars = [pick(PASSWORD_ALPHABET.upper), pick(PASSWORD_ALPHABET.lower), pick(PASSWORD_ALPHABET.digit), pick(PASSWORD_ALPHABET.symbol)];
+  while (chars.length < length) chars.push(pick(all));
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomIndex(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
+/** Live "expires in" so the person knows how long the link lasts. */
+function ExpiryChip({ expiresAt }: { expiresAt: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const left = new Date(expiresAt).getTime() - now;
+  if (!Number.isFinite(left)) return null;
+  const mins = Math.max(0, Math.floor(left / 60_000));
+  const text = mins >= 1440 ? `${Math.floor(mins / 1440)} d ${Math.floor((mins % 1440) / 60)} h` : mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
+  const soon = mins < 60;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 ${soon ? "bg-amber-400/15 text-amber-200" : "bg-white/10 text-white/85"}`}
+      title={`Works until ${formatExpiry(expiresAt) ?? ""}`}
+    >
+      <Clock className={`h-3.5 w-3.5 ${soon ? "text-amber-300" : "text-white/55"}`} aria-hidden />
+      Link expires in {text}
+    </span>
+  );
+}
+
+/** Four bars: requirements met first, then length past the minimum. */
+function StrengthMeter({ password, requirementsMet, requirementsTotal, minLength }: { password: string; requirementsMet: number; requirementsTotal: number; minLength: number }) {
+  if (!password) return null;
+  const allMet = requirementsTotal > 0 && requirementsMet === requirementsTotal;
+  const variety = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(password)).length;
+  let level = 1;
+  if (allMet) level = 2;
+  if (allMet && (password.length >= minLength + 4 || variety >= 4)) level = 3;
+  if (allMet && password.length >= Math.max(14, minLength + 6) && variety >= 3) level = 4;
+  const meta = [
+    { label: "Too weak", bar: "bg-rose-500", text: "text-rose-700" },
+    { label: "Okay", bar: "bg-amber-500", text: "text-amber-700" },
+    { label: "Good", bar: "bg-emerald-500", text: "text-emerald-700" },
+    { label: "Strong", bar: "bg-[#02665e]", text: "text-[#02665e]" },
+  ][level - 1];
+  return (
+    <div id="password-strength" className="mt-2.5 flex items-center gap-3" aria-live="polite">
+      <div className="grid flex-1 grid-cols-4 gap-1" aria-hidden>
+        {[1, 2, 3, 4].map((n) => (
+          <span key={n} className={`h-1.5 rounded-full transition-colors ${n <= level ? meta.bar : "bg-slate-200"}`} />
+        ))}
+      </div>
+      <span className={`w-16 shrink-0 text-right text-[11.5px] font-semibold ${meta.text}`}>{meta.label}</span>
     </div>
   );
 }

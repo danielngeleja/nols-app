@@ -150,7 +150,7 @@ export async function startAmountWithdrawal(ownerId: number, amount: number, now
   })) throw new WithdrawalError("CHANGED", "Your previous withdrawal is still being prepared. Try again once it is queued.");
 
   const account = (await verifiedPayoutAccounts(ownerId))[0];
-  if (!account) throw new WithdrawalError("NO_PAYOUT_ACCOUNT", "Add and verify a mobile money payout account first.");
+  if (!account) throw new WithdrawalError("NO_PAYOUT_ACCOUNT", "Add and verify a payout account first.");
   const { plan, openDebt, allowance, grossTotal } = await planWithdrawal(ownerId, amount, now);
   const accountFingerprint = withdrawalAccountFingerprint(account);
   const code = generate6();

@@ -22,6 +22,7 @@ import { discountedNightlyNet, roomDiscountPercent } from "../lib/roomDiscount.j
 import { bedsPerSellableUnit } from "../lib/roomSpecBeds.js";
 import { guestOccupancyPricing } from "../lib/guestOccupancyPricing.js";
 import { recordAgencyAttribution } from "../lib/salesAgency.js";
+import { recordAcquisitionSource } from "../lib/acquisitionSource.js";
 
 /**
  * Both booking transactions take a `SELECT ... FOR UPDATE` lock on the property
@@ -350,6 +351,9 @@ const createBookingSchema = z.object({
   // Agency Desk link token. Only ever credits the booking to a partner after it
   // is created; it never changes price, availability or who pays.
   agencyRef: z.string().max(64).optional().nullable(),
+  // The guest ticked that they pay for electricity (services.houseRules.electricity).
+  // The web checkout requires it; app clients that do not send it are not refused yet.
+  acceptElectricity: z.boolean().optional(),
 }).superRefine((data, ctx) => {
   if (data.roomCode && isExplicitRoomUnitCode(data.roomCode) && (data.rooms ?? 1) > 1) {
     ctx.addIssue({
@@ -1428,6 +1432,9 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         console.warn("[sales-agency] attribution skipped:", error?.message || String(error));
       });
     }
+
+    // Marketing channel (reporting only, needs the visitor's consent cookie).
+    await recordAcquisitionSource(prisma, { type: "BOOKING", id: result.bookingId }, req.headers.cookie);
 
     // NOTE: do not broadcast transport offers here.
     // The transport auto-dispatch worker issues targeted offers (top drivers) based on live locations.

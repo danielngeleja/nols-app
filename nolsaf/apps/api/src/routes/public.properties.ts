@@ -1025,6 +1025,7 @@ const getPublicProperty: RequestHandler = async (req, res) => {
               nrmsMenuPublic: true,
               rentalMode: true,
               longStayListing: true,
+              photoAreas: true,
               images: {
                 where: {
                   // Show all uploaded images on public details as long as they're not rejected.

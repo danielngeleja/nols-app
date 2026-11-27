@@ -224,6 +224,10 @@ export const COMMISSION_TYPES = [
   "AGENCY_TOUR",
   /** Flat fee for a long-stay home inspection NoLSAF accepted (pass or fail). */
   "LONG_STAY_INSPECTION",
+  /** Share of NoLSAF's long-stay fees on a home the partner brought, earned at move-in. */
+  "LONG_STAY_TENANCY",
+  /** A Regional lead's override on their region's partners' commissions (docs/SALES_REGIONS.md). */
+  "REGIONAL_OVERRIDE",
   "PERFORMANCE_BONUS",
   "MANUAL_ADJUSTMENT",
 ] as const;
@@ -326,7 +330,7 @@ export const CONTRACT_TERM_DAYS = 365;
  * of a double payout, so every writer must go through this function.
  */
 export function commissionSourceKey(
-  source: "NRMS_STATEMENT" | "INVOICE" | "AGENCY_INVOICE" | "AGENCY_GROUP" | "AGENCY_TOUR" | "BONUS" | "ADJUSTMENT",
+  source: "NRMS_STATEMENT" | "INVOICE" | "AGENCY_INVOICE" | "AGENCY_GROUP" | "AGENCY_TOUR" | "TENANCY" | "BONUS" | "ADJUSTMENT",
   id: number | string,
 ): string {
   return `${source}:${id}`;

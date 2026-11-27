@@ -49,8 +49,8 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
-import { azamPayNameLookup } from "../services/azampay/disbursement/client.js";
-import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
+import { azamPayBankNames, azamPayNameLookup } from "../services/azampay/disbursement/client.js";
+import { AzamPayDisburseAuthError, AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
 import { azamPayProvidersMatch, canonicalAzamPayProvider } from "../services/azampay/disbursement/providers.js";
 import { getRegistrationStatus } from "../lib/registrationLifecycle.js";
 import { loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
@@ -174,18 +174,6 @@ const confirmContactChangeSchema = z.object({
   otp: z.string().trim().regex(/^\d{6}$/),
 }).strict();
 
-const PAYOUT_BANK_CODES = ["CRDB", "NBC", "NMB"] as const;
-
-function canonicalPayoutBank(value: unknown): (typeof PAYOUT_BANK_CODES)[number] | null {
-  const normalized = String(value ?? "").trim().toUpperCase().replace(/[^A-Z]/g, "");
-  return PAYOUT_BANK_CODES.find((bank) => normalized === bank || normalized === `${bank}BANK`) ?? null;
-}
-
-const payoutBankSchema = z.preprocess(
-  (value) => canonicalPayoutBank(value) ?? value,
-  z.enum(["CRDB", "NBC", "NMB"], { message: "Select CRDB, NBC, or NMB" })
-);
-
 const payoutMobileProviderSchema = z.preprocess(
   (value) => canonicalAzamPayProvider(String(value ?? "")) ?? value,
   z.enum(["yas", "vodacom", "airtel", "halotel", "azampesa"], {
@@ -198,7 +186,7 @@ const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
     .object({
       payoutPreferred: z.literal("BANK"),
       bankAccountName: z.string().trim().min(2).max(160),
-      bankName: payoutBankSchema,
+      bankName: z.string().trim().min(1).max(160),
       bankAccountNumber: z.string().trim().regex(/^[A-Za-z0-9]{4,40}$/, "Enter a valid bank account number"),
       bankBranch: z.string().trim().max(100).optional().default(""),
     })
@@ -214,7 +202,7 @@ const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
 
 /** How a destination reads on sales payout requests and receipts, e.g. "M-Pesa" or "CRDB Bank". */
 function payoutMethodLabel(isBank: boolean, provider: string): string {
-  if (isBank) return `${provider} Bank`;
+  if (isBank) return provider;
   switch (canonicalAzamPayProvider(provider)) {
     case "vodacom": return "M-Pesa";
     case "yas": return "Mixx by Yas";
@@ -1264,18 +1252,12 @@ async function sendPayoutDestinationSecurityAlerts(
     hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(savedAt);
   const actionText = action === "added" ? "added" : action === "changed" ? "changed" : "reverified";
-  const bankNote = "Automated bank payouts are not enabled; any bank transfer is handled manually.";
-  const waitingHours = isBank ? null : (await loadPayoutSafeguards()).recentChangeHours;
-  // Only a real change waits (riskScoring.destinationChangeAnchor): a first
-  // account is onboarding and a re-verification moves nothing.
-  const mobileNote = waitingHours === null
-    ? ""
-    : action === "changed"
+  const waitingHours = (await loadPayoutSafeguards()).recentChangeHours;
+  const waitingNote = action === "changed"
       ? `A ${waitingHours}-hour security waiting period applies before this account can be used for payouts. Additional eligibility and approval checks still apply.`
       : action === "added"
         ? "This account can receive payouts once a stay is ready. Your first payout is checked by our team before it is sent."
         : "Re-verifying the same account did not start a new security waiting period. Additional eligibility and approval checks still apply.";
-  const waitingNote = isBank ? bankNote : mobileNote;
   const noPayoutNote = "Saving this account did not approve or send a payout.";
   const details = `${provider} ending in ${lastFour}`;
   const tasks: Array<Promise<unknown>> = [];
@@ -1309,9 +1291,7 @@ async function sendPayoutDestinationSecurityAlerts(
     ));
   }
   if (user.phone) {
-    const smsPolicy = isBank
-      ? "Automated bank payouts unavailable; transfers are manual."
-      : action === "changed" ? `${waitingHours}h security hold applies.` : "No security hold started.";
+    const smsPolicy = action === "changed" ? `${waitingHours}h security hold applies.` : "No security hold started.";
     tasks.push(sendSms(user.phone, `NoLSAF security: payout account ${actionText}: ${details}, ${savedAtEat} EAT. ${smsPolicy} Saving it did not approve or send a payout. If not you, contact support@nolsaf.com.`));
   }
   await Promise.allSettled(tasks);
@@ -1688,6 +1668,33 @@ function sendPayoutProviderError(req: Request, res: Response, error: unknown): b
   return false;
 }
 
+function logBankDirectoryFailure(req: Request, error: unknown) {
+  const details = error instanceof AzamPayDisburseConfigurationError
+    ? { stage: "configuration", operation: error.operation, missingKeys: error.missingKeys }
+    : error instanceof AzamPayDisburseAuthError
+      ? { stage: "authentication", upstreamStatus: error.httpStatus }
+      : error instanceof AzamPayDisburseError
+        ? { stage: "directory_http", upstreamStatus: error.httpStatus }
+        : error instanceof z.ZodError || error instanceof SyntaxError
+          ? { stage: "directory_response" }
+          : { stage: "directory_request" };
+  console.error(JSON.stringify({
+    level: "error",
+    event: "payout_bank_directory_failed",
+    requestId: String((req as Request & { requestId?: string }).requestId ?? ""),
+    ...details,
+  }));
+}
+
+router.get("/payouts/banks", payoutLookupLimit, async (req, res) => {
+  try {
+    res.json({ banks: await azamPayBankNames() });
+  } catch (error) {
+    logBankDirectoryFailure(req, error);
+    res.status(503).json({ error: "The payout bank directory is temporarily unavailable." });
+  }
+});
+
 /** Resolves the account holder through AzamPay without changing stored payout details. */
 const verifyPayoutDestination: RequestHandler = async (req, res) => {
   try {
@@ -1718,6 +1725,15 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
       });
     }
 
+    if (isBank) {
+      let banks: string[];
+      try { banks = await azamPayBankNames(); }
+      catch (error) {
+        logBankDirectoryFailure(req, error);
+        return sendError(res, 503, "The payout bank directory is temporarily unavailable.");
+      }
+      if (!banks.includes(provider)) return sendError(res, 400, "Select a bank from the current payout directory.");
+    }
     const lookup = await azamPayNameLookup({ bankName: provider, accountNumber });
     const resolvedName = String(lookup.name || "").trim();
     const returnedNumber = String(lookup.accountNumber || accountNumber).replace(/[^A-Za-z0-9]/g, "").toLowerCase();
@@ -1726,7 +1742,7 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
     }
     const returnedProvider = String(lookup.bankName || "").trim();
     const providerMatches = isBank
-      ? canonicalPayoutBank(returnedProvider) === provider
+      ? returnedProvider.toLowerCase() === provider.toLowerCase()
       : azamPayProvidersMatch(provider, returnedProvider);
     if (!providerMatches) {
       await audit(req as AuthedRequest, "USER_PAYOUT_LOOKUP_MISMATCH", `user:${userId}`, null, {
@@ -1752,6 +1768,10 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
       return sendError(res, 409, "AzamPay returned a different account number. No payout details were changed.");
     }
 
+    // Banks are paid out for owners, operators and sales partners.
+    const azamPayDisbursementEnabled = !isBank
+      || ["OWNER", "AGENT"].includes(String((req as AuthedRequest).user?.role).toUpperCase())
+      || Boolean(await prisma.salesPartnerProfile.findFirst({ where: { userId }, select: { id: true } }).catch(() => null));
     const challenge = await createPayoutVerificationChallenge({
       userId,
       destination: data,
@@ -1761,7 +1781,7 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
     await audit(req as AuthedRequest, "USER_PAYOUT_DESTINATION_LOOKED_UP", `user:${userId}`, null, {
       payoutPreferred: data.payoutPreferred,
       provider,
-      azamPayDisbursementEnabled: !isBank,
+      azamPayDisbursementEnabled,
       accountName: resolvedName,
       accountNumber: maskSensitiveDestination(accountNumber),
       expiresAt: new Date(challenge.expiresAt).toISOString(),
@@ -1781,12 +1801,10 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
         },
         capabilities: {
           nameLookupVerified: true,
-          azamPayDisbursementEnabled: !isBank,
+          azamPayDisbursementEnabled,
         },
       },
-      isBank
-        ? "Bank account name verified. Automated AzamPay bank disbursement remains disabled."
-        : "Payout destination verified. Confirm the account holder to save it."
+      "Payout destination verified. Confirm the account holder to save it."
     );
   } catch (error: unknown) {
     if (sendPayoutProviderError(req, res, error)) return;
@@ -1916,7 +1934,7 @@ const updatePayouts: RequestHandler = async (req, res) => {
         where: { userId },
         data: {
           payoutName: resolvedName,
-          payoutMethod: payoutMethodLabel(isBank, provider),
+          payoutMethod: isBank && provider.length > 40 ? "Bank transfer" : payoutMethodLabel(isBank, provider),
           payoutAccount: accountNumber,
         },
       });

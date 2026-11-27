@@ -67,6 +67,7 @@ export default function OfferLeasePanel({ side, view, base, onChanged }: { side:
   };
 
   const status = view.status;
+  const archivedLease = Boolean(view.lease && !["OFFERED", "ACCEPTED", "AWAITING_PAYMENT"].includes(status));
   let body: React.ReactNode = null;
 
   if (status === "OFFERED" && view.offer) body = <OfferReview side={side} view={view} post={post} busy={busy} />;
@@ -83,10 +84,15 @@ export default function OfferLeasePanel({ side, view, base, onChanged }: { side:
   );
   else if (["ACTIVE", "ENDING", "OVERDUE", "DISPUTED"].includes(status) && view.money) body = <><MoveInPanel side={side} view={view} base={base} onChanged={onChanged} /><div className="mt-3"><StayLifecyclePanel side={side} view={view} base={base} onChanged={onChanged} /></div></>;
   else if ((status === "ENDED" || (status === "CANCELLED" && view.cancellation)) && view.money) body = <StayLifecyclePanel side={side} view={view} base={base} onChanged={onChanged} />;
-  if (!body) return null;
+  if (!body && !archivedLease) return null;
 
   return (
     <div className="border-0 border-t border-solid border-slate-100 px-5 py-4">
+      {archivedLease && view.lease && (
+        <div className={body ? "mb-4" : undefined}>
+          <LeaseBlock key={`${view.ref}:${view.lease.hash}:document`} side={side} view={view} base={base} post={post} busy={busy} readOnly />
+        </div>
+      )}
       {body}
       {error ? <p role="alert" className="m-0 mt-2 text-[13px] text-red-700">{error}</p> : null}
     </div>
@@ -202,11 +208,11 @@ function OfferReview({ side, view, post, busy }: { side: Side; view: OfferLeaseV
   );
 }
 
-function LeaseBlock({ side, view, base, post, busy }: { side: Side; view: OfferLeaseView; base: string; post: Post; busy: string | null }) {
+function LeaseBlock({ side, view, base, post, busy, readOnly = false }: { side: Side; view: OfferLeaseView; base: string; post: Post; busy: string | null; readOnly?: boolean }) {
   const landlord = side === "LANDLORD";
   const agreement = view.lease!;
   const m = view.money!;
-  const [open, setOpen] = useState(landlord);
+  const [open, setOpen] = useState(landlord && !readOnly);
   const [lease, setLease] = useState<{ hash: string; text: string; version: string } | null>(null);
   const [read, setRead] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
@@ -214,7 +220,7 @@ function LeaseBlock({ side, view, base, post, busy }: { side: Side; view: OfferL
   const [retry, setRetry] = useState(0);
   const mine = landlord ? agreement.landlordAcceptedAt : agreement.tenantAcceptedAt;
   const theirs = landlord ? agreement.tenantAcceptedAt : agreement.landlordAcceptedAt;
-  const canSign = view.status === "ACCEPTED" && !mine;
+  const canSign = !readOnly && view.status === "ACCEPTED" && !mine;
 
   useEffect(() => {
     if ((!open && !docOpen) || lease) return;
@@ -246,7 +252,8 @@ function LeaseBlock({ side, view, base, post, busy }: { side: Side; view: OfferL
 
   const documentAction = (
     <button type="button" onClick={() => setDocOpen(true)} className={outline}>
-      <Printer className="size-4" aria-hidden />View, print or save
+      {readOnly ? <FileText className="size-4" aria-hidden /> : <Printer className="size-4" aria-hidden />}
+      {readOnly ? "Read agreement" : "View, print or save"}
     </button>
   );
   const inlineReader = open && (
@@ -293,7 +300,15 @@ function LeaseBlock({ side, view, base, post, busy }: { side: Side; view: OfferL
 
   return (
     <>
-      {landlord ? (
+      {readOnly ? (
+        <section aria-label="Lease agreement" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-solid border-[#d9e7e2] bg-[#f5f9f7] px-3.5 py-3">
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-bold text-slate-950">Residential tenancy agreement</h2>
+            <p className="m-0 mt-0.5 text-xs text-slate-600">{mine && theirs ? "Signed by both parties" : "Agreement on file"}</p>
+          </div>
+          {documentAction}
+        </section>
+      ) : landlord ? (
         <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(17rem,1fr)]">
           <section aria-label="Lease document" className="min-w-0 overflow-hidden rounded-lg border border-solid border-[#d9e7e2] bg-white">
             <header className="flex flex-wrap items-start justify-between gap-3 border-0 border-b border-solid border-[#d9e7e2] bg-[#f5f9f7] px-4 py-3.5 sm:px-5">

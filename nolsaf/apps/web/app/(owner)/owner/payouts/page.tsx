@@ -2,78 +2,60 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Loader2, ShieldCheck, Wallet } from "lucide-react";
+import { ArrowUpRight, Clock3, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import WithdrawPanel from "@/components/owner-payouts/WithdrawPanel";
-import { PayoutRow } from "@/components/owner-payouts/PayoutList";
+import OwnerActivity, { isWithdrawalActive } from "@/components/owner-payouts/OwnerActivity";
 import UpcomingFlowNotice from "@/components/owner-payouts/UpcomingFlowNotice";
-import { STAGES, formatEat, formatTzs, sum, timeLeft, useNow, useOwnerPayouts } from "@/components/owner-payouts/shared";
+import { PROVIDER_NAMES, formatEat, formatTzs, readableDestination, sum, timeLeft, useNow, useOwnerPayouts } from "@/components/owner-payouts/shared";
 
 type PayoutAccount = { id: number; type: string; provider: string; accountNumber: string; isVerified: boolean; isActive: boolean; isDefault: boolean };
-
-const PROVIDER_NAMES: Record<string, string> = {
-  vodacom: "M-Pesa",
-  mpesa: "M-Pesa",
-  airtel: "Airtel Money",
-  yas: "Mixx by Yas",
-  tigo: "Mixx by Yas",
-  halotel: "HaloPesa",
-  halopesa: "HaloPesa",
-  azampesa: "AzamPesa",
-};
 
 function destinationLabel(account: PayoutAccount | undefined): string | null {
   if (!account) return null;
   const name = PROVIDER_NAMES[account.provider.toLowerCase()] ?? account.provider;
-  return `${name} ***${account.accountNumber.replace(/\D/g, "").slice(-3)}`;
+  return `${name} ***${account.accountNumber.slice(-3)}`;
 }
 
+const amountText = (value: number) => Math.round(value).toLocaleString("en-US");
+
 export default function PayoutsOverviewPage() {
-  const { payouts, enabled, recoveryDue, dailyLimit, dailyRemaining, dailyResetAt, loading, error, reload } = useOwnerPayouts();
+  const { payouts, withdrawals, enabled, recoveryDue, dailyLimit, dailyRemaining, dailyResetAt, loading, error, reload } = useOwnerPayouts();
   const now = useNow();
   const [account, setAccount] = useState<PayoutAccount | undefined>();
+  const [accountLoaded, setAccountLoaded] = useState(false);
 
   useEffect(() => {
     apiClient
       .get<{ accounts: PayoutAccount[] }>("/api/owner/payouts/accounts")
       .then((res) => {
-        const usable = (res.data?.accounts ?? []).filter((a) => a.isActive && a.isVerified && a.type === "MOBILE_MONEY");
+        const usable = (res.data?.accounts ?? []).filter((a) => a.isActive && a.isVerified && ["BANK", "MOBILE_MONEY"].includes(a.type));
         setAccount(usable.find((a) => a.isDefault) ?? usable[0]);
       })
-      .catch(() => setAccount(undefined));
+      .catch(() => setAccount(undefined))
+      .finally(() => setAccountLoaded(true));
   }, []);
 
   const figures = useMemo(() => {
     const ready = payouts.filter((p) => p.stage === "READY");
     const unlocking = payouts.filter((p) => p.stage === "UNLOCKING" || p.stage === "WAITING");
-    const nextUnlock = unlocking.map((p) => p.releaseAt).sort()[0];
+    const nextUnlock = unlocking
+      .filter((p) => p.stage === "UNLOCKING" && p.rule !== "CHECKIN_CONFIRMED")
+      .sort((a, b) => new Date(a.releaseAt).getTime() - new Date(b.releaseAt).getTime())[0];
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
     const paidThisMonth = payouts.filter((p) => Number(p.paidAmount ?? 0) > 0 && p.paidAt && new Date(p.paidAt) >= monthStart);
     return {
-      ready,
       readyTotal: sum(payouts, ["READY"]),
+      readyCount: ready.length,
       unlockingTotal: sum(payouts, ["UNLOCKING", "WAITING"]),
-      unlockingCount: unlocking.length,
       nextUnlock,
       heldTotal: sum(payouts, ["ON_HOLD"]),
-      heldCount: payouts.filter((p) => p.stage === "ON_HOLD").length,
-      onTheWayTotal: payouts.reduce((t, p) => t + (Number(p.inProgressAmount) || (["PROCESSING", "SENDING", "UNDER_REVIEW"].includes(p.stage) ? Number(p.amount) || 0 : 0)), 0),
-      onTheWayCount: payouts.filter((p) => Number(p.inProgressAmount) > 0 || ["PROCESSING", "SENDING", "UNDER_REVIEW"].includes(p.stage)).length,
+      inProgressTotal: payouts.reduce((t, p) => t + (Number(p.inProgressAmount) || 0), 0),
       paidMonthTotal: paidThisMonth.reduce((t, p) => t + Number(p.paidAmount ?? 0), 0),
-      paidMonthCount: paidThisMonth.length,
     };
   }, [payouts]);
-
-  const active = useMemo(
-    () =>
-      payouts
-        .filter((p) => STAGES[p.stage].active)
-        .sort((a, b) => new Date(a.releaseAt).getTime() - new Date(b.releaseAt).getTime())
-        .slice(0, 4),
-    [payouts]
-  );
 
   useEffect(() => {
     if (loading || !enabled || window.location.hash !== "#withdraw") return;
@@ -96,98 +78,104 @@ export default function PayoutsOverviewPage() {
   if (!enabled) return <UpcomingFlowNotice />;
 
   const destination = destinationLabel(account);
+  const active = withdrawals.filter(isWithdrawalActive);
+  const onTheWay = active.length ? active.reduce((t, w) => t + Number(w.amount || 0), 0) : figures.inProgressTotal;
+  const latest = withdrawals[0];
+
+  // One short line under the balance: the single most useful fact right now.
+  const status = (() => {
+    if (active.length) {
+      return { icon: ArrowUpRight, text: `${amountText(active[0].amount)} on its way to ${readableDestination(active[0].destination)}` };
+    }
+    if (latest?.state === "RETURNED" && figures.readyTotal > 0) {
+      return { icon: RotateCcw, text: `Returned${latest.returnedAt ? ` ${formatEat(latest.returnedAt)}` : ""} · ready again` };
+    }
+    if (figures.nextUnlock) {
+      return { icon: Clock3, text: `Next ${amountText(Number(figures.nextUnlock.amount ?? 0))} ${timeLeft(figures.nextUnlock.releaseAt, now)}` };
+    }
+    if (figures.readyTotal <= 0 && figures.unlockingTotal <= 0) {
+      return { icon: Clock3, text: "Earnings arrive after a validated check-in" };
+    }
+    return null;
+  })();
+
+  // Where the money sits, as one bar. Only stages holding money take space.
+  const segments = [
+    { label: "Ready", value: figures.readyTotal, bar: "bg-[#02665e]" },
+    { label: "Unlocking", value: figures.unlockingTotal, bar: "bg-emerald-200",
+      note: figures.nextUnlock ? formatEat(figures.nextUnlock.releaseAt).replace(/,.*$/, "") : undefined },
+    { label: "On its way", value: onTheWay, bar: "bg-sky-300" },
+    { label: "On hold", value: figures.heldTotal, bar: "bg-amber-300" },
+  ];
+  const barTotal = segments.reduce((t, s) => t + s.value, 0);
 
   return (
-    <div className="space-y-5">
-      <section id="withdraw" className="scroll-mt-6 rounded-lg border border-solid border-slate-200 bg-white p-5 sm:p-7">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+    <div className="space-y-3">
+      <section id="withdraw" className="scroll-mt-6 rounded-lg border border-solid border-slate-200 bg-white px-5 pb-6 pt-7 sm:px-8">
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-end">
           <div className="min-w-0">
-            <p className="m-0 text-sm font-medium text-slate-500">Ready to withdraw</p>
-            <p className="m-0 mt-1 text-4xl font-bold tracking-tight tabular-nums text-slate-900 sm:text-5xl">{formatTzs(figures.readyTotal)}</p>
-            <p className="m-0 mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
-              <span>
-                {figures.ready.length} {figures.ready.length === 1 ? "stay" : "stays"}
-              </span>
-              <span aria-hidden>·</span>
-              {destination ? (
-                <span className="inline-flex items-center gap-1">
-                  <ShieldCheck className="h-4 w-4 text-emerald-600" aria-hidden /> To {destination}
-                </span>
-              ) : (
-                <Link href="/owner/payouts/account" className="font-semibold text-amber-700 no-underline hover:underline">
-                  Add a verified payout account
-                </Link>
-              )}
+            <p className="m-0 text-xs font-medium text-slate-500">Available</p>
+            <p className="m-0 mt-1.5 flex items-baseline gap-2 leading-none">
+              <span className="text-5xl font-bold tracking-tight tabular-nums text-slate-900">{amountText(figures.readyTotal)}</span>
+              <span className="text-base font-medium text-slate-400">TZS</span>
             </p>
+            {status && (
+              <p className="m-0 mt-3 inline-flex items-center gap-1.5 text-xs text-slate-500">
+                <status.icon className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /> {status.text}
+              </p>
+            )}
           </div>
-          <div className="min-w-0 rounded-md border border-solid border-emerald-200 bg-emerald-50/40 p-4 lg:w-[21rem]">
-            <h2 className="m-0 mb-3 text-sm font-bold text-slate-900">Withdraw earnings</h2>
-            <WithdrawPanel readyTotal={figures.readyTotal} readyCount={figures.ready.length} recoveryDue={recoveryDue} dailyLimit={dailyLimit} dailyRemaining={dailyRemaining} dailyResetAt={dailyResetAt} onDone={() => void reload()} />
-          </div>
+
+          {destination || !accountLoaded ? (
+            <WithdrawPanel
+              readyTotal={figures.readyTotal}
+              readyCount={figures.readyCount}
+              recoveryDue={recoveryDue}
+              dailyLimit={dailyLimit}
+              dailyRemaining={dailyRemaining}
+              dailyResetAt={dailyResetAt}
+              destination={destination}
+              onDone={() => void reload()}
+            />
+          ) : (
+            <Link
+              href="/owner/payouts/account"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#02665e] px-4 text-sm font-semibold text-white no-underline hover:bg-[#014d47]"
+            >
+              <ShieldCheck className="h-4 w-4" aria-hidden /> Add a payout account
+            </Link>
+          )}
         </div>
 
-        {recoveryDue > 0 && (
-          <p className="m-0 mt-5 rounded-md border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            {formatTzs(recoveryDue)} from an earlier refund is still owed. It is taken from your next withdrawal (policy 6.3.3), and our
-            team reviews your payouts until it is cleared.
-          </p>
-        )}
-
-        <dl className="m-0 mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[
-            {
-              label: "Unlocking",
-              value: formatTzs(figures.unlockingTotal),
-              detail: figures.nextUnlock ? `Next ${formatEat(figures.nextUnlock)}, ${timeLeft(figures.nextUnlock, now)}` : "Nothing unlocking",
-            },
-            {
-              label: "In progress",
-              value: formatTzs(figures.onTheWayTotal),
-              detail: figures.onTheWayCount ? `${figures.onTheWayCount} withdrawal request(s) in progress` : "No active withdrawals",
-            },
-            {
-              label: "On hold",
-              value: formatTzs(figures.heldTotal),
-              detail: figures.heldCount ? `${figures.heldCount} under review` : "Nothing on hold",
-            },
-            {
-              label: "Paid this month",
-              value: formatTzs(figures.paidMonthTotal),
-              detail: `${figures.paidMonthCount} ${figures.paidMonthCount === 1 ? "payout" : "payouts"}`,
-            },
-          ].map((tile) => (
-            <div key={tile.label} className="rounded-md bg-slate-50 px-4 py-3.5">
-              <dt className="text-xs font-medium text-slate-500">{tile.label}</dt>
-              <dd className="m-0 mt-1 text-lg font-bold tabular-nums text-slate-900">{tile.value}</dd>
-              <dd className="m-0 mt-0.5 truncate text-[11px] text-slate-500">{tile.detail}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      <section className="overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
-        <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 px-5 py-4">
-          <div>
-            <h2 className="m-0 text-base font-bold text-slate-900">In progress</h2>
-            <p className="m-0 mt-0.5 text-xs text-slate-500">The next stays to unlock, be withdrawn or be paid.</p>
-          </div>
-          <Link href="/owner/payouts/in-progress" className="inline-flex items-center gap-1 text-sm font-semibold text-[#02665e] no-underline hover:underline">
-            See all <ArrowRight className="h-4 w-4" aria-hidden />
-          </Link>
-        </div>
-        {active.length === 0 ? (
-          <div className="flex items-center gap-3 px-5 py-8 text-sm text-slate-500">
-            <Wallet className="h-5 w-5 text-slate-400" aria-hidden />
-            After a validated check-in, the stay appears here and is ready once payout checks pass.
-          </div>
-        ) : (
-          <ul className="m-0 list-none divide-y divide-slate-100 p-0">
-            {active.map((p) => (
-              <PayoutRow key={p.bookingReference} payout={p} now={now} />
+        <div className="mt-8">
+          <div className="flex h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+            {barTotal > 0 && segments.filter((s) => s.value > 0).map((s) => (
+              <div key={s.label} className={s.bar} style={{ width: `${(s.value / barTotal) * 100}%` }} />
             ))}
-          </ul>
-        )}
+          </div>
+          <dl className="m-0 mt-3 flex flex-wrap gap-x-6 gap-y-1.5 text-xs">
+            {segments.map((s) => (
+              <div key={s.label} className={`flex items-center gap-1.5 ${s.value > 0 ? "text-slate-500" : "text-slate-300"}`}>
+                <span className={`h-2 w-2 rounded-sm ${s.value > 0 ? s.bar : "bg-slate-200"}`} aria-hidden />
+                <dt>{s.label}</dt>
+                <dd className={`m-0 tabular-nums ${s.value > 0 ? "font-semibold text-slate-900" : ""}`}>{amountText(s.value)}</dd>
+                {s.value > 0 && s.note ? <dd className="m-0 text-slate-400">· {s.note}</dd> : null}
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5 text-slate-400">
+              <dt>Paid this month</dt>
+              <dd className="m-0 tabular-nums">{amountText(figures.paidMonthTotal)}</dd>
+            </div>
+          </dl>
+          {recoveryDue > 0 && (
+            <p className="m-0 mt-3 text-xs text-amber-800">
+              {formatTzs(recoveryDue)} from an earlier refund is taken from your next withdrawal.
+            </p>
+          )}
+        </div>
       </section>
+
+      <OwnerActivity payouts={payouts} withdrawals={withdrawals} now={now} />
     </div>
   );
 }

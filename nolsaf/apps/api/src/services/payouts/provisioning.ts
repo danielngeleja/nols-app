@@ -18,7 +18,6 @@ import { prisma } from "@nolsaf/prisma";
 import { loadEligiblePayoutSource, type PayoutSourceType } from "./eligibility.js";
 import { azamPayNameLookup } from "../azampay/disbursement/client.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
-import type { AzamPayDisburseBankName } from "../azampay/disbursement/types.js";
 import { decrypt } from "../../lib/crypto.js";
 
 /**
@@ -105,7 +104,7 @@ export async function provisionPayoutAccountFromProfile(
 
   try {
     const lookup = await azamPayNameLookup({
-      bankName: destination.provider as AzamPayDisburseBankName,
+      bankName: destination.provider,
       accountNumber: destination.accountNumber,
     });
     accountName = lookup.name || accountName;

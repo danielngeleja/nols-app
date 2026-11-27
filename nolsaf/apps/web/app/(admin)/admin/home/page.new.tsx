@@ -21,6 +21,7 @@ import { useAdminHomeKpis, useAdminMonitoring, useAdminPerformanceHighlights, us
 import TanzaniaMap, { matchRegion, type PendingListing } from "./TanzaniaMap";
 import { useSocket } from "@/hooks/useSocket";
 import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
+import { useAdminNavCounts } from "@/lib/useAdminNavCounts";
 
 const Chart = dynamic(() => import("../../../../components/Chart"), { ssr: false });
 
@@ -99,6 +100,7 @@ export default function AdminHomePage() {
   const { monitoring } = useAdminMonitoring();
   const { recentActivities, refresh: refreshRecentActivities } = useAdminRecentActivities();
   const { driversPending, usersNew, paymentsWaiting, paymentExceptions, payoutsInProgress } = useAdminHomeKpis();
+  const navCounts = useAdminNavCounts();
   const { highlights } = useAdminPerformanceHighlights(30);
 
   const [stamp, setStamp] = useState<string>("");
@@ -275,6 +277,7 @@ export default function AdminHomePage() {
     { key: "payouts", count: Number(paymentsWaiting ?? 0), label: "Owner payouts to send", href: "/admin/payments", why: "Approved invoices, money not yet sent" },
     { key: "exceptions", count: Number(paymentExceptions ?? 0), label: "Payments to match", href: "/admin/payments", why: "Money received with no booking attached" },
     { key: "trips", count: Number(driversPending ?? 0), label: "Driver trips to settle", href: "/admin/drivers", why: "Completed trips not yet paid" },
+    { key: "longStayRequests", count: Number(navCounts?.longStayRequests ?? 0), label: "Long stay requests", href: "/admin/long-stay/requests", why: "Sales partners asking to switch long stay on for an owner" },
   ];
   const live = queue.filter((q) => q.count > 0).sort((a, b) => b.count - a.count);
   const clear = queue.filter((q) => q.count === 0);
@@ -292,14 +295,17 @@ export default function AdminHomePage() {
       payouts: ["owner payout to send", "owner payouts to send", Wallet],
       exceptions: ["payment to match", "payments to match", AlertTriangle],
       trips: ["driver trip to settle", "driver trips to settle", Truck],
+      longStayRequests: ["long stay request", "long stay requests", CalendarDays],
     };
     const waiting = live.reduce((sum, q) => sum + q.count, 0);
     const first = live[0];
-    const needs: BriefCard = first
+    // A queue row without wording here still renders (generic words), never crashes the page.
+    const meta = first ? META[first.key] ?? ["item waiting", "items waiting", AlertTriangle] as [string, string, typeof Lock] : null;
+    const needs: BriefCard = first && meta
       ? {
           key: "needs", label: "Needs you", value: `${waiting} waiting`,
-          caption: `${plural(first.count, META[first.key][0], META[first.key][1])}${live.length > 1 ? `, and ${live.length - 1} more ${live.length === 2 ? "kind" : "kinds"}` : ""}`,
-          tone: "amber", href: first.href, icon: META[first.key][2],
+          caption: `${plural(first.count, meta[0], meta[1])}${live.length > 1 ? `, and ${live.length - 1} more ${live.length === 2 ? "kind" : "kinds"}` : ""}`,
+          tone: "amber", href: first.href, icon: meta[2],
         }
       : { key: "needs", label: "Needs you", value: "All clear", caption: "nothing waits on you", tone: "green", href: "/admin/properties/previews", icon: CheckCircle2 };
 

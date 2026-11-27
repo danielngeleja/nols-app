@@ -13,7 +13,7 @@ router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unk
 const safe = (p: Promise<number>) => p.catch(() => 0);
 
 router.get("/", async (_req, res) => {
-  const [listings, payouts, trips, groupStays, cancellations, tenantIds, inspections, enquiries, longStays, longStayClaims] = await Promise.all([
+  const [listings, payouts, trips, groupStays, cancellations, tenantIds, inspections, enquiries, longStays, longStayClaims, longStayRequests] = await Promise.all([
     // Owners: listings waiting for review (same as the admin home queue).
     safe(prisma.property.count({ where: { status: "PENDING" } as any })),
     // Disbursements: approved owner invoices whose money is not yet sent (payments summary "waiting").
@@ -39,10 +39,12 @@ router.get("/", async (_req, res) => {
       { status: { in: ["OPEN", "RECOVERING"] }, escalatedAt: { not: null } },
       { status: "RECOVERED" },
     ] } })),
+    // Partners asking NoLSAF to switch long stay on for an owner (Long stay, Requests).
+    safe((prisma as any).longStayAccessRequest.count({ where: { status: "PENDING" } })),
   ]);
 
   res.set("Cache-Control", "private, no-cache");
-  res.json({ listings, payouts, trips, groupStays, cancellations, tenantIds, inspections, enquiries, longStays: longStays + longStayClaims });
+  res.json({ listings, payouts, trips, groupStays, cancellations, tenantIds, inspections, enquiries, longStays: longStays + longStayClaims, longStayRequests });
 });
 
 export default router;

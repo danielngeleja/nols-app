@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { Banknote, CalendarRange, Check, Droplets, FileText, Home, Info, Minus, Pencil, Plus, ShieldCheck, Wallet, Wifi, X, Zap } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
+import { useLongStayApiBase } from "@/components/longStay/longStayApiBase";
 
 type UtilityKey = "water" | "electricity" | "internet" | "security" | "serviceCharge";
 type Num = number | "";
@@ -143,23 +144,27 @@ function discountFor(t: LongStayTermsDraft, months: number) {
 }
 
 /** Asks the server what a lease of the minimum term costs and pays. */
-function useQuote(t: LongStayTermsDraft, term: number = t.minTermMonths) {
-  const [quote, setQuote] = useState<Quote | null>(null);
-  const [error, setError] = useState("");
+export function useLongStayQuote(t: LongStayTermsDraft, term: number = t.minTermMonths) {
+  const [result, setResult] = useState<{ key: string; quote: Quote | null; error: string } | null>(null);
   const discount = discountFor(t, term);
+  const apiBase = useLongStayApiBase();
+  const key = JSON.stringify([apiBase, t.monthlyRent, term, t.upfrontMonths, t.currency, discount]);
   useEffect(() => {
     const rent = Number(t.monthlyRent);
-    if (!(rent > 0)) { setQuote(null); setError(""); return; }
+    if (!(rent > 0)) return;
     let active = true;
     const timer = window.setTimeout(() => {
-      apiClient.post<{ quote: Quote }>("/api/owner/long-stay/quote", {
+      apiClient.post<{ quote: Quote }>(`${apiBase}/quote`, {
         monthlyRent: rent, termMonths: term, upfrontMonths: Math.min(t.upfrontMonths, term), currency: t.currency, discountPercent: discount,
-      }).then((response) => { if (active) { setQuote(response.data.quote); setError(""); } })
-        .catch((e) => { if (active) { setQuote(null); setError(e?.response?.data?.error || ""); } });
+      }).then((response) => { if (active) setResult({ key, quote: response.data.quote, error: "" }); })
+        .catch((e) => {
+          if (active) setResult({ key, quote: null, error: e?.response?.data?.error || "The payment breakdown is temporarily unavailable." });
+        });
     }, 350);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [t.monthlyRent, term, t.upfrontMonths, t.currency, discount]);
-  return { quote, error, discount };
+  }, [t.monthlyRent, term, t.upfrontMonths, t.currency, discount, apiBase, key]);
+  const current = result?.key === key ? result : null;
+  return { quote: current?.quote ?? null, error: current?.error ?? "", discount };
 }
 
 /** Everything the summary and the popup show, from the server quote plus the landlord's own numbers. */
@@ -186,7 +191,7 @@ export function LongStayTermsCard({ value, onChange, number, bookingsOpen, onPre
   onPreviewLease?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const { quote, error } = useQuote(value);
+  const { quote, error } = useLongStayQuote(value);
   const totals = totalsOf(value, quote);
   const complete = longStayTermsComplete(value);
   const hasRent = Number(value.monthlyRent) > 0;
@@ -317,7 +322,7 @@ function LongStayTermsDialog({ open, value, onClose, onSave }: { open: boolean; 
   const maxTerm = draft.maxTermMonths ?? 24;
   const terms = TERM_CHOICES.filter((m) => m >= draft.minTermMonths && m <= maxTerm);
   const term = terms.includes(previewTerm as any) ? previewTerm : draft.minTermMonths;
-  const { quote, error } = useQuote(draft, term);
+  const { quote, error } = useLongStayQuote(draft, term);
   const totals = totalsOf(draft, quote);
   const c = draft.currency;
   const rent = Number(draft.monthlyRent) || 0;

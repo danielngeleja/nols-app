@@ -29,9 +29,12 @@ import { lockOwnerWithdrawalDay, ownerWithdrawalDay, ownerWithdrawalLimit } from
 import { azamPayDisburse } from "../azampay/disbursement/client.js";
 import { loadAzamPayDisbursementRequestConfig } from "../azampay/disbursement/config.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
+import { azamPayBankNames } from "../azampay/disbursement/client.js";
 import { canonicalAzamPayProvider } from "../azampay/disbursement/providers.js";
+import { azamPayOperatorMatchesPayout } from "../azampay/disbursement/contract.js";
 import type { AzamPayDisburseCallback } from "../azampay/disbursement/types.js";
-import { notifyAdmins, notifyUser } from "../../lib/notifications.js";
+import { notifyAdmins, notifyOwner, notifyUser } from "../../lib/notifications.js";
+import { retentionFields } from "../../lib/auditRetention.js";
 import { applyRecoveryDeduction, grossBalanceOf } from "../../lib/tourRecoveryOffset.js";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -328,6 +331,14 @@ function eventHashFor(disbursementId: number, eventType: string, payload: Record
   return createHash("sha256").update(`${disbursementId}:${eventType}:${stable}`).digest("hex").slice(0, 64);
 }
 
+async function requirePayableBank(sourceType: string, currency: string, provider: string, refresh = false) {
+  // Sales partners may be paid to a bank as well as mobile money (2026-11-27).
+  if (!["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "SALES_PAYOUT"].includes(sourceType) ||
+      currency !== "TZS" || !(await azamPayBankNames(refresh)).includes(provider)) {
+    throw new PayoutStateError("This bank is unavailable for this payout.");
+  }
+}
+
 /**
  * Creates a REQUESTED disbursement from an already-approved source. Retries
  * once on a reference-id collision (astronomically unlikely, but the unique
@@ -355,15 +366,9 @@ export async function requestDisbursement(params: {
   if (!payoutAccount.isActive) {
     throw new PayoutStateError(`PayoutAccount ${params.payoutAccountId} is not active`);
   }
-  // AzamPay has enabled five mobile-money rails for NoLSAF, but has not
-  // supplied live bank-provider values. Reject unsupported destinations before
-  // they can enter approval/batching and become a stranded finance obligation.
-  if (payoutAccount.type !== "MOBILE_MONEY") {
-    throw new PayoutStateError(
-      `PayoutAccount ${params.payoutAccountId} is ${payoutAccount.type}; AzamPay bank disbursement is not enabled`
-    );
-  }
-  if (!canonicalAzamPayProvider(payoutAccount.provider)) {
+  if (payoutAccount.type === "BANK") {
+    await requirePayableBank(params.sourceType, source.currency, payoutAccount.provider);
+  } else if (payoutAccount.type !== "MOBILE_MONEY" || !canonicalAzamPayProvider(payoutAccount.provider)) {
     throw new PayoutStateError(
       `PayoutAccount ${params.payoutAccountId} uses unsupported provider ${JSON.stringify(payoutAccount.provider)}`
     );
@@ -633,8 +638,12 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
       `Disbursement ${disbursementId} has an incomplete destination account`
     );
   }
+  const bankDestination = disbursement.payoutAccount.type === "BANK";
+  if (bankDestination) {
+    await requirePayableBank(disbursement.sourceType, disbursement.currency, disbursement.payoutAccount.provider, true);
+  }
   const requestConfig = loadAzamPayDisbursementRequestConfig(
-    disbursement.payoutAccount.provider
+    disbursement.payoutAccount.provider, bankDestination
   );
 
   const sourceAccount = {
@@ -661,6 +670,8 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
             sourceType: { in: ["OWNER_INVOICE", "OWNER_WITHDRAWAL"] },
             payoutAccount: { userId: ownerId },
             submittedAt: { gte: start, lt: end },
+            // A failed transfer sent nothing; it must not use up today's limit.
+            status: { not: "FAILED" },
           },
           _sum: { amount: true },
         });
@@ -830,6 +841,64 @@ async function writeBackSourceFailed(
       err
     );
   }
+}
+
+/**
+ * A failed owner amount withdrawal sent no money, so the booking balance it
+ * reserved goes back to the owner's ready balance and it stops counting
+ * against today's withdrawal limit. Before this, the reservation stayed in
+ * place with no way back (first production payout, 2026-11-25).
+ *
+ * Only when the withdrawal took no refund-debt recovery: recovery is booked
+ * per claim, not per withdrawal, so undoing it automatically could misstate
+ * what an owner still owes. Those stay with finance, as before.
+ */
+async function releaseFailedOwnerWithdrawal(
+  tx: Prisma.TransactionClient,
+  disbursement: Disbursement
+): Promise<{ ownerId: number; amount: number; released: boolean } | null> {
+  if (disbursement.sourceType !== "OWNER_WITHDRAWAL") return null;
+  const challenge = await tx.payoutWithdrawalChallenge.findUnique({
+    where: { id: disbursement.sourceId },
+    select: { id: true, userId: true, planVersion: true, totalAmount: true },
+  });
+  if (!challenge || challenge.planVersion !== 2) return null;
+  const allocations = await tx.payoutWithdrawalAllocation.findMany({
+    where: { challengeId: challenge.id, cancelledAt: null },
+    select: { id: true, recoveryDeduction: true },
+  });
+  const base = { ownerId: challenge.userId, amount: Number(challenge.totalAmount) };
+  if (!allocations.length) return { ...base, released: false };
+  if (allocations.some((row) => Number(row.recoveryDeduction) > 0.005)) return { ...base, released: false };
+
+  const now = new Date();
+  await tx.payoutWithdrawalAllocation.updateMany({
+    where: { challengeId: challenge.id, cancelledAt: null },
+    data: { cancelledAt: now },
+  });
+  // CANCELLED is what frees today's limit (ownerWithdrawalUsedToday).
+  await tx.payoutWithdrawalChallenge.update({
+    where: { id: challenge.id },
+    data: { handoffStatus: "CANCELLED", handoffLeaseUntil: null, handoffNextAttemptAt: null },
+  });
+  await tx.auditLog.create({
+    data: {
+      actorId: null,
+      actorRole: "SYSTEM",
+      action: "OWNER_AMOUNT_WITHDRAWAL_FAILED_RELEASED",
+      entity: "PayoutWithdrawalChallenge",
+      entityId: challenge.id,
+      afterJson: {
+        ownerId: challenge.userId,
+        disbursementId: disbursement.id,
+        amount: Number(challenge.totalAmount),
+        providerMessage: disbursement.providerMessage ?? null,
+        allocationsReleased: allocations.length,
+      },
+      ...retentionFields("FINANCIAL", now),
+    },
+  });
+  return { ...base, released: true };
 }
 
 /**
@@ -1276,12 +1345,30 @@ async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<
   await sendMail(snapshot.ownerEmail, email.subject, email.html, attachments, { replyTo: "support@nolsaf.com" });
 }
 
+/** Start of the note a held provider event leaves on the payout. */
+const CORRELATION_NOTE_PREFIX = "Provider event correlation failure";
+
+/**
+ * Once a provider event settles a payout, an earlier correlation note on it is
+ * no longer true (the first production payout kept "operator does not match"
+ * in red after the corrected rule failed it). Only that note is cleared: amount
+ * mismatches and conflicting-event notes stay for a person. The held event
+ * itself stays in the DisbursementEvent audit trail.
+ */
+async function clearSettledCorrelationNote(tx: Prisma.TransactionClient, disbursementId: number): Promise<void> {
+  await tx.disbursement.updateMany({
+    where: { id: disbursementId, securityReviewReason: { startsWith: CORRELATION_NOTE_PREFIX } },
+    data: { securityReviewReason: null },
+  });
+}
+
 export async function applyProviderEvent(
   disbursementId: number,
   event: { eventType: "CALLBACK" | "STATUS_POLL"; callback: AzamPayDisburseCallback }
 ): Promise<Disbursement> {
   // Set inside the transaction by the one caller that wins PROCESSING -> FAILED.
   let transitionedToFailed = false;
+  let failedWithdrawal: Awaited<ReturnType<typeof releaseFailedOwnerWithdrawal>> = null;
   const result = await prisma.$transaction(
     async (tx): Promise<{ disbursement: Disbursement; transitionedToPaid: boolean }> => {
     const disbursement = await tx.disbursement.findUnique({ where: { id: disbursementId } });
@@ -1316,10 +1403,15 @@ export async function applyProviderEvent(
       }],
       skipDuplicates: true,
     });
-    if (inserted.count === 0) {
+    if (inserted.count === 0 && disbursement.status !== "PROCESSING") {
       // Same event already recorded and applied; leave state untouched.
       return { disbursement, transitionedToPaid: false };
     }
+    // A repeat of an event that was recorded but never applied (for example
+    // held by a correlation rule that was later corrected) is re-evaluated
+    // while the payout is still PROCESSING. That is safe: the PAID/FAILED moves
+    // below are atomic PROCESSING-only claims, so a replay can make the one
+    // transition that never happened, and never a second one.
 
     // Never reverse a terminal state on a conflicting later event — freeze
     // for manual review instead, per "Transaction Status: fallback and
@@ -1340,14 +1432,17 @@ export async function applyProviderEvent(
         correlationFailures.push("reported amount does not match the payout");
       }
     }
+    // Alias-aware, and a failure inside our funding wallet may name the source
+    // rail. An exact string compare here held the first production failure
+    // ("azampesa" vs "vodacom") in PROCESSING with no way forward.
     if (
       event.callback.operator &&
-      event.callback.operator.trim().toLowerCase() !== disbursement.bankName.trim().toLowerCase()
+      !azamPayOperatorMatchesPayout(event.callback.operator, disbursement.bankName, event.callback.status)
     ) {
       correlationFailures.push("operator does not match the payout destination");
     }
     if (correlationFailures.length > 0) {
-      const reason = truncateReason(`Provider event correlation failure: ${correlationFailures.join("; ")}`);
+      const reason = truncateReason(`${CORRELATION_NOTE_PREFIX}: ${correlationFailures.join("; ")}`);
       const flagged = await tx.disbursement.update({
         where: { id: disbursementId },
         data: { securityReviewReason: reason },
@@ -1408,6 +1503,7 @@ export async function applyProviderEvent(
         if (!current) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared during settlement`);
         return { disbursement: current, transitionedToPaid: false };
       }
+      await clearSettledCorrelationNote(tx, disbursementId);
       const paid = await tx.disbursement.findUnique({ where: { id: disbursementId } });
       if (!paid) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared during settlement`);
       await writeBackSourcePaid(tx, paid);
@@ -1431,9 +1527,12 @@ export async function applyProviderEvent(
         if (!current) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared during settlement`);
         return { disbursement: current, transitionedToPaid: false };
       }
+      await clearSettledCorrelationNote(tx, disbursementId);
       const failed = await tx.disbursement.findUnique({ where: { id: disbursementId } });
       if (!failed) throw new PayoutStateError(`Disbursement ${disbursementId} disappeared during settlement`);
       await writeBackSourceFailed(tx, failed);
+      // Same transaction as FAILED: the balance comes back exactly once, or not at all.
+      failedWithdrawal = await releaseFailedOwnerWithdrawal(tx, failed);
       transitionedToFailed = true;
       return { disbursement: failed, transitionedToPaid: false };
     }
@@ -1444,6 +1543,20 @@ export async function applyProviderEvent(
   // Exactly one caller wins the PROCESSING -> FAILED claim, so this alerts once.
   if (transitionedToFailed) {
     await alertPayoutAdmins("payout_disbursement_failed", disbursementId, { message: result.disbursement.providerMessage ?? null });
+    // Assigned inside the transaction callback, which TypeScript cannot follow.
+    const withdrawal = failedWithdrawal as Awaited<ReturnType<typeof releaseFailedOwnerWithdrawal>>;
+    if (withdrawal?.released) {
+      // The provider's own wording ("Balance can not be negative") is about our
+      // wallet, not the owner's, so it is not passed on.
+      try {
+        await notifyOwner(withdrawal.ownerId, "owner_payout_withdrawal_failed", {
+          amountText: `TZS ${Math.round(withdrawal.amount).toLocaleString("en-US")}`,
+        });
+      } catch (err) {
+        // The balance is already back; a missed message must not fail settlement.
+        console.warn(`[payout-ledger] owner withdrawal failure notice not sent for disbursement ${disbursementId}`, err);
+      }
+    }
   }
 
   if (result.transitionedToPaid && result.disbursement.sourceType === "OWNER_INVOICE") {

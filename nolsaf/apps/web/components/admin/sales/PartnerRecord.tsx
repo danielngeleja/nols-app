@@ -17,7 +17,7 @@ import PartnerIdCardAdmin, { type AdminIdCard, type CardReadiness, cardGapText }
 import PartnerTeamAdmin from "./PartnerTeamAdmin";
 import PartnerAgencyAdmin from "./PartnerAgencyAdmin";
 import PartnerAssistedListingAdmin from "./PartnerAssistedListingAdmin";
-import PartnerFileSection, { PartnerAccountFacts, usePartnerFile, type FileSection } from "./PartnerFile";
+import PartnerFileSection, { FactGrid, PartnerAccountFacts, usePartnerFile, type FileSection } from "./PartnerFile";
 
 export type RecordPartner = {
   id: number;
@@ -262,7 +262,8 @@ export default function PartnerRecord({
       >
         {/* Record header */}
         <header className="shrink-0 bg-[#0b2420] text-white">
-          <div className="flex items-start gap-3 px-5 pt-4">
+          {/* Bottom padding on desktop too: the phone tab row below is hidden there. */}
+          <div className="flex items-start gap-3 px-5 pt-4 lg:pb-4">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-white/10 text-sm font-bold">{initials(name)}</span>
             <div className="min-w-0 flex-1">
               <h2 id="sales-partner-record-title" className="m-0 truncate text-lg font-bold">{loading ? "Loading" : name}</h2>
@@ -407,21 +408,26 @@ export default function PartnerRecord({
                     ))}
                   </section>
                   <PartnerAccountFacts data={file.data} />
-                  <section className="grid gap-x-6 rounded-lg border border-solid border-neutral-200 px-4 py-1 sm:grid-cols-2">
-                    {[
-                      ["Region", partner.region || "Not set"],
-                      ["Territory", partner.territory || "Not set"],
-                      ["Joined NoLSAF sales", eatDate(partner.createdAt)],
-                      ["Workspace opened", eatDate(partner.activatedAt)],
-                      ["Workspace access", access ? `${humanize(access.status)}${access.expiresAt ? ` until ${eatDate(access.expiresAt)}` : ""}` : "Not granted"],
-                      ["Current agreement", partner.contracts.find((c) => c.status === "ACTIVE")?.contractNumber || "None active"],
-                    ].map(([label, value]) => (
-                      <div key={label} className="flex items-baseline justify-between gap-3 border-0 border-b border-solid border-neutral-100 py-2.5 last:border-b-0 sm:[&:nth-last-child(2)]:border-b-0">
-                        <span className="text-[12px] text-neutral-500">{label}</span>
-                        <span className="truncate text-right text-[13px] font-semibold text-neutral-800">{value}</span>
-                      </div>
-                    ))}
-                  </section>
+                  {(() => {
+                    const agreement = partner.contracts.find((c) => c.status === "ACTIVE")?.contractNumber;
+                    return (
+                      <FactGrid
+                        title="Sales workspace"
+                        facts={[
+                          { label: "Region", value: partner.region || "Not set", tone: partner.region ? undefined : "muted" },
+                          { label: "Territory", value: partner.territory || "Not set", tone: partner.territory ? undefined : "muted" },
+                          { label: "Joined NoLSAF sales", value: eatDate(partner.createdAt) },
+                          { label: "Workspace opened", value: partner.activatedAt ? eatDate(partner.activatedAt) : "Not yet", tone: partner.activatedAt ? undefined : "muted" },
+                          {
+                            label: "Workspace access",
+                            value: access ? `${humanize(access.status)}${access.expiresAt ? ` until ${eatDate(access.expiresAt)}` : ""}` : "Not granted",
+                            tone: !access ? "warn" : access.status === "ACTIVE" ? "good" : access.status === "PENDING" ? "warn" : undefined,
+                          },
+                          { label: "Current agreement", value: agreement || "None active", tone: agreement ? "good" : "warn" },
+                        ]}
+                      />
+                    );
+                  })()}
                   <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-solid border-neutral-200 px-4 py-3">
                     <div className="min-w-0">
                       <p className="m-0 text-[12px] text-neutral-500">Payout destination</p>

@@ -197,15 +197,16 @@ export async function askGuestToReview(bookingId: number, now = new Date()): Pro
       guestName: true,
       code: { select: { id: true } },
       property: { select: { title: true, ownerId: true } },
-      user: { select: { id: true, name: true, email: true, emailVerifiedAt: true, notificationPreferences: true } },
+      user: { select: { id: true, name: true, email: true, emailVerifiedAt: true, notificationPrefs: true } },
     },
   });
   if (!booking?.userId || !booking.user) return false;
   if (!isFinishedStay(booking, now)) return false;
   if (booking.property?.ownerId === booking.userId) return false;
 
-  const preferences = booking.user.notificationPreferences && typeof booking.user.notificationPreferences === "object" && !Array.isArray(booking.user.notificationPreferences)
-    ? (booking.user.notificationPreferences as Record<string, unknown>)
+  // The column is User.notificationPrefs; selecting "notificationPreferences" threw on every prompt.
+  const preferences = booking.user.notificationPrefs && typeof booking.user.notificationPrefs === "object" && !Array.isArray(booking.user.notificationPrefs)
+    ? (booking.user.notificationPrefs as Record<string, unknown>)
     : {};
   if (preferences.bookings === false) return false;
 

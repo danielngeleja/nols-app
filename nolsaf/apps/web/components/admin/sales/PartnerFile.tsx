@@ -651,30 +651,49 @@ function Frame({ title, note, link, children }: { title: string; note?: string; 
   );
 }
 
+export type Fact = { label: string; value: string; tone?: "good" | "warn" | "muted" };
+
+const FACT_TONE: Record<NonNullable<Fact["tone"]>, string> = {
+  good: "text-emerald-700",
+  warn: "text-amber-700",
+  muted: "text-neutral-400 font-medium",
+};
+
+/**
+ * A titled block of facts as even tiles, label above value, so nothing drifts
+ * apart on wide screens. Shared by the Overview's account and workspace blocks.
+ */
+export function FactGrid({ title, facts }: { title: string; facts: Fact[] }) {
+  return (
+    <section className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white">
+      <p className="m-0 border-0 border-b border-solid border-neutral-100 bg-neutral-50 px-4 py-2 text-[12px] font-semibold text-neutral-700">{title}</p>
+      <dl className="m-0 grid grid-cols-2 gap-px bg-neutral-100 sm:grid-cols-3 xl:grid-cols-4">
+        {facts.map((f) => (
+          <div key={f.label} className="min-w-0 bg-white px-4 py-3">
+            <dt className="truncate text-[11px] text-neutral-500">{f.label}</dt>
+            <dd className={`m-0 mt-0.5 truncate text-[13px] font-semibold ${f.tone ? FACT_TONE[f.tone] : "text-neutral-900"}`} title={f.value}>{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 /** Account facts that complete the Overview tab. */
 export function PartnerAccountFacts({ data }: { data: PartnerFileData | null }) {
   if (!data) return null;
   const a = data.account;
-  const rows: Array<[string, string]> = [
-    ["NoLSAF account since", day(a.registeredAt)],
-    ["Phone verified", a.phoneVerified ? "Yes" : "No"],
-    ["Email verified", a.emailVerified ? "Yes" : "No"],
-    ["Profile photo", a.hasPhoto ? "Added" : "Missing"],
-    ["TRA TIN", a.taxIdNumber || "Not provided"],
-    ["Payout account name", a.payoutName || "Not added"],
-    ["Level last changed", day(a.levelUpdatedAt)],
-    ["Leads / visits", `${data.leads.length} / ${data.visits.length}`],
+  const facts: Fact[] = [
+    { label: "NoLSAF account since", value: day(a.registeredAt) },
+    { label: "Phone verified", value: a.phoneVerified ? "Yes" : "Not yet", tone: a.phoneVerified ? "good" : "warn" },
+    { label: "Email verified", value: a.emailVerified ? "Yes" : "Not yet", tone: a.emailVerified ? "good" : "warn" },
+    { label: "Profile photo", value: a.hasPhoto ? "Added" : "Missing", tone: a.hasPhoto ? "good" : "warn" },
+    { label: "TRA TIN", value: a.taxIdNumber || "Not provided", tone: a.taxIdNumber ? undefined : "muted" },
+    { label: "Payout account name", value: a.payoutName || "Not added", tone: a.payoutName ? undefined : "muted" },
+    { label: "Level last changed", value: a.levelUpdatedAt ? day(a.levelUpdatedAt) : "Never", tone: a.levelUpdatedAt ? undefined : "muted" },
+    { label: "Leads and visits", value: `${data.leads.length} leads · ${data.visits.length} visits` },
   ];
-  return (
-    <section className="grid gap-x-6 rounded-lg border border-solid border-neutral-200 px-4 py-1 sm:grid-cols-2 xl:grid-cols-4">
-      {rows.map(([label, value]) => (
-        <div key={label} className="flex items-baseline justify-between gap-3 border-0 border-b border-solid border-neutral-100 py-2.5">
-          <span className="text-[12px] text-neutral-500">{label}</span>
-          <span className="truncate text-right text-[13px] font-semibold text-neutral-800">{value}</span>
-        </div>
-      ))}
-    </section>
-  );
+  return <FactGrid title="Account checks" facts={facts} />;
 }
 
 export default function PartnerFileSection({ section, data, error, ctx }: { section: FileSection; data: PartnerFileData | null; error: string; ctx: FileContext }) {

@@ -196,13 +196,14 @@ export function inspectionCurrent(row: { status: string; validUntil: Date | stri
 }
 
 /** The latest passed inspection of a home, or null. */
-export async function latestPassedInspection(db: any, propertyId: number, includePublicReport = false) {
+export async function latestPassedInspection(db: any, propertyId: number, includePublicReport = false, includeInspector = false) {
   return db.longStayInspection.findFirst({
     where: { propertyId, status: "PASSED" },
     orderBy: { reviewedAt: "desc" },
     select: {
       status: true, validUntil: true, reviewedAt: true,
       ...(includePublicReport ? { capturedAt: true, checklist: true } : {}),
+      ...(includeInspector ? inspectionPartnerSelect : {}),
     },
   });
 }
@@ -435,9 +436,18 @@ export function publicInspectionView(row: { status: string; validUntil: Date | s
   return { inspectedOn: dayOf(row!.reviewedAt), validUntil: dayOf(row!.validUntil) };
 }
 
-/** Publish the approved checklist. Keep evidence and unreviewed findings in the admin portal. */
-export async function publicInspectionReport(db: any, propertyId: number, today: string) {
-  const passed = await latestPassedInspection(db, propertyId, true);
+const inspectionPartnerSelect = {
+  salesPartner: { select: { agentCode: true, user: { select: { fullName: true, name: true } } } },
+} as const;
+
+function inspectionInspector(partner: { agentCode: string; user?: { fullName?: string | null; name?: string | null } | null } | null) {
+  if (!partner) return null;
+  return { name: partner.user?.fullName?.trim() || partner.user?.name?.trim() || null, code: partner.agentCode };
+}
+
+/** Publish the approved checklist. Partner identity is opt-in for the property owner. */
+export async function publicInspectionReport(db: any, propertyId: number, today: string, includeInspector = false) {
+  const passed = await latestPassedInspection(db, propertyId, true, includeInspector);
   const inspected = publicInspectionView(passed, today);
   if (inspected) {
     const checklist = passed.checklist;
@@ -449,6 +459,7 @@ export async function publicInspectionReport(db: any, propertyId: number, today:
         visitedOn: visitDate,
         reviewedOn: passed.reviewedAt ? todayInEat(new Date(passed.reviewedAt)) : null,
         validUntil: inspected.validUntil,
+        ...(includeInspector ? { inspector: inspectionInspector(passed.salesPartner) } : {}),
         checks: CHECKLIST.map(({ key, label, required }) => {
           const recorded = checklist?.[key];
           const result = recorded === "PASS" || recorded === "FAIL" || recorded === "NA" ? recorded : null;
@@ -461,12 +472,17 @@ export async function publicInspectionReport(db: any, propertyId: number, today:
   const latest = await db.longStayInspection.findFirst({
     where: { propertyId, status: { not: "CANCELLED" } },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { status: true },
+    select: { status: true, ...(includeInspector ? { capturedAt: true, reviewedAt: true, validUntil: true, ...inspectionPartnerSelect } : {}) },
   });
   const status = latest?.status === "SUBMITTED" ? "IN_REVIEW"
     : latest?.status === "FAILED" ? "FOLLOW_UP"
     : latest?.status === "PASSED" ? "EXPIRED" : "PENDING";
-  return { inspected: null, report: { status, visitedOn: null, reviewedOn: null, validUntil: null, checks: [] } };
+  return { inspected: null, report: {
+    status, visitedOn: includeInspector && latest?.capturedAt ? todayInEat(new Date(latest.capturedAt)) : null,
+    reviewedOn: includeInspector && latest?.reviewedAt ? todayInEat(new Date(latest.reviewedAt)) : null,
+    validUntil: includeInspector ? dayOf(latest?.validUntil) : null, checks: [],
+    ...(includeInspector ? { inspector: inspectionInspector(latest?.salesPartner) } : {}),
+  } };
 }
 
 export { addMonthsDay };

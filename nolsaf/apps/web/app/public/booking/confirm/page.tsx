@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { readAgencyRef } from "@/lib/agencyRef";
@@ -29,8 +29,10 @@ import {
   Mail,
   Globe,
   ChevronRight,
+  Zap,
 } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
+import { electricityConsent, electricityEstimate, electricityHeadline, guestPaysElectricity, readElectricityRule } from "@/lib/electricityRule";
 import DatePicker from "../../../../components/ui/DatePicker";
 import LocationPickerModal from "../../../../components/ui/LocationPickerModal";
 import { TANZANIA_LOCATIONS } from "../../../../lib/tanzania-locations";
@@ -128,6 +130,14 @@ export default function BookingConfirmPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [property, setProperty] = useState<Property | null>(null);
+  // Nightly stays where the guest pays for electricity must be ticked before paying.
+  const [electricityAccepted, setElectricityAccepted] = useState(false);
+  const electricityRule = useMemo(() => {
+    const parse = (v: any) => { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return null; } };
+    const services = parse((property as any)?.services);
+    const rules = parse(services?.houseRules);
+    return readElectricityRule(rules?.electricity);
+  }, [property]);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const [systemCommission, setSystemCommission] = useState<number>(0);
 
@@ -549,6 +559,10 @@ export default function BookingConfirmPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (guestPaysElectricity(electricityRule) && !electricityAccepted) {
+      setError("Tick the electricity box to confirm you will buy LUKU tokens during your stay.");
+      return;
+    }
     setSubmitting(true);
 
     if (!bookingData || !property) {
@@ -747,6 +761,8 @@ export default function BookingConfirmPage() {
               : null,
         pickupLocation: requiresArrivalInfo && pickupLocation.trim() ? pickupLocation.trim() : null,
         agencyRef: readAgencyRef(),
+        // The guest ticked that they pay for electricity (only sent when they must).
+        ...(guestPaysElectricity(electricityRule) ? { acceptElectricity: electricityAccepted } : {}),
       };
 
       // Create booking
@@ -2923,6 +2939,26 @@ export default function BookingConfirmPage() {
                     </div>
                   )}
                 </div>
+
+                {guestPaysElectricity(electricityRule) ? (
+                  <label className={`flex cursor-pointer items-start gap-3 rounded-xl px-4 py-3 ring-1 ring-inset ${electricityAccepted ? "bg-emerald-50/60 ring-emerald-200" : "bg-amber-50 ring-amber-200"}`}>
+                    <input
+                      type="checkbox"
+                      checked={electricityAccepted}
+                      onChange={(event) => { setElectricityAccepted(event.target.checked); setError(null); }}
+                      className="mt-0.5 h-4 w-4 flex-none accent-[#02665e]"
+                    />
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5 text-[13.5px] font-bold text-slate-900">
+                        <Zap className="h-4 w-4 text-amber-600" aria-hidden />
+                        {electricityHeadline(electricityRule)}
+                      </span>
+                      <span className="mt-0.5 block text-[12.5px] leading-5 text-slate-600">
+                        {electricityConsent(electricityRule)}{electricityEstimate(electricityRule) ? ` ${electricityEstimate(electricityRule)}.` : ""}
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
 
                 {error && (
                   <div className="flex items-start gap-2.5 rounded-xl bg-rose-50 px-4 py-3 ring-1 ring-inset ring-rose-200" role="alert">

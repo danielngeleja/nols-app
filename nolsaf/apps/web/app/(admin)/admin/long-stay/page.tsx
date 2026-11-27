@@ -30,6 +30,8 @@ type Overview = {
   enquiries: Counts;
   claims: Counts;
   mismatches: number;
+  /** Partners asking to switch long stay on for an owner. */
+  accessRequests?: number;
   money: Array<{ currency: string; held: number; earned: number; rentUnderLease: number }>;
   moveIns: Array<{ ref: string; status: string; moveInDate: string | null; termMonths: number | null; rent: { amount: number; currency: string } | null; home: string | null; area: string; tenant: string | null }>;
 };
@@ -79,6 +81,7 @@ export default function LongStayDashboardPage() {
   const moving14 = data?.moveIns.length ?? 0;
 
   const queue: Array<{ label: string; hint: string; count: number; href: string; Icon: Icon; tone: "warn" | "bad" | "info" }> = data ? [
+    { label: "Long stay requests", hint: "Partners asking for an owner", count: data.accessRequests ?? 0, href: "/admin/long-stay/requests", Icon: KeyRound, tone: "warn" },
     { label: "Tenant IDs to check", hint: "Approve before a tenant can pay", count: n(data.tenantIds, "PENDING"), href: "/admin/long-stay/tenants", Icon: ShieldCheck, tone: "warn" },
     { label: "Homes waiting for a partner", hint: "Assign a Sales Partner to inspect", count: n(data.inspections, "REQUESTED"), href: "/admin/long-stay/inspections", Icon: ClipboardCheck, tone: "warn" },
     { label: "Inspection reports to review", hint: "Pass, fail or send back", count: n(data.inspections, "SUBMITTED"), href: "/admin/long-stay/inspections", Icon: BadgeCheck, tone: "warn" },

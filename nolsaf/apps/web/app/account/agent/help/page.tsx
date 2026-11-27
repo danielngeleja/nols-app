@@ -188,7 +188,7 @@ export default function AgentHelpPage() {
             <ul className="m-0 mt-2 list-none space-y-1.5 p-0 text-[13px] leading-5 text-neutral-600">
               <li>Your share minus every advance already paid.</li>
               <li>Claim it once the traveller confirms the trip, or automatically 48 hours after the later of finishing the timetable and the trip&apos;s last day.</li>
-              <li>Paid within 24 hours to 3 days of the claim, to your verified mobile money account.</li>
+              <li>Paid within 24 hours to 3 days of the claim, to your verified payout account.</li>
               <li>An open case on the trip pauses new payments until it is settled.</li>
             </ul>
           </div>

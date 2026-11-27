@@ -58,6 +58,14 @@ export const SETTLE_RULES: Record<string, Rule> = {
       (s) => (s === "PENDING" ? null : `The ID check was ${lower(s)}.`), "The ID check no longer exists.",
     ),
   },
+  // Closes "Long stay requested" once an admin decided it or it was withdrawn.
+  long_stay_access_requested: {
+    field: "accessRequestId",
+    check: async (client, ids) => byStatus(
+      await client.longStayAccessRequest.findMany({ where: { id: { in: ids } }, select: { id: true, status: true } }), ids,
+      (s) => (s === "PENDING" ? null : `The request was ${lower(s)}.`), "The request no longer exists.",
+    ),
+  },
   long_stay_inspection_needed: {
     field: "inspectionId",
     check: async (client, ids) => byStatus(

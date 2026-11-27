@@ -239,6 +239,7 @@ const adminDetails: Item[] = [
 /** Long stays are their own program (like Group Stay and No4P Agents), not part of Owners. */
 const longStayDetails: Item[] = [
   { href: "/admin/long-stay", label: "Dashboard", Icon: LayoutDashboard },
+  { href: "/admin/long-stay/requests", label: "Partner requests", Icon: Handshake },
   { href: "/admin/long-stay/tenancies", label: "Tenancies", Icon: Home },
   { href: "/admin/long-stay/payments", label: "Payments", Icon: Wallet },
   { href: "/admin/long-stay/inspections", label: "Inspections", Icon: ClipboardCheck },
@@ -353,6 +354,7 @@ const managementDetails: Item[] = [
 export const ADMIN_NAV_PAGES: Array<{ href: string; label: string; section: string }> = [
   { href: "/admin/home", label: "Home", section: "Pages" },
   { href: "/admin/finance", label: "All Revenue", section: "Pages" },
+  { href: "/admin/channels", label: "Channels", section: "Pages" },
   { href: "/admin/expenses", label: "Expenses", section: "Pages" },
   { href: "/admin/action-center", label: "Action Center", section: "Pages" },
   { href: "/admin/disbursements", label: "Disbursements", section: "Pages" },
@@ -385,11 +387,12 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const twigaWaiting = useTwigaQueueCount();
   const nav = useAdminNavCounts();
   const ownerQueueCount = nav?.listings ?? 0;
-  const longStayQueueCount = (nav?.tenantIds ?? 0) + (nav?.longStays ?? 0) + (nav?.inspections ?? 0) + (nav?.enquiries ?? 0);
+  const longStayQueueCount = (nav?.tenantIds ?? 0) + (nav?.longStays ?? 0) + (nav?.inspections ?? 0) + (nav?.enquiries ?? 0) + (nav?.longStayRequests ?? 0);
   const [longStayOpen, setLongStayOpen] = useState(false);
   const badges: Record<string, number> = {
     "/admin/agents/ai": twigaWaiting,
     "/admin/properties/previews": nav?.listings ?? 0,
+    "/admin/long-stay/requests": nav?.longStayRequests ?? 0,
     "/admin/long-stay/tenants": nav?.tenantIds ?? 0,
     "/admin/long-stay/tenancies": nav?.longStays ?? 0,
     "/admin/long-stay/inspections": nav?.inspections ?? 0,
@@ -703,6 +706,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Platform-wide revenue across every stream; not owner-specific, so it stands at the top. */}
         <Item href="/admin/finance" label="All Revenue" Icon={TrendingUp} exact collapsed={collapsed} path={path} variant={variant} />
+
+        {/* Which marketing channel brought each booking, and what it earned. */}
+        <Item href="/admin/channels" label="Channels" Icon={BarChart3} collapsed={collapsed} path={path} variant={variant} />
 
         {/* NoLSAF's own costs; turns All Revenue into a contribution and net margin. */}
         <Item href="/admin/expenses" label="Expenses" Icon={Receipt} collapsed={collapsed} path={path} variant={variant} />

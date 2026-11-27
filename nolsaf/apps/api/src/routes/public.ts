@@ -9,6 +9,7 @@ import publicCareersApplyRouter from "./public.careers.apply";
 import publicCareersRouter from "./public.careers";
 import publicDriverVerificationRouter from "./public.driverVerification";
 import publicSalesCardsRouter from "./public.salesCards.js";
+import publicVisitRequestsRouter from "./public.visitRequests.js";
 import { router as publicEmailVerify } from "./public.email.verify";
 import publicGroupStayReceiptRouter from "./public.groupStayReceipt";
 import publicInvoicesRouter from "./public.invoices";
@@ -90,6 +91,8 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/tour-visa-itineraries", publicTourVisaItinerariesRouter);
   app.use("/api/public/driver-verification", publicDriverVerificationRouter);
   app.use("/api/public/sales-cards", publicSalesCardsRouter);
+  // Owners asking for a NoLSAF visit (docs/SALES_VISIT_REQUESTS.md).
+  app.use("/api/public/visit-requests", publicVisitRequestsRouter);
 }
 
 export function registerPublicAvailabilityRoute(app: Express): void {

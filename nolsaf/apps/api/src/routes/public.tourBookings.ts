@@ -30,6 +30,7 @@ import { loadTourReceiptDocument, loadTourVoucherDocument } from "../lib/tourDoc
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
 import { recordAgencyTourAttribution } from "../lib/salesAgencyTours.js";
+import { recordAcquisitionSource } from "../lib/acquisitionSource.js";
 import { publicOperatorProfile } from "../lib/operatorPackages.js";
 
 const router = Router();
@@ -496,6 +497,9 @@ router.post(
         console.warn("[sales-agency] tour attribution skipped:", error?.message || String(error));
       });
     }
+
+    // Marketing channel (reporting only, needs the visitor's consent cookie).
+    await recordAcquisitionSource(prisma, { type: "TOUR_BOOKING", id: booking.id }, req.headers.cookie);
 
     return res.status(201).json({
       ok: true,

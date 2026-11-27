@@ -45,7 +45,12 @@ import {
   propertyTypeFromLead,
   resolveOwnerAccount,
   sendAssistedNotice,
+  ownerRentState,
 } from "../lib/salesAssistedListing.js";
+import { AccessRequestError, longStayAccessView, requestLongStayAccess } from "../lib/longStay/accessRequest.js";
+import { assistedLongStayDraftRefusal, landlordGate } from "../lib/longStay/listing.js";
+import { longStayEligibilityBody, longStayLeasePreviewFor, longStayQuoteFor } from "../lib/longStay/listingTools.js";
+import { notifyAdmins } from "../lib/notifications.js";
 
 const router = Router();
 const db = prisma as any;
@@ -69,10 +74,15 @@ router.param("id", (async (req: SalesAuthedRequest, res: Response, next: (err?: 
 const startSchema = z.object({
   ownerName: z.string().trim().min(3, "Enter the owner's full name").max(160).transform(sanitizeText),
   ownerPhone: z.string().trim().min(9, "Enter the owner's phone number").max(40),
+  // Required, but only a candidate: the owner proves it with a code before it
+  // becomes their login (lib/ownerPendingEmail.ts).
   ownerEmail: z
-    .union([z.string().trim().email("Enter a valid email or leave it empty").max(190), z.literal(""), z.null()])
-    .optional()
-    .transform((value) => (value ? value.toLowerCase() : null)),
+    .string({ error: "Enter the owner's email" })
+    .trim()
+    .min(1, "Enter the owner's email")
+    .email("Enter a valid email, for example name@gmail.com")
+    .max(190)
+    .transform((value) => value.toLowerCase()),
 }).strict();
 
 const listingSelect = {
@@ -91,9 +101,28 @@ const listingSelect = {
   createdAt: true,
   updatedAt: true,
   propertyId: true,
-  property: { select: { title: true, status: true } },
+  ownerUserId: true,
+  property: { select: { title: true, status: true, type: true } },
   owner: { select: { name: true, fullName: true, phone: true } },
 };
+
+/** Long-stay state for the partner; never fails the page if the request table is not migrated yet. */
+async function longStayFor(row: any) {
+  if (!row) return null;
+  try {
+    const view = await longStayAccessView(db, { id: row.id, ownerUserId: row.ownerUserId, property: row.property });
+    // Whether the owner agreed the rent the partner set (section 15.1). Hidden
+    // until the listing is submitted: that is when the owner is asked.
+    const rent = row.propertyId ? await ownerRentState(row.propertyId).catch(() => null) : null;
+    const ownerRent = rent && (rent.sentAt || rent.confirmed)
+      ? { confirmed: rent.confirmed, via: rent.via, sentAt: rent.sentAt, summary: rent.summary }
+      : null;
+    return view ? { ...view, ownerRent } : view;
+  } catch (error: any) {
+    if (error?.code === "P2021") return null; // long_stay_access_request not created yet
+    throw error;
+  }
+}
 
 function serializeListing(row: any) {
   if (!row) return null;
@@ -159,7 +188,53 @@ router.get("/leads/:id/assisted-listing", limitSalesLeadRead as any, asyncHandle
     // Prefill for the start form, from what the partner already recorded on the lead.
     prefill: { ownerName: lead.contactPerson ?? "", ownerPhone: lead.contactPhone ?? "", ownerEmail: lead.contactEmail ?? "" },
     listing: serializeListing(row),
+    longStay: await longStayFor(row),
   });
+}));
+
+const longStayRequestSchema = z.object({
+  reason: z.string().trim().min(10, "Say in a sentence why this owner wants long-stay tenants.").max(500).transform(sanitizeText),
+}).strict();
+
+/**
+ * POST /api/sales/leads/:id/assisted-listing/long-stay-request
+ * Ask NoLSAF to switch long stay on for this listing's owner
+ * (docs/LONG_STAY_RENTALS.md section 15). Idempotent while a request waits.
+ */
+router.post("/leads/:id/assisted-listing/long-stay-request", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const partnerId = partnerOr403(req, res);
+  if (!partnerId) return;
+  const parsed = longStayRequestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid request" });
+  const leadId = Number(req.params.id);
+  const [row, profile] = await Promise.all([
+    db.salesAssistedListing.findFirst({ where: { leadId, salesPartnerId: partnerId }, select: listingSelect }),
+    db.salesPartnerProfile.findUnique({
+      where: { id: partnerId },
+      select: { assistedListingEnabledAt: true, assistedListingPausedAt: true, assistedListingPauseReason: true, user: { select: { name: true, fullName: true } } },
+    }),
+  ]);
+  if (!row) return res.status(404).json({ error: "No listing has been started for this lead" });
+  const gateRefusal = assistedGateRefusal(assistedGateOf(profile));
+  if (gateRefusal) return res.status(403).json({ error: gateRefusal });
+
+  try {
+    const result = await requestLongStayAccess(db, { assistedId: row.id, salesPartnerId: partnerId, reason: parsed.data.reason });
+    if (result.created && result.request) {
+      await audit(req as any, "LONG_STAY_ACCESS_REQUESTED", "SALES_LEAD", null, { ref: result.request.publicRef, propertyId: row.propertyId }, leadId);
+      await notifyAdmins("long_stay_access_requested", {
+        accessRequestId: result.request.id,
+        accessRequestRef: result.request.publicRef,
+        propertyTitle: row.property?.title ?? null,
+        partnerName: profile?.user?.fullName || profile?.user?.name || null,
+      }).catch(() => undefined);
+    }
+    return res.status(result.created ? 201 : 200).json({ alreadyGranted: result.alreadyGranted, longStay: await longStayFor(row) });
+  } catch (error: any) {
+    if (error instanceof AccessRequestError) return res.status(error.status).json({ error: error.message });
+    if (error?.code === "P2021") return res.status(503).json({ error: "Long-stay requests are not available yet. NoLSAF is finishing an update." });
+    throw error;
+  }
 }));
 
 /** POST /api/sales/leads/:id/assisted-listing */
@@ -219,6 +294,9 @@ router.post("/leads/:id/assisted-listing", blockImpersonated as RequestHandler, 
         select: { id: true, title: true },
       });
       const token = newNoticeToken();
+      // The email waits as PENDING for an owner without one; an owner who
+      // already has an email keeps theirs and the partner's is not offered.
+      const ownerAccount = await tx.user.findUnique({ where: { id: owner.ownerUserId }, select: { email: true } });
       const row = await tx.salesAssistedListing.create({
         data: {
           leadId: lead.id,
@@ -228,6 +306,8 @@ router.post("/leads/:id/assisted-listing", blockImpersonated as RequestHandler, 
           visitId: visit?.id ?? null,
           ownerAccountOutcome: owner.outcome,
           objectionReferenceHash: token.hash,
+          ownerEmail: input.ownerEmail,
+          ownerEmailStatus: ownerAccount?.email ? null : "PENDING",
         },
         select: { id: true },
       });
@@ -319,6 +399,55 @@ function scopeAssisted(mode: "read" | "write"): RequestHandler {
     }
   }) as RequestHandler;
 }
+
+/**
+ * Long-stay tools for the listing wizard on an assisted listing (section 15):
+ * eligibility, fee quote and lease preview, the same answers an owner gets.
+ * Open while the owner is switched on or the partner's request is waiting.
+ */
+function scopeLongStayTools(): RequestHandler {
+  return (async (req: SalesAuthedRequest, res: Response, next: NextFunction) => {
+    try {
+      const partnerId = partnerOr403(req, res);
+      if (!partnerId) return;
+      const row = await db.salesAssistedListing.findFirst({
+        where: { leadId: Number(req.params.id), salesPartnerId: partnerId },
+        select: { propertyId: true, ownerUserId: true, owner: { select: { fullName: true, name: true } } },
+      });
+      if (!row) return res.status(404).json({ error: "No listing has been started for this lead" });
+      (req as any).assistedOwner = row;
+      return next();
+    } catch (error) {
+      return next(error);
+    }
+  }) as RequestHandler;
+}
+
+router.get("/leads/:id/assisted-listing/long-stay/eligibility", limitSalesLeadRead as any, scopeLongStayTools(), asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const row = (req as any).assistedOwner;
+  const gate = await landlordGate(db, row.ownerUserId);
+  const refusal = await assistedLongStayDraftRefusal(db, row.propertyId, row.ownerUserId);
+  res.setHeader("Cache-Control", "no-store");
+  // "granted" here means the partner may write long-stay terms now.
+  return res.json(longStayEligibilityBody({ granted: !refusal, paused: gate.paused, pauseReason: gate.pauseReason, refusal }));
+}));
+
+router.post("/leads/:id/assisted-listing/long-stay/quote", limitSalesLeadRead as any, scopeLongStayTools(), asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const row = (req as any).assistedOwner;
+  const refusal = await assistedLongStayDraftRefusal(db, row.propertyId, row.ownerUserId);
+  if (refusal) return res.status(403).json({ error: refusal });
+  const result = await longStayQuoteFor(db, req.body);
+  return res.status(result.status).json(result.body);
+}));
+
+router.post("/leads/:id/assisted-listing/long-stay/lease-preview", limitSalesLeadRead as any, scopeLongStayTools(), asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
+  const row = (req as any).assistedOwner;
+  const refusal = await assistedLongStayDraftRefusal(db, row.propertyId, row.ownerUserId);
+  if (refusal) return res.status(403).json({ error: refusal });
+  const result = await longStayLeasePreviewFor(db, req.body, row.owner?.fullName || row.owner?.name || "[The owner]");
+  res.setHeader("Cache-Control", "no-store");
+  return res.status(result.status).json(result.body);
+}));
 
 router.get("/leads/:id/assisted-listing/property", limitSalesLeadRead as any, scopeAssisted("read"), getListingProperty);
 router.put("/leads/:id/assisted-listing/property", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, scopeAssisted("write"), updateListingProperty);

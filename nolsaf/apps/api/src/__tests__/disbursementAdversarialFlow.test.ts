@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   eventCreate: vi.fn(),
   azamPayDisburse: vi.fn(),
+  banks: vi.fn(),
   payoutAccountFindUnique: vi.fn(),
   loadEligiblePayoutSource: vi.fn(),
 }));
@@ -29,6 +30,7 @@ vi.mock("@nolsaf/prisma", () => ({
 
 vi.mock("../services/azampay/disbursement/client.js", () => ({
   azamPayDisburse: mocks.azamPayDisburse,
+  azamPayBankNames: mocks.banks,
 }));
 vi.mock("../services/payouts/eligibility.js", () => ({
   loadEligiblePayoutSource: mocks.loadEligiblePayoutSource,
@@ -136,7 +138,7 @@ describe("disbursement state-machine attack resistance", () => {
 
   afterEach(() => vi.unstubAllEnvs());
 
-  it("rejects a verified bank destination before creating a disbursement", async () => {
+  it("keeps driver bank payouts outside the owner and tour payout flows", async () => {
     mocks.payoutAccountFindUnique.mockResolvedValue({
       id: 19,
       userId: 44,
@@ -156,9 +158,42 @@ describe("disbursement state-machine attack resistance", () => {
         payoutAccountId: 19,
         requestedById: 4,
       })
-    ).rejects.toThrow("AzamPay bank disbursement is not enabled");
+    ).rejects.toThrow("This bank is unavailable for this payout");
 
     expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("pays a sales partner into a bank on the payout directory, and only then", async () => {
+    mocks.loadEligiblePayoutSource.mockResolvedValue({ sourceType: "SALES_PAYOUT", sourceId: 55, payeeUserId: 44, amount: 90000, currency: "TZS" });
+    mocks.payoutAccountFindUnique.mockResolvedValue({
+      id: 19, userId: 44, type: "BANK", provider: "CRDB", accountNumber: "12345678901234",
+      accountName: "ASHA MTUMWA", currency: "TZS", isVerified: true, isActive: true,
+    });
+    (await import("@nolsaf/prisma") as any).prisma.disbursement.findFirst = vi.fn(async () => null);
+    mocks.transaction.mockResolvedValue({ id: 501 });
+
+    mocks.banks.mockResolvedValue(["NMB"]);
+    await expect(requestDisbursement({ sourceType: "SALES_PAYOUT", sourceId: 55, payoutAccountId: 19, requestedById: 44 }))
+      .rejects.toThrow("This bank is unavailable for this payout");
+    expect(mocks.transaction).not.toHaveBeenCalled();
+
+    mocks.banks.mockResolvedValue(["CRDB", "NMB"]);
+    await expect(requestDisbursement({ sourceType: "SALES_PAYOUT", sourceId: 55, payoutAccountId: 19, requestedById: 44 }))
+      .resolves.toEqual({ id: 501 });
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks a removed bank before claiming an authorized tour transfer", async () => {
+    const row = payout("AUTHORIZED");
+    row.sourceType = "TOUR_BOOKING";
+    row.bankName = row.payoutAccount.provider = "Example Bank";
+    row.payoutAccount.type = "BANK";
+    row.approvalFingerprint = computeApprovalFingerprint(row, row.payoutAccount);
+    mocks.findDisbursement.mockResolvedValue(row);
+    mocks.banks.mockResolvedValue([]);
+    vi.stubEnv("DISBURSEMENTS_ENABLED", "true");
+    await expect(submitToAzamPay(row.id)).rejects.toThrow("This bank is unavailable");
+    expect(mocks.azamPayDisburse).not.toHaveBeenCalled();
   });
 
   it("does not let a forged final callback skip authorization and provider submission", async () => {
@@ -254,12 +289,99 @@ describe("disbursement state-machine attack resistance", () => {
     ]);
 
     expect(["PAID", "FAILED"]).toContain(state.status);
-    expect(tx.disbursement.updateMany).toHaveBeenCalledTimes(2);
+    // Terminal claims only; the winner also clears any stale correlation note.
+    const claimCalls = tx.disbursement.updateMany.mock.calls.filter(
+      ([args]: any) => args?.where?.status === "PROCESSING"
+    );
+    expect(claimCalls).toHaveLength(2);
     const successfulClaims = tx.disbursement.updateMany.mock.results.filter(
       (result) => result.type === "return"
     );
-    expect(successfulClaims).toHaveLength(2);
+    expect(successfulClaims.length).toBeGreaterThanOrEqual(2);
     expect(state.status).not.toBe("PROCESSING");
+  });
+
+  // First production payout, 2026-11-25: a vodacom payout failed inside our
+  // funding wallet, AzamPay's status reply named "azampesa", an exact operator
+  // compare held it, and every later identical poll was skipped as a duplicate.
+  function stuckSourceFailure(status: string) {
+    // As left in production by the old rule: held with a correlation note.
+    let state: any = {
+      ...payout(status), bankName: "vodacom",
+      securityReviewReason: "Provider event correlation failure: operator does not match the payout destination",
+    };
+    const tx = {
+      disbursement: {
+        findUnique: vi.fn(async () => ({ ...state })),
+        update: vi.fn(async ({ data }: any) => { state = { ...state, ...data }; return { ...state }; }),
+        updateMany: vi.fn(async ({ where, data }: any) => {
+          const prefix = where?.securityReviewReason?.startsWith;
+          if (prefix !== undefined) {
+            if (!String(state.securityReviewReason ?? "").startsWith(prefix)) return { count: 0 };
+            state = { ...state, ...data };
+            return { count: 1 };
+          }
+          if (state.status !== "PROCESSING") return { count: 0 };
+          state = { ...state, ...data };
+          return { count: 1 };
+        }),
+      },
+      // The same poll answer was already recorded on an earlier pass.
+      disbursementEvent: { createMany: vi.fn(async () => ({ count: 0 })) },
+    };
+    mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
+    const event = {
+      eventType: "STATUS_POLL" as const,
+      callback: { ...providerEvent("failure").callback, operator: "azampesa", message: "Balance can not be negative" },
+    };
+    return { tx, event, current: () => state };
+  }
+
+  it("fails a payout that failed in our funding wallet, even on a repeated poll", async () => {
+    const { tx, event, current } = stuckSourceFailure("PROCESSING");
+
+    await applyProviderEvent(77, event);
+
+    expect(current().status).toBe("FAILED");
+    expect(current().providerMessage).toBe("Balance can not be negative");
+    expect(current().activeSourceKey).toBeNull();
+    // The red "operator does not match" note is no longer true once it settles.
+    expect(current().securityReviewReason).toBeNull();
+    expect(tx.disbursement.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps a note that is not a correlation hold when the payout settles", async () => {
+    const { event, current } = stuckSourceFailure("PROCESSING");
+    const note = "AzamPay reported 90000 for a payout of 150000";
+    (current() as any).securityReviewReason = note;
+
+    await applyProviderEvent(77, event);
+
+    expect(current().status).toBe("FAILED");
+    expect(current().securityReviewReason).toBe(note);
+  });
+
+  it("still ignores a repeated event once the payout is final", async () => {
+    const { tx, event, current } = stuckSourceFailure("FAILED");
+
+    await applyProviderEvent(77, event);
+
+    expect(current().status).toBe("FAILED");
+    expect(tx.disbursement.updateMany).not.toHaveBeenCalled();
+    expect(tx.disbursement.update).not.toHaveBeenCalled();
+  });
+
+  it("never accepts a success that names our source rail", async () => {
+    const { tx, current } = stuckSourceFailure("PROCESSING");
+    tx.disbursementEvent.createMany.mockResolvedValue({ count: 1 });
+
+    await applyProviderEvent(77, {
+      eventType: "STATUS_POLL",
+      callback: { ...providerEvent("success").callback, operator: "azampesa" },
+    });
+
+    expect(current().status).toBe("PROCESSING");
+    expect(current().securityReviewReason).toContain("operator does not match");
   });
 });
 
@@ -284,8 +406,15 @@ describe("disbursement submission attack resistance", () => {
     expect(mocks.azamPayDisburse).not.toHaveBeenCalled();
   });
 
-  it("makes concurrent submission attempts share one database claim and one provider call", async () => {
+  it.each(["MOBILE_MONEY", "BANK"])("makes concurrent %s submissions share one claim and provider call", async (type) => {
     let state = payout("AUTHORIZED");
+    if (type === "BANK") {
+      state.sourceType = "TOUR_ADVANCE";
+      state.payoutAccount.type = type;
+      state.payoutAccount.provider = state.bankName = "Example Commercial Bank";
+      state.approvalFingerprint = computeApprovalFingerprint(state, state.payoutAccount);
+      mocks.banks.mockResolvedValue([state.bankName]);
+    }
     mocks.findDisbursement.mockImplementation(async () => ({ ...state, status: "AUTHORIZED" }));
     mocks.updateManyDisbursement.mockImplementation(async ({ where, data }: any) => {
       if (where.status === "AUTHORIZED") {
@@ -319,6 +448,9 @@ describe("disbursement submission attack resistance", () => {
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
     expect(mocks.azamPayDisburse).toHaveBeenCalledOnce();
+    expect(mocks.azamPayDisburse).toHaveBeenCalledWith(expect.objectContaining({
+      destination: expect.objectContaining({ bankName: state.bankName, currency: "TZS" }),
+    }));
     expect(state.status).toBe("PROCESSING");
   });
 

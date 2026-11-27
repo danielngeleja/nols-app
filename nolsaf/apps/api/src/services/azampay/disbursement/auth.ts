@@ -11,7 +11,7 @@
  */
 
 import { getRedis } from "../../../lib/redis.js";
-import { AzamPayDisburseConfigurationError } from "./errors.js";
+import { AzamPayDisburseAuthError, AzamPayDisburseConfigurationError } from "./errors.js";
 
 const REDIS_KEY = "azp:disburse:token";
 const CLOCK_SKEW_SEC = 60;
@@ -69,7 +69,7 @@ async function fetchFreshToken(): Promise<TokenCache> {
     });
   } catch (err: any) {
     clearTimeout(timer);
-    throw new Error(`AzamPay disbursement auth: network error reaching authenticator (${err?.name ?? "unknown"})`);
+    throw new AzamPayDisburseAuthError(`AzamPay disbursement auth: network error reaching authenticator (${err?.name ?? "unknown"})`);
   } finally {
     clearTimeout(timer);
   }
@@ -80,18 +80,18 @@ async function fetchFreshToken(): Promise<TokenCache> {
     } catch {
       /* discard, never forward raw body */
     }
-    throw new Error(`AzamPay disbursement auth: authenticator returned HTTP ${res.status}`);
+    throw new AzamPayDisburseAuthError(`AzamPay disbursement auth: authenticator returned HTTP ${res.status}`, res.status);
   }
 
   let body: any;
   try {
     body = await res.json();
   } catch {
-    throw new Error("AzamPay disbursement auth: authenticator returned non-JSON body");
+    throw new AzamPayDisburseAuthError("AzamPay disbursement auth: authenticator returned non-JSON body", res.status);
   }
 
   if (!body?.success || !body?.data?.accessToken) {
-    throw new Error(`AzamPay disbursement auth: token fetch failed (success=${body?.success})`);
+    throw new AzamPayDisburseAuthError("AzamPay disbursement auth: token missing from response", res.status);
   }
 
   const token: string = body.data.accessToken;

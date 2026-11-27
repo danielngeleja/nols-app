@@ -21,6 +21,7 @@ import { asyncHandler } from "../middleware/errorHandler.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { audit } from "../lib/audit.js";
 import { createOwnerReservationNotification, LONG_STAY_RESERVATION_RECEIVED, notifyAdmins, publishUserNotification } from "../lib/notifications.js";
+import { recordAcquisitionSource } from "../lib/acquisitionSource.js";
 import { isTrustedUserDocumentUrl } from "../lib/userDocumentSecurity.js";
 import { canReplaceApprovedId, isTenantRole, prepareIdentity, TenantIdentityError, tenantIdentityView, type IdUpload } from "../lib/longStay/tenantIdentity.js";
 import { reserveSchema } from "../lib/longStay/tenancyService.js";
@@ -186,6 +187,8 @@ router.post("/reservations", blockImpersonated as RequestHandler, limitReservati
     }, { isolationLevel: "Serializable" });
     publishUserNotification(notification, LONG_STAY_RESERVATION_RECEIVED);
     await notifyAdmins("long_stay_reservation_created", { tenancyRef: tenancy.publicRef, propertyTitle });
+    // Marketing channel (reporting only, needs the visitor's consent cookie).
+    await recordAcquisitionSource(prisma, { type: "TENANCY", id: tenancy.id }, req.headers.cookie);
     return res.status(201).json({ ref: tenancy.publicRef, status: tenancy.status });
   } catch (error) {
     if (sendTenancyError(res, error)) return;

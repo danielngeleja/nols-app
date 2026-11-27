@@ -16,12 +16,12 @@ function providerValue(value: string, key: string): AzamPayDisburseBankName {
   return normalized;
 }
 
-export function loadAzamPayDisbursementRequestConfig(destinationProvider: string): {
+export function loadAzamPayDisbursementRequestConfig(destinationProvider: string, verifiedBank = false): {
   sourceName: string;
   sourceProvider: AzamPayDisburseBankName;
   sourceAccount: string;
   transferType: string;
-  destinationProvider: AzamPayDisburseBankName;
+  destinationProvider: string;
 } {
   const sourceAccount = String(process.env.AZAMPAY_DISBURSE_SOURCE_ACCOUNT || "").trim();
   const transferType = String(process.env.AZAMPAY_DISBURSE_TRANSFER_TYPE || "FUND").trim();
@@ -47,6 +47,6 @@ export function loadAzamPayDisbursementRequestConfig(destinationProvider: string
     ),
     sourceAccount,
     transferType,
-    destinationProvider: providerValue(destinationProvider, "PayoutAccount.provider"),
+    destinationProvider: verifiedBank ? destinationProvider : providerValue(destinationProvider, "PayoutAccount.provider"),
   };
 }

@@ -12,8 +12,11 @@ import { aggregateBedroomBeds, countPropertyBedrooms, declaredGuestCapacity, has
 import { bookingModeOfEntries, defaultBookingModeForPropertyType, isRoomOnlyPropertyType, isSeparateUnitEntry } from "@/lib/propertyBookingMode";
 import { TotalsStep } from "./TotalsStep";
 import { PhotosStep } from "./PhotosStep";
+import { readPhotoAreas, type PhotoArea } from "@/lib/photoAreas";
+import { readElectricityRule, type ElectricityRule } from "@/lib/electricityRule";
 import { ROOM_ITEMS, UNIT_AMENITY_ITEMS, RoomsStep } from "./RoomsStep";
 import LeasePreviewDialog, { leaseRulesPayload, livingRuleLines } from "@/components/longStay/LeasePreviewDialog";
+import { LongStayApiBaseContext, OWNER_LONG_STAY_API } from "@/components/longStay/longStayApiBase";
 import { EMPTY_LONG_STAY_TERMS, LongStayTermsCard, RentalModeSwitch, longStayTermsComplete, longStayTermsForServer, longStayTermsFromServer, type LongStayTermsDraft } from "./LongStayTermsCard";
 import { cleanFloorUses, parseFloorUses, type FloorUses } from "./floorUses";
 import { ServicesStep } from "./ServicesStep";
@@ -246,6 +249,14 @@ export type ListingWizardAdapter = {
   draftStorageKey: string;
   /** Owner mode offers "resume a draft"; assisted mode always edits one listing. */
   allowResume: boolean;
+  /**
+   * Where the long-stay helpers live (eligibility, quote, lease preview). Owner
+   * mode uses the owner's own; an assisted listing passes its scoped endpoints
+   * so a partner can write monthly terms once NoLSAF allows it (section 15).
+   */
+  longStayApiBase?: string;
+  /** Assisted mode: where a partner asks NoLSAF to switch long stay on. */
+  longStayRequestHref?: string;
 };
 
 export const OWNER_LISTING_ADAPTER: ListingWizardAdapter = {
@@ -306,6 +317,8 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   const [showSubmissionSuccess, setShowSubmissionSuccess] = useState(false);
   // Actionable card for the server-side pin↔address mismatch returned by /submit.
   const [submitMismatch, setSubmitMismatch] = useState<{ message: string; mismatches: string[]; detected: any } | null>(null);
+  // Any other refused submit: shown as a card, never a browser alert.
+  const [submitIssue, setSubmitIssue] = useState<{ kind: "long_stay" | "photos" | "other"; message: string } | null>(null);
 
   // Load existing property if ID is provided in query params
   useEffect(() => {
@@ -406,6 +419,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
                         overnightNights: Number((hrObj as any).overnightNights) || 7,
                         quietFrom: String((hrObj as any).quietHours || "").split(" to ")[0] || "",
                         quietTo: String((hrObj as any).quietHours || "").split(" to ")[1] || "",
+                        electricity: readElectricityRule((hrObj as any).electricity),
                       };
                     });
                   }
@@ -426,6 +440,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
               if (nextPhotoUrls.length) {
                 applyLoadedPropertyPhotos(nextPhotoUrls);
               }
+              setPhotoAreas(readPhotoAreas((property as any).photoAreas));
               
               // Load rooms
               if (property.roomsSpec) {
@@ -717,6 +732,8 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     overnightNights?: number;
     quietFrom?: string;
     quietTo?: string;
+    /** Nightly stays: who pays for electricity (lib/electricityRule.ts). */
+    electricity?: ElectricityRule;
   }>({
     checkInFrom: "",
     checkInTo: "",
@@ -740,6 +757,16 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   const [photosUploading, setPhotosUploading] = useState<boolean[]>([]);
   const photosRef = useRef<string[]>([]);
   useEffect(()=>{ photosRef.current = photos; }, [photos]);
+  // Which area of the home each photo shows, keyed by photo URL (lib/photoAreas.ts).
+  const [photoAreas, setPhotoAreas] = useState<Record<string, PhotoArea>>({});
+  const setPhotoArea = useCallback((url: string, area: PhotoArea | null) => {
+    setPhotoAreas((prev) => {
+      const next = { ...prev };
+      if (area) next[url] = area;
+      else delete next[url];
+      return next;
+    });
+  }, []);
   
   // Refs for progress bars to avoid inline styles
   const photosProgressBarRef = useRef<HTMLDivElement>(null);
@@ -782,18 +809,28 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
   const [rentalMode, setRentalMode] = useState<"NIGHTLY" | "LONG_STAY">("NIGHTLY");
   const [longStayTerms, setLongStayTerms] = useState<LongStayTermsDraft>(EMPTY_LONG_STAY_TERMS);
   const [longStayEligibility, setLongStayEligibility] = useState<{ granted: boolean; paused: boolean; refusal: string | null; bookingsOpen: boolean; propertyTypes: string[] } | null>(null);
+  const longStayApiBase = adapter.longStayApiBase ?? (adapter.mode === "owner" ? OWNER_LONG_STAY_API : null);
   useEffect(() => {
-    if (adapter.mode !== "owner") return;
+    if (!longStayApiBase) return;
     let active = true;
-    apiClient.get("/api/owner/long-stay/eligibility")
+    apiClient.get(`${longStayApiBase}/eligibility`)
       .then((response) => { if (active) setLongStayEligibility(response.data); })
       .catch(() => { if (active) setLongStayEligibility(null); });
     return () => { active = false; };
-  }, [adapter.mode]);
+  }, [longStayApiBase]);
   const isLongStay = rentalMode === "LONG_STAY";
-  const canOfferLongStay = adapter.mode === "owner"
+  const canOfferLongStay = Boolean(longStayApiBase)
     && Boolean(longStayEligibility?.granted && !longStayEligibility.paused)
     && Boolean(longStayEligibility?.propertyTypes?.includes(toServerType(type)));
+  // Assisted listing, home type fits, but NoLSAF has not switched long stay on:
+  // point the partner at the request instead of hiding Monthly silently.
+  const longStayAskHref = adapter.longStayRequestHref
+    && longStayEligibility
+    && !longStayEligibility.granted
+    && !longStayEligibility.paused
+    && longStayEligibility.propertyTypes?.includes(toServerType(type))
+    ? adapter.longStayRequestHref
+    : null;
 
   const changePropertyType = (nextType: string) => {
     setType(nextType);
@@ -905,6 +942,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
             if (typeof preview === 'string' && preview.startsWith('data:')) return rest;
             return p;
           }).filter(Boolean),
+          photoAreas,
           definedRooms, services, nearbyFacilities,
           roomType, bookingMode, unitBedrooms, beds, roomMaxGuests, roomsCount, smoking, bathPrivate,
           pricePerNight, unitPricingMode, unitIncludedGuests, unitExtraGuestFee,
@@ -934,7 +972,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     buildingType, totalFloors,
     regionId, district, ward, street, city, zip,
     latitude, longitude, desc, totalBedrooms, totalBathrooms, maxGuests,
-    photos, definedRooms, services, nearbyFacilities,
+    photos, photoAreas, definedRooms, services, nearbyFacilities,
     roomType, bookingMode, unitBedrooms, beds, roomMaxGuests, roomsCount, smoking, bathPrivate, roomFloors, roomFloorDistribution, floorUses,
     pricePerNight, unitPricingMode, unitIncludedGuests, unitExtraGuestFee,
     acceptGroupBooking, freeCancellation, paymentModes,
@@ -1331,19 +1369,30 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
     setPhotosUploading(nextPhotos.map(() => false));
   }, []);
 
-  const onPickPropertyPhotos = async (files: FileList | null) => {
+  const onPickPropertyPhotos = async (files: FileList | null, area?: PhotoArea | null) => {
     if (!files) return;
     const chosen = Array.from(files);
     if (!chosen.length) return;
 
     const localBlobs = chosen.map((file) => URL.createObjectURL(file));
     setPhotos((prev) => [...prev, ...localBlobs]);
+    // A photo added from an area slot ("Kitchen") arrives already labelled.
+    // The label follows the photo from its local preview to its uploaded URL.
+    if (area) setPhotoAreas((prev) => ({ ...prev, ...Object.fromEntries(localBlobs.map((b) => [b, area])) }));
+    const moveArea = (from: string, to: string | null) => setPhotoAreas((prev) => {
+      if (!(from in prev)) return prev;
+      const next = { ...prev };
+      if (to) next[to] = next[from];
+      delete next[from];
+      return next;
+    });
     setPhotosSaved((prev) => [...prev, ...Array(localBlobs.length).fill(false)]);
     setPhotosUploading((prev) => [...prev, ...Array(localBlobs.length).fill(true)]);
 
     chosen.forEach((file, i) => {
       const blobUrl = localBlobs[i];
       uploadToCloudinary(file, "properties").then((url) => {
+        moveArea(blobUrl, url);
         setPhotos((prev) => {
           const idx = prev.indexOf(blobUrl);
           if (idx === -1) return prev;
@@ -1367,6 +1416,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
         });
       }).catch((err) => {
         console.error("Property photo upload failed", err);
+        moveArea(blobUrl, null);
         setPhotos((prev) => prev.filter((u) => u !== blobUrl));
         setPhotosSaved((prev) => {
           const idx = photosRef.current.indexOf(blobUrl);
@@ -1662,6 +1712,9 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
       if (living?.smokingPolicy) { out.smokingPolicy = living.smokingPolicy; out.smoking = living.smokingPolicy !== "allowed"; }
       if (living?.overnightGuests) { out.overnightGuests = living.overnightGuests; if (living.overnightGuests === "limited") out.overnightNights = living.overnightNights; }
       if (living?.quietHours) out.quietHours = living.quietHours;
+      // Nightly stays only: a long stay sets its bills in the monthly terms.
+      const electricity = readElectricityRule((hr as any).electricity);
+      if (!isLongStay && electricity.mode !== "INCLUDED") out.electricity = electricity;
 
       return Object.keys(out).length ? out : null;
     })();
@@ -1690,6 +1743,10 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
       longitude: longitude ? Number(longitude) : null,
 
       photos,
+      // Only finished uploads that are still on the listing.
+      photoAreas: Object.fromEntries(
+        Object.entries(photoAreas).filter(([url]) => /^https?:\/\//i.test(url) && photos.includes(url))
+      ),
 
       // hotelStar must be a number (1-5) or null, not a string
       hotelStar: isHotel && hotelStar && hotelStar !== "" ? (hotelStarMap[hotelStar] ?? null) : null,
@@ -1893,8 +1950,13 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
         return;
       }
       const err = data?.error ?? data ?? e?.message ?? "Submit failed";
-      const errorMsg = typeof err === "string" ? err : JSON.stringify(err, null, 2);
-      alert(`Submit failed (${status || "network error"}): ${errorMsg}\n\nURL: ${method} ${url}`);
+      const errorMsg = typeof err === "string" ? err : "Something went wrong. Please try again.";
+      console.warn(`[listing submit] ${status || "network error"} ${method} ${url}`, data);
+      const longStayWaiting = status === 400 && /long stay/i.test(errorMsg) && /approv/i.test(errorMsg);
+      setSubmitIssue({
+        kind: longStayWaiting ? "long_stay" : data?.code === "PHOTO_AREAS" ? "photos" : "other",
+        message: status ? errorMsg : "We could not reach NoLSAF. Check your connection and try again.",
+      });
     }
   }
 
@@ -1967,6 +2029,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
       });
     }
     if (draft.photos) applyLoadedPropertyPhotos(normalizePhotoUrls(draft.photos));
+    if (draft.photoAreas) setPhotoAreas(readPhotoAreas(draft.photoAreas));
     if (draft.definedRooms && Array.isArray(draft.definedRooms)) setDefinedRooms(draft.definedRooms);
     if (draft.services) setServices(draft.services);
     if (draft.nearbyFacilities && Array.isArray(draft.nearbyFacilities)) setNearbyFacilities(draft.nearbyFacilities);
@@ -2083,15 +2146,24 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
 
   if (loadingProperty) {
     return (
-      <div className="min-h-[400px] flex flex-col items-center justify-center text-center">
-        <div className="dot-spinner mb-4">
-          <span className="dot dot-blue" />
-          <span className="dot dot-black" />
-          <span className="dot dot-yellow" />
-          <span className="dot dot-green" />
+      <div className="min-h-[400px] flex items-center justify-center px-4" role="status" aria-live="polite">
+        <style>{`@keyframes nolsLoadSlide{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}`}</style>
+        <div className="w-full max-w-[260px] text-center">
+          <div className="mx-auto mb-5 h-11 w-11 rounded-lg bg-[#02665e]/10 flex items-center justify-center">
+            <svg viewBox="0 0 24 24" className="h-5 w-5 text-[#02665e]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 10.5 12 4l9 6.5" />
+              <path d="M5.5 9v10.5h13V9" />
+              <path d="M10 19.5v-5h4v5" />
+            </svg>
+          </div>
+          <div className="text-[15px] font-semibold text-gray-900">Opening your property</div>
+          <div className="relative mt-4 h-[3px] w-full overflow-hidden rounded-full bg-gray-200">
+            <span
+              className="absolute inset-y-0 left-0 w-2/5 rounded-full bg-[#02665e]"
+              style={{ animation: "nolsLoadSlide 1.1s ease-in-out infinite" }}
+            />
+          </div>
         </div>
-        <h2 className="text-xl font-semibold text-gray-800">Loading property...</h2>
-        <p className="text-sm text-gray-600 mt-2">Please wait while we load your property details.</p>
       </div>
     );
   }
@@ -2132,6 +2204,7 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
 
 
   return (
+    <LongStayApiBaseContext.Provider value={longStayApiBase ?? OWNER_LONG_STAY_API}>
     <div id="addPropertyView" className={PAGE_WRAPPER_CLASS}>
       <div aria-live="polite" className="sr-only" role="status">{announcement}</div>
       <div className={PAGE_LAYOUT_CLASS}>
@@ -2269,6 +2342,17 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
               onKeepNightly={() => setMonthlyAsk(false)}
               lockedReason={!canOfferLongStay && isLongStay ? (longStayEligibility?.refusal || "Long stays are not available for this listing type.") : null}
             />
+          ) : longStayAskHref ? (
+            <a
+              href={longStayAskHref}
+              className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-solid border-slate-200 bg-white px-3 py-2.5 text-sm no-underline transition hover:border-[#02665e]/40 hover:bg-[#02665e]/[0.04] hover:no-underline"
+            >
+              <span className="min-w-0">
+                <span className="block font-semibold text-slate-900">Monthly tenants?</span>
+                <span className="block text-xs text-slate-500">Ask NoLSAF to switch on long stay for this owner.</span>
+              </span>
+              <span className="shrink-0 text-xs font-semibold text-[#02665e]">Request</span>
+            </a>
           ) : null}
           longStaySlot={isLongStay ? (
             <div className="mt-4">
@@ -2398,6 +2482,9 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           photosSaved={photosSaved}
           photosUploading={photosUploading}
           pickPropertyPhotos={onPickPropertyPhotos}
+          photoAreas={photoAreas}
+          setPhotoArea={setPhotoArea}
+          monthly={isLongStay}
           setPhotos={setPhotos}
           setPhotosSaved={setPhotosSaved}
           setPhotosUploading={setPhotosUploading}
@@ -2790,7 +2877,82 @@ export default function PropertyListingWizard({ adapter = OWNER_LISTING_ADAPTER 
           </div>
         </div>
       )}
+
+      {/* ── Submit refused (anything other than a location mismatch) ── */}
+      {submitIssue && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setSubmitIssue(null); }}
+        >
+          <div
+            className="relative w-full max-w-sm overflow-hidden rounded-lg bg-white shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label={submitIssue.kind === "long_stay" ? "Waiting for NoLSAF" : "Could not submit"}
+          >
+            <button
+              type="button"
+              onClick={() => setSubmitIssue(null)}
+              className="absolute right-3 top-3 rounded-md border-0 bg-transparent p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="px-5 pb-5 pt-6">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${submitIssue.kind === "long_stay" ? "bg-[#02665e]/10 text-[#02665e]" : "bg-amber-50 text-amber-600"}`}>
+                {submitIssue.kind === "long_stay" ? <Clock className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
+              </div>
+              <h2 className="mb-0 mt-3 text-base font-semibold text-slate-900">
+                {submitIssue.kind === "long_stay" ? "Waiting for NoLSAF" : submitIssue.kind === "photos" ? "Label your photos" : "Could not submit"}
+              </h2>
+              <p className="mb-0 mt-1 text-sm leading-relaxed text-slate-600">
+                {submitIssue.kind === "long_stay"
+                  ? "Long stay is not switched on for this owner yet. Your listing is saved; submit once NoLSAF approves."
+                  : submitIssue.message}
+              </p>
+              <div className="mt-5 flex gap-2">
+                {submitIssue.kind === "long_stay" && adapter.longStayRequestHref ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setSubmitIssue(null)}
+                      className="h-9 flex-1 rounded-md border border-solid border-slate-200 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Later
+                    </button>
+                    <a
+                      href={adapter.longStayRequestHref}
+                      className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-[#02665e] text-sm font-semibold text-white no-underline transition hover:bg-[#02554e] hover:no-underline"
+                    >
+                      Check request
+                      <ArrowRight className="h-4 w-4" />
+                    </a>
+                  </>
+                ) : submitIssue.kind === "photos" ? (
+                  <button
+                    type="button"
+                    onClick={() => { setSubmitIssue(null); scrollToStep(4, true); }}
+                    className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border-0 bg-[#02665e] text-sm font-semibold text-white transition hover:bg-[#02554e]"
+                  >
+                    Go to photos
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setSubmitIssue(null)}
+                    className="h-9 flex-1 rounded-md border-0 bg-[#02665e] text-sm font-semibold text-white transition hover:bg-[#02554e]"
+                  >
+                    Got it
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+    </LongStayApiBaseContext.Provider>
   );
 }
 

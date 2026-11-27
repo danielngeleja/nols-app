@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   accountCount: vi.fn(),
   transaction: vi.fn(),
   lookup: vi.fn(),
+  banks: vi.fn(),
   audit: vi.fn(),
   auditOrThrow: vi.fn(),
   txAccountFindUnique: vi.fn(),
@@ -54,7 +55,7 @@ vi.mock("../lib/redisRateLimitStore.js", () => ({
 }));
 vi.mock("../lib/redis.js", () => ({ getRedis: () => null }));
 
-vi.mock("../services/azampay/disbursement/client.js", () => ({ azamPayNameLookup: mocks.lookup }));
+vi.mock("../services/azampay/disbursement/client.js", () => ({ azamPayNameLookup: mocks.lookup, azamPayBankNames: mocks.banks }));
 vi.mock("../lib/audit.js", () => ({ audit: mocks.audit, auditOrThrow: mocks.auditOrThrow }));
 vi.mock("../lib/sms.js", () => ({ sendSms: mocks.sendSms }));
 vi.mock("../lib/mailer.js", () => ({
@@ -78,7 +79,7 @@ vi.mock("../lib/crypto.js", () => ({
 
 import { router as accountRouter } from "../routes/account";
 import { router as ownerPayoutsRouter } from "../routes/owner.payouts";
-import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors";
+import { AzamPayDisburseAuthError, AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors";
 
 const tx = {
   payoutAccount: {
@@ -110,6 +111,7 @@ function ownerApp() {
 describe("secure payout destination update", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.banks.mockResolvedValue(["Example Commercial Bank", "CRDB"]);
     mocks.userFindUnique.mockResolvedValue({ payout: null });
     mocks.userFindFirst.mockResolvedValue(null);
     mocks.userUpdate.mockResolvedValue({ id: 44 });
@@ -159,34 +161,52 @@ describe("secure payout destination update", () => {
     });
   });
 
+  it("logs the directory failure stage and provider status without exposing the error text", async () => {
+    mocks.banks.mockRejectedValueOnce(new AzamPayDisburseAuthError("internal auth details", 423));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await request(app("directory-request")).get("/account/payouts/banks");
+      expect(result.status).toBe(503);
+      expect(result.body).toEqual({ error: "The payout bank directory is temporarily unavailable." });
+      expect(log).toHaveBeenCalledWith(JSON.stringify({
+        level: "error",
+        event: "payout_bank_directory_failed",
+        requestId: "directory-request",
+        stage: "authentication",
+        upstreamStatus: 423,
+      }));
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("accepts only the supported payout banks and stores their canonical code", async () => {
     mocks.lookup.mockResolvedValue({
       name: "AGREY MBILINYI",
       status: true,
       statusCode: 200,
       accountNumber: "12345678901234",
-      bankName: "CRDB",
+      bankName: "Example Commercial Bank",
     });
 
     const response = await request(app()).post("/account/payouts/verify").send({
       payoutPreferred: "BANK",
-      bankName: "CRDB Bank",
+      bankName: "Example Commercial Bank",
       bankAccountName: "AGREY MBILINYI",
       bankAccountNumber: "12345678901234",
       bankBranch: "MLIMANI CITY",
     });
 
     expect(response.status).toBe(200);
-    expect(response.body.data.destination.provider).toBe("CRDB");
+    expect(response.body.data.destination.provider).toBe("Example Commercial Bank");
     expect(response.body.data.capabilities).toEqual({
       nameLookupVerified: true,
-      azamPayDisbursementEnabled: false,
+      azamPayDisbursementEnabled: true,
     });
-    expect(response.body.message).toContain("bank disbursement remains disabled");
-    expect(mocks.lookup).toHaveBeenCalledWith({ bankName: "CRDB", accountNumber: "12345678901234" });
+    expect(mocks.lookup).toHaveBeenCalledWith({ bankName: "Example Commercial Bank", accountNumber: "12345678901234" });
   });
 
-  it("rejects a bank outside CRDB, NBC, and NMB before provider lookup", async () => {
+  it("rejects a bank missing from the provider directory before provider lookup", async () => {
     const response = await request(app()).post("/account/payouts/verify").send({
       payoutPreferred: "BANK",
       bankName: "OTHER BANK",
@@ -367,9 +387,9 @@ describe("secure payout destination update", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account added");
-    expect(mocks.sendMail.mock.calls[0][2]).toContain("Automated bank payouts are not enabled");
+    expect(mocks.sendMail.mock.calls[0][2]).toContain("Saving this account did not approve or send a payout");
     expect(mocks.sendMail.mock.calls[0][2]).not.toContain("hour security waiting period");
-    expect(mocks.sendSms.mock.calls[0][1]).toContain("Automated bank payouts unavailable");
+    expect(mocks.sendSms.mock.calls[0][1]).toContain("No security hold started");
     expect(mocks.sendSms.mock.calls[0][1]).not.toContain("12345678901234");
   });
 

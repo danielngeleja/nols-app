@@ -2064,6 +2064,153 @@
   background: rgba(0, 0, 0, 0.72);
 }
 
+/* Photo areas (lib/photoAreas.ts): pick an area chip, then tap its photos. */
+.ap-areas {
+  @apply mb-3 rounded-lg px-3 py-2.5;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ap-areas-head {
+  @apply mb-2.5 flex items-center justify-between gap-3;
+}
+
+.ap-areas-title {
+  @apply text-[13px] font-semibold leading-tight text-white;
+}
+
+.ap-areas-title b {
+  @apply font-semibold text-emerald-300;
+}
+
+.ap-areas-sub {
+  @apply mt-0.5 text-[11.5px] leading-tight text-white/50;
+}
+
+.ap-areas-progress {
+  @apply flex shrink-0 flex-col items-end gap-1;
+}
+
+.ap-areas-progress-text {
+  @apply inline-flex items-center gap-1 text-[11.5px] font-semibold tabular-nums text-amber-300;
+}
+
+.ap-areas-progress-text span {
+  @apply font-normal text-white/45;
+}
+
+.ap-areas-progress.is-done .ap-areas-progress-text {
+  @apply text-emerald-300;
+}
+
+.ap-areas-bar {
+  @apply block h-1 w-24 overflow-hidden rounded-full;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ap-areas-bar > span {
+  @apply block h-full rounded-full bg-amber-400 transition-all;
+}
+
+.ap-areas-progress.is-done .ap-areas-bar > span {
+  @apply bg-emerald-400;
+}
+
+.ap-areas-done {
+  @apply h-7 shrink-0 cursor-pointer rounded-md border-0 px-3 text-[12px] font-semibold text-white;
+  background: #02665e;
+}
+
+.ap-areas-chips {
+  @apply flex flex-wrap gap-1;
+}
+
+.ap-area-chip {
+  @apply relative inline-flex h-7 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[12px] font-medium leading-none text-white/75 transition-colors;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Long stay: an essential area with no photo yet */
+.ap-area-chip.is-needed {
+  @apply text-amber-200;
+  border: 1px dashed rgba(251, 191, 36, 0.6);
+}
+
+.ap-area-chip.is-needed.is-active {
+  @apply text-white;
+  border: 1px solid #02665e;
+}
+
+.ap-area-chip.is-more {
+  @apply bg-transparent text-white/55;
+  border-style: dashed;
+}
+
+.ap-area-chip.is-more:hover {
+  @apply text-white;
+}
+
+.ap-area-chip:hover {
+  @apply text-white;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ap-area-chip.has-photos {
+  @apply text-white;
+}
+
+.ap-area-chip.is-active {
+  @apply text-white;
+  background: #02665e;
+  border-color: #02665e;
+}
+
+.ap-area-count {
+  @apply rounded px-1 font-mono text-[10.5px] font-bold;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* The area a photo is marked with, on the top row after the photo number */
+.ap-shot-tag {
+  @apply absolute left-11 top-1.5 max-w-[calc(100%-5.5rem)] truncate rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-white;
+  background: rgba(2, 102, 94, 0.92);
+}
+
+.ap-shot-tag.is-missing {
+  background: rgba(180, 83, 9, 0.92);
+}
+
+/* Labelling: the whole photo is the tap target; cover/remove are hidden so a tap never misfires */
+.ap-shot-paint {
+  @apply absolute inset-0 flex cursor-pointer items-center justify-center border-0 p-0 transition-colors;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.ap-shot-paint:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.ap-shot-paint.is-on {
+  background: rgba(2, 102, 94, 0.32);
+  box-shadow: inset 0 0 0 3px #02665e;
+}
+
+.ap-shot-paint-mark {
+  @apply flex h-9 w-9 items-center justify-center rounded-full text-white;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.ap-shot-paint.is-on .ap-shot-paint-mark {
+  background: #02665e;
+}
+
+.ap-gallery.is-painting .ap-shot-make,
+.ap-gallery.is-painting .ap-photo-remove {
+  display: none;
+}
+
 .ap-drop-veil {
   @apply pointer-events-none absolute inset-2 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed text-[14px] font-semibold text-white;
   border-color: #02665e;

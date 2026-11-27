@@ -115,6 +115,12 @@ async function writeAdminAudit(
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("ADMIN") as RequestHandler, blockImpersonated as RequestHandler);
+// A non-numeric :id is a missing record, not a server error. Page data requests
+// such as "db_<ref>.rsc" used to reach these routes and fail idSchema with a 500.
+router.param("id", (_req, res, next, value) => {
+  if (!/^[1-9]\d{0,15}$/.test(String(value))) return void res.status(404).json({ error: "Not found" });
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // Owner payout recoveries (owner policy 6.3.3; docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md
@@ -1020,7 +1026,7 @@ const reportFilterSchema = z.object({
   payoutAccountId: z.coerce.number().int().positive().optional(),
   currency: z.string().trim().length(3).optional(),
   /** Institution, mobile money or bank alike: this is PayoutAccount.provider as copied onto the disbursement. */
-  bankName: z.string().trim().max(30).optional(),
+  bankName: z.string().trim().max(160).optional(),
   destinationType: z.enum(DESTINATION_TYPES).optional(),
   batchReference: z.string().trim().max(40).optional(),
   q: z.string().trim().max(120).optional(),

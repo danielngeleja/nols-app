@@ -2045,17 +2045,15 @@ router.post(
       });
     }
 
-    // Policy 5.4: only a verified mobile money account can be paid today. A claim
-    // to a bank-only operator would sit approved with no way to send the money.
     const payableDestination = await prisma.payoutAccount.findFirst({
-      where: { userId: authedId, isVerified: true, isActive: true, type: "MOBILE_MONEY" },
+      where: { userId: authedId, isVerified: true, isActive: true, type: { in: ["BANK", "MOBILE_MONEY"] } },
       select: { id: true },
     });
     if (!payableDestination) {
       return res.status(409).json({
         ok: false,
         error: "payout_destination_unsupported",
-        message: "Add and verify a mobile money account first. Bank accounts cannot receive payouts yet.",
+        message: "Add and verify a payout account first.",
       });
     }
 

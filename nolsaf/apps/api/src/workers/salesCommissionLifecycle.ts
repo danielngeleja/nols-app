@@ -9,7 +9,10 @@ import {
   autoReverseSalesCommission,
   bookingHasOpenCancellation,
   bookingWasCancelled,
+  longStayShareSourceKey,
 } from "../lib/salesCommission.js";
+import { syncLongStaySalesCommission } from "../lib/longStay/salesShare.js";
+import { overrideBaseReady, runRegionalOverrides } from "../lib/salesRegions.js";
 import { accrueAgencySalesCommission } from "../lib/salesAgency.js";
 import { GROUP_CANCELLED_STATUSES, accrueAgencyGroupCommission, groupIdFromSourceKey } from "../lib/salesAgencyGroups.js";
 import { TOUR_REFUNDED_STATUSES, accrueAgencyTourCommission, tourIdFromSourceKey } from "../lib/salesAgencyTours.js";
@@ -47,6 +50,7 @@ export async function runSalesCommissionLifecycle(now = new Date()): Promise<{
   nrmsAccrued: number;
   marketplaceAccrued: number;
   agencyAccrued: number;
+  longStayAccrued: number;
   madeEligible: number;
   autoReversed: number;
   lockedInPayout: number;
@@ -196,12 +200,26 @@ export async function runSalesCommissionLifecycle(now = new Date()): Promise<{
     }
   }
 
+  // Long stay (docs/LONG_STAY_RENTALS.md section 14): accrue moved-in tenancies
+  // the move-in path missed, and reverse shares whose first month was refunded.
+  const longStay = await reconcileLongStayShares(now).catch((error: any) => {
+    console.error("[sales-commission] long-stay share pass failed:", error?.message || error);
+    return { accrued: 0, reversed: 0 };
+  });
+
+  // Regional leads: accrue their override on region partners' commissions,
+  // and reverse overrides whose base was reversed (docs/SALES_REGIONS.md).
+  const regional = await runRegionalOverrides(db, now).catch((error: any) => {
+    console.error("[sales-commission] regional override pass failed:", error?.message || error);
+    return { accrued: 0, reversed: 0 };
+  });
+
   // 1. A cancelled or refunded stay earns no commission. Reverse what is still
   //    open, and offset what was already paid so it comes out of the next payout.
   const { autoReversed: stayReversed, lockedInPayout: stayLocked } = await reverseCancelledBookingCommissions(now);
   const groupReversal = await reverseCancelledGroupCommissions(now);
   const tourReversal = await reverseRefundedTourCommissions(now);
-  const autoReversed = stayReversed + groupReversal.autoReversed + tourReversal.autoReversed;
+  const autoReversed = stayReversed + groupReversal.autoReversed + tourReversal.autoReversed + longStay.reversed + regional.reversed;
   const lockedInPayout = stayLocked + groupReversal.lockedInPayout + tourReversal.lockedInPayout;
 
   // 2. Promote commissions whose validation window has passed. Marketplace
@@ -245,6 +263,11 @@ export async function runSalesCommissionLifecycle(now = new Date()): Promise<{
         continue;
       }
     }
+    // An override is never withdrawable before the commission it came from.
+    if (candidate.type === "REGIONAL_OVERRIDE" && !(await overrideBaseReady(db, candidate.sourceKey))) {
+      await db.salesCommission.updateMany({ where: { id: candidate.id, status: "VALIDATING" }, data: { eligibleAt: new Date(now.getTime() + DAY_MS) } });
+      continue;
+    }
     if (STAY_COMMISSION_TYPES.includes(candidate.type)) {
       const booking = bookingById.get(candidate.sourceBookingId);
       if (bookingWasCancelled(booking)) continue; // handled by the reversal sweep
@@ -287,7 +310,61 @@ export async function runSalesCommissionLifecycle(now = new Date()): Promise<{
     }, COMMISSION_TRANSACTION_OPTIONS);
     if (changed) madeEligible += 1;
   }
-  return { nrmsAccrued, marketplaceAccrued, agencyAccrued, madeEligible, autoReversed, lockedInPayout };
+  return { nrmsAccrued, marketplaceAccrued, agencyAccrued, longStayAccrued: longStay.accrued + regional.accrued, madeEligible, autoReversed, lockedInPayout };
+}
+
+/**
+ * Safety net for long-stay shares: recent move-ins with no share yet, and
+ * open shares whose tenancy no longer counts as a move-in. Both go through
+ * syncLongStaySalesCommission, which decides from the same revenue figures.
+ */
+async function reconcileLongStayShares(now: Date): Promise<{ accrued: number; reversed: number }> {
+  let accrued = 0;
+  let reversed = 0;
+  const movedIn = await db.tenancy.findMany({
+    where: { moveInConfirmedAt: { gte: new Date(now.getTime() - AGENCY_ACCRUAL_LOOKBACK_MS) } },
+    select: { id: true },
+    orderBy: { moveInConfirmedAt: "desc" },
+    take: 1_000,
+  });
+  if (movedIn.length) {
+    const keys = movedIn.map((t: any) => longStayShareSourceKey(t.id));
+    const done = new Set((await db.salesCommission.findMany({ where: { sourceKey: { in: keys } }, select: { sourceKey: true } })).map((r: any) => r.sourceKey));
+    let attempts = 0;
+    for (const tenancy of movedIn) {
+      if (done.has(longStayShareSourceKey(tenancy.id))) continue;
+      if (attempts >= 50) break;
+      attempts += 1;
+      if ((await syncLongStaySalesCommission(db, tenancy.id, now)) === "ACCRUED") accrued += 1;
+    }
+  }
+  const open = await db.salesCommission.findMany({
+    where: {
+      type: "LONG_STAY_TENANCY",
+      reversalOfId: null,
+      OR: [
+        { status: { in: OPEN_COMMISSION_STATUSES } },
+        { status: "PAID", paidAt: { gte: new Date(now.getTime() - 365 * DAY_MS) } },
+      ],
+    },
+    select: { sourceKey: true },
+    orderBy: { id: "desc" },
+    take: 2_000,
+  });
+  const ids = open.map((row: any) => Number(String(row.sourceKey).replace(/^TENANCY:/, ""))).filter((id: number) => Number.isSafeInteger(id) && id > 0);
+  if (ids.length) {
+    // Only those whose first month went back (or that were never let) can need reversing.
+    const refunded = await db.tenancy.findMany({
+      where: { id: { in: ids }, OR: [{ payoutStatus: { in: ["REFUND_DUE", "REFUNDED"] } }, { moveInConfirmedAt: null }] },
+      select: { id: true },
+      take: 50,
+    });
+    for (const tenancy of refunded) {
+      const outcome = await syncLongStaySalesCommission(db, tenancy.id, now);
+      if (outcome === "REVERSED" || outcome === "OFFSET") reversed += 1;
+    }
+  }
+  return { accrued, reversed };
 }
 
 /**
@@ -451,7 +528,7 @@ export function startSalesCommissionLifecycleWorker(): void {
       });
       if (handoff && (handoff.queued || handoff.review)) console.log("[sales-withdrawal] resumed", handoff);
       const result = await runSalesCommissionLifecycle();
-      if (result.nrmsAccrued || result.marketplaceAccrued || result.agencyAccrued || result.madeEligible || result.autoReversed) {
+      if (result.nrmsAccrued || result.marketplaceAccrued || result.agencyAccrued || result.longStayAccrued || result.madeEligible || result.autoReversed) {
         console.log("[sales-commission] lifecycle", result);
       }
     } catch (error: any) {

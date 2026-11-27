@@ -24,8 +24,8 @@ import {
   PROPOSED_PRODUCTS,
   PROTECTION_EXTENDING_ACTIVITIES,
 } from "../lib/salesPartner.js";
+import { findLeadDuplicates } from "../lib/salesLeadDuplicates.js";
 import {
-  findSalesLeadDuplicateMatches,
   normalizeSalesLeadIdentity,
   type NormalizedSalesLeadIdentity,
   type SalesLeadDuplicateMatch,
@@ -222,61 +222,9 @@ function identityFromLead(lead: any): NormalizedSalesLeadIdentity {
   });
 }
 
-async function duplicateMatches(identity: NormalizedSalesLeadIdentity, excludeId?: number) {
-  const strong: any[] = [
-    identity.contactPhoneNormalized
-      ? { contactPhoneNormalized: identity.contactPhoneNormalized }
-      : null,
-    identity.contactEmailNormalized
-      ? { contactEmailNormalized: identity.contactEmailNormalized }
-      : null,
-    identity.registrationNumberNormalized
-      ? { registrationNumberNormalized: identity.registrationNumberNormalized }
-      : null,
-    identity.taxNumberNormalized
-      ? { taxNumberNormalized: identity.taxNumberNormalized }
-      : null,
-  ].filter(Boolean);
-
-  const baseWhere = {
-    ...(excludeId ? { id: { not: excludeId } } : {}),
-    status: { notIn: ["LOST", "CANCELLED"] },
-  };
-  const select = {
-    id: true,
-    salesPartnerId: true,
-    propertyNameNormalized: true,
-    contactPhoneNormalized: true,
-    contactEmailNormalized: true,
-    locationNormalized: true,
-    registrationNumberNormalized: true,
-    taxNumberNormalized: true,
-  };
-  // Query strong identifiers separately so a flood of generic equal names can
-  // never push an exact phone, email, tax or registration match past `take`.
-  const [strongCandidates, nameCandidates] = await Promise.all([
-    strong.length
-      ? db.salesLead.findMany({
-          where: { ...baseWhere, OR: strong },
-          take: 50,
-          orderBy: { id: "desc" },
-          select,
-        })
-      : [],
-    db.salesLead.findMany({
-      where: {
-        ...baseWhere,
-        propertyNameNormalized: identity.propertyNameNormalized,
-      },
-      take: 50,
-      orderBy: { id: "desc" },
-      select,
-    }),
-  ]);
-  const candidates = [...new Map(
-    [...strongCandidates, ...nameCandidates].map((candidate: any) => [candidate.id, candidate]),
-  ).values()];
-  return findSalesLeadDuplicateMatches(identity, candidates as any);
+/** Shared with leads created from owner visit requests (lib/salesLeadDuplicates.ts). */
+function duplicateMatches(identity: NormalizedSalesLeadIdentity, excludeId?: number) {
+  return findLeadDuplicates(db, identity, excludeId);
 }
 
 function leadSelect() {

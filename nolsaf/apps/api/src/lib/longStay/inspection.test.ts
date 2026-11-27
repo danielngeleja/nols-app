@@ -108,6 +108,23 @@ describe("public inspection report", () => {
     expect(db.longStayInspection.findFirst).toHaveBeenCalledOnce();
   });
 
+  it("shows the inspecting partner to the owner and leaves identity out of the public report", async () => {
+    const db = fakeDb();
+    db.longStayInspection.findFirst.mockResolvedValue({
+      status: "PASSED",
+      capturedAt: new Date("2026-11-21T08:00:00Z"),
+      reviewedAt: new Date("2026-11-21T09:00:00Z"),
+      validUntil: new Date("2027-11-21T00:00:00Z"),
+      checklist: allPass,
+      salesPartner: { agentCode: "SP-123", user: { name: "Inspector", email: "private@example.com" } },
+    });
+    expect((await publicInspectionReport(db, 9, TODAY, true)).report).toMatchObject({
+      inspector: { name: "Inspector", code: "SP-123" },
+    });
+    expect(JSON.stringify((await publicInspectionReport(db, 9, TODAY, true)).report)).not.toContain("private@example.com");
+    expect((await publicInspectionReport(db, 9, TODAY)).report).not.toHaveProperty("inspector");
+  });
+
   it.each([
     ["REQUESTED", "PENDING"],
     ["SUBMITTED", "IN_REVIEW"],

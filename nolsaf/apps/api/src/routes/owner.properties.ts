@@ -13,14 +13,21 @@ import { ensureRoomsSpecCodes } from "../lib/roomSelectionCode.js";
 import { invalidateCache, cacheKeys } from "../lib/performance.js";
 import { LARGE_CHANGE_PERCENT, checkPriceChange } from "../lib/priceGuardrails.js";
 import { notifyAdmins } from "../lib/notifications.js";
-import { requestInspection } from "../lib/longStay/inspection.js";
+import { publicInspectionReport, requestInspection } from "../lib/longStay/inspection.js";
 import { customerRecordReference } from "../lib/customerBookingReference.js";
+import { longStayPhotoAreaRefusal, sanitizePhotoAreas } from "../lib/photoAreas.js";
+import { withCleanElectricity } from "../lib/electricityRule.js";
+import { bookingStickerSelect, buildBookingSticker, stickerUnavailableReason } from "../lib/propertyBookingSticker.js";
 import {
   LongStayListingError,
   RENTAL_MODES,
+  assistedLongStayDraftRefusal,
+  landlordGate,
   longStaySubmitRefusal,
   longStayTypeRefusal,
+  publicLongStayView,
   rowToTerms,
+  todayInEat,
   validateRentalMode,
   writeRentalMode,
   type RentalModeChange,
@@ -60,6 +67,8 @@ const baseBodySchema = z.object({
 
   // media
   photos: z.array(z.string()).default([]),
+  // { [photoUrl]: area key }; unknown keys/photos are dropped by sanitizePhotoAreas
+  photoAreas: z.record(z.string(), z.string()).optional().nullable(),
 
   // hotel-specific
   hotelStar: z.number().int().min(1).max(5).optional().nullable(),
@@ -404,6 +413,7 @@ async function findOwnerPropertyById(ownerId: number, id: number) {
         ...baseSelect,
         tourismSiteId: true,
         parkPlacement: true,
+        photoAreas: true,
       },
     });
   } catch (err: any) {
@@ -493,6 +503,8 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
     // Keep drift-safe: if the DB is behind on these columns/tables, fall back.
     const listSelectWithStructureAndTourism: any = {
       ...listSelectWithStructure,
+      rentalMode: true,
+      longStayListing: { select: { monthlyRent: true, currency: true, minTermMonths: true } },
       tourismSiteId: true,
       parkPlacement: true,
       tourismSite: {
@@ -652,7 +664,12 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
     // Prisma select returns plain objects - no custom serializer needed.
     // Attach suspension reason where applicable.
     const processedItems = items.map((item) => {
-      const out = { ...item };
+      const { longStayListing, ...out } = item;
+      if (item.rentalMode === "LONG_STAY") out.longStay = longStayListing ? {
+        monthlyRent: Number(longStayListing.monthlyRent),
+        currency: longStayListing.currency,
+        minTermMonths: longStayListing.minTermMonths,
+      } : null;
       if (item.status === "SUSPENDED" && item.id) {
         out.suspensionReason = suspensionReasonMap.get(item.id) ?? null;
         out.suspensionReference = suspensionReferenceMap.get(item.id) ?? null;
@@ -707,6 +724,22 @@ export const getListingProperty = (async (req: AuthedRequest, res) => {
     if ((property as any).rentalMode === "LONG_STAY") {
       const row = await prisma.longStayListing.findUnique({ where: { propertyId: id } });
       (property as any).longStay = rowToTerms(row);
+      if (!listingScopeOf(req) && property.status === "APPROVED") {
+        const today = todayInEat();
+        const [inspection, tenancies] = await Promise.all([
+          publicInspectionReport(prisma, id, today, true),
+          prisma.tenancy.findMany({ where: { propertyId: id }, select: { status: true, endDate: true } }),
+        ]);
+        const availability = publicLongStayView(row, tenancies, today);
+        Object.assign(property, {
+          longStayInspection: inspection.report,
+          longStayAvailability: availability && {
+            availableFrom: availability.availableFrom,
+            availableNow: availability.availableNow,
+            reserved: availability.reserved,
+          },
+        });
+      }
     }
 
     const sanitized = sanitizePropertyJsonFields(property as any, `GET /:id property ${id}`);
@@ -781,6 +814,27 @@ export const getListingProperty = (async (req: AuthedRequest, res) => {
 }) as RequestHandler;
 router.get("/:id", getListingProperty);
 
+/**
+ * GET /api/owner/properties/:id/booking-sticker
+ * The printable "Book this place on NoLSAF" sticker for the owner's own
+ * approved property (lib/propertyBookingSticker.ts).
+ */
+router.get("/:id/booking-sticker", (async (req: AuthedRequest, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid property" });
+  try {
+    const property = await prisma.property.findFirst({ where: { id, ownerId: req.user!.id }, select: bookingStickerSelect });
+    if (!property) return res.status(404).json({ error: "Property not found" });
+    const reason = stickerUnavailableReason(property);
+    if (reason) return res.status(409).json({ error: reason });
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ sticker: await buildBookingSticker(property) });
+  } catch (err: any) {
+    console.error("Error in GET /api/owner/properties/:id/booking-sticker:", err?.message || err);
+    return res.status(500).json({ error: "Could not prepare the sticker. Please try again." });
+  }
+}) as RequestHandler);
+
 // ---------- CREATE ----------
 router.post("/", (async (req: AuthedRequest, res) => {
   try {
@@ -815,7 +869,7 @@ router.post("/", (async (req: AuthedRequest, res) => {
         servicesForSave = { tags: servicesForSave };
       }
       if (servicesForSave && typeof servicesForSave === "object" && !Array.isArray(servicesForSave)) {
-        servicesForSave.houseRules = parsed.houseRules;
+        servicesForSave.houseRules = withCleanElectricity(parsed.houseRules);
       }
     }
 
@@ -846,6 +900,7 @@ router.post("/", (async (req: AuthedRequest, res) => {
         maxGuests: parsed.maxGuests,
         // media …
         photos: parsed.photos,
+        photoAreas: sanitizePhotoAreas(parsed.photoAreas, parsed.photos) ?? Prisma.DbNull,
         // hotel …
         hotelStar: normalizeHotelStar(parsed.hotelStar),
         // room & services …
@@ -1162,7 +1217,7 @@ export const updateListingProperty = (async (req: AuthedRequest, res) => {
         servicesForSave = { tags: servicesForSave };
       }
       if (servicesForSave && typeof servicesForSave === "object" && !Array.isArray(servicesForSave)) {
-        servicesForSave.houseRules = parsed.houseRules;
+        servicesForSave.houseRules = withCleanElectricity(parsed.houseRules);
       }
     }
 
@@ -1191,6 +1246,8 @@ export const updateListingProperty = (async (req: AuthedRequest, res) => {
         maxGuests: parsed.maxGuests,
         // media …
         photos: parsed.photos,
+        // Omitted by an older client: keep what is stored.
+        photoAreas: parsed.photoAreas === undefined ? undefined : (sanitizePhotoAreas(parsed.photoAreas, parsed.photos) ?? Prisma.DbNull),
         // hotel …
         hotelStar: typeof parsed.hotelStar === "undefined" ? undefined : normalizeHotelStar(parsed.hotelStar),
         // room & services …
@@ -1318,6 +1375,7 @@ export const submitListingProperty = (async (req: AuthedRequest, res) => {
         latitude: true,
         longitude: true,
         photos: true,
+        photoAreas: true,
         roomsSpec: true,
         _count: { select: { images: true } },
       },
@@ -1352,8 +1410,23 @@ export const submitListingProperty = (async (req: AuthedRequest, res) => {
       return res.status(400).json({ error: "Incomplete property. Please complete required fields (name, exact location pin, ≥3 photos, ≥1 room type)." });
     }
 
-    const longStayRefusal = await longStaySubmitRefusal(prisma, p);
+    let longStayRefusal = await longStaySubmitRefusal(prisma, p);
+    // A partner submitting for the owner gets the partner's wording: the switch
+    // comes from their "Request long stay", not from the owner asking.
+    if (longStayRefusal && listingScopeOf(req) && p.rentalMode === "LONG_STAY") {
+      const gate = await landlordGate(prisma, p.ownerId);
+      if (!gate.granted) {
+        const waiting = !(await assistedLongStayDraftRefusal(prisma, p.id, p.ownerId));
+        longStayRefusal = waiting
+          ? "NoLSAF has not approved long stay for this owner yet. You can submit once it is approved."
+          : "Long stay is not switched on for this owner. Use \"Request long stay\" on this listing first.";
+      }
+    }
     if (longStayRefusal) return res.status(400).json({ error: longStayRefusal, code: "LONG_STAY" });
+    if (p.rentalMode === "LONG_STAY") {
+      const photoRefusal = longStayPhotoAreaRefusal(p.photos, p.photoAreas);
+      if (photoRefusal) return res.status(400).json({ error: photoRefusal, code: "PHOTO_AREAS" });
+    }
     if (p.rentalMode === "LONG_STAY") {
       const opened = await requestInspection(prisma, id, "FIRST").catch(() => null);
       if (opened?.created) await notifyAdmins("long_stay_inspection_needed", { inspectionId: opened.inspection.id, inspectionRef: opened.inspection.publicRef, propertyTitle: p.title });

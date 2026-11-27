@@ -102,7 +102,7 @@ export const TOUR_OPERATOR_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>5.3 Verified destination only.</strong> Money is only sent to a payout destination whose account holder name has been verified with the payout provider. Changing the destination after a claim is approved stops that payment until it is checked again.
         </p>
         <p>
-          <strong>5.4 Mobile money only, for now.</strong> Payouts are sent to a verified mobile money account (M-Pesa, Airtel Money, Mixx by Yas, HaloPesa or AzamPesa). Bank accounts cannot receive payouts yet; NoLSAF will give notice when they can. A claim can be submitted only once a mobile money account is verified.
+          <strong>5.4 Payout destinations.</strong> Claims require a verified mobile money wallet or a verified bank account listed by the payout provider. Bank payouts are in TZS.
         </p>
       </div>
     ),

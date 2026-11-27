@@ -136,11 +136,11 @@ export async function runTravellerTripReminders(io?: SocketServer, now = new Dat
 
   const userIds = [...new Set(reminders.map((item) => item.userId))];
   const users = userIds.length
-    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, notificationPreferences: true } })
+    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, notificationPrefs: true } })
     : [];
   const enabledUsers = new Set(users.filter((user) => {
-    const preferences = user.notificationPreferences && typeof user.notificationPreferences === "object" && !Array.isArray(user.notificationPreferences)
-      ? user.notificationPreferences as Record<string, unknown>
+    const preferences = user.notificationPrefs && typeof user.notificationPrefs === "object" && !Array.isArray(user.notificationPrefs)
+      ? user.notificationPrefs as Record<string, unknown>
       : {};
     return preferences.bookings !== false;
   }).map((user) => user.id));

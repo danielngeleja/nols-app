@@ -52,8 +52,11 @@ import {
   PawPrint,
   CigaretteOff,
   AlertCircle,
+  Zap,
 } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
+import OwnerRentDialog, { type OwnerRentBlock } from "@/components/admin/properties/OwnerRentDialog";
+import { electricityEstimate, electricityHeadline, guestPaysElectricity, readElectricityRule } from "@/lib/electricityRule";
 import apiClient from "@/lib/apiClient";
 import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import { motion } from "framer-motion";
@@ -467,10 +470,12 @@ export default function PropertyPreview({
   const isLongStay = rentalMode === "LONG_STAY" || (property as any)?.rentalMode === "LONG_STAY";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [adminNotice, setAdminNotice] = useState<null | { kind: "success" | "error" | "info"; title: string; body?: string }>(null);
-  // Success toasts close themselves; errors stay until dismissed
+  const [adminNotice, setAdminNotice] = useState<null | { kind: "success" | "error" | "info"; title: string; body?: string; action?: { label: string; run: () => void } }>(null);
+  // Approval refused because the owner has not confirmed the long-stay rent.
+  const [ownerRentBlock, setOwnerRentBlock] = useState<OwnerRentBlock | null>(null);
+  // Success toasts close themselves; errors and toasts with an action stay until dismissed
   useEffect(() => {
-    if (!adminNotice || adminNotice.kind === "error") return;
+    if (!adminNotice || adminNotice.kind === "error" || adminNotice.action) return;
     const id = window.setTimeout(() => setAdminNotice(null), 5000);
     return () => window.clearTimeout(id);
   }, [adminNotice]);
@@ -680,12 +685,13 @@ export default function PropertyPreview({
     setShowApproveDialog(true);
   }
 
-  async function confirmApprove() {
+  async function confirmApprove(ownerRentConfirmedByPhone = false) {
     if (saving) return;
     setShowApproveDialog(false);
     try {
       setSaving(true);
-      await api.post(`/api/admin/properties/${propertyId}/approve`, { note: "" });
+      await api.post(`/api/admin/properties/${propertyId}/approve`, { note: "", ...(ownerRentConfirmedByPhone ? { ownerRentConfirmedByPhone: true } : {}) });
+      setOwnerRentBlock(null);
       await loadProperty();
       await loadAuditHistory();
       onApproved?.();
@@ -696,6 +702,12 @@ export default function PropertyPreview({
       });
     } catch (err: any) {
       const msg = err?.response?.data?.error || "Failed to approve property";
+      // Assisted long stay: the owner has not agreed the rent. The dialog shows
+      // the SMS status; an admin who called the owner approves from there.
+      if (err?.response?.data?.code === "OWNER_RENT_UNCONFIRMED" && err.response.data.ownerRent) {
+        setOwnerRentBlock({ summary: String(err.response.data.rentSummary || ""), ...err.response.data.ownerRent });
+        return;
+      }
       setAdminNotice({
         kind: "error",
         title: "Approval failed",
@@ -1470,6 +1482,16 @@ export default function PropertyPreview({
         );
       })()}
 
+      {mode === "admin" && ownerRentBlock && propertyId ? (
+        <OwnerRentDialog
+          propertyId={Number(propertyId)}
+          block={ownerRentBlock}
+          busy={saving}
+          onClose={() => setOwnerRentBlock(null)}
+          onApproveByPhone={() => void confirmApprove(true)}
+        />
+      ) : null}
+
       {/* Admin notice as a toast, so it never pushes the page down */}
       {mode === "admin" && adminNotice && typeof document !== "undefined"
         ? createPortal(
@@ -1490,6 +1512,15 @@ export default function PropertyPreview({
               <div className="min-w-0 flex-1">
                 <p className="m-0 text-[13.5px] font-semibold text-slate-900">{adminNotice.title}</p>
                 {adminNotice.body ? <p className="m-0 mt-0.5 text-[12.5px] text-slate-600">{adminNotice.body}</p> : null}
+                {adminNotice.action ? (
+                  <button
+                    type="button"
+                    onClick={adminNotice.action.run}
+                    className="mt-2 inline-flex h-8 items-center rounded-md border-0 bg-[#02665e] px-3 text-[12.5px] font-semibold text-white hover:bg-[#014e47]"
+                  >
+                    {adminNotice.action.label}
+                  </button>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -2671,6 +2702,24 @@ export default function PropertyPreview({
                       </div>
                     )}
 
+                    {(() => {
+                      // Electricity during the stay: admins and owners always see the answer.
+                      const power = readElectricityRule((houseRules as any).electricity);
+                      if (!guestPaysElectricity(power) && mode !== "admin" && mode !== "owner") return null;
+                      return (
+                        <div className={`flex items-start gap-3 border-0 border-t border-solid border-slate-100 px-4 py-3.5 sm:px-5 ${guestPaysElectricity(power) ? "bg-amber-50/60" : ""}`}>
+                          <span className={`flex h-9 w-9 flex-none items-center justify-center rounded-lg ${guestPaysElectricity(power) ? "bg-amber-100 text-amber-700" : "bg-emerald-50 text-emerald-600"}`}>
+                            <Zap className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-[11.5px] font-medium text-slate-500">Electricity</span>
+                            <span className="block text-[14.5px] font-semibold text-slate-900">{electricityHeadline(power)}</span>
+                            {electricityEstimate(power) ? <span className="mt-0.5 block text-[12px] text-slate-500">{electricityEstimate(power)}</span> : null}
+                          </span>
+                        </div>
+                      );
+                    })()}
+
                     {other && (
                       <div className="border-0 border-t border-solid border-slate-100 px-4 py-3.5 sm:px-5">
                         <p className="m-0 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-slate-400">From the owner</p>
@@ -3092,7 +3141,7 @@ export default function PropertyPreview({
               </button>
               <button
                 type="button"
-                onClick={confirmApprove}
+                onClick={() => void confirmApprove()}
                 disabled={saving}
                 className="order-1 sm:order-2 px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
               >

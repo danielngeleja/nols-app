@@ -36,6 +36,7 @@ import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { getFxRates, BASE_CURRENCY } from "../lib/fx.js";
 import { computeFinanceOverview } from "../lib/financeOverview.js";
 import { computeRevenueReconciliation, parseDayRange } from "../lib/revenueReconciliation.js";
+import { computeChannelReport } from "../lib/channelReport.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -48,6 +49,37 @@ const n = (v: unknown): number => {
   return Number.isFinite(x) ? x : 0;
 };
 
+
+/**
+ * GET /channels?from=YYYY-MM-DD&to=YYYY-MM-DD
+ * Bookings, tours and long stays by the channel that brought them
+ * (docs/CHANNEL_ATTRIBUTION.md). Days are EAT; default the last 30 days.
+ */
+router.get("/channels", async (req, res) => {
+  try {
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam" }).format(new Date());
+    const toDay = day.test(String(req.query.to)) ? String(req.query.to) : today;
+    const fromDefault = new Date(`${toDay}T00:00:00+03:00`);
+    fromDefault.setUTCDate(fromDefault.getUTCDate() - 29);
+    const fromDay = day.test(String(req.query.from))
+      ? String(req.query.from)
+      : new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam" }).format(fromDefault);
+    const from = new Date(`${fromDay}T00:00:00+03:00`);
+    const to = new Date(`${toDay}T00:00:00+03:00`);
+    to.setUTCDate(to.getUTCDate() + 1);
+    if (!(from < to) || to.getTime() - from.getTime() > 400 * 86_400_000) {
+      return res.status(400).json({ ok: false, error: "Choose a range of up to 400 days." });
+    }
+    const fx = await getFxRates();
+    const report = await computeChannelReport(prisma, { from, to, tzsPerUnit: fx.tzsPerUnit });
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.json({ ok: true, from: fromDay, to: toDay, currency: BASE_CURRENCY, ...report });
+  } catch (err: any) {
+    console.error("[GET /api/admin/finance/channels] Error:", err?.message || err);
+    return res.status(500).json({ ok: false, error: "Failed to load the channels report" });
+  }
+});
 
 /**
  * GET /overview?from=&to=

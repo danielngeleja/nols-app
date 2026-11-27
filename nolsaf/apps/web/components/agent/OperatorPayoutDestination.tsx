@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { TZ_MOBILE_PREFIXES } from "@/lib/tzMobileNetworks";
-import type { PayoutPreferenceValue } from "@/components/SecurePayoutPreferenceCard";
+import { PayoutBankFields, type PayoutPreferenceValue } from "@/components/SecurePayoutPreferenceCard";
 
 type Verification = {
   challengeToken: string;
@@ -247,7 +247,6 @@ function WalletPreviewCard({ provider, subscriber }: { provider: string; subscri
       <ul className="m-0 list-none space-y-1.5 p-0 text-[12px] leading-5 text-slate-600">
         <li className="flex items-start gap-1.5"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />Paid automatically once a claim is approved</li>
         <li className="flex items-start gap-1.5"><LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />Stored encrypted; only the last 4 digits are shown</li>
-        <li className="flex items-start gap-1.5"><Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />Bank accounts are not supported yet</li>
       </ul>
     </div>
   );
@@ -261,14 +260,7 @@ export function isPayoutDestinationComplete(value: PayoutPreferenceValue | null 
   return false;
 }
 
-/**
- * Whether NoLSAF can actually send money here today. The payout ledger only
- * pays mobile money through AzamPay; bank payouts are not enabled yet
- * (Disbursement Policy 5.4), so a bank destination is saved but not payable.
- */
-export function isPayoutDestinationPayable(value: PayoutPreferenceValue | null | undefined): boolean {
-  return isPayoutDestinationComplete(value) && clean(value?.payoutPreferred).toUpperCase() === "MOBILE_MONEY";
-}
+export const isPayoutDestinationPayable = isPayoutDestinationComplete;
 
 export default function OperatorPayoutDestination({
   saved,
@@ -281,8 +273,6 @@ export default function OperatorPayoutDestination({
 }) {
   const savedComplete = isPayoutDestinationComplete(saved);
   const [editing, setEditing] = useState(!savedComplete);
-  // Payouts go to mobile money only (Disbursement Policy 5.4), so the editor
-  // always starts on a wallet; there is no method to choose.
   const [form, setForm] = useState<PayoutPreferenceValue>(() =>
     savedComplete ? saved : { ...saved, payoutPreferred: "MOBILE_MONEY", bankName: "", bankAccountName: "", bankAccountNumber: "", bankBranch: "" }
   );
@@ -340,11 +330,10 @@ export default function OperatorPayoutDestination({
   const beginChange = () => {
     // A saved destination identifier is never put back into an editable field:
     // changing it means re-entering it deliberately.
-    // A saved bank account cannot be paid, so changing always moves to a wallet.
     const wasBank = clean(saved.payoutPreferred).toUpperCase() === "BANK";
     setForm({
       ...saved,
-      payoutPreferred: "MOBILE_MONEY",
+      payoutPreferred: wasBank ? "BANK" : "MOBILE_MONEY",
       mobileMoneyProvider: wasBank ? "" : saved.mobileMoneyProvider,
       mobileMoneyNumber: "",
       bankName: "",
@@ -411,7 +400,7 @@ export default function OperatorPayoutDestination({
       setForm(next);
       setPreview(null);
       setEditing(false);
-      setSuccess(isBank ? "Bank account holder verified and saved. Bank payouts are processed manually." : "Payout destination verified and saved.");
+      setSuccess("Payout destination verified and saved.");
       onSaved(next);
     } catch (err: any) {
       const data = err?.response?.data;
@@ -441,7 +430,7 @@ export default function OperatorPayoutDestination({
             <div className="min-w-0">
               <div className={`flex items-center gap-1.5 text-[12px] font-semibold ${method === "BANK" ? "text-amber-800" : "text-emerald-700"}`}>
                 <BadgeCheck className="h-3.5 w-3.5" aria-hidden />
-                {method === "BANK" ? "Saved, but cannot be paid" : "Verified payout destination"}
+                Verified payout destination
               </div>
               <div className="mt-0.5 truncate text-[15px] font-bold text-slate-900">
                 {method === "BANK"
@@ -451,12 +440,7 @@ export default function OperatorPayoutDestination({
               <div className="truncate text-[12px] text-slate-500">
                 {method === "BANK" ? `${clean(form.bankAccountName)}` : "Paid automatically to this wallet"}
               </div>
-              {method === "BANK" ? (
-                <div className="mt-1 flex items-start gap-1.5 text-[12px] font-semibold text-amber-800">
-                  <AlertTriangle className="mt-px h-3.5 w-3.5 flex-shrink-0" aria-hidden />
-                  Bank accounts cannot receive payouts yet. Change to mobile money to be paid.
-                </div>
-              ) : null}
+
             </div>
           </div>
           <button
@@ -466,7 +450,7 @@ export default function OperatorPayoutDestination({
             className={`inline-flex h-9 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-solid px-3.5 text-[13px] font-semibold transition-colors ${method === "BANK" ? "border-[#02665e] bg-[#02665e] text-white hover:bg-[#014d47]" : "border-slate-300 bg-white text-slate-700 hover:border-[#02665e] hover:text-[#02665e]"}`}
           >
             <Pencil className="h-3.5 w-3.5" aria-hidden />
-            {method === "BANK" ? "Add mobile money" : "Change"}
+            Change
           </button>
         </div>
       ) : (
@@ -479,11 +463,11 @@ export default function OperatorPayoutDestination({
               </span>
               <div className="min-w-0">
                 <h3 className="m-0 text-[15px] font-semibold text-slate-900">Where should NoLSAF pay you?</h3>
-                <p className="m-0 mt-0.5 text-[12.5px] leading-5 text-slate-500">Payouts go to a mobile money wallet. AzamPay checks the registered name before anything is saved.</p>
+                <p className="m-0 mt-0.5 text-[12.5px] leading-5 text-slate-500">Choose a bank account or mobile money wallet. AzamPay checks the registered name before anything is saved.</p>
               </div>
             </div>
             <ol className="m-0 flex list-none items-center gap-1.5 p-0" aria-label={`Step ${step} of 2`}>
-              {["Wallet number", "Confirm name"].map((label, index) => {
+              {["Account details", "Confirm name"].map((label, index) => {
                 const n = index + 1;
                 const done = step > n;
                 const current = step === n;
@@ -505,6 +489,16 @@ export default function OperatorPayoutDestination({
           </div>
 
           <div className="space-y-4 p-4 sm:p-5">
+            <label className="block text-sm font-semibold">Payout method
+              <select className="ml-3 rounded border p-2" value={method} disabled={saving}
+                onChange={(event) => patch({ payoutPreferred: event.target.value })}>
+                <option value="MOBILE_MONEY">Mobile money</option>
+                <option value="BANK">Bank account</option>
+              </select>
+            </label>
+            {method === "BANK" ? <div className="grid gap-3 sm:grid-cols-2">
+              <PayoutBankFields value={form} onChange={patch} disabled={saving} />
+            </div> : (
             <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
               <div className="min-w-0">
                 <WalletPicker
@@ -528,7 +522,7 @@ export default function OperatorPayoutDestination({
                 </p>
               </div>
               <WalletPreviewCard provider={provider} subscriber={subscriber} />
-            </div>
+            </div>)}
 
             {error ? (
               <p role="alert" className="m-0 flex items-start gap-2 rounded-md border border-solid border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-rose-700">
@@ -569,7 +563,7 @@ export default function OperatorPayoutDestination({
                 className="inline-flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-md border-0 bg-[#02665e] px-5 text-[13px] font-semibold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
               >
                 {saving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden /> : <ShieldCheck className="h-4 w-4" aria-hidden />}
-                {saving ? "Checking with AzamPay..." : "Verify wallet"}
+                {saving ? "Checking with AzamPay..." : "Verify destination"}
               </button>
             </div>
           </div>
@@ -620,12 +614,7 @@ export default function OperatorPayoutDestination({
                       <span className="font-mono">{preview.destination.accountNumber}</span>
                     </div>
                   </div>
-                  {preview.destination.type === "BANK" ? (
-                    <p className="m-0 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-[12px] leading-5 text-amber-900">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
-                      Bank payouts are sent manually by NoLSAF finance, not automatically.
-                    </p>
-                  ) : null}
+
                   <p className="m-0 flex items-start gap-2 text-[12px] leading-5 text-slate-500">
                     <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                     This check expires at {new Date(preview.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. Nothing changes until you save.

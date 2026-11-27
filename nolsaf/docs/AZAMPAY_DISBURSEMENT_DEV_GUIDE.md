@@ -1,5 +1,8 @@
 # AzamPay Disbursement API: Developer Implementation Guide
 
+**26 November 2026 update for owner and tour-operator TZS payouts.** The application reads the bearer-authenticated `GET /api/v1/azampay/BankNames` directory for bank selection and verification, then fetches it again before bank submission. An unavailable or unrecognized directory blocks bank submission. The production deployment configuration lists AzamPay callback source IPs `102.221.117.130` and `102.221.117.18`. Check the deployed directory response and callback origin before certifying live access. Older bank and callback availability notes below describe earlier integrations.
+
+
 Document type: provider design and historical implementation log. Any migration
 status or approval note below is contextual, not a competing delivery policy.
 Current environment boundaries and release order are governed by

@@ -73,8 +73,7 @@ export async function loadOperatorStanding(agent: { id: number; userId: number }
     }),
     prisma.systemSetting.findUnique({ where: { id: 1 }, select: { agentTierLadder: true } as any }).catch(() => null),
     prisma.payoutAccount.findFirst({
-      // Only destinations the ledger can pay: AzamPay sends to mobile money; bank is not enabled yet.
-      where: { userId: agent.userId, isVerified: true, isActive: true, type: "MOBILE_MONEY" },
+      where: { userId: agent.userId, isVerified: true, isActive: true, type: { in: ["BANK", "MOBILE_MONEY"] } },
       select: { id: true },
     }),
     // Outstanding, not original: part of a recovery may already be deducted from a balance.

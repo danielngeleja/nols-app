@@ -188,6 +188,10 @@ export async function notifyAdmins(template: string, data: any) {
           ? `A long-stay first month (${data.currency || ""} ${data.received ?? ""}) arrived for a lease that was already closed (${data.status || "closed"}). Refund it to the tenant. Payment ref ${data.paymentRef || ""}.`
           : `A long-stay payment did not match the lease amount (expected ${data.currency || ""} ${data.expected ?? ""}). The home was not reserved. Check payment ref ${data.paymentRef || ""} in the Coral portal.`
         },
+        long_stay_access_requested: {
+        title: "Long stay requested for an owner",
+        body: `${data.partnerName || "A Sales Partner"} asks to switch on long stay for the owner of "${data.propertyTitle || "an assisted listing"}". Approve or decline it in Long stays, Requests.`
+        },
         long_stay_inspection_needed: {
         title: "Long-stay home to inspect",
         body: `"${data.propertyTitle || "A long-stay home"}" has an on-site inspection request. Assign a Sales Partner in Long stays, Inspections.`
@@ -204,6 +208,10 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Tenant ID to check",
         body: `A tenant sent a ${data.idType === "PASSPORT" ? "passport" : data.idType === "RES_PERMIT" ? "residence permit" : "national ID card"} for long stays. Open the photos and the selfie in Long stays, Tenant IDs, confirm the name and face, then approve or reject it.`
         },
+        sales_assisted_owner_rent_confirmed: {
+        title: "Owner confirmed the rent",
+        body: `The owner of "${data.propertyTitle || "a property"}" confirmed the monthly rent their sales partner set (${data.rentSummary || "long stay"}). The listing can be approved.`
+        },
         sales_assisted_listing_submitted: {
         title: "Assisted listing to review",
         body: `${data.partnerCode || "A sales partner"} listed "${data.propertyTitle || "a property"}" for its owner. Review it in Properties (it carries the Assisted listing badge), then verify the conversion in Sales.`
@@ -219,6 +227,14 @@ export async function notifyAdmins(template: string, data: any) {
         sales_partner_payout_requested: {
           title: "Sales partner payout awaiting review",
           body: `Payout ${data.referenceNumber || ""} for ${data.currency || "TZS"} ${Number(data.amount || 0).toLocaleString("en-US")} is ready for finance review.`
+        },
+        sales_region_recommendation: {
+          title: "Regional lead recommendation",
+          body: `The ${data.regionName || "regional"} lead recommends ${data.type === "SALES_PAYOUT" ? "a partner's first withdrawal" : "switching on long stay for an owner"} (${data.ref || ""}). It still needs your decision.`
+        },
+        sales_visit_request_new: {
+          title: "Owner asked for a visit",
+          body: `${data.contactName || "An owner"} asked for a NoLSAF visit to ${data.propertyName || "their property"} in ${data.location || "an unnamed place"}${data.regionName ? ` (${data.regionName})` : " (no region chosen)"}. Request ${data.ref || ""}. ${data.regionLead ? "The regional lead was told too; assign it if they have not." : "Assign a Sales Partner in Sales, Visit requests."}`
         },
         sales_team_at_risk: {
           title: "Sales team at risk",
@@ -533,6 +549,10 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
         title: "A NoLSAF partner is listing your property",
         body: `${data.partnerName || "A NoLSAF sales partner"} is preparing ${data.propertyTitle || "a property"} to go live on NoLSAF for you. You do not need to do anything. Not expecting this? Open ${data.noticeLink || "the link in this notice"} or contact NoLSAF support.`
       },
+      assisted_listing_rent_confirm: {
+        title: "Please confirm your monthly rent",
+        body: `${data.partnerName || "A NoLSAF sales partner"} listed ${data.propertyTitle || "your property"} for monthly rent: ${data.rentSummary || "see the link"}. It goes live only after you confirm. Confirm or tell us it is wrong: ${data.noticeLink || "the link in this notice"}.`
+      },
       assisted_listing_live: {
         title: "Your property is live on NoLSAF",
         body: `${data.propertyTitle || "Your property"} is now live on NoLSAF. Add your payout account to receive booking money. Not expecting this? Open ${data.noticeLink || "the link in this notice"}.`
@@ -588,6 +608,10 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       owner_payout_withdrawal_review: {
         title: "Withdrawal request under review",
         body: `Your withdrawal request #${data.releaseId} needs a check by our payments team. Please do not submit it again. We will update its status after review.`
+      },
+      owner_payout_withdrawal_failed: {
+        title: "Withdrawal could not be sent",
+        body: `Your withdrawal of ${data.amountText || "your requested amount"} could not be sent, so no money left your NoLSAF balance. It is back in Ready; you can withdraw it again from My Payouts.`
       },
       owner_payout_withdrawal_reset: {
         title: "Withdrawal is ready to confirm again",
@@ -1014,6 +1038,10 @@ export async function createUserNotification(db: Pick<Prisma.TransactionClient, 
         title: "Listing returned for changes",
         body: `NoLSAF returned "${data.propertyTitle || "your assisted listing"}" for changes.${data.reasons ? ` ${data.reasons}` : ""} Open the lead to fix it and submit again.`
       },
+      sales_assisted_owner_rent_confirmed: {
+        title: "Owner confirmed the rent",
+        body: `The owner of "${data.propertyTitle || "the property"}" confirmed the monthly rent you set (${data.rentSummary || "long stay"}). NoLSAF can now approve the listing.`
+      },
       sales_assisted_listing_approved: {
         title: "Assisted listing is live",
         body: `"${data.propertyTitle || "The property"}" you listed for its owner is now live on NoLSAF. The owner has been told by SMS.`
@@ -1077,6 +1105,12 @@ export async function createUserNotification(db: Pick<Prisma.TransactionClient, 
       long_stay_enquiry_answered: {
         title: "NoLSAF answered your question",
         body: `NoLSAF answered your question about "${data.propertyTitle || "a long-stay home"}". Open Long stays to read it.`
+      },
+      long_stay_access_decided: {
+        title: data.decision === "APPROVED" ? "Long stay switched on" : "Long stay not switched on",
+        body: data.decision === "APPROVED"
+          ? `NoLSAF switched on long stay for the owner of "${data.propertyTitle || "your assisted listing"}". Finish the monthly terms and submit the listing.`
+          : `NoLSAF did not switch on long stay for the owner of "${data.propertyTitle || "your assisted listing"}".${data.note ? ` ${data.note}` : ""} You can still list it for nightly stays.`
       },
       long_stay_inspection_assigned: {
         title: "Home inspection invitation",
@@ -1173,6 +1207,26 @@ export async function createUserNotification(db: Pick<Prisma.TransactionClient, 
       sales_partner_team_joined: {
         title: "You joined a team",
         body: `You are now part of ${data.teamName || "a sales team"}. Your team lead can help with your leads and targets.`
+      },
+      sales_region_lead_appointed: {
+        title: "You lead a sales region",
+        body: `NoLSAF appointed you Regional lead for ${data.regionName || "your region"}. Open My region to see its teams, partners and what is waiting.`
+      },
+      sales_region_team_at_risk: {
+        title: "A team in your region is at risk",
+        body: `${data.teamName || "A team"} (lead ${data.leadName || "unknown"}) is at risk: ${data.reason || "warning signs found"} Check in with the lead this week.`
+      },
+      sales_region_visit_request: {
+        title: "Owner asked for a visit in your region",
+        body: `An owner asked for a NoLSAF visit to ${data.propertyName || "their property"} in ${data.location || "your region"}. Open My region and assign a partner (request ${data.ref || ""}).`
+      },
+      sales_partner_visit_assigned: {
+        title: "New visit request for you",
+        body: `${data.by || "NoLSAF"} assigned you an owner who asked for a visit: ${data.propertyName || "a property"} in ${data.location || "your area"}. Call them within 48 hours. It is in your leads.`
+      },
+      sales_region_owner_objection: {
+        title: "Owner query in your region",
+        body: `An owner said they were not expecting "${data.propertyTitle || "a listing"}" prepared by ${data.partnerName || "a partner"} in your region. NoLSAF is checking; talk to the partner.`
       },
       sales_partner_team_health_tip: {
         title: "This week for your team",
