@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw, Scale } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
-type Stream = "ACCOMMODATION" | "TOUR" | "TRANSPORT" | "GROUP_STAY" | "SUBSCRIPTION";
+type Stream = "ACCOMMODATION" | "TOUR" | "TRANSPORT" | "GROUP_STAY" | "SUBSCRIPTION" | "LONG_STAY" | "EVENT_HIRE";
 type Kind = "MISSING" | "OTHER_PERIOD" | "LEDGER_ONLY" | "AMOUNT";
 
 type StreamRow = {
@@ -51,23 +51,33 @@ export default function RevenueReconciliationPanel({
   range,
   periodPhrase,
   onLocked,
+  onlyStream,
 }: {
   /** EAT calendar days, both inclusive. Null for all time. */
   range: { from: string; to: string } | null;
   periodPhrase: string;
   onLocked: () => void;
+  /** Restrict the rendered reconciliation to one program, including totals. */
+  onlyStream?: Stream;
 }) {
   const [data, setData] = useState<Reconciliation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [stream, setStream] = useState<Stream | "ALL">("ALL");
+  const [stream, setStream] = useState<Stream | "ALL">(onlyStream ?? "ALL");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get("/api/admin/finance/reconciliation", { params: range ?? {} });
-      setData(res.data as Reconciliation);
+      const res = await apiClient.get("/api/admin/finance/reconciliation", { params: { ...(range ?? {}), ...(onlyStream ? { stream: onlyStream } : {}) } });
+      const result = res.data as Reconciliation;
+      if (onlyStream) {
+        const streams = result.streams.filter(s => s.stream === onlyStream);
+        const findingsTotal = streams.reduce((n, s) => n + s.findings.missing + s.findings.otherPeriod + s.findings.ledgerOnly + s.findings.amount, 0);
+        setData({ ...result, streams, findings: result.findings.filter(f => f.stream === onlyStream), findingsTotal,
+          ledgerEntries: streams.reduce((n, s) => n + s.ledger.recognized + s.ledger.reversals, 0),
+          totals: streams.reduce((sum, s) => ({ ledger: sum.ledger + s.ledger.revenue, overview: sum.overview + s.overview.revenue, difference: sum.difference + s.difference }), { ledger: 0, overview: 0, difference: 0 }) });
+      } else setData(result);
     } catch (e: any) {
       if (e?.response?.status === 403 && e?.response?.data?.require2fa) {
         setData(null);
@@ -78,7 +88,7 @@ export default function RevenueReconciliationPanel({
     } finally {
       setLoading(false);
     }
-  }, [range?.from, range?.to, onLocked]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [range?.from, range?.to, onLocked, onlyStream]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void load(); }, [load]);
 
@@ -157,7 +167,7 @@ export default function RevenueReconciliationPanel({
                     const open = s.findings.missing + s.findings.otherPeriod + s.findings.ledgerOnly + s.findings.amount;
                     const active = stream === s.stream;
                     return (
-                      <tr key={s.stream} onClick={() => setStream(active ? "ALL" : s.stream)} className={`cursor-pointer border-0 border-t border-solid border-[#284540] transition ${active ? "bg-[#13241f]" : "hover:bg-[#13241f]"}`}>
+                      <tr key={s.stream} onClick={() => setStream(onlyStream ?? (active ? "ALL" : s.stream))} className={`cursor-pointer border-0 border-t border-solid border-[#284540] transition ${active ? "bg-[#13241f]" : "hover:bg-[#13241f]"}`}>
                         <td className="px-5 py-3 font-semibold text-slate-100 sm:px-6">{s.label}</td>
                         <td className="px-3 py-3 text-right tabular-nums text-slate-200">{money(s.ledger.revenue)}<span className="block text-[10px] text-slate-500">{s.ledger.recognized} recorded</span></td>
                         <td className="px-3 py-3 text-right tabular-nums text-slate-200">{money(s.overview.revenue)}<span className="block text-[10px] text-slate-500">{s.overview.count} paid</span></td>
@@ -196,7 +206,7 @@ export default function RevenueReconciliationPanel({
               {data && data.findingsTotal > data.findings.length ? ` Showing ${data.findings.length} of ${data.findingsTotal}.` : ""}
             </p>
           </div>
-          {stream !== "ALL" ? (
+          {stream !== "ALL" && !onlyStream ? (
             <button type="button" onClick={() => setStream("ALL")} className="h-8 rounded-md border border-solid border-[#284540] bg-[#13241f] px-3 text-xs font-semibold text-slate-300 transition hover:text-white">Show all streams</button>
           ) : null}
         </div>

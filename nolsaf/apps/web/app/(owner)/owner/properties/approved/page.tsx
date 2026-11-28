@@ -13,6 +13,8 @@ import {
   Building2,
   BedDouble,
   CalendarCheck,
+  CalendarRange,
+  Moon,
   Search,
   MessageSquare,
   ImageIcon,
@@ -44,6 +46,7 @@ type Property = {
   country?: string | null;
   basePrice?: number | null;
   rentalMode?: "NIGHTLY" | "LONG_STAY";
+  offersEventHire?: boolean;
   longStay?: { monthlyRent: number; currency: string; minTermMonths: number } | null;
   currency?: string;
   roomsSpec?: any[];
@@ -400,13 +403,14 @@ export default function ApprovedProps() {
                     </div>
                   )}
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/60 to-transparent" aria-hidden />
-                  <div className="absolute left-3 top-3 flex items-center gap-1.5">
+                  <div className="absolute left-3 top-3 flex max-w-[calc(100%-4rem)] flex-wrap items-center gap-1.5">
                     {typeLabel ? (
                       <span className="rounded-md bg-white/95 px-2 py-1 text-[11px] font-bold text-slate-800 shadow-sm">{typeLabel}</span>
                     ) : null}
-                    <span className="inline-flex items-center gap-1 rounded-md bg-[#012a26]/85 px-2 py-1 text-[11px] font-bold text-[#5eead4] backdrop-blur-sm">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#5eead4]" aria-hidden /> {isLongStay ? "Long stay" : "Nightly stay"}
+                    <span role="img" aria-label={isLongStay ? "Long stay" : "Nightly stay"} title={isLongStay ? "Long stay" : "Nightly stay"} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#012a26]/90 text-[#5eead4] shadow-sm backdrop-blur-sm">
+                      {isLongStay ? <CalendarRange className="h-4 w-4" aria-hidden /> : <Moon className="h-4 w-4" aria-hidden />}
                     </span>
+                    {property.offersEventHire && !isLongStay ? <span title="Approved for accommodation and event hire" className="inline-flex items-center gap-1.5 rounded-md bg-amber-50/95 px-2 py-1 text-[11px] font-bold text-amber-900 shadow-sm backdrop-blur-sm"><PartyPopper className="h-3.5 w-3.5 shrink-0" aria-hidden />Stays &amp; events</span> : null}
                   </div>
                   {!isLongStay && <div className="absolute right-3 top-3 scale-90"><VerifiedIcon /></div>}
                   <div className="absolute inset-x-3 bottom-3 flex items-end justify-between gap-2 text-white">

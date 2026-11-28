@@ -24,9 +24,9 @@
   },
   "scripts": {
     "postinstall": "node scripts/patch-minimatch-compat.mjs && prisma generate",
-    "dev": "npm --workspace=@nolsaf/web run predev && concurrently -n api,web -c green,cyan \"npm --workspace=@nolsaf/api run dev\" \"npm --workspace=@nolsaf/web run dev\"",
+    "dev": "concurrently -n api,web -c green,cyan \"npm --workspace=@nolsaf/api run dev\" \"npm --workspace=@nolsaf/web run dev\"",
     "dev:flow": "powershell -NoProfile -ExecutionPolicy Bypass -File start-dev.ps1",
-    "dev:npm": "npm --workspace=@nolsaf/web run predev && concurrently -n api,web -c green,cyan \"npm --workspace=@nolsaf/api run dev\" \"npm --workspace=@nolsaf/web run dev\"",
+    "dev:npm": "npm run dev",
     "build": "npm run --workspaces --if-present build",
     "lint": "npm run --workspaces --if-present lint",
     "pretypecheck": "npm run --workspace=@nolsaf/shared build",

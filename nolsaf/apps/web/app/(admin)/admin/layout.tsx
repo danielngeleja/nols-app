@@ -60,7 +60,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   // Expenses (ledger, payroll, statutory settings) is the same kind of
   // self-contained finance workspace with its own sidebar and exit.
   // Sales (partners, teams, their payouts) is the same kind of workspace.
-  if (pathname.startsWith("/admin/disbursements") || pathname.startsWith("/admin/expenses") || pathname.startsWith("/admin/sales")) {
+  // Event hire (venues, date requests, bookings, deposits, payouts) too.
+  if (pathname.startsWith("/admin/disbursements") || pathname.startsWith("/admin/expenses") || pathname.startsWith("/admin/sales") || pathname === "/admin/event-hire" || pathname.startsWith("/admin/event-hire/")) {
     return <div className="min-h-screen min-w-0 bg-neutral-100"><WorkspaceTransition />{children}</div>;
   }
 

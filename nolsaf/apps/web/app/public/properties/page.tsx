@@ -58,6 +58,8 @@ import SectionSeparator from "../../../components/SectionSeparator";
 import { REGIONS } from "@/lib/tzRegions";
 import { REGIONS_FULL_DATA } from "@/lib/tzRegionsFull";
 import PublicApprovedPropertyCard, { type PublicApprovedPropertyCardData } from "../../../components/PublicApprovedPropertyCard";
+import EventVenuesBrowse, { EventVenueSearchControls, useEventVenues, writeEventVenueFilters } from "./EventVenuesBrowse";
+import { readEventVenueSearch } from "@/lib/publicEventVenue";
 
 type PublicPropertyCard = PublicApprovedPropertyCardData & {
   id: number;
@@ -718,6 +720,8 @@ export default function PropertiesPage() {
   useEffect(() => {
     let mounted = true;
     const load = async () => {
+      // Event venues load their own list (EventVenuesBrowse); no stays fetch needed.
+      if (qp.get("rental") === "events") { setLoading(false); return; }
       setLoading(true);
       setError(null);
       try {
@@ -935,6 +939,16 @@ export default function PropertiesPage() {
   const rentalChoice = getParam(qp, "rental");
   const rental = rentalChoice === "all" && (getParam(qp, "minPrice") || getParam(qp, "maxPrice") || sortNow === "price_asc" || sortNow === "price_desc")
     ? "nightly" : rentalChoice;
+  const browsingEvents = rental === "events";
+  const eventVenues = useEventVenues(browsingEvents);
+  const eventSearch = readEventVenueSearch(qp);
+  const updateEventSearch = (update: (params: URLSearchParams) => void) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    const next = new URLSearchParams(qp.toString());
+    setOrDelete(next, "q", searchInput);
+    update(next);
+    router.push(propertiesUrl(next), { scroll: false });
+  };
   const sortLabel = rental === "long-stay" && ["price_asc", "price_desc"].includes(sortNow)
     ? `${sortNow === "price_asc" ? "Lowest" : "Highest"} monthly rent by currency`
     : sortNow === "price_asc" ? "Lowest price first" : sortNow === "price_desc" ? "Highest price first" : "Newest first";
@@ -989,32 +1003,39 @@ export default function PropertiesPage() {
                     <h1 className="m-0 text-xl font-bold leading-tight tracking-tight text-white sm:text-2xl">
                       {q
                         ? <>{`Results for `}<span className="text-emerald-300">&ldquo;{q}&rdquo;</span></>
-                        : 'Find your stay'}
+                        : browsingEvents ? "Find an event venue" : "Find your stay"}
                     </h1>
-                    <p className="m-0 inline-flex items-center gap-1.5 text-[13px] text-white/60">
+                    {!browsingEvents && <p className="m-0 inline-flex items-center gap-1.5 text-[13px] text-white/60">
                       <BadgeCheck className="h-3.5 w-3.5 text-emerald-300" aria-hidden />
                       {loading
                         ? 'Loading stays'
                         : <><span className="font-semibold text-white/90">{total.toLocaleString()}</span>{` verified ${total === 1 ? 'stay' : 'stays'} across Tanzania`}</>}
-                    </p>
+                    </p>}
                   </div>
 
                   {/* Search bar: field, price order, filters */}
                   <div className="relative z-10 mt-3 flex items-center gap-1 rounded-lg bg-white p-1 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.55)] sm:mt-4">
                     <label className="relative flex min-w-0 flex-1 items-center">
-                      <span className="sr-only">Search properties</span>
+                      <span className="sr-only">{browsingEvents ? "Search event venues" : "Search properties"}</span>
                       <Search className="pointer-events-none absolute left-3 h-4 w-4 text-slate-400" aria-hidden />
                       <input
                         type="search"
                         value={searchInput}
                         onChange={(e) => onSearchChange(e.target.value)}
-                        placeholder="Region, city or property name"
+                        placeholder={browsingEvents ? "Region, city or venue name" : "Region, city or property name"}
                         enterKeyHint="search"
                         className="box-border h-10 w-full min-w-0 rounded-md border-0 bg-transparent pl-9 pr-2 text-[14px] text-slate-900 outline-none placeholder:text-slate-400"
                       />
                     </label>
 
-                    {(() => {
+                    {browsingEvents ? (
+                      <EventVenueSearchControls
+                        data={eventVenues}
+                        {...eventSearch}
+                        onFilters={(filters) => updateEventSearch(params => writeEventVenueFilters(params, filters))}
+                        onSort={(sort) => updateEventSearch(params => setOrDelete(params, "eventSort", sort === "match" ? "" : sort))}
+                      />
+                    ) : <>{(() => {
                       const cur = getParam(qp, "sort");
                       const setSort = (v: "" | "price_asc" | "price_desc") => {
                         const next = new URLSearchParams(qp.toString());
@@ -1062,10 +1083,11 @@ export default function PropertiesPage() {
                         </span>
                       )}
                     </button>
+                    </>}
                   </div>
 
                   {/* One-tap type picks: toggles the same `types` filter the Filters panel sets */}
-                  {(() => {
+                  {!browsingEvents && (() => {
                     const active = parseTypesParam(qp);
                     const toggleType = (key: string) => {
                       const next = new URLSearchParams(qp.toString());
@@ -1110,11 +1132,12 @@ export default function PropertiesPage() {
 
           <SectionSeparator pillLabel="Browse" className="my-5" />
 
-          <div role="group" aria-label="Stay length" className="mb-4 inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-solid border-slate-200 bg-slate-50 p-1">
+          <div role="group" aria-label="What to browse" className="mb-4 inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-solid border-slate-200 bg-slate-50 p-1">
             {[
               { key: "all", label: "All stays" },
               { key: "nightly", label: "Nightly" },
               { key: "long-stay", label: "Long stays" },
+              { key: "events", label: "Event venues" },
             ].map(({ key, label }) => (
               <button
                 key={key}
@@ -1129,13 +1152,16 @@ export default function PropertiesPage() {
                   if (sortNow === "price_asc" || sortNow === "price_desc") next.delete("sort");
                   router.push(propertiesUrl(next));
                 }}
-                className={`cursor-pointer rounded-md border-0 px-3 py-1.5 text-xs font-semibold ${rental === key ? "bg-[#02665e] text-white" : "bg-transparent text-slate-600 hover:bg-slate-100"}`}
+                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 py-1.5 text-xs font-semibold ${rental === key ? "bg-[#02665e] text-white" : "bg-transparent text-slate-600 hover:bg-slate-100"}`}
               >
+                {key === "events" ? <PartyPopper className="h-3.5 w-3.5" aria-hidden /> : null}
                 {label}
               </button>
             ))}
           </div>
 
+          {/* Event venues are their own browse mode, not stays: own finder and venue cards. */}
+          {browsingEvents ? <EventVenuesBrowse query={q} resultsHref={resultsHref} data={eventVenues} {...eventSearch} /> : (<>
           {/* Filters row */}
           <div className="flex flex-col gap-3">
 
@@ -1467,6 +1493,8 @@ export default function PropertiesPage() {
               </div>
             </>
           )}
+
+          </>)}
 
           <SectionSeparator className="mt-10" />
         </div>

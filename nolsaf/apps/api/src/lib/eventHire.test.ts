@@ -4,7 +4,7 @@ vi.mock("@nolsaf/prisma", () => ({ prisma: {} }));
 
 import {
   adminDecide, confirmByToken, depositFor, eventSpacePhotoCount, eventTermsFingerprint, eventTermsProblems, hashEventConfirmToken, isEventConfirmToken,
-  eventHireView, isOurEventPhotoUrl, multiDayPrice, listingPhotos, newEventConfirmToken, objectByToken, setEventSpacePhotos, setExtraEventPhotos, sanitizeEventTerms, saveEventTerms, sendToOwner, submitByOwner, suggestedDeposit,
+  eventHireView, isEventHireAvailable, isOurEventPhotoUrl, multiDayPrice, listingPhotos, newEventConfirmToken, objectByToken, setEventSpacePhotos, setExtraEventPhotos, sanitizeEventTerms, saveEventTerms, sendToOwner, submitByOwner, suggestedDeposit,
 } from "./eventHire.js";
 
 const complete = {
@@ -135,7 +135,7 @@ function fakeDb(property: Record<string, unknown> = {}) {
   };
   const db = {
     state,
-    property: { findUnique: vi.fn(async () => prop), update: vi.fn(async () => ({})) },
+    property: { findUnique: vi.fn(async () => prop), update: vi.fn(async ({ data }: any) => Object.assign(prop, data)) },
     propertyEventHire: {
       findUnique: vi.fn(async ({ where }: any) => {
         if (!state.row) return null;
@@ -150,6 +150,89 @@ function fakeDb(property: Record<string, unknown> = {}) {
   };
   return db;
 }
+
+describe("event hire under an accommodation property", () => {
+  it("keeps an approved hotel approved through event drafts, submission, return and approval", async () => {
+    const db = fakeDb({ title: "Approved Hotel" });
+    const hotel = await db.property.findUnique();
+    const original = structuredClone(hotel);
+    const expectHotelUnchanged = () => {
+      expect(hotel).toEqual(original);
+      expect(hotel.status).toBe("APPROVED");
+      expect(db.property.update).not.toHaveBeenCalled();
+    };
+
+    let saved = await saveEventTerms(db, { propertyId: 5, userId: 9, by: "OWNER", terms: { spaceType: "HALL" }, allowIncomplete: true });
+    expect(saved.row.status).toBe("DRAFT");
+    expectHotelUnchanged();
+    saved = await saveEventTerms(db, { propertyId: 5, userId: 9, by: "OWNER", terms: complete });
+    await submitByOwner(db, { propertyId: 5, version: saved.row.termsFingerprint, consent: true });
+    expect(db.state.row.status).toBe("PENDING");
+    expectHotelUnchanged();
+    await adminDecide(db, { propertyId: 5, adminId: 1, action: "RETURN", reason: "Please correct the event hours" });
+    expect(db.state.row.status).toBe("RETURNED");
+    expectHotelUnchanged();
+    saved = await saveEventTerms(db, { propertyId: 5, userId: 9, by: "OWNER", terms: { ...complete, latestEnd: "01:00" } });
+    await submitByOwner(db, { propertyId: 5, version: saved.row.termsFingerprint, consent: true });
+    await adminDecide(db, { propertyId: 5, adminId: 1, action: "APPROVE", version: saved.row.termsFingerprint });
+    expect(db.state.row.status).toBe("APPROVED");
+    expectHotelUnchanged();
+  });
+
+  it("changes only photo labels when selecting existing hotel photos for events", async () => {
+    const db = fakeDb({ title: "Approved Hotel" });
+    const hotel = await db.property.findUnique();
+    const originalPhotos = [...hotel.photos];
+    await setEventSpacePhotos(db, 5, [originalPhotos[0], originalPhotos[1]]);
+    expect(db.property.update).toHaveBeenCalledTimes(1);
+    expect(Object.keys(db.property.update.mock.calls[0][0].data)).toEqual(["photoAreas"]);
+    expect(hotel.status).toBe("APPROVED");
+    expect(hotel.photos).toEqual(originalPhotos);
+  });
+
+  it("lets an approved owner add event hire without having opted in during onboarding", async () => {
+    const db = fakeDb();
+    expect(db.state.row).toBeNull();
+    const { row } = await saveEventTerms(db, { propertyId: 5, userId: 9, by: "OWNER", terms: complete });
+    await submitByOwner(db, { propertyId: 5, version: row.termsFingerprint, consent: true });
+    await adminDecide(db, { propertyId: 5, adminId: 1, action: "APPROVE", version: row.termsFingerprint });
+    expect(db.state.row.status).toBe("APPROVED");
+  });
+
+  it("saves an incomplete onboarding draft without allowing it into review", async () => {
+    const db = fakeDb({ status: "DRAFT" });
+    const { row } = await saveEventTerms(db, { propertyId: 5, userId: 9, by: "OWNER", terms: { spaceType: "GARDEN" }, allowIncomplete: true });
+    expect(row.status).toBe("DRAFT");
+    expect(row.terms.spaceType).toBe("GARDEN");
+    await expect(submitByOwner(db, { propertyId: 5, version: row.termsFingerprint, consent: true })).rejects.toMatchObject({ code: "INCOMPLETE" });
+    expect(db.state.row.status).toBe("DRAFT");
+  });
+
+  it("can be prepared and submitted before accommodation approval, with activation held", async () => {
+    const db = fakeDb({ status: "DRAFT" });
+    const { row } = await saveEventTerms(db, { propertyId: 5, userId: 9, by: "OWNER", terms: complete });
+    await submitByOwner(db, { propertyId: 5, version: row.termsFingerprint, consent: true });
+    expect(db.state.row.status).toBe("PENDING");
+    await expect(adminDecide(db, { propertyId: 5, adminId: 1, action: "APPROVE", version: row.termsFingerprint })).rejects.toMatchObject({ code: "PROPERTY_NOT_APPROVED" });
+    expect(db.state.row.status).toBe("PENDING");
+  });
+
+  it("cannot resume event hire while its parent is suspended", async () => {
+    const db = fakeDb({ status: "SUSPENDED" });
+    db.state.row = { id: 1, propertyId: 5, status: "PAUSED" };
+    await expect(adminDecide(db, { propertyId: 5, adminId: 1, action: "RESUME" })).rejects.toMatchObject({ code: "PROPERTY_NOT_APPROVED" });
+    expect(db.state.row.status).toBe("PAUSED");
+  });
+
+  it("requires both approvals and nightly accommodation for availability", () => {
+    expect(isEventHireAvailable({ status: "APPROVED" }, { status: "APPROVED", rentalMode: "NIGHTLY" })).toBe(true);
+    for (const status of ["DRAFT", "PENDING", "REJECTED", "SUSPENDED"]) {
+      expect(isEventHireAvailable({ status: "APPROVED" }, { status, rentalMode: "NIGHTLY" })).toBe(false);
+    }
+    expect(isEventHireAvailable({ status: "PENDING" }, { status: "APPROVED" })).toBe(false);
+    expect(isEventHireAvailable({ status: "APPROVED" }, { status: "APPROVED", rentalMode: "LONG_STAY" })).toBe(false);
+  });
+});
 
 describe("uploading event photos on the add-on", () => {
   const ours = (n: number) => `https://res.cloudinary.com/nolsaf-test/image/upload/v1/properties/events/p${n}.jpg`;

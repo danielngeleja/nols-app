@@ -25,11 +25,14 @@ export function AddPropertySection({
 }: AddPropertySectionProps) {
   const Tag = as as any;
 
-  // Keep existing "block/hidden" behavior so the page logic doesn’t change.
+  // Keep children mounted to preserve step drafts, but make visibility explicit.
+  // Unlayered surface CSS can override Tailwind's `hidden` utility.
   return (
     <Tag
       id={id}
       ref={sectionRef as any}
+      hidden={!isVisible}
+      style={isVisible ? undefined : { display: "none" }}
       className={`${className} ${isVisible ? "block nls-flipbook" : "hidden"}`}
     >
       {children}

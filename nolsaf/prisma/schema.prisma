@@ -32,6 +32,7 @@ model SiteUpdate {
 //  USER MODEL - One table for admins, owners, drivers, and customers
 // =========================================================
 model User {
+  eventHireRequests EventHireRequest[]
   id                 Int       @id @default(autoincrement())
   role               String    @default("CUSTOMER") // ADMIN, OWNER, DRIVER, CUSTOMER, AGENT
   /// NRMS finance segregation: NONE, OPERATOR, or APPROVER. This is separate
@@ -634,6 +635,8 @@ model Property {
 
   // Hire for events add-on (docs/SALES_AGENCY_EVENT_HIRE_STRATEGY.md)
   eventHire PropertyEventHire?
+  eventHireRequests EventHireRequest[]
+  eventHireBlocks EventHireBlock[]
 
   @@index([ownerId])
   // Supports: WHERE ownerId=? ORDER BY id DESC
@@ -8485,6 +8488,7 @@ model UserWorkspaceAccess {
 /// status: PENDING, ACTIVE, SUSPENDED, EXPIRED, TERMINATED
 /// level: STARTER, GROWTH, PROFESSIONAL, SENIOR, REGIONAL_LEAD
 model SalesPartnerProfile {
+  eventHireRequests EventHireRequest[]
   id     Int @id @default(autoincrement())
   userId Int @unique
 
@@ -9755,6 +9759,200 @@ model SalesDemandSignal {
 /// admin approval always refer to exactly what was shown.
 /// status: DRAFT, AWAITING_OWNER (a partner filled it, owner to confirm by SMS link),
 ///         PENDING (admin review), APPROVED, RETURNED, PAUSED
+/// Private booking enquiries. Confirmation holds reserve only the event space,
+/// never accommodation rooms. Payment is a separate, gated integration.
+model EventHireRequest {
+  id Int @id @default(autoincrement())
+  reference String @unique @db.VarChar(40)
+  propertyId Int
+  clientUserId Int
+  salesPartnerId Int?
+  assisted Boolean @default(true)
+  status String @default("WAITING_OWNER") @db.VarChar(24)
+  version Int @default(1)
+  startsAt DateTime
+  endsAt DateTime
+  expiresAt DateTime
+  holdExpiresAt DateTime?
+  eventType String @db.VarChar(24)
+  people Int
+  seating String @db.VarChar(12)
+  package String @db.VarChar(12)
+  termsFingerprint String @db.Char(64)
+  quote Json
+  termsSnapshot Json
+  ownerConfirmedAt DateTime?
+  confirmedOwnerId Int?
+  confirmationVia String? @db.VarChar(12)
+  partnerApprovedAt DateTime?
+  reminderAt DateTime
+  escalateAt DateTime
+  remindedAt DateTime?
+  escalatedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  client User @relation(fields: [clientUserId], references: [id], onDelete: Restrict)
+  salesPartner SalesPartnerProfile? @relation(fields: [salesPartnerId], references: [id], onDelete: Restrict)
+  events EventHireRequestEvent[]
+  booking EventHireBooking?
+  @@index([propertyId, startsAt, endsAt])
+  @@index([clientUserId, createdAt])
+  @@index([salesPartnerId, status])
+  @@index([status, escalateAt])
+  @@map("event_hire_request")
+}
+
+/// Written in the same transaction as each decision. Private contact evidence
+/// is visible only to the assigned partner and administrators.
+model EventHireRequestEvent {
+  id Int @id @default(autoincrement())
+  requestId Int
+  actorUserId Int?
+  action String @db.VarChar(32)
+  details Json
+  createdAt DateTime @default(now())
+  request EventHireRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  @@index([requestId, createdAt])
+  @@map("event_hire_request_event")
+}
+
+/// A paid (or payable) event space booking created from a confirmed request.
+model EventHireBooking {
+  id Int @id @default(autoincrement())
+  reference String @unique @db.VarChar(40)
+  requestId Int @unique
+  ownerId Int
+  clientName String @db.VarChar(160)
+  venueTitle String @db.VarChar(200)
+  status String @default("AWAITING_PAYMENT") @db.VarChar(24)
+  version Int @default(1)
+  total Int
+  ownerDue Int
+  deposit Int
+  fee Int
+  cleaningFee Int
+  currency String @default("TZS") @db.Char(3)
+  paymentRef String @unique @db.VarChar(40)
+  callbackTokenHash String @db.Char(64)
+  checkoutStatus String @default("CREATED") @db.VarChar(20)
+  checkoutUrl String? @db.VarChar(2048)
+  checkoutExpiresAt DateTime
+  paidAt DateTime?
+  providerTransactionId String? @unique @db.VarChar(80)
+  ownerCompletedAt DateTime?
+  clientCompletedAt DateTime?
+  completedAt DateTime?
+  settlementPreparedAt DateTime?
+  cancellationRequestedAt DateTime?
+  cancelledAt DateTime?
+  cancellationReason String? @db.VarChar(500)
+  claimDeadline DateTime
+  depositStatus String @default("UNPAID") @db.VarChar(24)
+  payoutStatus String @default("UNPAID") @db.VarChar(24)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  request EventHireRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  claims EventHireClaim[]
+  transfers EventHireTransfer[]
+  entries EventHireLedgerEntry[]
+  evidence EventHireEvidence[]
+  @@index([status, checkoutExpiresAt])
+  @@index([ownerId, createdAt])
+  @@map("event_hire_booking")
+}
+
+model EventHireEvidence {
+  id Int @id @default(autoincrement())
+  reference String @unique @db.VarChar(40)
+  bookingId Int
+  uploadedById Int
+  kind String @db.VarChar(12)
+  publicId String @unique @db.VarChar(255)
+  format String @db.VarChar(12)
+  createdAt DateTime @default(now())
+  booking EventHireBooking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  @@index([bookingId, createdAt])
+  @@map("event_hire_evidence")
+}
+
+model EventHireClaim {
+  id Int @id @default(autoincrement())
+  reference String @unique @db.VarChar(40)
+  bookingId Int @unique
+  status String @default("AWAITING_CLIENT") @db.VarChar(24)
+  version Int @default(1)
+  ownerUserId Int
+  description String @db.VarChar(2000)
+  items Json
+  evidence Json
+  requestedAmount Int
+  clientResponse String? @db.VarChar(2000)
+  clientEvidence Json?
+  respondedAt DateTime?
+  responseDueAt DateTime
+  award Int?
+  decisionReason String? @db.VarChar(2000)
+  decidedById Int?
+  decidedAt DateTime?
+  createdAt DateTime @default(now())
+  booking EventHireBooking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  @@index([status, responseDueAt])
+  @@map("event_hire_claim")
+}
+
+/// Entitlements are separate from transfers. APPROVED is eligible for the
+/// shared disbursement release workflow; only its verified callback marks PAID.
+model EventHireTransfer {
+  id Int @id @default(autoincrement())
+  reference String @unique @db.VarChar(40)
+  bookingId Int
+  kind String @db.VarChar(24)
+  payeeUserId Int
+  amount Int
+  status String @default("REVIEW") @db.VarChar(20)
+  approvedById Int?
+  approvedAt DateTime?
+  paidAt DateTime?
+  providerReference String? @db.VarChar(80)
+  collectionReference String? @unique @db.VarChar(80)
+  createdAt DateTime @default(now())
+  booking EventHireBooking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  @@unique([bookingId, kind])
+  @@index([payeeUserId, status])
+  @@map("event_hire_transfer")
+}
+
+/// Append-only financial journal. Deposit is a liability, never platform revenue.
+model EventHireLedgerEntry {
+  id Int @id @default(autoincrement())
+  bookingId Int
+  key String @unique @db.VarChar(140)
+  kind String @db.VarChar(32)
+  amount Int
+  createdAt DateTime @default(now())
+  booking EventHireBooking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  @@index([bookingId, createdAt])
+  @@map("event_hire_ledger_entry")
+}
+
+/// Owner-declared external event bookings or closures; no guest contact data.
+model EventHireBlock {
+  id Int @id @default(autoincrement())
+  reference String @unique @db.VarChar(40)
+  propertyId Int
+  startsAt DateTime
+  endsAt DateTime
+  reason String @db.VarChar(24)
+  createdById Int
+  cancelledAt DateTime?
+  cancelledById Int?
+  createdAt DateTime @default(now())
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  @@index([propertyId, startsAt, endsAt])
+  @@map("event_hire_block")
+}
+
 model PropertyEventHire {
   id         Int    @id @default(autoincrement())
   propertyId Int    @unique

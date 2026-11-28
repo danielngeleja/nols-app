@@ -14,8 +14,13 @@ import customerSavedPropertiesRouter from "./customer.savedProperties";
 import customerPropertySharesRouter from "./customer.propertyShares.js";
 import customerTourBookingsRouter from "./customer.tourBookings";
 import customerTripSafetyRouter from "./customer.tripSafety";
+import { customerEventRequestsRouter } from "./eventHire.requests.js";
+import { customerEventOperationsRouter, eventCardCallbackRouter } from "./eventHire.operations.js";
 
 export function registerCustomerRoutes(app: Express): void {
+  app.use("/api/customer/event-hire", customerEventOperationsRouter as RequestHandler);
+  app.use("/api/event-hire", eventCardCallbackRouter as RequestHandler);
+  app.use("/api/customer/event-requests", customerEventRequestsRouter as RequestHandler);
   app.use("/api/customer/booking-payment-cases", customerBookingPaymentCasesRouter as RequestHandler);
   app.use("/api/customer/bookings", customerBookingsRouter as RequestHandler);
   app.use("/api/customer/cancellations", customerCancellationsRouter as RequestHandler);

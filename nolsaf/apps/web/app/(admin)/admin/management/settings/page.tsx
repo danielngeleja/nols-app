@@ -212,6 +212,14 @@ export default function SystemSettingsPage(){
   const [tierDefaults, setTierDefaults] = useState<Record<string, Record<string, number>>>({});
   const [tierErrors, setTierErrors] = useState<Record<string, string>>({});
   const [savingTiers, setSavingTiers] = useState<boolean>(false);
+  // The address the admin allowlist checks for this admin (server's view).
+  const [myIp, setMyIp] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get('/api/admin/settings/my-ip')
+      .then((r) => setMyIp(r?.data?.ip ?? null))
+      .catch(() => setMyIp(null));
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -1838,6 +1846,11 @@ export default function SystemSettingsPage(){
                   <p className={`m-0 mt-1 text-[11px] ${validationErrors.ipAllowlist ? "font-medium text-rose-600" : "text-neutral-400"}`}>
                     {validationErrors.ipAllowlist || "Single addresses or CIDR ranges, separated by commas."}
                   </p>
+                  {myIp ? (
+                    <p className="m-0 mt-1 text-[11px] text-neutral-500">
+                      Your address, as the server sees it: <span className="font-mono font-semibold text-neutral-800">{myIp}</span>. A list that leaves it out cannot be saved while enforcement is on.
+                    </p>
+                  ) : null}
                 </div>
               </section>
             );

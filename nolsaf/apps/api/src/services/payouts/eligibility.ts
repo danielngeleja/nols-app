@@ -24,6 +24,7 @@ import { balanceAfterAdvances, tourPayoutPolicyAt } from "../../lib/tourPayoutPo
 import { quoteBalanceWithRecovery } from "../../lib/tourRecoveryOffset.js";
 import { guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
 import { tenancyPayoutSource } from "../../lib/longStay/payout.js";
+import { eligibleEventTransfer } from "../../lib/eventHireBookings.js";
 
 /**
  * TOUR_BOOKING pays a tour's balance after the trip; TOUR_ADVANCE pays one
@@ -32,7 +33,7 @@ import { tenancyPayoutSource } from "../../lib/longStay/payout.js";
  * breaking the "one live payout per source" guarantee (activeSourceKey).
  */
 /** TENANCY pays a long-stay landlord the first month less commission (lib/longStay/payout.ts). */
-export type PayoutSourceType = "OWNER_INVOICE" | "OWNER_WITHDRAWAL" | "TOUR_BOOKING" | "TOUR_ADVANCE" | "DRIVER_TRIP" | "SALES_PAYOUT" | "TENANCY";
+export type PayoutSourceType = "OWNER_INVOICE" | "OWNER_WITHDRAWAL" | "TOUR_BOOKING" | "TOUR_ADVANCE" | "DRIVER_TRIP" | "SALES_PAYOUT" | "TENANCY" | "EVENT_HIRE";
 
 export class PayoutIneligibleError extends Error {
   constructor(
@@ -548,6 +549,11 @@ export async function loadEligiblePayoutSource(
   sourceId: number
 ): Promise<EligiblePayoutSource> {
   switch (sourceType) {
+    case "EVENT_HIRE": {
+      const source = await eligibleEventTransfer(prisma, sourceId);
+      if (!source.ok) throw new PayoutIneligibleError("EVENT_HIRE", sourceId, source.reason);
+      return { sourceType: "EVENT_HIRE", sourceId, payeeUserId: source.payeeUserId, amount: new Prisma.Decimal(source.amount), currency: source.currency };
+    }
     case "OWNER_INVOICE":
       return loadOwnerInvoice(sourceId);
     case "OWNER_WITHDRAWAL":

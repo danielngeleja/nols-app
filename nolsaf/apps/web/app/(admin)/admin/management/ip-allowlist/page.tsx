@@ -8,6 +8,9 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileText, ListFilter, Plus, RotateCcw, ShieldCheck, Trash2, X } from "lucide-react";
 
 const SETTINGS_URL = "/api/admin/settings";
+const MY_IP_URL = "/api/admin/settings/my-ip";
+
+type MyIp = { ip: string | null; switchOn: boolean; enforced: boolean; listed: boolean };
 
 // Ghost buttons sitting on the dark header, as on the Sales pages.
 const heroButton =
@@ -58,6 +61,19 @@ function parseList(text: string) {
     .filter(Boolean);
 }
 
+function ipv4ToInt(ip: string) {
+  return ip.split(".").reduce((acc, part) => acc * 256 + Number(part), 0);
+}
+
+/** Whether a draft entry admits this address. The server makes the final check on save. */
+function entryAdmits(entry: string, ip: string) {
+  if (!isValidIPv4(ip) || !isValidIPv4OrCidr(entry)) return false;
+  const [base, prefixRaw] = entry.split("/");
+  const prefix = prefixRaw === undefined ? 32 : Number(prefixRaw);
+  const size = 2 ** (32 - prefix);
+  return Math.floor(ipv4ToInt(ip) / size) === Math.floor(ipv4ToInt(base) / size);
+}
+
 /** How many addresses an entry admits: 1 for a single IP, 2^(32-prefix) for a range. */
 function addressCount(entry: string) {
   if (!entry.includes("/")) return 1;
@@ -78,6 +94,21 @@ export default function IpAllowlistPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [newEntry, setNewEntry] = useState("");
   const [textMode, setTextMode] = useState(false);
+  const [myIp, setMyIp] = useState<MyIp | null>(null);
+
+  const loadMyIp = async () => {
+    try {
+      const res = await fetch(MY_IP_URL, { credentials: "include", cache: "no-store" });
+      const parsed = await readJsonOrText(res);
+      if (res.ok && parsed.isJson) setMyIp(parsed.data as MyIp);
+    } catch {
+      // The card simply stays hidden; the server still guards the save.
+    }
+  };
+
+  useEffect(() => {
+    void loadMyIp();
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -108,7 +139,9 @@ export default function IpAllowlistPage() {
   const savedEntries = useMemo(() => parseList(saved), [saved]);
   const dirty = entries.join("\n") !== savedEntries.join("\n");
   const enabled = entries.length > 0;
-  const savedEnabled = savedEntries.length > 0;
+  // Enforcement needs both a saved list and the switch in Settings; the my-ip
+  // reply carries the real state once it has loaded.
+  const savedEnabled = myIp ? myIp.enforced : savedEntries.length > 0;
   // The header describes what is live (saved), the list below shows the draft.
   const liveValid = savedEntries.filter(isValidIPv4OrCidr);
   const ranges = liveValid.filter((entry) => entry.includes("/")).length;
@@ -138,6 +171,14 @@ export default function IpAllowlistPage() {
 
   const removeEntry = (index: number) => setEntries(entries.filter((_, i) => i !== index));
 
+  const currentIp = myIp?.ip || "";
+  const draftAdmitsMe = Boolean(currentIp) && entries.some((entry) => entryAdmits(entry, currentIp));
+  const addMyIp = () => {
+    if (!currentIp || !isValidIPv4(currentIp) || entries.includes(currentIp)) return;
+    setEntries([...entries, currentIp]);
+    setError(null);
+  };
+
   const onSave = async () => {
     setError(null);
     setNotice(null);
@@ -154,7 +195,9 @@ export default function IpAllowlistPage() {
         body: JSON.stringify({ ipAllowlist: entries.join("\n") }),
       });
       if (!res.ok) {
-        setError(friendlyStatus(res.status));
+        const parsed = await readJsonOrText(res);
+        // 409: the server refused a list that would lock this admin out.
+        setError(res.status === 409 && parsed.data?.message ? parsed.data.message : friendlyStatus(res.status));
         return;
       }
       let next = entries.join("\n");
@@ -168,6 +211,7 @@ export default function IpAllowlistPage() {
       }
       setValue(next);
       setSaved(next);
+      void loadMyIp();
       setNotice(parseList(next).length ? "Allowlist saved. Admin access is now limited to the listed networks." : "Allowlist cleared. Enforcement is off and every IP can reach admin tools.");
     } catch {
       setError("Failed to save the allowlist.");
@@ -337,6 +381,35 @@ export default function IpAllowlistPage() {
 
         {/* Guidance */}
         <aside className="min-w-0 space-y-4">
+          {currentIp ? (
+            <section className="rounded-2xl border border-solid border-neutral-200 bg-white px-4 py-4 sm:px-5">
+              <h2 className="m-0 text-xs font-bold uppercase tracking-wide text-neutral-500">Your address</h2>
+              <p className="m-0 mt-2 break-all font-mono text-sm font-semibold text-neutral-900">{currentIp}</p>
+              <p className="m-0 mt-1 text-[11px] leading-5 text-neutral-500">As the server sees it. This is the address the allowlist checks.</p>
+              {entries.length === 0 ? (
+                <p className="m-0 mt-2.5 text-xs text-neutral-500">The list is empty, so there is nothing to check yet.</p>
+              ) : draftAdmitsMe ? (
+                <p className="m-0 mt-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> On the list. You keep access after saving.
+                </p>
+              ) : (
+                <div className="mt-2.5">
+                  <p className="m-0 inline-flex items-start gap-1.5 text-xs font-semibold text-rose-700">
+                    <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+                    {myIp?.switchOn
+                      ? "Not on the list. Saving is refused until it is."
+                      : "Not on the list. Enforcement is off in Settings, but add it before turning it on."}
+                  </p>
+                  {isValidIPv4(currentIp) ? (
+                    <button type="button" onClick={addMyIp} className="mt-2 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:bg-emerald-800">
+                      <Plus className="h-3.5 w-3.5" /> Add my address
+                    </button>
+                  ) : null}
+                </div>
+              )}
+            </section>
+          ) : null}
+
           <section className="rounded-2xl border border-solid border-neutral-200 bg-white px-4 py-4 sm:px-5">
             <h2 className="m-0 text-xs font-bold uppercase tracking-wide text-neutral-500">Before you save</h2>
             <ul className="m-0 mt-3 list-none space-y-3 p-0">

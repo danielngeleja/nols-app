@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight, Clock, Cloud, Laptop, Plus } from "lucide-react";
-import { restoreListingStep } from "./listingFlow";
+import { listingStepOrder, restoreListingStep } from "./listingFlow";
 
 type LocalDraft = {
   title?: string;
@@ -10,6 +10,8 @@ type LocalDraft = {
   timestamp?: string;
   currentStep?: number;
   flowVersion?: number;
+  eventHireIncluded?: boolean;
+  rentalMode?: string;
 };
 
 type ServerDraft = {
@@ -47,8 +49,10 @@ export function ResumeDraftScreen({
 
   const localStep = restoreListingStep(localDraft?.currentStep, localDraft?.flowVersion);
   const localStepTitle = stepTitles[localStep] || "Basic details";
-  const totalSteps = stepTitles.length || 6;
-  const localPct = Math.round(((localStep + 1) / totalSteps) * 100);
+  const order = listingStepOrder(Boolean(localDraft?.eventHireIncluded && localDraft?.rentalMode !== "LONG_STAY"));
+  const totalSteps = order.length;
+  const localPosition = Math.max(0, order.indexOf(localStep));
+  const localPct = Math.round(((localPosition + 1) / totalSteps) * 100);
 
   return (
     <div className="w-full bg-slate-50 py-10 sm:py-12">
@@ -96,7 +100,7 @@ export function ResumeDraftScreen({
                           {formatTime(localDraft.timestamp)}
                         </span>
                         <span className="inline-flex items-center rounded-md border border-solid border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                          Step {localStep + 1}/{totalSteps} · {localStepTitle}
+                          Step {localPosition + 1}/{totalSteps} · {localStepTitle}
                         </span>
                       </div>
 

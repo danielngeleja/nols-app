@@ -65,6 +65,7 @@ const NAV = [
   { href: "/sales/team", label: "My team", Icon: Users, teamLeadOnly: true },
   { href: "/sales/region", label: "My region", Icon: MapPinned, regionLeadOnly: true },
   { href: "/sales/agency", label: "Agency Desk", Icon: Handshake, agencyOnly: true },
+  ...(process.env.NEXT_PUBLIC_EVENT_HIRE_REQUESTS_ENABLED === "true" ? [{ href: "/sales/event-requests", label: "Event requests", Icon: Handshake, agencyOnly: true }] : []),
   { href: "/sales/earnings", label: "Earnings", Icon: WalletCards },
   { href: "/sales/payouts", label: "Payouts", Icon: Send },
   { href: "/sales/statements", label: "Statements", Icon: FileText },

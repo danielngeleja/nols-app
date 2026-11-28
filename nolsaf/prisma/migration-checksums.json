@@ -251,6 +251,12 @@
     "20261126150000_add_property_photo_areas": "6abd50c88c3c7b83525d0d633beb2c9a8a74d3706986a1371f319a768f84a69a",
     "20261126160000_add_assisted_owner_rent_confirmation": "b4c6cdf4695ae44c7578b676a388c8e9c6bba8c4dec505eaaa860fa9ecd84fab",
     "20261127090000_add_assisted_rent_link_opened": "d42cce1461aa02d14835e0f6b65153a65547a9ba0c9def3ec5c88b8938fa5540",
-    "20261127100000_add_assisted_owner_email": "62a238a555cad14695fb633456399b78ffcaf966662c40be8dfeea518abb0ba5"
+    "20261127100000_add_assisted_owner_email": "62a238a555cad14695fb633456399b78ffcaf966662c40be8dfeea518abb0ba5",
+    "20261127110000_add_sales_agency_quotes": "a2f5920835ec5b4d3912aeec14415ae42e635ab68bfe7bb2f75a3abaf991eb95",
+    "20261127120000_add_property_event_hire": "bf5ef5a5694429a28050f56ae11b4c5d46a90cb5f489327998b1d39c8aaafc73",
+    "20261127130000_add_event_hire_extra_photos": "9711486f9ddeb0c62a3340e91c8c989953dae74c6bd74c674bf74d479fec1e77",
+    "20261127170000_event_hire_requests": "0cd64d08b73d1f774498a792142e4fa65cb307593191b062cc750d39fbc52340",
+    "20261127200000_event_hire_workspace": "dc1a2359b08f6436dfb82b31a207cbd8d2d2dcac8ff5d17ef00be49746060776",
+    "20261128090000_event_hire_booking_name_snapshots": "5aa76998d68c06a21a13f906c96ec6eb8e43fd74b97c5f25315ae4f1ea3f3d48"
   }
 }

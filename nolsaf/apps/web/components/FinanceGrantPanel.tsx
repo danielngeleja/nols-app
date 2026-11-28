@@ -133,7 +133,7 @@ export default function FinanceGrantPanel({ showTrigger = true, listenForRequire
               <div className="min-w-0">
                 <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">Finance access</p>
                 <p className="m-0 mt-0.5 truncate text-xs font-medium text-slate-500 sm:text-sm">
-                  {stage === "granted" ? `Unlocked until ${grantedUntil || "15 minutes from now"}.` : "OTP required for protected NRMS actions."}
+                  {stage === "granted" ? `Unlocked until ${grantedUntil || "15 minutes from now"}.` : "OTP required for protected finance actions."}
                 </p>
               </div>
             </div>

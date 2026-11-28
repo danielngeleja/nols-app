@@ -22,6 +22,7 @@ import {
   Lock,
   Map as MapIcon,
   Minus,
+  PartyPopper,
   Radar,
   RefreshCw,
   Send,
@@ -34,7 +35,7 @@ import {
 import apiClient from "@/lib/apiClient";
 import RevenueReconciliationPanel from "@/components/admin/RevenueReconciliationPanel";
 
-type StreamKey = "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions" | "longStay";
+type StreamKey = "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions" | "longStay" | "eventHire";
 
 type StreamSummary = {
   key: StreamKey;
@@ -81,7 +82,11 @@ const STREAM_META: Record<StreamKey, { icon: any; color: string; href: string | 
   groupStay: { icon: Users, color: "#a78bfa", href: "/admin/group-stays/revenue" },
   subscriptions: { icon: CreditCard, color: "#2dd4bf", href: "/admin/nrms/billing" },
   longStay: { icon: Building2, color: "#f472b6", href: "/admin/long-stay/tenancies" },
+  eventHire: { icon: PartyPopper, color: "#fb923c", href: "/admin/event-hire/payments" },
 };
+// A stream the API adds before this page knows it still renders, without a link.
+const UNKNOWN_STREAM_META = { icon: Waypoints, color: "#94a3b8", href: null as string | null };
+const streamMeta = (key: string) => STREAM_META[key as StreamKey] ?? UNKNOWN_STREAM_META;
 
 type SeriesPoint = { start: string; end: string; revenue: number; gmv: number; partnerNet: number; count: number };
 type PeriodKey = "all" | "30d" | "month" | "quarter" | "year";
@@ -549,7 +554,7 @@ export default function AdminFinancePage() {
           {loading && !data
             ? Array.from({ length: 5 }).map((_, i) => <li key={i} className="bg-[#182c28] p-5"><div className="h-24 animate-pulse rounded-md bg-white/[0.04]" /></li>)
             : streams.map((s) => {
-                const meta = STREAM_META[s.key];
+                const meta = streamMeta(s.key);
                 const share = totals && totals.nolsafRevenue > 0 ? (s.nolsafRevenue / totals.nolsafRevenue) * 100 : 0;
                 const rate = s.gmv > 0 ? (s.nolsafRevenue / s.gmv) * 100 : null;
                 const prev = prevByKey.get(s.key);

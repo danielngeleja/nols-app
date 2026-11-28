@@ -48,7 +48,7 @@ const db = prisma as any;
 
 export function sendEventHireError(res: Response, error: unknown): boolean {
   if (error instanceof EventHireError) { res.status(error.status).json({ error: error.message, code: error.code }); return true; }
-  if ((error as any)?.code === "P2021") { res.status(503).json({ error: "Event hire needs a database update first." }); return true; }
+  if ((error as any)?.code === "P2021") { console.warn("[event-hire] database is behind the schema", { code: "P2021", table: (error as any).meta?.table ?? (error as any).meta?.modelName ?? null }); res.status(503).json({ error: "Event hire needs a database update first." }); return true; }
   return false;
 }
 
@@ -69,7 +69,7 @@ export async function announceEventHireSubmitted(row: any, propertyTitle: string
   }
 }
 
-const termsBody = z.object({ terms: z.record(z.string(), z.unknown()) }).strict();
+const termsBody = z.object({ terms: z.record(z.string(), z.unknown()), draft: z.boolean().optional() }).strict();
 const submitBody = z.object({ version: z.string().regex(/^[a-f0-9]{64}$/), consent: z.literal(true) }).strict();
 
 // ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ ownerEventHireRouter.put("/:id/event-hire", asyncHandler(async (req: AuthedReque
   const parsed = termsBody.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Check the event details." });
   try {
-    const { row, property } = await saveEventTerms(db, { propertyId: id, userId: req.user!.id, by: "OWNER", terms: parsed.data.terms });
+    const { row, property } = await saveEventTerms(db, { propertyId: id, userId: req.user!.id, by: "OWNER", terms: parsed.data.terms, allowIncomplete: parsed.data.draft === true });
     await audit(req as any, "EVENT_HIRE_SAVE", "PROPERTY", null, { status: row.status, by: "OWNER" }, id);
     return res.json(eventHireView(row, property));
   } catch (error) {
@@ -179,7 +179,7 @@ const LINK_GONE = { error: "This link is not valid any more. Ask your sales part
 publicEventHireConfirmRouter.get("/:token", limitAssistedListingNotice as any, asyncHandler(async (req, res: Response) => {
   const row = await findByConfirmToken(db, String(req.params.token || "")).catch((e: any) => { if (e?.code === "P2021") return null; throw e; });
   if (!row) return res.status(404).json(LINK_GONE);
-  const property = await db.property.findUnique({ where: { id: row.propertyId }, select: { id: true, title: true, status: true, photos: true, photoAreas: true } });
+  const property = await db.property.findUnique({ where: { id: row.propertyId }, select: { id: true, title: true, status: true, rentalMode: true, photos: true, photoAreas: true } });
   const partner = row.salesPartnerId
     ? await db.salesPartnerProfile.findUnique({ where: { id: row.salesPartnerId }, select: { agentCode: true, user: { select: { name: true, fullName: true } } } })
     : null;
@@ -245,7 +245,7 @@ adminEventHireRouter.get("/", asyncHandler(async (req: AuthedRequest, res: Respo
     const properties = rows.length
       ? await db.property.findMany({
           where: { id: { in: rows.map((r: any) => r.propertyId) } },
-          select: { id: true, title: true, status: true, photos: true, photoAreas: true, regionName: true, district: true, owner: { select: { name: true, fullName: true, phone: true } } },
+          select: { id: true, title: true, status: true, rentalMode: true, photos: true, photoAreas: true, regionName: true, district: true, owner: { select: { name: true, fullName: true, phone: true } } },
         })
       : [];
     const byId = new Map(properties.map((p: any) => [p.id, p]));
@@ -286,7 +286,7 @@ adminEventHireRouter.post("/:ref/decide", blockImpersonated as RequestHandler, a
     const match = candidates.find((c: any) => matchesCustomerRecordReference(ref, "property", c.propertyId));
     if (!match) return res.status(404).json({ error: "Not found" });
     const row = await adminDecide(db, { propertyId: match.propertyId, adminId: req.user!.id, ...parsed.data });
-    const property = await db.property.findUnique({ where: { id: row.propertyId }, select: { id: true, title: true, status: true, ownerId: true, photos: true, photoAreas: true } });
+    const property = await db.property.findUnique({ where: { id: row.propertyId }, select: { id: true, title: true, status: true, rentalMode: true, ownerId: true, photos: true, photoAreas: true } });
     await audit(req as any, `EVENT_HIRE_${parsed.data.action}`, "PROPERTY", null, { status: row.status, reason: parsed.data.reason ?? null }, row.propertyId);
     if (property?.ownerId && (parsed.data.action === "APPROVE" || parsed.data.action === "RETURN")) {
       await notifyOwner(property.ownerId, parsed.data.action === "APPROVE" ? "event_hire_approved" : "event_hire_returned", {

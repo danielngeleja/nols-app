@@ -36,6 +36,7 @@ import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { getFxRates, BASE_CURRENCY } from "../lib/fx.js";
 import { computeFinanceOverview } from "../lib/financeOverview.js";
 import { computeRevenueReconciliation, parseDayRange } from "../lib/revenueReconciliation.js";
+import { REVENUE_STREAMS, type RevenueStream } from "../lib/revenueLedger.js";
 import { computeChannelReport } from "../lib/channelReport.js";
 
 const router = Router();
@@ -176,7 +177,9 @@ router.get("/reconciliation", async (req, res) => {
   try {
     const range = parseDayRange(req.query.from, req.query.to);
     if (range === "invalid") return res.status(400).json({ ok: false, error: "Pick a valid range of days" });
-    return res.json(await computeRevenueReconciliation(range));
+    const stream = req.query.stream;
+    if (stream !== undefined && (typeof stream !== "string" || !REVENUE_STREAMS.includes(stream as RevenueStream))) return res.status(400).json({ ok: false, error: "Invalid revenue stream" });
+    return res.json(await computeRevenueReconciliation(range, { stream: stream as RevenueStream | undefined }));
   } catch (err: any) {
     console.error("[GET /api/admin/finance/reconciliation] Error:", err);
     return res.status(500).json({ ok: false, error: "Failed to load the reconciliation" });

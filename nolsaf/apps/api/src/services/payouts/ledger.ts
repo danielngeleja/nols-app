@@ -35,6 +35,7 @@ import { azamPayOperatorMatchesPayout } from "../azampay/disbursement/contract.j
 import type { AzamPayDisburseCallback } from "../azampay/disbursement/types.js";
 import { notifyAdmins, notifyOwner, notifyUser } from "../../lib/notifications.js";
 import { retentionFields } from "../../lib/auditRetention.js";
+import { markEventTransferPaid } from "../../lib/eventHireBookings.js";
 import { applyRecoveryDeduction, grossBalanceOf } from "../../lib/tourRecoveryOffset.js";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -44,6 +45,7 @@ const SOURCE_LABEL: Record<string, string> = {
   TOUR_ADVANCE: "tour operator advance",
   DRIVER_TRIP: "driver payout",
   SALES_PAYOUT: "sales partner payout",
+  EVENT_HIRE: "event hire settlement",
 };
 
 /** Admin alert about a payout. Never throws: the payout state is already committed. */
@@ -112,6 +114,7 @@ const SOURCE_REF_CODE: Record<PayoutSourceType, string> = {
   DRIVER_TRIP: "D",
   SALES_PAYOUT: "S",
   TENANCY: "L",
+  EVENT_HIRE: "E",
 };
 
 // Alphanumeric only (no ambiguous chars excluded — collisions are guarded by
@@ -333,7 +336,7 @@ function eventHashFor(disbursementId: number, eventType: string, payload: Record
 
 async function requirePayableBank(sourceType: string, currency: string, provider: string, refresh = false) {
   // Sales partners may be paid to a bank as well as mobile money (2026-11-27).
-  if (!["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "SALES_PAYOUT"].includes(sourceType) ||
+  if (!["OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "SALES_PAYOUT", "EVENT_HIRE"].includes(sourceType) ||
       currency !== "TZS" || !(await azamPayBankNames(refresh)).includes(provider)) {
     throw new PayoutStateError("This bank is unavailable for this payout.");
   }
@@ -556,6 +559,15 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
     throw new PayoutStateError(
       `Disbursement ${disbursementId} failed its approval fingerprint check at submission; diverted to SECURITY_REVIEW`
     );
+  }
+  if(disbursement.sourceType==="EVENT_HIRE"){
+    try{
+      const source=await loadEligiblePayoutSource("EVENT_HIRE",disbursement.sourceId);
+      if(source.payeeUserId!==disbursement.payoutAccount.userId||Number(source.amount)!==Number(disbursement.amount)||source.currency!==disbursement.currency)throw new Error("Event settlement changed");
+    }catch{
+      await divertToSecurityReview(disbursementId,"Event settlement, funding or beneficiary changed before provider submission");
+      throw new PayoutStateError("Event payout was held for financial review before submission");
+    }
   }
 
   // A dispute can arrive after the owner confirms the withdrawal or after a
@@ -916,6 +928,10 @@ async function writeBackSourcePaid(
   disbursement: Disbursement
 ): Promise<void> {
   const { sourceType, sourceId, externalReferenceId, amount, currency } = disbursement;
+  if (sourceType === "EVENT_HIRE") {
+    await markEventTransferPaid(tx, sourceId, Number(amount), externalReferenceId);
+    return;
+  }
   const now = new Date();
 
   try {

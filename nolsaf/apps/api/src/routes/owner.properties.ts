@@ -1,6 +1,7 @@
 // apps/api/src/routes/owner.properties.ts
 import { Router, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
+import { isEventHireAvailable } from "../lib/eventHire.js";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { cleanHtml } from "../lib/sanitize";
 import { Prisma } from "@prisma/client";
@@ -604,6 +605,25 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
     // Sanitize JSON fields in-place (no-op on already-parsed objects)
     for (const item of items) {
       sanitizePropertyJsonFields(item, `GET /mine property ${item?.id ?? "unknown"}`);
+    }
+
+    // Read only the event approval needed for the card badge, in one query.
+    // A missing optional event table must not hide the owner's properties.
+    const approvedEventPropertyIds = new Set<number>();
+    if (items.length) {
+      try {
+        const eventHires = await (prisma as any).propertyEventHire.findMany({
+          where: { propertyId: { in: items.map((item) => item.id) }, status: "APPROVED" },
+          select: { propertyId: true },
+        });
+        for (const eventHire of eventHires) approvedEventPropertyIds.add(eventHire.propertyId);
+      } catch (error) {
+        if (!isSchemaMismatchError(error)) console.error("Could not load event hire badges:", error);
+      }
+    }
+    for (const item of items) {
+      item.offersEventHire = approvedEventPropertyIds.has(item.id)
+        && isEventHireAvailable({ status: "APPROVED" }, item);
     }
 
     // Batch-fetch suspension reasons for all SUSPENDED properties in one query

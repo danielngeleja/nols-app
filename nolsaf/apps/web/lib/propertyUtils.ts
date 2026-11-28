@@ -88,22 +88,18 @@ export function getBedDimensions(bedsSummary: string): string | null {
   return dimensions.length > 0 ? dimensions.join(" • ") : null;
 }
 
-/**
- * Format time range from from/to times
- */
+export function formatClockTime(time: string): string {
+  if (!time) return '';
+  const [hours, minutes] = time.split(':');
+  const hour = parseInt(hours, 10);
+  const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+  return `${displayHour}:${minutes || '00'} ${hour >= 12 ? 'PM' : 'AM'}`;
+}
+
 export function formatTimeRange(from: string | undefined, to: string | undefined): string | null {
   if (!from && !to) return null;
   if (from && to) {
-    const formatTime = (time: string) => {
-      if (!time) return '';
-      const [hours, minutes] = time.split(':');
-      const h = parseInt(hours, 10);
-      const m = minutes || '00';
-      const period = h >= 12 ? 'PM' : 'AM';
-      const displayHour = h > 12 ? h - 12 : h === 0 ? 12 : h;
-      return `${displayHour}:${m} ${period}`;
-    };
-    return `${formatTime(from)} - ${formatTime(to)}`;
+    return `${formatClockTime(from)} - ${formatClockTime(to)}`;
   }
   return from || to || null;
 }

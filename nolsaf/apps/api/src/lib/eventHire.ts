@@ -237,8 +237,8 @@ export function readExtraPhotos(value: unknown, cloudName?: string): string[] {
 }
 
 /**
- * Replaces the uploaded event photos. Changing photos of an approved add-on
- * sends it back to DRAFT, like a change of terms: NoLSAF has not seen them.
+ * Replaces photos on the event add-on only. The parent accommodation's
+ * approval is never changed. Locked event add-ons must be returned first.
  */
 export async function setExtraEventPhotos(db: any, input: { propertyId: number; userId: number; by: "OWNER" | "SALES_PARTNER"; salesPartnerId?: number | null; urls: unknown }) {
   const property = await loadPropertyForEvents(db, input.propertyId);
@@ -395,6 +395,12 @@ export async function loadEventHire(db: any, propertyId: number) {
   return db.propertyEventHire.findUnique({ where: { propertyId } });
 }
 
+/** Venue hire can operate only under an approved nightly accommodation. */
+export function isEventHireAvailable(row: any, property: any): boolean {
+  return row?.status === "APPROVED" && property?.status === "APPROVED"
+    && String(property?.rentalMode || "NIGHTLY").toUpperCase() === "NIGHTLY";
+}
+
 /** One view for the owner, the partner and admin (no tokens, no hashes). */
 export function eventHireView(row: any, property: any) {
   const terms = row ? sanitizeEventTerms(row.terms) : sanitizeEventTerms({});
@@ -402,6 +408,7 @@ export function eventHireView(row: any, property: any) {
   const photos = eventSpacePhotoCount(property?.photos, property?.photoAreas) + extraPhotos.length;
   return {
     status: row?.status ?? "NONE",
+    available: isEventHireAvailable(row, property),
     // Nothing can be edited (terms or photos) while true.
     locked: isLocked(row?.status),
     // Shown to the owner so they know exactly what NoLSAF keeps and adds.
@@ -450,16 +457,18 @@ export async function loadPropertyForEvents(db: any, propertyId: number) {
 }
 
 /**
- * Save terms. `by` says who saved: an owner save clears a pending SMS link;
+ * Save only the event add-on; never change the parent property's status.
+ * `by` says who saved: an owner save clears a pending SMS link;
  * a partner may only edit before the owner has confirmed.
  */
-export async function saveEventTerms(db: any, input: { propertyId: number; userId: number; by: "OWNER" | "SALES_PARTNER"; salesPartnerId?: number | null; terms: unknown }) {
+export async function saveEventTerms(db: any, input: { propertyId: number; userId: number; by: "OWNER" | "SALES_PARTNER"; salesPartnerId?: number | null; terms: unknown; allowIncomplete?: boolean }) {
   const property = await loadPropertyForEvents(db, input.propertyId);
   const terms = sanitizeEventTerms(input.terms);
   const fingerprint = eventTermsFingerprint(terms);
-  // Required details must all be there to save (photos are saved on their own, so not counted here).
+  // Onboarding may persist a partial draft. Submission and approval always
+  // require the complete details and photos, regardless of this save option.
   const missing = requiredTermsProblems(terms);
-  if (missing.length) throw new EventHireError(missing[0], 400, "REQUIRED");
+  if (missing.length && !input.allowIncomplete) throw new EventHireError(missing[0], 400, "REQUIRED");
   const existing = await loadEventHire(db, input.propertyId);
   if (input.by === "SALES_PARTNER" && existing && !["DRAFT", "AWAITING_OWNER", "RETURNED"].includes(existing.status)) {
     throw new EventHireError("The owner already confirmed this. Ask them to change it from their account.", 409, "OWNER_HAS_IT");
@@ -589,6 +598,7 @@ export async function adminDecide(db: any, input: { propertyId: number; adminId:
       {
         // Never approve something with required details or photos missing: return it instead.
         const property = await loadPropertyForEvents(db, input.propertyId);
+        if (property.status !== "APPROVED") throw new EventHireError("Approve the accommodation property before approving its event hire.", 409, "PROPERTY_NOT_APPROVED");
         const missing = eventTermsProblems(sanitizeEventTerms(row.terms), eventSpacePhotoCount(property.photos, property.photoAreas) + readExtraPhotos(row.extraPhotos).length);
         if (missing.length) throw new EventHireError(`Required details are missing, so it cannot be approved. Return it to the owner. ${missing[0]}`, 409, "INCOMPLETE");
       }
@@ -603,6 +613,8 @@ export async function adminDecide(db: any, input: { propertyId: number; adminId:
       return db.propertyEventHire.update({ where: { id: row.id }, data: { status: "PAUSED", pausedAt: now, pauseReason: reason, reviewedById: input.adminId } });
     case "RESUME": {
       if (row.status !== "PAUSED") throw new EventHireError("Only a paused event hire can be resumed.", 409);
+      const property = await loadPropertyForEvents(db, input.propertyId);
+      if (property.status !== "APPROVED") throw new EventHireError("Approve the accommodation property before resuming its event hire.", 409, "PROPERTY_NOT_APPROVED");
       const backTo = row.approvedFingerprint && row.approvedFingerprint === row.termsFingerprint ? "APPROVED" : "PENDING";
       return db.propertyEventHire.update({ where: { id: row.id }, data: { status: backTo, pausedAt: null, pauseReason: null, reviewedById: input.adminId } });
     }

@@ -20,6 +20,7 @@ import {
   Loader2,
   MapPin,
   Pencil,
+  PartyPopper,
   ShieldCheck,
   Sparkles,
   Star,
@@ -178,6 +179,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
   const router = useRouter();
   const [editWarning, setEditWarning] = useState(false);
   const [property, setProperty] = useState<any>(null);
+  const [eventHire, setEventHire] = useState<{ propertyId: number; status: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditRow[] | null>(null);
   const [showAllAudit, setShowAllAudit] = useState(false);
@@ -203,6 +205,15 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
       setError(e?.response?.data?.error || "This property could not be loaded.");
     }
   }, [propertyId]);
+
+  useEffect(() => {
+    if (Number(property?.id) !== propertyId || property?.rentalMode === "LONG_STAY") return;
+    let active = true;
+    apiClient.get<{ status: string }>(`/api/owner/properties/${propertyId}/event-hire`)
+      .then(({ data }) => { if (active) setEventHire({ propertyId, status: data.status }); })
+      .catch(() => { if (active) setEventHire(null); });
+    return () => { active = false; };
+  }, [propertyId, property?.id, property?.rentalMode]);
 
   useEffect(() => {
     void load();
@@ -276,6 +287,8 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
   const status = String(property.status || "").toUpperCase();
   const statusMeta = STATUS_META[status] ?? { label: status.toLowerCase(), tone: "bg-white/10 text-white/70 ring-white/15", note: "" };
   const isLongStay = property.rentalMode === "LONG_STAY";
+  const hasApprovedEventHire = !isLongStay && status === "APPROVED"
+    && eventHire?.propertyId === propertyId && eventHire?.status === "APPROVED";
   const terms = isLongStay ? property.longStay : null;
   const rawServices = parseJson<Record<string, unknown> | string[]>(property.services, {});
   const serviceDetails = rawServices && !Array.isArray(rawServices) ? rawServices : {};
@@ -412,6 +425,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
                 <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${statusMeta.tone}`}>{isLongStay && status === "APPROVED" ? "Approved" : statusMeta.label}</span>
                 <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white">{isLongStay ? "Long stay · Whole home" : "Nightly stay"}</span>
                 <span className="rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/75">{typeLabel(property.type)}</span>
+                {hasApprovedEventHire ? <Link href={href(property.id, "/events")} title="View approved event hire details" className="inline-flex items-center gap-1.5 rounded-md border border-solid border-amber-200/30 bg-amber-200/15 px-2 py-0.5 text-[11px] font-semibold text-amber-100 no-underline transition hover:bg-amber-200/25"><PartyPopper className="h-3 w-3" aria-hidden />Stays &amp; events<ExternalLink className="h-3 w-3" aria-hidden /></Link> : null}
                 {property.hotelStar ? <span className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-amber-200"><Star className="h-3 w-3 fill-current" aria-hidden />{typeLabel(property.hotelStar)}</span> : null}
               </div>
               <h1 className="m-0 mt-2 text-[26px] font-bold leading-tight tracking-tight text-white sm:text-[32px]" title={property.title}>{titleCase(property.title)}</h1>
@@ -426,6 +440,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
               <Link href={isLongStay ? "/owner/long-stays" : href(property.id, "/availability")} className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/[0.12]">
                 <CalendarDays className="h-4 w-4" aria-hidden /> {isLongStay ? "Manage long stays" : "Availability"}
               </Link>
+              {!isLongStay && status === "APPROVED" ? <Link href={hasApprovedEventHire ? `/owner/properties/events?venue=${encodeURIComponent(ownerPropertyRefOrId(property.id))}&tab=overview` : href(property.id, "/events")} className="inline-flex h-10 items-center gap-1.5 rounded-md border border-solid border-amber-200/30 bg-amber-200/10 px-3.5 text-sm font-semibold text-amber-100 no-underline transition hover:bg-amber-200/20"><PartyPopper className="h-4 w-4" aria-hidden />{hasApprovedEventHire ? "Manage event hire" : "Hire for events"}</Link> : null}
               <button type="button" onClick={openEditor} className="inline-flex h-10 items-center gap-1.5 rounded-md border-0 bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] transition hover:bg-[#8ff3e1]">
                 <Pencil className="h-4 w-4" aria-hidden /> Edit property
               </button>

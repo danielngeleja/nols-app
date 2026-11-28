@@ -15,13 +15,14 @@ import { adminRecordReference } from "./adminRecordReference.js";
 import { REVENUE_STREAMS, round2, type RevenueStream } from "./revenueLedger.js";
 import { LONG_STAY_FIGURE_FIELDS, longStayRevenueFigures } from "./longStay/revenueFigures.js";
 
-const OVERVIEW_KEY: Record<RevenueStream, "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions" | "longStay"> = {
+const OVERVIEW_KEY: Record<RevenueStream, "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions" | "longStay" | "eventHire"> = {
   ACCOMMODATION: "accommodation",
   TOUR: "tours",
   TRANSPORT: "transport",
   GROUP_STAY: "groupStay",
   SUBSCRIPTION: "subscriptions",
   LONG_STAY: "longStay",
+  EVENT_HIRE: "eventHire",
 };
 const LABEL: Record<RevenueStream, string> = {
   ACCOMMODATION: "Accommodation",
@@ -30,6 +31,7 @@ const LABEL: Record<RevenueStream, string> = {
   GROUP_STAY: "Group stay",
   SUBSCRIPTION: "Subscriptions",
   LONG_STAY: "Long stay",
+  EVENT_HIRE: "Event hire",
 };
 /** Differences under half a shilling are rounding, not a finding. */
 const TOLERANCE = 0.5;
@@ -130,6 +132,12 @@ async function overviewSources(range: DayRange): Promise<SourceFigure[]> {
     if (!f || (span && (f.at < span.from || f.at > span.to))) continue;
     out.push({ stream: "LONG_STAY", sourceType: "TENANCY", sourceId: t.id, label: t.publicRef, commissionTzs: toTzs(f.commission, f.currency), grossTzs: toTzs(f.gross, f.currency) });
   }
+  if(db.eventHireBooking){
+    try{
+      const events=await db.eventHireBooking.findMany({where:{status:"COMPLETED",paidAt:{not:null},settlementPreparedAt:within??{not:null}},select:{id:true,reference:true,fee:true,total:true,deposit:true}});
+      for(const event of events)out.push({stream:"EVENT_HIRE",sourceType:"EVENT_BOOKING",sourceId:event.id,label:event.reference,commissionTzs:event.fee,grossTzs:event.total-event.deposit});
+    }catch(error:any){if(!["P2021","P2022"].includes(error?.code))throw error;}
+  }
   return out;
 }
 
@@ -216,7 +224,7 @@ async function labelsFor(keys: Array<{ stream: RevenueStream; sourceType: string
 
 // ── Report ───────────────────────────────────────────────────────────────────
 
-export async function computeRevenueReconciliation(range: DayRange, opts: { limit?: number } = {}) {
+export async function computeRevenueReconciliation(range: DayRange, opts: { limit?: number; stream?: RevenueStream } = {}) {
   const db = prisma as any;
   const limit = Math.min(500, Math.max(1, opts.limit ?? 200));
   const businessDate = range ? { gte: new Date(`${range.from}T00:00:00.000Z`), lte: new Date(`${range.to}T00:00:00.000Z`) } : undefined;
@@ -255,12 +263,12 @@ export async function computeRevenueReconciliation(range: DayRange, opts: { limi
 
   const overviewKeys = new Set(sources.map(keyOf));
   const ledgerOnly = [...new Map(ledgerSources.filter((s) => !overviewKeys.has(keyOf(s))).map((s) => [keyOf(s), s])).values()];
-  const findings = classifySources(sources, ledgerSources, elsewhere, await labelsFor(ledgerOnly));
+  const findings = classifySources(sources, ledgerSources, elsewhere, await labelsFor(ledgerOnly)).filter(f => !opts.stream || f.stream === opts.stream);
 
-  const streams = REVENUE_STREAMS.map((stream) => {
+  const streams = REVENUE_STREAMS.filter(stream => !opts.stream || stream === opts.stream).map((stream) => {
     const mine = rows.filter((r: any) => r.stream === stream);
     const sum = (field: string, type?: string) => round2(mine.filter((r: any) => !type || r.entryType === type).reduce((acc: number, r: any) => acc + n(r[field]), 0));
-    const o = overview.streams.find((s) => s.key === OVERVIEW_KEY[stream])!;
+    const o = overview.streams.find((s) => s.key === OVERVIEW_KEY[stream]) ?? {nolsafRevenue:0,gmv:0,partnerNet:0,realizedCount:0};
     const ledgerRevenue = sum("commissionTzs");
     const own = findings.filter((f) => f.stream === stream);
     const count = (kind: Finding["kind"]) => own.filter((f) => f.kind === kind).length;
@@ -290,7 +298,7 @@ export async function computeRevenueReconciliation(range: DayRange, opts: { limi
     ok: true,
     baseCurrency: BASE_CURRENCY,
     range: range ?? null,
-    ledgerEntries: rows.length,
+    ledgerEntries: rows.filter((r: any) => !opts.stream || r.stream === opts.stream).length,
     totals,
     streams,
     findings: findings.slice(0, limit),

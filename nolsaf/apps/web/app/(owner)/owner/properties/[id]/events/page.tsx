@@ -75,7 +75,7 @@ export default function OwnerEventHirePage() {
     try {
       const res = await apiClient.post(`/api/owner/properties/${id}/event-hire/submit`, { version: view.version, consent: true });
       setView(res.data);
-      setNotice("Sent. NoLSAF reviews it and lets you know.");
+      setNotice(res.data.propertyStatus === "APPROVED" ? "Event hire sent for review. Your accommodation remains approved." : "Event hire sent for its own review. NoLSAF will notify you of the outcome.");
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Could not send it for review.");
       if (cause?.response?.data?.code === "CHANGED") void load();
@@ -121,14 +121,16 @@ export default function OwnerEventHirePage() {
         ) : null}
       </div>
 
+      {id && view?.status === "APPROVED" ? <Link href={`/owner/properties/events?venue=${encodeURIComponent(ownerPropertyRefOrId(id))}&tab=overview`} className="inline-flex items-center gap-2 rounded-lg border border-solid border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-[#02665e] no-underline">Open event operations</Link> : null}
       {refError ? <p role="alert" className="m-0 rounded-md border border-solid border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">{refError}</p> : null}
+      {view?.propertyStatus === "APPROVED" ? <p className="m-0 flex items-start gap-2 rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>Your accommodation stays approved.</strong> Saving event details, adding event photos or sending event hire for review does not put your accommodation back into draft. Only event hire is reviewed here.</span></p> : null}
       {error ? <p role="alert" className="m-0 flex items-start gap-2 rounded-md border border-solid border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p> : null}
       {notice ? <p role="status" className="m-0 flex items-start gap-2 rounded-md border border-solid border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{notice}</p> : null}
 
       {!view ? (
         !error && !refError ? <div className="grid min-h-40 place-items-center text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div> : null
       ) : (
-        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+        <div className="event-hire-workspace eh-event-layout">
           <EventHireEditor
             view={view}
             disabled={Boolean(view.locked)}
@@ -137,9 +139,8 @@ export default function OwnerEventHirePage() {
             onPhotos={(urls) => void savePhotos(urls)}
             onExtraPhotos={(urls) => savePhotos(urls, "extra-photos")}
             photosSaving={photosSaving}
-            photosHref={id ? `/owner/properties/add?id=${ownerPropertyRefOrId(id)}` : undefined}
           />
-          <div className="min-w-0 space-y-4 lg:sticky lg:top-4">
+          <div className="eh-event-sidebar min-w-0 space-y-4">
             <EventHireStatusCard view={view} audience="owner" />
             {canSubmit ? (
               <article className="min-w-0 rounded-lg border border-solid border-slate-300 bg-white p-4">
@@ -151,7 +152,7 @@ export default function OwnerEventHirePage() {
                     ? "border-0 bg-[#02665e] text-white shadow-[0_8px_20px_-10px_rgba(2,102,94,0.7)] hover:bg-[#014d47]"
                     : "cursor-not-allowed border border-solid border-[#02665e]/40 bg-white text-[#02665e]"}`}>
                   {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  {consent ? "Send for review" : "Tick the box above to send"}
+                  {consent ? "Send event hire for review" : "Tick the box above to send"}
                 </button>
                 <p className="m-0 mt-2 flex items-start gap-1.5 text-[11px] leading-4 text-slate-500"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#02665e]" />Clients pay NoLSAF, never you directly. NoLSAF holds the deposit and pays you after the event.</p>
               </article>

@@ -123,12 +123,16 @@ import { BATHROOM_ICONS, OTHER_AMENITIES_ICONS } from "../../../../lib/amenityIc
 import { PriceDisplay } from "@/components/PriceDisplay";
 
 import { PropertyGalleryImage, PropertyPhotoGrid } from "@/components/PropertyPhotoGrid";
+import EventHireOffer from "./EventHireOffer";
+import type { PublicEventHire } from "@/lib/publicEventVenue";
 
 type PublicPropertyDetail = {
   id: number;
   /** NIGHTLY or LONG_STAY (docs/LONG_STAY_RENTALS.md). */
   rentalMode?: "NIGHTLY" | "LONG_STAY";
   longStay?: PublicLongStay | null;
+  /** Event hire on this stay, present only when NoLSAF approved it (nightly stays). */
+  eventHire?: PublicEventHire | null;
   slug: string;
   title: string;
   type: string;
@@ -3523,8 +3527,10 @@ export default function PublicPropertyDetailPage() {
             ) : (
               <ShortStayServices included={servicesByCategory.included} available={servicesByCategory.available} />
             )}
+            {!isLongStay && property.eventHire ? <EventHireOffer offer={property.eventHire} slug={property.slug} /> : null}
 
-            {property.nrmsMenuUrl ? (                <Link
+            {property.nrmsMenuUrl ? (
+                <Link
                   href={property.nrmsMenuUrl}
                   className="group mt-3 flex items-center gap-3 rounded-2xl p-3.5 no-underline shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
                   style={{ border: "1.5px solid rgba(2, 102, 94, 0.45)", background: "linear-gradient(135deg, rgba(2,102,94,0.07), rgba(2,102,94,0.02))" }}

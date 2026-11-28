@@ -6,6 +6,7 @@ import { extractPublicKeyFromSlug } from "../lib/publicPropertyKey.js";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { nightlyPriceOptions, serviceTagSet, toPublicCard, toPublicDetail } from "../lib/publicPropertyDto.js";
+import { publicEventHireView, publicEventMultiDayEstimates } from "../lib/eventHirePublic.js";
 import { Prisma } from "@prisma/client";
 import QRCode from "qrcode";
 import { withCache, cacheKeys, cacheTags, measureTime, publicCacheKey } from "../lib/performance.js";
@@ -1026,6 +1027,7 @@ const getPublicProperty: RequestHandler = async (req, res) => {
               rentalMode: true,
               longStayListing: true,
               photoAreas: true,
+              eventHire: { select: { status: true, terms: true, termsFingerprint: true, approvedFingerprint: true, extraPhotos: true } },
               images: {
                 where: {
                   // Show all uploaded images on public details as long as they're not rejected.
@@ -1132,6 +1134,8 @@ const getPublicProperty: RequestHandler = async (req, res) => {
             };
           } else {
             (dto as any).rentalMode = "NIGHTLY";
+            // Event hire on this stay, if approved and still on the approved terms (docs/SALES_AGENCY_EVENT_HIRE_STRATEGY.md).
+            (dto as any).eventHire = publicEventHireView(p.eventHire, { photos: legacyPhotos, photoAreas: p.photoAreas });
           }
           return { property: dto };
         },
@@ -1745,6 +1749,87 @@ router.get("/availability", (async (req, res) => {
  * GET /api/public/properties/:id/booking-count
  * Returns total number of confirmed/paid bookings for a property.
  */
+const publicEventVenueSelect = {
+  status: true,
+  terms: true,
+  termsFingerprint: true,
+  approvedFingerprint: true,
+  extraPhotos: true,
+  property: { select: { id: true, nrmsBookingKey: true, title: true, type: true, rentalMode: true, city: true, ward: true, district: true, regionName: true, country: true, photos: true, photoAreas: true } },
+} satisfies Prisma.PropertyEventHireSelect;
+
+/**
+ * GET /api/public/properties/event-venues
+ * Every stay NoLSAF approved for event hire, as event venue cards for the
+ * "Event venues" browse mode. Same rule as the property page (lib/eventHirePublic.ts);
+ * the set is small, so the web filters it by event type, guests and place.
+ * Location is the card's area line only (no street), as on every public card.
+ */
+router.get("/event-venues", (async (_req, res) => {
+  try {
+    const rows = await prisma.propertyEventHire.findMany({
+      where: { status: "APPROVED", property: { status: "APPROVED", rentalMode: "NIGHTLY" } },
+      select: publicEventVenueSelect,
+      orderBy: { reviewedAt: "desc" },
+      take: 200,
+    });
+    let requestsOpen = false;
+    const items = rows.flatMap((row) => {
+      const view = publicEventHireView(row, { photos: row.property.photos, photoAreas: row.property.photoAreas });
+      if (!view) return [];
+      requestsOpen = view.requestsOpen;
+      const card = toPublicCard(row.property);
+      const eventPhoto = view.photos.find((url) => /^https:\/\//i.test(url)) ?? null;
+      return [{
+        slug: card.slug,
+        title: card.title,
+        location: card.location,
+        regionName: row.property.regionName ?? null,
+        image: eventPhoto ?? card.primaryImage,
+        spaceType: view.spaceType,
+        eventTypes: view.eventTypes,
+        capacitySeated: view.capacitySeated,
+        capacityStanding: view.capacityStanding,
+        earliestStart: view.earliestStart,
+        latestEnd: view.latestEnd,
+        fromPrice: view.fromPrice,
+        packages: view.packages.map((p) => p.key),
+        allowed: view.allowed,
+        photoCount: view.photos.length,
+      }];
+    });
+    res.set("Cache-Control", "public, max-age=60");
+    return res.json({ items, total: items.length, requestsOpen });
+  } catch (e: any) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && (e.code === "P2021" || e.code === "P2022")) {
+      return res.json({ items: [], total: 0, requestsOpen: false, warning: "db_not_migrated" });
+    }
+    console.error("public.properties.event-venues failed", e);
+    return res.status(500).json({ error: "failed" });
+  }
+}) as RequestHandler);
+
+router.get("/event-venues/:idOrSlug", (async (req, res) => {
+  const publicKey = extractPublicKeyFromSlug(String(req.params.idOrSlug ?? ""));
+  res.set("Cache-Control", "no-store");
+  if (!publicKey) return res.status(404).json({ error: "venue_not_found" });
+
+  try {
+    const row = await prisma.propertyEventHire.findFirst({
+      where: { status: "APPROVED", property: { nrmsBookingKey: publicKey, status: "APPROVED", rentalMode: "NIGHTLY" } },
+      select: publicEventVenueSelect,
+    });
+    const offer = row && publicEventHireView(row, row.property);
+    if (!row || !offer) return res.status(404).json({ error: "venue_not_found" });
+
+    const { slug, title, location } = toPublicCard(row.property);
+    return res.json({ venue: { slug, title, location, offer, multiDayEstimates: publicEventMultiDayEstimates(row) } });
+  } catch (error) {
+    console.error("public.properties.event-venue failed", error);
+    return res.status(503).json({ error: "venue_unavailable" });
+  }
+}) as RequestHandler);
+
 router.get("/:id/booking-count", (async (req, res) => {
   const id = parseInt((req.params as any).id, 10);
   if (isNaN(id)) return res.status(400).json({ error: "invalid_id" });

@@ -7,14 +7,12 @@
     "node": "22.x"
   },
   "scripts": {
-    "predev": "node -e \"require('fs').rmSync('.next',{ recursive:true, force:true, maxRetries:10, retryDelay:100 })\"",
-    "prebuild": "node -e \"require('fs').rmSync('.next',{ recursive:true, force:true, maxRetries:10, retryDelay:100 })\"",
     "dev": "next dev --webpack -p 3000",
     "build": "npm --prefix ../../packages/shared run build && node scripts/run-next-build.mjs && node scripts/collect-private-source-maps.mjs",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test middleware.auth-boundary.test.mjs middleware.auth-login-redirect.test.mjs middleware.post-auth-routing.test.mjs post-auth-routing.test.mjs public-mobile-navigation.test.mjs nrms-report-pdf.test.mjs cookie-consent.test.mjs partnership-workspaces.test.mjs password-policy.test.mjs otp-rate-limit.test.mjs nrms-room-readiness.test.mjs nrms-room-detail.test.cjs"
+    "test": "node --experimental-strip-types --test listing-flow.test.mjs listing-section-visibility.test.mjs middleware.auth-boundary.test.mjs middleware.auth-login-redirect.test.mjs middleware.post-auth-routing.test.mjs post-auth-routing.test.mjs public-mobile-navigation.test.mjs nrms-report-pdf.test.mjs cookie-consent.test.mjs partnership-workspaces.test.mjs password-policy.test.mjs otp-rate-limit.test.mjs nrms-room-readiness.test.mjs nrms-room-detail.test.cjs"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",

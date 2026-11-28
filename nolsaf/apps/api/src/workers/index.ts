@@ -1,4 +1,5 @@
 import type { Server as SocketServer } from "socket.io";
+import { startEventHireRequestsWorker } from "./eventHireRequests.js";
 import { startExpireGroupBookingDeposits } from "./expireGroupBookingDeposits.js";
 import { startLongStayPaymentsWorker } from "./longStayPayments.js";
 import { startCloseUnpaidPastGroupStays } from "./closeUnpaidPastGroupStays.js";
@@ -144,6 +145,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startSalesCommissionLifecycleWorker();
       // Sales partners: follow-up dates that have arrived, and lead claims about to lapse.
       startSalesLeadReminderWorker();
+      startEventHireRequestsWorker();
       startNrmsInquiryFollowUpWorker();
       startAuditRetentionWorker();
       // Admin alerts: read and resolved ones clear after 7 days; nothing unread or unresolved is ever removed.

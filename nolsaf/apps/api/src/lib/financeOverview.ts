@@ -15,7 +15,7 @@ const n = (v: unknown): number => {
 };
 
 export type StreamSummary = {
-  key: "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions" | "longStay";
+  key: "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions" | "longStay" | "eventHire";
   label: string;
   gmv: number; // realized gross, in TZS
   nolsafRevenue: number; // realized platform take, in TZS
@@ -287,7 +287,18 @@ export async function computeFinanceOverview(from?: string, to?: string, opts: {
     longStay.pendingCount += row._count._all;
   }
 
-  const streams = [accommodation, tours, transport, groupStay, subscriptions, longStay];
+  const eventHire:StreamSummary={key:"eventHire",label:"Event hire",gmv:0,nolsafRevenue:0,partnerNet:0,realizedCount:0,pendingRevenue:0,pendingCount:0,note:"Recognized after completion and the claim window. Refundable security deposits are excluded from revenue."};
+  const eventDb=(prisma as any).eventHireBooking;
+  if(eventDb){
+    try{
+      const [settled,pending]=await Promise.all([
+        eventDb.aggregate({where:{settlementPreparedAt:{not:null,...(dateClause()||{})},status:"COMPLETED",paidAt:{not:null}},_sum:{total:true,deposit:true,fee:true,ownerDue:true},_count:{_all:true}}),
+        eventDb.aggregate({where:{settlementPreparedAt:null,status:{in:["CONFIRMED","COMPLETED"]},paidAt:{not:null,...(dateClause()||{})}},_sum:{fee:true},_count:{_all:true}}),
+      ]);
+      eventHire.gmv=n(settled._sum.total)-n(settled._sum.deposit);eventHire.nolsafRevenue=n(settled._sum.fee);eventHire.partnerNet=n(settled._sum.ownerDue);eventHire.realizedCount=settled._count._all;eventHire.pendingRevenue=n(pending._sum.fee);eventHire.pendingCount=pending._count._all;
+    }catch(error:any){if(!["P2021","P2022"].includes(error?.code))throw error;}
+  }
+  const streams = [accommodation, tours, transport, groupStay, subscriptions, longStay, eventHire];
 
   const totals = streams.reduce(
     (acc, s) => {

@@ -7,6 +7,12 @@ import { enforceSocketSessionPolicy } from "../middleware/socketAuth.js";
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH_FLOOR } from "../lib/security.js";
 import { hasFinanceGrant } from "../lib/financeGrantStore.js";
 import {
+  adminClientIp,
+  invalidateAdminAllowlistCache,
+  ipInAllowlist,
+  parseAllowlist,
+} from "../middleware/adminAllowlist.js";
+import {
   OWNER_FIRST_PAYOUT_AUTO_CEILING_TZS,
   OWNER_WITHDRAWAL_REVIEW_ALERT_DEFAULT_HOURS,
   OWNER_WITHDRAWAL_REVIEW_ALERT_MAX_HOURS,
@@ -436,6 +442,27 @@ router.get("/audit/session-policy", async (_req, res) => {
   );
 });
 
+/**
+ * The address the admin allowlist sees for this admin, and whether the saved
+ * list admits it. Shown on the allowlist pages so nobody saves themselves out,
+ * and so a proxy address (wrong trust proxy hop count) is visible before
+ * enforcement is switched on.
+ */
+router.get("/my-ip", async (req, res) => {
+  const s = await prisma.systemSetting.findUnique({
+    where: { id: 1 },
+    select: { ipAllowlist: true, enableIpAllowlist: true },
+  });
+  const ip = adminClientIp(req);
+  const list = parseAllowlist(s?.ipAllowlist);
+  res.json({
+    ip: ip || null,
+    switchOn: Boolean(s?.enableIpAllowlist),
+    enforced: Boolean(s?.enableIpAllowlist) && list.length > 0,
+    listed: ipInAllowlist(list, ip),
+  });
+});
+
 /** PUT update settings */
 router.put("/", async (req, res) => {
   const roleCols = await hasRoleTtlColumns();
@@ -788,6 +815,30 @@ router.put("/", async (req, res) => {
     });
   }
 
+  // Lockout guard: refuse a save that would leave enforcement on with a list
+  // that does not admit the admin making the change. Uses the same address
+  // the allowlist middleware checks, so what passes here passes there.
+  if (body.ipAllowlist !== undefined || body.enableIpAllowlist !== undefined) {
+    const nextList = parseAllowlist(
+      body.ipAllowlist !== undefined ? (body.ipAllowlist as string | null) : before?.ipAllowlist,
+    );
+    const nextEnabled = body.enableIpAllowlist !== undefined
+      ? Boolean(body.enableIpAllowlist)
+      : Boolean(before?.enableIpAllowlist);
+    const ip = adminClientIp(req);
+    if (nextEnabled && nextList.length > 0 && !ipInAllowlist(nextList, ip)) {
+      const message = ip
+        ? `Your current address ${ip} is not on the list. Add it before saving, or you would lose admin access.`
+        : "Your current address could not be determined, so this list could lock you out. Save was refused.";
+      return res.status(409).json({
+        error: "ALLOWLIST_EXCLUDES_YOU",
+        message,
+        ip: ip || null,
+        details: [{ field: "ipAllowlist", message }],
+      });
+    }
+  }
+
   if (loosensPayoutSafeguards && !(await hasFinanceGrant(req))) {
     return res.status(403).json({
       error: "OTP required",
@@ -846,6 +897,9 @@ router.put("/", async (req, res) => {
     update: sanitizedUpdate,
     create: { id: 1, ...sanitizedUpdate },
   });
+  if (sanitizedUpdate.ipAllowlist !== undefined || sanitizedUpdate.enableIpAllowlist !== undefined) {
+    invalidateAdminAllowlistCache();
+  }
 
   // Audit with an explicit diff over every field that was submitted.
   const changes: Record<string, { from: any; to: any }> = {};

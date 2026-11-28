@@ -49,6 +49,7 @@ const GROUPS = [
   { value: "TOURS", label: "Tours" },
   { value: "DRIVERS", label: "Drivers" },
   { value: "SALES", label: "Sales" },
+  { value: "EVENTS", label: "Event hire" },
 ];
 
 const PAYOUT_PATH = [

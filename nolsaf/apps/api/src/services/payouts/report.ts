@@ -20,7 +20,7 @@
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
 
-export const REPORT_SOURCE_TYPES = ["OWNER_INVOICE", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"] as const;
+export const REPORT_SOURCE_TYPES = ["OWNER_INVOICE", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT", "EVENT_HIRE"] as const;
 export type ReportSourceType = (typeof REPORT_SOURCE_TYPES)[number];
 
 /**
@@ -28,7 +28,7 @@ export type ReportSourceType = (typeof REPORT_SOURCE_TYPES)[number];
  * one owner" are different questions, so groups and a single recipient are
  * separate filters rather than one overloaded field.
  */
-export const REPORT_GROUPS = ["OWNERS", "TOURS", "DRIVERS", "SALES"] as const;
+export const REPORT_GROUPS = ["OWNERS", "TOURS", "DRIVERS", "SALES", "EVENTS"] as const;
 export type ReportGroup = (typeof REPORT_GROUPS)[number];
 
 export const GROUP_TO_SOURCE_TYPE: Record<ReportGroup, ReportSourceType> = {
@@ -36,6 +36,7 @@ export const GROUP_TO_SOURCE_TYPE: Record<ReportGroup, ReportSourceType> = {
   TOURS: "TOUR_BOOKING",
   DRIVERS: "DRIVER_TRIP",
   SALES: "SALES_PAYOUT",
+  EVENTS: "EVENT_HIRE",
 };
 
 export const DESTINATION_TYPES = ["MOBILE_MONEY", "BANK"] as const;
@@ -51,6 +52,7 @@ const SOURCE_TYPE_TO_GROUP_LABEL: Record<string, string> = {
   TOUR_ADVANCE: "Tour advance",
   DRIVER_TRIP: "Driver",
   SALES_PAYOUT: "Sales",
+  EVENT_HIRE: "Event hire",
 };
 
 /** Which timestamp the date range applies to. A payout report keyed on the wrong date lands rows in the wrong week. */

@@ -58,6 +58,7 @@ export type EventTerms = {
 };
 
 export type EventHireView = {
+  available?: boolean;
   status: "NONE" | "DRAFT" | "AWAITING_OWNER" | "PENDING" | "APPROVED" | "RETURNED" | "PAUSED";
   /** True once sent for review: nothing can be edited until NoLSAF returns it. */
   locked?: boolean;
@@ -118,7 +119,7 @@ export const TIMES: string[] = Array.from({ length: 48 }, (_, i) => `${String(Ma
 
 const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 /** Minutes from the start to `at`, past midnight when earlier. Same as the server. */
-function offsetFrom(start: string, at: string): number {
+export function eventWindowMinutes(start: string, at: string): number {
   const d = minutesOf(at) - minutesOf(start);
   return d <= 0 ? d + 24 * 60 : d;
 }
@@ -135,10 +136,10 @@ export function requiredProblems(t: EventTerms): string[] {
   else if (t.capacityStanding < t.capacitySeated) out.push("Standing guests cannot be fewer than seated guests.");
   if (!t.earliestStart || !t.latestEnd) out.push("Enter the earliest start and the latest end.");
   else {
-    const span = offsetFrom(t.earliestStart, t.latestEnd);
+    const span = eventWindowMinutes(t.earliestStart, t.latestEnd);
     if (span < 60) out.push("Allow at least one hour between the start and the end.");
     if (span > 18 * 60) out.push("Events can run up to 18 hours a day.");
-    if (t.noiseCutoff && offsetFrom(t.earliestStart, t.noiseCutoff) > span) out.push("The quiet time must fall between the start and the end.");
+    if (t.noiseCutoff && eventWindowMinutes(t.earliestStart, t.noiseCutoff) > span) out.push("The quiet time must fall between the start and the end.");
   }
   if (!t.halfDayPrice && !t.fullDayPrice) out.push("Enter a half-day or a full-day price.");
   if (t.halfDayPrice && t.fullDayPrice && t.halfDayPrice > t.fullDayPrice) out.push("The half-day price cannot be more than the full-day price.");

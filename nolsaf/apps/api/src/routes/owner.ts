@@ -17,6 +17,9 @@ import { router as ownerRevenue } from "./owner.revenue";
 import ownerAvailabilityRouter from "./owner.availability";
 import ownerLongStayRouter from "./owner.longStay.js";
 import { ownerEventHireRouter } from "./eventHire.js";
+import ownerApprovedEventHireRouter from "./owner.eventHire.js";
+import { ownerEventOperationsRouter } from "./eventHire.operations.js";
+import { ownerEventRequestsRouter, ownerEventAvailabilityRouter } from "./eventHire.requests.js";
 import ownerNrmsRouter from "./owner.nrms";
 import ownerNrmsRoomsRouter from "./owner.nrms.rooms";
 import ownerNrmsCalendarRouter from "./owner.nrms.calendar";
@@ -49,12 +52,16 @@ import nrmsStockPayablesRouter from "./nrms.stock.payables";
 import nrmsStockInsightsRouter from "./nrms.stock.insights";
 
 export function registerOwnerPropertyRoutes(app: Express): void {
+  app.use("/api/owner/event-hire", ownerApprovedEventHireRouter as RequestHandler);
+  app.use("/api/owner/event-hire", ownerEventOperationsRouter as RequestHandler);
   app.use("/owner/properties", ownerProperties);
   app.use("/owner/properties", ownerPropLayout);
   app.use("/api/owner/properties", ownerProperties);
   app.use("/api/owner/properties", ownerPropLayout);
   // Hire for events add-on (docs/SALES_AGENCY_EVENT_HIRE_STRATEGY.md).
   app.use("/api/owner/properties", ownerEventHireRouter as RequestHandler);
+  app.use("/api/owner/properties", ownerEventAvailabilityRouter as RequestHandler);
+  app.use("/api/owner/event-requests", ownerEventRequestsRouter as RequestHandler);
 }
 
 export function registerOwnerReportsRoute(app: Express): void {

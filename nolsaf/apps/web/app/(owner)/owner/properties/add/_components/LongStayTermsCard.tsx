@@ -746,13 +746,9 @@ export function RentalModeSwitch({ value, onChange, lockedReason, blocker, onCle
           {([["NIGHTLY", "Nightly stays"], ["LONG_STAY", "Monthly rental"]] as const).map(([key, label]) => (
             <button key={key} type="button" role="radio" aria-checked={value === key} disabled={key === "LONG_STAY" && Boolean(lockedReason) && value !== "LONG_STAY"}
               className={`ap-setup-choice${value === key ? " is-selected" : ""}`} onClick={() => onChange(key)}>
-              <span className="ap-setup-choice-top">
-                <span className="ap-setup-icon">{key === "LONG_STAY" ? <CalendarRange aria-hidden /> : <Moon aria-hidden />}</span>
-                {value === key ? <span className="ap-setup-selected"><Check aria-hidden />Selected</span> : <span className="ap-setup-radio" aria-hidden />}
-              </span>
-              <strong>{label}</strong>
-              <span className="ap-setup-description">{key === "LONG_STAY" ? "One tenant makes the whole home their own." : "Host guests for a night, a weekend or longer."}</span>
-              <span className="ap-setup-choice-meta">{key === "LONG_STAY" ? "3, 6 or 12 months" : "Priced per night"}</span>
+              <span className="ap-setup-icon">{key === "LONG_STAY" ? <CalendarRange aria-hidden /> : <Moon aria-hidden />}</span>
+              <span className="ap-setup-choice-copy"><strong>{label}</strong><span>{key === "LONG_STAY" ? "3, 6 or 12 months" : "Priced per night"}</span></span>
+              <span className="ap-setup-radio" aria-hidden>{value === key ? <Check /> : null}</span>
             </button>
           ))}
         </div>

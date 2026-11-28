@@ -15,6 +15,35 @@ function getIp(req: Request): string {
   return req.ip || req.socket.remoteAddress || "";
 }
 
+/** Entries may be separated by commas, spaces or new lines. */
+export function parseAllowlist(text: string | null | undefined): string[] {
+  return String(text || "")
+    .split(/[\s,]+/)
+    .map((x) => x.trim())
+    .filter((v) => v !== "");
+}
+
+/**
+ * The address this middleware checks for the request, exactly as it checks
+ * it. Settings use it so an admin sees, and is protected by, the same value.
+ */
+export function adminClientIp(req: Request): string {
+  const ip = getIp(req);
+  return ip ? normalizeIp(ip) : "";
+}
+
+export function ipInAllowlist(list: string[], ip: string): boolean {
+  if (!ip) return false;
+  const normalized = normalizeIp(ip);
+  return list.some((cidrStr) => cidrContains(cidrStr, normalized));
+}
+
+/** Drop the cached list so a saved change applies on this instance at once. */
+export function invalidateAdminAllowlistCache(): void {
+  cachedList = null;
+  cachedAtMs = 0;
+}
+
 function normalizeIp(value: string): string {
   try {
     const addr = ipaddr.parse(value);
@@ -29,7 +58,10 @@ function normalizeIp(value: string): string {
 
 function cidrContains(cidrStr: string, ip: string): boolean {
   try {
-    const [range, prefix] = ipaddr.parseCIDR(String(cidrStr || "").trim());
+    const raw = String(cidrStr || "").trim();
+    // A bare address (as the allowlist page saves single IPs) is a /32 or /128.
+    const cidr = raw.includes("/") ? raw : `${raw}/${ipaddr.parse(raw).kind() === "ipv6" ? 128 : 32}`;
+    const [range, prefix] = ipaddr.parseCIDR(cidr);
     const parsedIp = ipaddr.parse(ip);
 
     if (parsedIp.kind() === range.kind()) {
@@ -61,11 +93,8 @@ export async function adminAllowlist(req: Request, res: Response, next: NextFunc
       const ip = getIp(req);
       if (!ip) return res.status(403).json({ error: "IP blocked" });
 
-      // Normalize IPv6/IPv4
-      const normalized = normalizeIp(ip);
-      const ok: boolean = list.some((cidrStr: string): boolean => cidrContains(cidrStr, normalized));
-
-      if (!ok) {
+      if (!ipInAllowlist(list, ip)) {
+        const normalized = normalizeIp(ip);
         void raiseSecurityAlert("security_admin_ip_blocked", normalized, { ip: normalized, path: req.originalUrl });
         return res.status(403).json({ error: "IP not allowed" });
       }
@@ -79,14 +108,10 @@ export async function adminAllowlist(req: Request, res: Response, next: NextFunc
       enableIpAllowlist?: boolean | null;
     }
 
-    const list: string[] =
-      ((s as SystemSetting | null)?.ipAllowlist
-      // Entries may be separated by commas or new lines (the IP allowlist page
-      // saves one per line); splitting on commas alone merged them into one
-      // unparseable entry and locked every admin out.
-      ?.split(/[s,]+/)
-      .map((x: string) => x.trim())
-      .filter((v: string) => v !== "")) || [];
+    // Entries may be separated by commas or new lines (the IP allowlist page
+    // saves one per line); splitting on commas alone merged them into one
+    // unparseable entry and locked every admin out.
+    const list: string[] = parseAllowlist((s as SystemSetting | null)?.ipAllowlist);
 
     cachedList = list;
     cachedEnabled = Boolean((s as SystemSetting | null)?.enableIpAllowlist);
@@ -96,11 +121,8 @@ export async function adminAllowlist(req: Request, res: Response, next: NextFunc
     const ip = getIp(req);
     if (!ip) return res.status(403).json({ error: "IP blocked" });
 
-    // Normalize IPv6/IPv4
-    const normalized = normalizeIp(ip);
-    const ok: boolean = list.some((cidrStr: string): boolean => cidrContains(cidrStr, normalized));
-
-    if (!ok) {
+    if (!ipInAllowlist(list, ip)) {
+      const normalized = normalizeIp(ip);
       void raiseSecurityAlert("security_admin_ip_blocked", normalized, { ip: normalized, path: req.originalUrl });
       return res.status(403).json({ error: "IP not allowed" });
     }

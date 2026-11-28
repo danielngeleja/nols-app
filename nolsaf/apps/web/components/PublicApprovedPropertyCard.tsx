@@ -10,6 +10,7 @@ import { getPropertyCommission, calculatePriceWithCommission } from "../lib/pric
 import { PriceDisplay } from "./PriceDisplay";
 import { formatMoney } from "../lib/money";
 import { propertyDetailHref } from "../lib/propertyNavigation";
+import { eventVenueDetailHref } from "../lib/publicEventVenue";
 
 export type PublicApprovedPropertyCardData = {
   id?: number;
@@ -30,10 +31,12 @@ function PropertyCardImage({
   src,
   alt,
   priorityImage,
+  unoptimized = false,
 }: {
   src: string;
   alt: string;
   priorityImage: boolean;
+  unoptimized?: boolean;
 }) {
   if (/^data:image\//i.test(src)) {
     // eslint-disable-next-line @next/next/no-img-element
@@ -49,7 +52,7 @@ function PropertyCardImage({
       className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.08]"
       loading={priorityImage ? "eager" : "lazy"}
       priority={priorityImage}
-      unoptimized={src.includes("cloudinary")}
+      unoptimized={unoptimized || src.includes("cloudinary")}
     />
   );
 }
@@ -59,18 +62,26 @@ export default function PublicApprovedPropertyCard({
   systemCommission = 0,
   priorityImage = false,
   resultsHref,
+  eventVenue,
 }: {
   p: PublicApprovedPropertyCardData;
   systemCommission?: number;
   priorityImage?: boolean;
   resultsHref?: string;
+  eventVenue?: {
+    fromPrice: number | null;
+    space: string | undefined;
+    capacity: number;
+  };
 }) {
-  const href = propertyDetailHref(p.slug, resultsHref);
+  const href = eventVenue
+    ? eventVenueDetailHref(p.slug, resultsHref)
+    : propertyDetailHref(p.slug, resultsHref);
   const rating = p.rating && p.rating.count > 0 && p.rating.average > 0 ? p.rating : null;
   const isLongStay = p.rentalMode === "LONG_STAY";
 
   // Calculate final price with commission (TZS — money of record).
-  const finalPrice = !isLongStay && p.basePrice
+  const finalPrice = !eventVenue && !isLongStay && p.basePrice
     ? calculatePriceWithCommission(p.basePrice, getPropertyCommission(p, systemCommission))
     : null;
 
@@ -106,14 +117,14 @@ export default function PublicApprovedPropertyCard({
         <div className="px-3 mt-2 sm:px-4 sm:mt-3">
           <div className="relative aspect-square bg-slate-100 rounded-2xl overflow-hidden">
             {p.primaryImage ? (
-              <PropertyCardImage src={p.primaryImage} alt={p.title} priorityImage={priorityImage} />
+              <PropertyCardImage src={p.primaryImage} alt={p.title} priorityImage={priorityImage} unoptimized={Boolean(eventVenue)} />
             ) : (
               <PhotoPlaceholder />
             )}
 
-            {isLongStay ? (
+            {isLongStay || eventVenue?.space ? (
               <span className="absolute left-2 top-2 rounded-md bg-[#064d46] px-2 py-1 text-[11px] font-semibold text-white sm:left-3 sm:top-3">
-                Long stay
+                {eventVenue?.space ?? "Long stay"}
               </span>
             ) : null}
             {!isLongStay || p.longStay?.inspected ? <VerifiedIcon /> : null}
@@ -139,22 +150,29 @@ export default function PublicApprovedPropertyCard({
                   <span>({rating.count})</span>
                 </div>
               ) : null}
+              {!!eventVenue?.capacity && (
+                <p className="m-0 mt-1 truncate text-[11px] text-slate-500">{eventVenue.capacity} guests</p>
+              )}
             </div>
-            <div className="text-right flex-shrink-0">
-              {isLongStay ? (
+            <div className="flex-shrink-0 text-right">
+              {eventVenue ? (
+                <span className="text-sm font-bold text-slate-900">
+                  {eventVenue.fromPrice === null ? "On request" : formatMoney(eventVenue.fromPrice, "TZS")}
+                </span>
+              ) : isLongStay ? (
                 <span className="text-sm font-bold text-[#07574f]">
                   {p.longStay ? formatMoney(p.longStay.monthlyRent, p.longStay.currency) : "–"}
                 </span>
               ) : (
                 <PriceDisplay amountTzs={finalPrice} className="text-sm font-bold text-slate-900" showNote={false} />
               )}
-              <div className={`text-[11px] ${isLongStay ? "text-[#49746b]" : "text-slate-500"}`}>{isLongStay ? "per month" : "per night"}</div>
+              {(!eventVenue || eventVenue.fromPrice !== null) && <div className={`text-[11px] ${isLongStay ? "text-[#49746b]" : "text-slate-500"}`}>{eventVenue ? "starting price" : isLongStay ? "per month" : "per night"}</div>}
             </div>
           </div>
 
           <div className="mt-3">
             <span className="inline-flex items-center justify-center w-full rounded-xl bg-[#02665e] text-white py-2 sm:py-2.5 text-xs sm:text-sm font-semibold transition-colors group-hover:bg-[#014e47]">
-              View details
+              {eventVenue ? "View venue" : "View details"}
             </span>
           </div>
         </div>

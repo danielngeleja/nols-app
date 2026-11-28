@@ -5,6 +5,7 @@ import { prisma } from "@nolsaf/prisma";
 import { buildErrorDiagnostic } from "../lib/errorDiagnostics.js";
 import { maskIpAddress, normalizeRoute } from "../lib/observability.js";
 import { getReleaseMetadata } from "../lib/releaseMetadata.js";
+import { redactSensitiveUrl } from "../lib/safeAccessLog.js";
 
 export interface AppError extends Error {
   status?: number;
@@ -26,7 +27,9 @@ export function errorHandler(
   console.error('Error:', {
     message: err.message,
     stack: err.stack,
-    url: req.url,
+    // Same redaction as the access log: bearer tokens in the URL must not
+    // reach CloudWatch just because the request failed.
+    url: redactSensitiveUrl(req.originalUrl || req.url),
     method: req.method,
     ip: req.ip,
     timestamp: new Date().toISOString(),

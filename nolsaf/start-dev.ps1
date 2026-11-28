@@ -80,13 +80,7 @@ if (-not $env:MAPBOX_ACCESS_TOKEN) {
     }
 }
 
-# Start the servers
-# We explicitly run the web predev cleanup and then start both apps.
-# This keeps the dev flow stable on Windows and avoids stale .next artifacts.
 Write-Host "Starting API + Web dev servers..." -ForegroundColor Cyan
 
-npm --workspace=@nolsaf/web run predev
-
-# Root dev runs both API and Web (and will now also run web predev).
 npm run dev
 

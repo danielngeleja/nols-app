@@ -233,8 +233,23 @@ const adminDetails: Item[] = [
   { href: "/admin/bookings", label: "Bookings", Icon: Calendar },
   { href: "/admin/bookings/code-requests", label: "Guest codes", Icon: KeyRound },
   { href: "/admin/properties/previews", label: "Previews", Icon: Eye },
-  { href: "/admin/properties/event-hire", label: "Event hire", Icon: PartyPopper },
   { href: "/admin/payments", label: "Payments", Icon: Wallet },
+];
+
+/**
+ * Event hire is a self-contained workspace (own sidebar, see
+ * components/events/admin/EventHireShell.tsx). The sidebar shows one entry;
+ * this list only feeds the header's jump search, with the workspace's names.
+ */
+const eventHireDetails: Item[] = [
+  { href: "/admin/event-hire", label: "Command centre", Icon: LayoutDashboard },
+  { href: "/admin/event-hire/venues", label: "Venue approvals", Icon: Building2 },
+  { href: "/admin/event-hire/requests", label: "Date requests", Icon: Handshake },
+  { href: "/admin/event-hire/bookings", label: "Event bookings", Icon: Calendar },
+  { href: "/admin/event-hire/availability", label: "Event calendar", Icon: CalendarRange },
+  { href: "/admin/event-hire/payments", label: "Collections & deposits", Icon: Wallet },
+  { href: "/admin/event-hire/settlements", label: "Payouts & refunds", Icon: ShieldCheck },
+  { href: "/admin/event-hire/reconciliation", label: "Revenue check", Icon: ClipboardCheck },
 ];
 
 /** Long stays are their own program (like Group Stay and No4P Agents), not part of Owners. */
@@ -365,6 +380,7 @@ export const ADMIN_NAV_PAGES: Array<{ href: string; label: string; section: stri
     ["Users", userDetails],
     ["Group Stay", groupStayDetails],
     ["Long Stay", longStayDetails],
+    ["Event hire", eventHireDetails],
     ["No4P Agents", agentsDetails],
     ["NRMS", nrmsDetails],
     ["Sales partners", salesDetails],
@@ -414,6 +430,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     if (path.startsWith("/admin/drivers")) return "Drivers";
     if (path.startsWith("/admin/users")) return "Users";
     if (path.startsWith("/admin/group-stays")) return "Group Stay";
+    if (path === "/admin/event-hire" || path.startsWith("/admin/event-hire/")) return "Event hire";
     if (path === "/admin/long-stay" || path.startsWith("/admin/long-stay/")) return "Long Stay";
     if (path.startsWith("/admin/agents")) return "No4P Agents";
     if (path.startsWith("/admin/cancellations")) return "Cancellations";
@@ -716,6 +733,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Sales partners, teams and their payouts: a self-contained workspace like Expenses. */}
         <Item href="/admin/sales/partners" label="Sales partners" Icon={Briefcase} collapsed={collapsed} path={path} variant={variant} />
+
+        {/* Event hire: a self-contained workspace like Sales (opens its own page), so it sits beside it. */}
+        <Item href="/admin/event-hire" label="Event hire" Icon={PartyPopper} collapsed={collapsed} path={path} variant={variant} />
 
         {/* Unified business operations queue; specialist workflows remain in their existing sections. */}
         <Item href="/admin/action-center" label="Action Center" Icon={AlertTriangle} collapsed={collapsed} path={path} variant={variant} />

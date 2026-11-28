@@ -13,13 +13,13 @@ const DOT: Record<StepState, string> = {
   done: "bg-[#02665e] text-white",
   current: "bg-white text-[#02665e] ring-2 ring-[#02665e]",
   warn: "bg-amber-500 text-white",
-  upcoming: "bg-slate-100 text-slate-400",
+  upcoming: "bg-slate-100 text-slate-600",
 };
 const TITLE: Record<StepState, string> = {
   done: "text-slate-900",
   current: "text-[#02665e]",
   warn: "text-amber-900",
-  upcoming: "text-slate-400",
+  upcoming: "text-slate-600",
 };
 
 function steps(view: EventHireView, audience: "owner" | "partner"): Step[] {
@@ -53,11 +53,12 @@ function steps(view: EventHireView, audience: "owner" | "partner"): Step[] {
   else if (s === "PAUSED") approved = { title: "Paused by NoLSAF", text: view.pauseReason || "Not offered for events for now.", state: "warn" };
   else approved = { title: "Approved", text: `${you ? "Your space" : "The space"} is ready to be offered for events.`, state: "upcoming" };
 
-  const live = s === "APPROVED";
+  const live = s === "APPROVED" && view.propertyStatus === "APPROVED";
   return [
     details,
     confirm,
     review,
+    { title: "Accommodation approval", text: view.propertyStatus === "APPROVED" ? "The parent accommodation property is approved." : "Event hire can be prepared now. The accommodation property must be approved before event hire is activated.", state: view.propertyStatus === "APPROVED" ? "done" : "upcoming" },
     approved,
     { title: "Partners offer it for events", text: `When event booking opens, sales partners offer ${you ? "your" : "the"} space to clients. ${you ? "You get" : "The owner gets"} an SMS for each booking.`, state: live ? "current" : "upcoming" },
     { title: "After each event", text: `NoLSAF pays ${you ? "you" : "the owner"}. The client's deposit comes back unless damage is proven with photos and costs.`, state: "upcoming" },
@@ -92,7 +93,7 @@ export default function EventHireStatusCard({ view, audience }: { view: EventHir
               </span>
               <div className="min-w-0 pt-0.5">
                 <p className={`m-0 text-[13px] font-semibold leading-5 ${TITLE[step.state]}`}>{step.title}</p>
-                <p className={`m-0 text-[12px] leading-4 ${step.state === "upcoming" ? "text-slate-400" : "text-slate-600"}`}>{step.text}</p>
+                <p className={`m-0 text-[12px] leading-4 ${step.state === "upcoming" ? "text-slate-500" : "text-slate-600"}`}>{step.text}</p>
               </div>
             </li>
           ))}

@@ -490,10 +490,10 @@ router.get("/leads/:id/assisted-listing/event-hire", limitSalesLeadRead as any, 
 router.put("/leads/:id/assisted-listing/event-hire", blockImpersonated as RequestHandler, limitSalesLeadWrite as any, asyncHandler(async (req: SalesAuthedRequest, res: Response) => {
   const found = await eventListingFor(req, res);
   if (!found) return;
-  const parsed = z.object({ terms: z.record(z.string(), z.unknown()) }).strict().safeParse(req.body ?? {});
+  const parsed = z.object({ terms: z.record(z.string(), z.unknown()), draft: z.boolean().optional() }).strict().safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Check the event details." });
   try {
-    const { row, property } = await saveEventTerms(db, { propertyId: found.row.propertyId, userId: Number((req as any).user.id), by: "SALES_PARTNER", salesPartnerId: found.partnerId, terms: parsed.data.terms });
+    const { row, property } = await saveEventTerms(db, { propertyId: found.row.propertyId, userId: Number((req as any).user.id), by: "SALES_PARTNER", salesPartnerId: found.partnerId, terms: parsed.data.terms, allowIncomplete: parsed.data.draft === true });
     await audit(req as any, "EVENT_HIRE_SAVE", "PROPERTY", null, { status: row.status, by: "SALES_PARTNER" }, found.row.propertyId);
     return res.json({ ...eventHireView(row, property), ownerPhone: maskOwnerPhone(found.row.owner?.phone) });
   } catch (error) {

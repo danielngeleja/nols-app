@@ -5,9 +5,10 @@
  * the sales partner (/sales/leads/[id]/events). It edits and saves terms; the
  * page around it decides what happens next (consent, SMS to the owner).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { photoAreaLabel } from "@/lib/photoAreas";
 import { uploadImageSigned } from "@/lib/cloudinarySignedUpload";
+import "./event-hire-editor.css";
 
 /** Same rule as the server (EVENT_MIN_PHOTOS / EVENT_MAX_PHOTOS): 7 to 12 photos of the space in all. */
 const MIN_PHOTOS = 7;
@@ -89,11 +90,17 @@ export default function EventHireEditor({
   onPhotos,
   onExtraPhotos,
   photosSaving,
+  draftTerms,
+  onDraftChange,
+  allowDraftSave = false,
 }: {
   view: EventHireView;
   disabled?: boolean;
   saving?: boolean;
   onSave: (terms: EventTerms) => void;
+  draftTerms?: EventTerms;
+  onDraftChange?: (terms: EventTerms, dirty: boolean) => void;
+  allowDraftSave?: boolean;
   /** Saves which listing photos are Event space (straight away, separate from the details). */
   onPhotos?: (urls: string[]) => void;
   /** Saves the event photos uploaded here (kept off the listing). */
@@ -104,18 +111,22 @@ export default function EventHireEditor({
 }) {
   const [uploading, setUploading] = useState(0);
   const [uploadError, setUploadError] = useState("");
-  const [terms, setTerms] = useState<EventTerms>(view.terms);
+  const [terms, setTerms] = useState<EventTerms>(draftTerms ?? view.terms);
+  const savedVersion = useRef(view.version);
   // Reset only when the saved terms change (a photo save returns the same version), so typing is never lost.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setTerms(view.terms); }, [view.version]);
+  useEffect(() => {
+    if (savedVersion.current !== view.version) { savedVersion.current = view.version; setTerms(view.terms); }
+  }, [view.version, view.terms]);
   const dirty = useMemo(() => JSON.stringify(terms) !== JSON.stringify(view.terms), [terms, view.terms]);
+  useEffect(() => { onDraftChange?.(terms, dirty); }, [terms, dirty, onDraftChange]);
   // Every required detail must be filled before the details can be saved (the server checks too).
   const missing = useMemo(() => requiredProblems(terms), [terms]);
   const set = <K extends keyof EventTerms>(key: K, value: EventTerms[K]) => setTerms((t) => ({ ...t, [key]: value }));
   const setProvided = (key: keyof EventTerms["provided"], value: number | boolean | null) => setTerms((t) => ({ ...t, provided: { ...t.provided, [key]: value } }));
 
   return (
-    <form className={`${card} overflow-hidden`} onSubmit={(e) => { e.preventDefault(); if (!disabled) onSave(terms); }}>
+    <form className={`${card} event-hire-editor eh-accommodation overflow-hidden`} onSubmit={(e) => { e.preventDefault(); if (!disabled) onSave(terms); }}>
       {disabled ? (
         <p className="m-0 flex items-start gap-2.5 border-0 border-b border-solid border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-5 text-slate-700 sm:px-5">
           <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden />
@@ -215,8 +226,8 @@ export default function EventHireEditor({
           title="Your prices"
           sub={`Your price for the space. NoLSAF keeps ${feesOf(view).owner}% of it, and the client pays a ${feesOf(view).client}% service fee on top.`}
         >
-          <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <MoneyInput label={<>Half day (up to 5 hours)<Req either /></>} value={terms.halfDayPrice} onChange={(v) => set("halfDayPrice", v)} />
+          <div className="grid min-w-0 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MoneyInput label={<><span title="Half day: up to 5 hours">Half day (≤5h)</span><Req either /></>} value={terms.halfDayPrice} onChange={(v) => set("halfDayPrice", v)} />
             <MoneyInput label={<>Full day<Req either /></>} value={terms.fullDayPrice} onChange={(v) => set("fullDayPrice", v)} />
             <MoneyInput label="Evening (optional)" value={terms.eveningPrice} onChange={(v) => set("eveningPrice", v)} />
             <MoneyInput label="Cleaning fee (optional)" value={terms.cleaningFee} onChange={(v) => set("cleaningFee", v)} />
@@ -298,7 +309,7 @@ export default function EventHireEditor({
                     <span className="block text-[12px] leading-4 text-slate-500">A conference or a wedding weekend. Each day is the full-day price, with a discount for longer bookings.</span>
                   </span>
                   <span aria-hidden className={`relative h-5 w-9 shrink-0 rounded-full transition ${m.enabled ? "bg-[#02665e]" : "bg-slate-300"}`}>
-                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${m.enabled ? "left-[18px]" : "left-0.5"}`} />
+                    <span className={`eh-switch-thumb absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${m.enabled ? "left-[18px]" : "left-0.5"}`} />
                   </span>
                 </button>
 
@@ -449,7 +460,7 @@ export default function EventHireEditor({
                     <span className="block text-[12px] leading-4 text-slate-500">{a.hint}</span>
                   </span>
                   <span aria-hidden className={`relative h-5 w-9 shrink-0 rounded-full transition ${on ? "bg-[#02665e]" : "bg-slate-300"}`}>
-                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? "left-[18px]" : "left-0.5"}`} />
+                    <span className={`eh-switch-thumb absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? "left-[18px]" : "left-0.5"}`} />
                   </span>
                 </button>
               );
@@ -506,7 +517,7 @@ export default function EventHireEditor({
                     <span className="block text-[12px] leading-4 text-slate-500">{s.hint}</span>
                   </span>
                   <span aria-hidden className={`relative h-5 w-9 shrink-0 rounded-full transition ${on ? "bg-[#02665e]" : "bg-slate-300"}`}>
-                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? "left-[18px]" : "left-0.5"}`} />
+                    <span className={`eh-switch-thumb absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${on ? "left-[18px]" : "left-0.5"}`} />
                   </span>
                 </button>
               );
@@ -639,7 +650,7 @@ export default function EventHireEditor({
             <div className="mb-3 rounded-md border border-solid border-rose-200 bg-rose-50 px-3 py-2.5">
               <p className="m-0 flex items-center gap-1.5 text-xs font-semibold text-rose-800">
                 <span className="text-rose-600">*</span>
-                Fill {missing.length === 1 ? "this required detail" : `these ${missing.length} required details`} to save
+                {allowDraftSave ? "Still needed before event review" : `Fill ${missing.length === 1 ? "this required detail" : `these ${missing.length} required details`} to save`}
               </p>
               <ul className="m-0 mt-1 list-disc space-y-0.5 pl-5 text-[12.5px] text-rose-800">
                 {missing.map((m) => <li key={m}>{m}</li>)}
@@ -647,12 +658,12 @@ export default function EventHireEditor({
             </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-3">
-            <button type="submit" disabled={saving || !dirty || missing.length > 0}
-              className={`inline-flex min-h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold transition ${dirty && !missing.length
+            <button type="submit" disabled={saving || !dirty || (!allowDraftSave && missing.length > 0)}
+              className={`inline-flex min-h-10 items-center gap-2 rounded-md px-4 text-sm font-semibold transition ${dirty && (allowDraftSave || !missing.length)
                 ? "border-0 bg-[#02665e] text-white hover:bg-[#014d47]"
                 : "cursor-not-allowed border border-solid border-slate-300 bg-white text-slate-500"}`}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {missing.length ? `${missing.length} required left` : dirty ? "Save details" : "Saved"}
+              {dirty && allowDraftSave && missing.length ? "Save event draft" : missing.length ? `${missing.length} required left` : dirty ? "Save details" : "Saved"}
             </button>
             {dirty && !missing.length ? <span className="text-xs text-slate-500">You have changes that are not saved.</span> : null}
             <span className="ml-auto text-[11px] text-slate-400"><span className="text-rose-600">*</span> required</span>

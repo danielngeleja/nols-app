@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AddPropertySection } from "./AddPropertySection";
 import { StepFooter } from "./StepFooter";
 import { FloorPlanner } from "./FloorPlanner";
+import { RoomTypePicker } from "./RoomTypePicker";
 import { RoomPhotoSlots } from "./RoomPhotoSlots";
 import { EntireUnitEditor } from "./EntireUnitEditor";
 import { NightlyPriceDialog } from "./NightlyPriceDialog";
@@ -181,11 +182,11 @@ export function RoomsStep({
     return Object.values(beds || {}).reduce((sum, n) => sum + (Number(n) || 0), 0);
   }, [beds]);
   const roomCountNum = typeof roomsCount === "number" ? roomsCount : 0;
-  const selectedBedsSummary = ["twin", "full", "queen", "king"]
-    .filter((key) => Number(beds?.[key]) > 0)
+  const selectedBedTypes = ["twin", "full", "queen", "king"].filter((key) => Number(beds?.[key]) > 0);
+  const selectedBedsSummary = selectedBedTypes
     .map((key) => `${beds[key]} ${key.charAt(0).toUpperCase() + key.slice(1)}`)
     .join(" + ");
-  const selectedBedTypeCount = ["twin", "full", "queen", "king"].filter((key) => Number(beds?.[key]) > 0).length;
+  const selectedBedTypeCount = selectedBedTypes.length;
   const shouldConfirmMixedBeds = roomCountNum > 1 && selectedBedTypeCount > 1;
 
   const roomTypeOk = String(roomType || "").trim().length > 0;
@@ -460,7 +461,7 @@ export function RoomsStep({
               </header>
 
               <div className="ap-card-body">
-                <div className="ap-fields-3">
+                <div className="ap-fields-3 ap-room-group-fields">
                   {/* Room type */}
                   <div>
                     <div className="ap-label-row">
@@ -472,7 +473,7 @@ export function RoomsStep({
                           <Info className="h-3.5 w-3.5" />
                           Guide
                         </summary>
-                        <div className="absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded-md border border-solid border-white/15 bg-[#1d2427] p-3.5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]">
+                        <div className="ap-room-type-guide absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded-md border border-solid border-white/15 bg-[#1d2427] p-3.5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]">
                           <dl className="m-0 space-y-2 text-[12px]">
                             {[
                               ["Room class", "Standard, Deluxe and Executive describe the level or style of a room."],
@@ -489,30 +490,19 @@ export function RoomsStep({
                         </div>
                       </details>
                     </div>
-                    <div className="relative">
-                      <select
-                        id="room-type"
-                        value={customRoomType ? "__custom__" : roomType}
-                        onChange={(e) => {
-                          if (e.target.value === "__custom__") {
-                            setCustomRoomTypeSelected(true);
-                            setRoomType("");
-                          } else {
-                            setCustomRoomTypeSelected(false);
-                            setRoomType(e.target.value);
-                          }
-                        }}
-                        className={`ap-select${roomTypeOk ? " is-set" : ""}`}
-                      >
-                        <option value="">Select a room type</option>
-                        {ROOM_TYPE_GROUPS.map((group) => <optgroup key={group.label} label={group.label}>
-                          {group.names.map((name) => <option key={name} value={name}>{name}</option>)}
-                        </optgroup>)}
-                        <option value="Other">Other</option>
-                        <option value="__custom__">Custom room name…</option>
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" aria-hidden />
-                    </div>
+                    <RoomTypePicker
+                      value={customRoomType ? "__custom__" : roomType}
+                      groups={ROOM_TYPE_GROUPS}
+                      onChange={(value) => {
+                        if (value === "__custom__") {
+                          setCustomRoomTypeSelected(true);
+                          setRoomType("");
+                        } else {
+                          setCustomRoomTypeSelected(false);
+                          setRoomType(value);
+                        }
+                      }}
+                    />
                     {customRoomType && <div className="mt-2">
                       <label htmlFor="custom-room-type" className="ap-label">Name shown to guests</label>
                       <input id="custom-room-type" className="ap-input" maxLength={100} value={roomType} onChange={(event) => setRoomType(event.target.value)} placeholder="e.g. Deluxe Twin Room with Sea View" />
@@ -523,11 +513,11 @@ export function RoomsStep({
                   {isMultiStorey && floorOptions.length > 0 ? (
                     <div>
                       <span className="ap-label">
-                        Number of {roomTypeOk ? roomType : "identical"} rooms <span className="text-red-300">*</span>
+                        Rooms in this group <span className="text-red-300">*</span>
                       </span>
                       <div className={`ap-sum${roomsCountOk ? " is-set" : ""}`} aria-live="polite">
                         <span className="ap-sum-value">{roomCountNum}</span>
-                        <span className="ap-sum-note">{roomsCountOk ? "sum of the floors" : "add rooms per floor"}</span>
+                        <span className="ap-sum-note">{roomsCountOk ? "Total from floors" : "Add counts below"}</span>
                         <button
                           type="button"
                           className="ap-sum-link"
@@ -541,7 +531,7 @@ export function RoomsStep({
                   ) : (
                   <div>
                     <label htmlFor="rooms-count" className="ap-label">
-                      Number of {roomTypeOk ? roomType : "identical"} rooms <span className="text-red-300">*</span>
+                      Rooms in this group <span className="text-red-300">*</span>
                     </label>
                     <div className="ap-stepper">
                       <button
@@ -577,8 +567,8 @@ export function RoomsStep({
 
                   {/* Smoking */}
                   <div>
-                    <span className="ap-label">Smoking inside</span>
-                    <div className="ap-toggles is-seg" role="radiogroup" aria-label="Smoking allowed">
+                    <span className="ap-label">Indoor smoking</span>
+                    <div className="ap-toggles is-seg" role="radiogroup" aria-label="Indoor smoking">
                       {[
                         { value: "no" as const, label: "Not allowed", icon: CigaretteOff },
                         { value: "yes" as const, label: "Allowed", icon: Cigarette },
@@ -591,8 +581,9 @@ export function RoomsStep({
                           onClick={() => setSmoking(value)}
                           className={`ap-toggle${smoking === value ? " is-on" : ""}`}
                         >
-                          <SmokingIcon className="h-4 w-4" />
+                          <SmokingIcon className="h-4 w-4" aria-hidden />
                           {label}
+                          {smoking === value ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
                         </button>
                       ))}
                     </div>
@@ -609,18 +600,20 @@ export function RoomsStep({
                 ) : null}
               </div>
 
-              <div className="ap-card-body">
-                <label htmlFor="room-description" className="ap-label">
-                  {roomTypeOk ? `Describe this ${roomType} room` : "Describe this room"}{" "}
-                  <span className="font-normal text-white/40">optional</span>
-                </label>
+              <div className="ap-card-body ap-room-description">
+                <div className="ap-room-description-head">
+                  <label htmlFor="room-description">What makes this room different?</label>
+                  <span>Recommended</span>
+                </div>
+                <p id="room-description-help">Mention the view, layout or anything guests should know. No need to repeat beds and amenities.</p>
                 <textarea
                   id="room-description"
                   value={roomDescription}
                   onChange={(e) => setRoomDescription(e.target.value)}
-                  rows={3}
+                  rows={2}
                   className="ap-input ap-textarea"
-                  placeholder="e.g. Spacious rooms with natural light, a work desk, and garden views"
+                  aria-describedby="room-description-help"
+                  placeholder="e.g. A quiet, garden-facing room with a private balcony."
                 />
               </div>
             </section>
@@ -632,20 +625,29 @@ export function RoomsStep({
               <header className="ap-card-head">
                 <span className="ap-card-head-no">2</span>
                 <div className="ap-card-head-copy">
-                  <h3 className="ap-card-title">Beds in one {roomTypeOk ? roomType : "room"}</h3>
-                  <p className="ap-card-sub">Only the beds physically inside a single room.</p>
+                  <h3 className="ap-card-title">Bed layout &amp; guest capacity</h3>
+                  <p className="ap-card-sub">One room can have several bed types. Add the number of each below.</p>
                 </div>
-                {bedsPerRoom > 0 ? (
+                {bedsPerRoom > 0 && capacityOk ? (
                   <span className="ap-card-tag">
                     <Check className="h-3.5 w-3.5" aria-hidden />
-                    {selectedBedsSummary}
+                    {bedsPerRoom} {bedsPerRoom === 1 ? "bed" : "beds"} · {selectedBedTypeCount} {selectedBedTypeCount === 1 ? "type" : "types"}
                   </span>
                 ) : (
-                  <span className="ap-card-tag is-todo">Required</span>
+                  <span className="ap-card-tag is-todo">{!capacityOk ? "Set guest capacity" : "Add beds"}</span>
                 )}
               </header>
 
               <div className="ap-card-body space-y-3">
+                {selectedBedTypes.length > 0 ? <div className="ap-bed-layout-summary" aria-live="polite" aria-atomic="true">
+                  <span className="ap-bed-layout-label">In each room</span>
+                  <ul aria-label="Selected bed combination">
+                    {selectedBedTypes.map((key, index) => <li key={key}>
+                      {index > 0 ? <span className="ap-bed-layout-plus" aria-hidden>+</span> : null}
+                      <span className="ap-bed-layout-chip"><strong>{beds[key]}</strong>{key.charAt(0).toUpperCase() + key.slice(1)}{beds[key] === 1 ? " bed" : " beds"}</span>
+                    </li>)}
+                  </ul>
+                </div> : null}
                 <div className="ap-beds">
                   {[
                     { key: "twin", label: "Twin", size: "99 × 191 cm" },
@@ -674,7 +676,24 @@ export function RoomsStep({
                     );
                   })}
                 </div>
-                <div className="ap-bedroom-capacity"><div className="ap-bedroom-capacity-copy"><label className="ap-label" htmlFor="room-max-guests">Guests who can sleep in one room <span className="text-red-300">*</span></label><p className="ap-note">Declare the capacity for every room in this group.</p></div><div className="ap-bedroom-capacity-controls"><div className={`ap-stepper ap-bedroom-capacity-stepper${capacityOk ? " is-set" : ""}`}><button type="button" className="ap-step-btn" aria-label="One fewer guest per room" disabled={Number(roomMaxGuests) <= 1} onClick={() => setRoomMaxGuests(Number(roomMaxGuests) - 1)}><Minus className="h-4 w-4" /></button><input id="room-max-guests" type="text" inputMode="numeric" value={roomMaxGuests} placeholder="0" onChange={(event) => { const raw = event.target.value.replace(/[^0-9]/g, "").slice(0, 2); setRoomMaxGuests(raw ? Number(raw) : ""); }} /><button type="button" className="ap-step-btn is-plus" aria-label="One more guest per room" disabled={Number(roomMaxGuests) >= 99} onClick={() => setRoomMaxGuests(Math.max(0, Number(roomMaxGuests) || 0) + 1)}><Plus className="h-4 w-4" /></button></div><span className="ap-bedroom-capacity-unit">guests</span></div></div>
+
+                <div className="ap-bedroom-capacity ap-room-capacity">
+                  <div className="ap-bedroom-capacity-copy">
+                    <div className="ap-room-capacity-heading">
+                      <label className="ap-label" htmlFor="room-max-guests">Guests per room <span className="text-red-300">*</span></label>
+                      <span className={`ap-room-capacity-status${capacityOk ? " is-set" : ""}`} aria-live="polite">{capacityOk ? <><Check className="h-3 w-3" aria-hidden />Set</> : "Required"}</span>
+                    </div>
+                    <p id="room-max-guests-help" className="ap-note">Applies to each room in this group.</p>
+                  </div>
+                  <div className="ap-bedroom-capacity-controls">
+                    <div className={`ap-stepper ap-bedroom-capacity-stepper${capacityOk ? " is-set" : ""}`}>
+                      <button type="button" className="ap-step-btn" aria-label="One fewer guest per room" disabled={Number(roomMaxGuests) <= 1} onClick={() => setRoomMaxGuests(Number(roomMaxGuests) - 1)}><Minus className="h-4 w-4" aria-hidden /></button>
+                      <input id="room-max-guests" type="text" inputMode="numeric" required aria-required="true" aria-describedby="room-max-guests-help" value={roomMaxGuests} placeholder="Set" onChange={(event) => { const raw = event.target.value.replace(/[^0-9]/g, "").slice(0, 2); setRoomMaxGuests(raw ? Number(raw) : ""); }} />
+                      <button type="button" className="ap-step-btn is-plus" aria-label="One more guest per room" disabled={Number(roomMaxGuests) >= 99} onClick={() => setRoomMaxGuests(Math.max(0, Number(roomMaxGuests) || 0) + 1)}><Plus className="h-4 w-4" aria-hidden /></button>
+                    </div>
+                    <span className="ap-bedroom-capacity-unit">guests</span>
+                  </div>
+                </div>
 
                 {shouldConfirmMixedBeds ? (
                   <p className="m-0 ap-note is-strong">

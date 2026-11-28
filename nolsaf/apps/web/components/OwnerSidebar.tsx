@@ -8,6 +8,7 @@ import {
   CheckCircle2, Building2, BadgeCheck, LogIn, LogOut, BarChart3, BedDouble,
   LayoutGrid, Clock, Receipt, Archive, Bell, ShieldCheck, Star,
   CalendarRange,
+  PartyPopper,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -194,6 +195,7 @@ function Divider() {
 function isFrontDeskPath(path: string) {
   return (
     path === "/owner/bookings" ||
+    path === "/owner/event-requests" ||
     path.startsWith("/owner/bookings/") ||
     path === "/owner/properties/availability" ||
     /^\/owner\/properties\/[^/]+\/(availability|layout)(\/|$)/.test(path)
@@ -217,6 +219,23 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
   const [groupStaysOpen, setGroupStaysOpen] = useState(startIn === "groupStays");
   const [checkedInCount, setCheckedInCount] = useState<number>(0);
   const [checkoutDueCount, setCheckoutDueCount] = useState<number>(0);
+  const [hasApprovedEventHire, setHasApprovedEventHire] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const { data } = await api.get("/api/owner/event-hire/approved", { signal: controller.signal, timeout: 10000 });
+        if (!controller.signal.aborted) setHasApprovedEventHire((Array.isArray(data?.items) && data.items.length > 0) || data?.hasBookings === true);
+      } catch {
+        if (!controller.signal.aborted) setHasApprovedEventHire(false);
+      }
+    };
+    void load();
+    const onFocus = () => { if (document.visibilityState === "visible") void load(); };
+    window.addEventListener("focus", onFocus);
+    return () => { controller.abort(); window.removeEventListener("focus", onFocus); };
+  }, [initialPath]);
 
   useEffect(() => {
     let mounted = true;
@@ -420,12 +439,14 @@ export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { c
           <SubItem href="/owner/bookings/checked-in" label="Guests in house" Icon={CheckCircle2} count={checkedInCount} />
           <SubItem href="/owner/bookings/check-out" label="Departures" Icon={LogOut} count={checkoutDueCount} tone="alert" />
           <SubItem href="/owner/properties/availability" label="Room availability" Icon={CalendarDays} match={(p) => /^\/owner\/properties\/[^/]+\/(availability|layout)(\/|$)/.test(p)} />
+          {process.env.NEXT_PUBLIC_EVENT_HIRE_REQUESTS_ENABLED === "true" && <SubItem href="/owner/event-requests" label="Event requests" Icon={CalendarRange} />}
           <SubItem href="/owner/bookings" label="All bookings" Icon={BadgeCheck} exact />
           <SubItem href="/owner/bookings/checked-out" label="Check-out history" Icon={Archive} />
         </Section>
 
         <Section label="Properties" Icon={Building2} isOpen={propOpen} active={sectionActive.properties} onClick={() => setPropOpen(v => !v)}>
           <SubItem href="/owner/properties/approved" label="My properties" Icon={Building2} />
+          {hasApprovedEventHire && <SubItem href="/owner/properties/events" label="Hired events" Icon={PartyPopper} />}
           <SubItem href="/owner/properties/pending" label="Awaiting approval" Icon={FileText} />
           <SubItem href="/owner/properties/add" label="Add a property" Icon={PlusSquare} />
         </Section>

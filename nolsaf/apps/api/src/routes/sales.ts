@@ -36,6 +36,8 @@ import salesAgencyRouter from "./sales.agency.js";
 import salesAgencyGroupsRouter from "./sales.agency.groups.js";
 import salesAgencyToursRouter from "./sales.agency.tours.js";
 import salesAgencyQuotesRouter from "./sales.agency.quotes.js";
+import { salesEventRequestsRouter } from "./eventHire.requests.js";
+import { salesEventOperationsRouter } from "./eventHire.operations.js";
 import agencyGroupConfirmRouter from "./agency.groupConfirm.js";
 import adminSalesAgencyRouter from "./admin.sales.agency.js";
 
@@ -74,6 +76,8 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/sales", salesAgencyGroupsRouter as RequestHandler);
   app.use("/api/sales", salesAgencyToursRouter as RequestHandler);
   app.use("/api/sales", salesAgencyQuotesRouter as RequestHandler);
+  app.use("/api/sales/event-requests", salesEventRequestsRouter as RequestHandler);
+  app.use("/api/sales/event-hire", salesEventOperationsRouter as RequestHandler);
   // The client confirming a partner's group request: any signed-in customer, phone must match.
   app.use("/api/agency-group", agencyGroupConfirmRouter as RequestHandler);
 

@@ -81,7 +81,7 @@ type Disbursement = {
   events?: DisbursementEvent[];
 };
 
-const SOURCE_TYPES = ["", "OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT", "TENANCY"];
+const SOURCE_TYPES = ["", "OWNER_INVOICE", "OWNER_WITHDRAWAL", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT", "TENANCY", "EVENT_HIRE"];
 const PAGE_SIZES = [25, 50, 100];
 const STALE_MINUTES = 30;
 
@@ -331,6 +331,8 @@ function sourceLabel(sourceType: string) {
       return "Sales payout";
     case "TENANCY":
       return "Long-stay first month";
+    case "EVENT_HIRE":
+      return "Event hire settlement";
     default:
       return sourceType;
   }
@@ -394,12 +396,17 @@ function DisbursementsView() {
   // page reads it.
   const status = searchParams.get("status") ?? "";
   const [items, setItems] = useState<Disbursement[]>([]);
-  const [sourceType, setSourceType] = useState("");
+  const [sourceType, setSourceType] = useState(() => SOURCE_TYPES.includes(searchParams.get("source") || "") ? searchParams.get("source") || "" : "");
   const [lane, setLane] = useState<LaneFilter>("");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const urlSource = searchParams.get("source") || "";
+  useEffect(() => {
+    setSourceType(SOURCE_TYPES.includes(urlSource) ? urlSource : "");
+    setPage(1);
+  }, [urlSource]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState({ stuck: 0, failed: 0, autoWaiting: 0, adminToApprove: 0 });
   const [loading, setLoading] = useState(true);
@@ -510,6 +517,10 @@ function DisbursementsView() {
   };
   const setFilterSourceType = (value: string) => {
     setSourceType(value);
+    const params = new URLSearchParams(Array.from(searchParams.entries()));
+    if (value) params.set("source", value);
+    else params.delete("source");
+    router.push(params.size ? `${pathname}?${params}` : pathname, { scroll: false });
     setPage(1);
   };
   const setFilterLane = (value: LaneFilter) => {
